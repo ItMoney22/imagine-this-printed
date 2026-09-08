@@ -111,6 +111,13 @@ export interface StepFlowState {
    *  'garment' — every product created before this field existed reads the
    *  same as it always has. */
   productKind: StepFlowProductKind
+  /** The stops THIS lane runs, in order (types.ts: ADMIN_STEP_ORDER /
+   *  CUSTOMER_STEP_ORDER). Reachability and "how far can we jump" are
+   *  answered against this, not against a module-level constant — otherwise
+   *  the customer lane, which has no Etsy stop, would resolve its furthest
+   *  reachable step to `etsy` the moment the listing was approved and land
+   *  the builder on a step it cannot render. */
+  steps: StepId[]
   loading: boolean
   error: string | null
 }
@@ -126,9 +133,13 @@ export const initialStepFlowState: StepFlowState = {
   phrase: null,
   inspiration: null,
   productKind: 'garment',
+  steps: STEP_ORDER,
   loading: false,
   error: null,
 }
+
+/** Seed state for a lane — `useReducer(stepFlowReducer, lane.steps, initialStateFor)`. */
+export const initialStateFor = (steps: StepId[]): StepFlowState => ({ ...initialStepFlowState, steps })
 
 export type StepFlowAction =
   | { type: 'RESET' }
@@ -286,13 +297,17 @@ export function hasNonTerminalWork(state: Pick<StepFlowState, 'stepFlow' | 'asse
  * it directly instead of the nobg-asset signal.
  */
 export function canReachStep(
-  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs' | 'productKind'>,
+  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs' | 'productKind'> & { steps?: StepId[] },
   step: StepId
 ): boolean {
-  const idx = STEP_ORDER.indexOf(step)
-  if (idx <= 0) return true
+  const order = state.steps ?? STEP_ORDER
+  const idx = order.indexOf(step)
+  // A step this lane doesn't run is never reachable — the customer lane's
+  // Etsy stop, which has no route behind it either.
+  if (idx < 0) return false
+  if (idx === 0) return true
   const approvals = getApprovals(state)
-  switch (STEP_ORDER[idx - 1]) {
+  switch (order[idx - 1]) {
     case 'idea':
       return !!state.productId
     case 'design':
@@ -313,10 +328,10 @@ export function canReachStep(
 }
 
 export function furthestReachableStep(
-  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs' | 'productKind'>
+  state: Pick<StepFlowState, 'productId' | 'stepFlow' | 'assets' | 'jobs' | 'productKind'> & { steps?: StepId[] }
 ): StepId {
   let result: StepId = 'idea'
-  for (const step of STEP_ORDER) {
+  for (const step of state.steps ?? STEP_ORDER) {
     if (canReachStep(state, step)) result = step
     else break
   }

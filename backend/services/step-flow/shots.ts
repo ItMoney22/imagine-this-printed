@@ -772,7 +772,11 @@ async function renderDetailsShot(
       productId: product.id,
       mockupUrl: sourceShot.url,
       sizes,
-      title: stepFlow.brief?.title || product.metadata?.step_flow?.brief?.title || 'Custom Metal Print',
+      // product.name before the generic fallback: a draft that entered the
+      // flow without a brief (the design library's /step/adopt, or the admin
+      // editor's "Continue in Step Flow") has a real catalogued name, and
+      // stamping 'Custom Metal Print' on its details card threw that away.
+      title: stepFlow.brief?.title || product.metadata?.step_flow?.brief?.title || product.name || 'Custom Metal Print',
     })
     return {
       jobId: null,
@@ -797,7 +801,8 @@ async function renderDetailsShot(
     mockupUrl: productShot.url,
     garment,
     color: stepFlow.colors!.primary,
-    title: stepFlow.brief?.title || meta.step_flow?.brief?.title || 'Custom Design',
+    // Same product.name fallback as the metal card above.
+    title: stepFlow.brief?.title || meta.step_flow?.brief?.title || product.name || 'Custom Design',
     printWidthInches: printSizeInchesFor(meta, garment),
   })
 

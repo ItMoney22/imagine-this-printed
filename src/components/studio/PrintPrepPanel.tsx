@@ -13,7 +13,7 @@
 // toned or not."
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { Download, RefreshCw, Sparkles } from 'lucide-react'
-import { stepFlow } from '../../lib/api'
+import { useStudioLane } from './lane'
 import { getNobgAsset, type PrintAdvice, type StepFlowState, type SuggestedPrintOptions } from './stepFlowReducer'
 import { Checkerboard, InlineError, SecondaryButton } from './shared'
 import ProgressBar from './ProgressBar'
@@ -171,6 +171,8 @@ interface PrintPrepPanelProps {
 }
 
 const PrintPrepPanel: React.FC<PrintPrepPanelProps> = ({ state, refresh }) => {
+  const lane = useStudioLane()
+
   // eslint-disable-next-line react-hooks/exhaustive-deps -- getNobgAsset only reads state.assets
   const nobgAsset = useMemo(() => getNobgAsset(state), [state.assets])
   const advice = state.stepFlow?.printAdvice ?? null
@@ -200,7 +202,7 @@ const PrintPrepPanel: React.FC<PrintPrepPanelProps> = ({ state, refresh }) => {
     if (!state.productId || !nobgAsset || requestedAdviceRef.current || advice) return
     requestedAdviceRef.current = true
     setLoadingAdvice(true)
-    stepFlow
+    lane.api
       .printAdvice(state.productId)
       .then(() => refresh())
       .catch((err: any) => setError(err?.message || 'Failed to score this artwork for print prep'))
@@ -214,7 +216,7 @@ const PrintPrepPanel: React.FC<PrintPrepPanelProps> = ({ state, refresh }) => {
     setRendering(true)
     renderStartedAtRef.current = Date.now()
     try {
-      await stepFlow.printFile(
+      await lane.api.printFile(
         state.productId,
         options.method === 'vector' ? { method: 'vector', ...vector } : options
       )

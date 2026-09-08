@@ -3,7 +3,8 @@
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Check, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
-import { stepFlow, type ShotSubject } from '../../lib/api'
+import { type ShotSubject } from '../../lib/api'
+import { useStudioLane } from './lane'
 import { COLORS } from '../../../backend/shared/catalog-capability'
 import {
   areMockupsResolved,
@@ -203,6 +204,8 @@ export const CastingNote: React.FC<{
 }
 
 const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => {
+  const lane = useStudioLane()
+
   const [firing, setFiring] = useState(false)
   const [busyKey, setBusyKey] = useState<ShotKey | null>(null)
   const [approvingAll, setApprovingAll] = useState(false)
@@ -245,7 +248,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     missing.forEach((key) => requestedKeysRef.current.add(key))
     firingStartedAtRef.current = Date.now()
     setFiring(true)
-    stepFlow
+    lane.api
       .shots(state.productId, missing)
       // The server may come back with `jobs: []` when every requested key is
       // already queued/running/done (idempotent no-op) — that's not an
@@ -271,7 +274,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
       return
     }
     let cancelled = false
-    stepFlow
+    lane.api
       .shotSubjects(garment)
       .then((res) => {
         if (!cancelled) setSubjects(res.subjects || [])
@@ -293,7 +296,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setAddingModel(true)
     setError(null)
     try {
-      await stepFlow.addModelShot(state.productId, subjectId)
+      await lane.api.addModelShot(state.productId, subjectId)
       await refresh()
     } catch (err: any) {
       setError(err?.message || 'Failed to add another person')
@@ -309,7 +312,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setBusyKey(key)
     setError(null)
     try {
-      await stepFlow.removeShot(state.productId, key)
+      await lane.api.removeShot(state.productId, key)
       await refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to remove ${shotLabel(key)}`)
@@ -323,7 +326,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setBusyKey(key)
     setError(null)
     try {
-      await stepFlow.approveShot(state.productId, key, true, shot.assetId)
+      await lane.api.approveShot(state.productId, key, true, shot.assetId)
       await refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to approve ${shotLabel(key)}`)
@@ -339,7 +342,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setBusyKey(key)
     setError(null)
     try {
-      await stepFlow.redoShot(state.productId, key, subjectId)
+      await lane.api.redoShot(state.productId, key, subjectId)
       await refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to redo ${shotLabel(key)}`)
@@ -357,7 +360,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setBusyKey(key)
     setError(null)
     try {
-      await stepFlow.approveShot(state.productId, key, false, shot.assetId, true)
+      await lane.api.approveShot(state.productId, key, false, shot.assetId, true)
       await refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to skip ${shotLabel(key)}`)
@@ -375,7 +378,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     setApprovingAll(true)
     setError(null)
     try {
-      await stepFlow.approveShots(state.productId, pending.map(([key]) => key), true)
+      await lane.api.approveShots(state.productId, pending.map(([key]) => key), true)
       await refresh()
     } catch (err: any) {
       setError(err?.message || 'Failed to approve all shots')

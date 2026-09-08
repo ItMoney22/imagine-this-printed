@@ -294,8 +294,19 @@ async function requireAdmin(req: Request, res: Response, next: NextFunction): Pr
   next()
 }
 
-// POST /api/admin/products/ai/create
-router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Request, res: Response): Promise<any> => {
+/**
+ * The body of POST /api/admin/products/ai/create, named and exported so the
+ * CUSTOMER step-flow lane (routes/studio-flow.ts) can run the exact same
+ * generation pipeline behind its own gate + ITC meter instead of forking a
+ * second, drifting copy of 500 lines. The admin route below is unchanged.
+ *
+ * Ownership: a caller that sets `req.studioOwnerId` gets the product stamped
+ * to that user (created_by_user_id / is_user_generated / metadata.creator_id)
+ * so it is theirs, scoped by every /:id guard on that lane, and recognised by
+ * the same review queue creator submissions go through. Absent — the admin
+ * route — nothing is stamped and the row is exactly what it always was.
+ */
+export async function handleAIProductCreate(req: Request, res: Response): Promise<any> {
   try {
     const {
       prompt,
@@ -529,6 +540,11 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
         : requestedPrintLocations
 
     // Step 4: Create product (draft) with AI metadata
+    // Customer lane (routes/studio-flow.ts) — see handleAIProductCreate's
+    // docblock. `is_user_generated` + `created_by_user_id` are the columns
+    // every owner-scoped query on that lane filters by; without them a
+    // customer would immediately lose the draft they just paid to generate.
+    const studioOwnerId: string | null = (req as any).studioOwnerId || null
     const { data: product, error: productError} = await supabase
       .from('products')
       .insert({
@@ -536,6 +552,7 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
         name: normalized.title,
         slug: uniqueSlug,
         description: normalized.description,
+        ...(studioOwnerId ? { created_by_user_id: studioOwnerId, is_user_generated: true, is_active: false } : {}),
         // Defensive: GPT sometimes returns dollars in suggested_price_cents instead of cents.
         price: normalized.suggested_price_cents < 100
           ? normalized.suggested_price_cents
@@ -546,6 +563,7 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
         print_locations: printLocations,
         metadata: {
           ai_generated: true,
+          ...(studioOwnerId ? { creator_studio: true, creator_id: studioOwnerId } : {}),
           original_prompt: prompt,
           image_prompt: normalized.image_prompt,
           mockup_style: mockupStyle,
@@ -785,7 +803,10 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), async (req: Re
     req.log?.error({ error }, '[ai-products] ❌ Error')
     res.status(500).json({ error: error.message })
   }
-})
+}
+
+// POST /api/admin/products/ai/create
+router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), handleAIProductCreate)
 
 /**
  * POST /api/admin/products/ai/one-shot

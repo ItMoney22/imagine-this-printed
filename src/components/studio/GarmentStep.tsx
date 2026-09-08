@@ -2,7 +2,7 @@
 // DTF only), with contrast-aware color advice so a mostly-black design never
 // gets pushed onto a black shirt by default.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { stepFlow } from '../../lib/api'
+import { useStudioLane } from './lane'
 import { GARMENTS, colorsForGarment, normalizeGarment, type ColorId, type GarmentId } from '../../../backend/shared/catalog-capability'
 import type { ColorAdvice, StepFlowAction, StepFlowState } from './stepFlowReducer'
 import { ApproveButton, InlineError, StepCard } from './shared'
@@ -24,6 +24,8 @@ const GRADE_STYLE: Record<ColorAdvice['grade'], string> = {
 }
 
 const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
+  const lane = useStudioLane()
+
   const [garment, setGarment] = useState<GarmentId>(
     (state.stepFlow?.garment as GarmentId | undefined) ??
       state.stepFlow?.brief?.garmentHint ??
@@ -50,7 +52,7 @@ const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
     requestedAdviceRef.current = true
     measureStartedAtRef.current = Date.now()
     setLoadingAdvice(true)
-    stepFlow
+    lane.api
       .colorAdvice(state.productId)
       .then(() => refresh())
       .catch((err: any) => setError(err?.message || 'Failed to score colors for this artwork'))
@@ -104,7 +106,7 @@ const GarmentStep: React.FC<GarmentStepProps> = ({ state, refresh }) => {
     setError(null)
     setApproving(true)
     try {
-      await stepFlow.garments(state.productId, { garment, primaryColor, extraColors })
+      await lane.api.garments(state.productId, { garment, primaryColor, extraColors })
       await refresh({ advance: true })
     } catch (err: any) {
       setError(err?.message || 'Failed to approve garment & colors')

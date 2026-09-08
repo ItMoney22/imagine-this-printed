@@ -11,7 +11,14 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
-import { assertOffered, COLORS, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
+import { assertOffered, COLORS, photographableAudiences, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
+// The listing copywriter and the casting catalog both live behind the ADMIN
+// Etsy router (routes/admin/etsy.ts, which is requireRole(['admin','manager'])
+// wholesale). The customer lane needs both and must never be handed that
+// router, so the two routes below call the underlying SERVICES directly —
+// same code, no Etsy surface area.
+import { composeEtsyPack } from '../../services/etsy-seo-composer.js'
+import { listShotSubjects } from '../../services/etsy-model-shots.js'
 import { writeStepBrief } from '../../services/step-flow/brief.js'
 import { pitchPhrases } from '../../services/step-flow/phrases.js'
 import { analyzeInspirationImage, InspirationValidationError } from '../../services/step-flow/inspiration.js'
@@ -19,6 +26,11 @@ import { adviseColors, adviseColorsForMetal } from '../../services/step-flow/col
 import { computePrintAdvice, buildPrintFile } from '../../services/step-flow/print-prep.js'
 import { STUDIO_SIZE_KEYS, METAL_ART_PRICES, metalSizesFor, type MetalArtSizeKey } from '../../shared/metal-art.js'
 import { createWatermarkedDesignAsset } from '../../services/product-build.js'
+// The print-resolution gate the design-library grid already enforces on its
+// own Activate button — reused by /:id/step/adopt so a too-small design can't
+// slip live through the Step Flow instead (see that route).
+import { canActivate } from '../../services/design-library-quality.js'
+import { stepFlowStage, STAGE_LABELS } from '../../services/step-flow/progress.js'
 import {
   queueStepShots,
   redoShot,
@@ -50,10 +62,28 @@ import { processRemoveBgJob } from '../../worker/ai-jobs-worker.js'
  * behavioural parity with the routes this mounts alongside. Not imported from
  * there because it isn't exported and Track B's file-ownership scope is
  * mount-only in that file — see docs/plans/2026-09-01-imagine-studio-step-flow-plan.md.
+ *
+ * Two lanes (David 2026-09-08, "our customers should have the same flow"):
+ * this router is ALSO mounted at /api/studio by routes/studio-flow.ts, which
+ * marks the request `studioLane === 'customer'` only AFTER it has run its own
+ * gate — requireAuth + requireCreator + "you own this product". So on that
+ * lane the admin role check is deliberately skipped; skipping it here without
+ * that outer gate would open the whole flow to any signed-in user, which is
+ * why the flag is set by the mount and never by the client.
  */
-async function requireAdminOrManager(req: Request, res: Response, next: NextFunction): Promise<void> {
+export type StudioLane = 'admin' | 'customer'
+
+export function laneOf(req: Request): StudioLane {
+  return (req as any).studioLane === 'customer' ? 'customer' : 'admin'
+}
+
+async function requireStudioAccess(req: Request, res: Response, next: NextFunction): Promise<void> {
   if (!req.user) {
     res.status(401).json({ error: 'Unauthorized' })
+    return
+  }
+  if (laneOf(req) === 'customer') {
+    next()
     return
   }
   const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', req.user.sub).single()
@@ -138,7 +168,7 @@ const router = Router()
 // exact quoted text reaches designPrompt on every path (model success AND
 // fallback), so passing it straight through here is enough — no extra
 // validation needed, brief.ts sanitizes it.
-router.post('/step/brief', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
+router.post('/step/brief', requireAuth, requireStudioAccess, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
   try {
     const { idea, phrase, inspiration, productKind } = req.body || {}
     if (typeof idea !== 'string' || !idea.trim()) {
@@ -161,7 +191,7 @@ router.post('/step/brief', requireAuth, requireAdminOrManager, rateLimitAI(20), 
 // services/step-flow/inspiration.ts for the decode/upload/analysis +
 // copyright-gate sanitizing; POST /step/brief (above) accepts the result
 // back as `inspiration` to seed the writing brain.
-router.post('/step/inspiration', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+router.post('/step/inspiration', requireAuth, requireStudioAccess, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { image } = req.body || {}
     const result = await analyzeInspirationImage(image, { actorId: actorId(req) })
@@ -179,7 +209,7 @@ router.post('/step/inspiration', requireAuth, requireAdminOrManager, rateLimitAI
 // anymore" — she now pitches short print-ready phrases for the idea instead
 // of generating whole products unattended (her daily autonomous batch is off
 // by default — see worker/mrs-imagine-daily.ts).
-router.post('/step/phrases', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
+router.post('/step/phrases', requireAuth, requireStudioAccess, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
   try {
     const { idea, brief, count } = req.body || {}
     if (typeof idea !== 'string' || !idea.trim()) {
@@ -197,12 +227,89 @@ router.post('/step/phrases', requireAuth, requireAdminOrManager, rateLimitAI(20)
   }
 })
 
+// GET /step/shot-subjects — the archetypes castable on a garment, for the
+// Mockups step's "who should model this" picker. The admin lane has always
+// read this off /api/admin/etsy/shot-subjects; that router is admin-only, so
+// the customer lane reads the same catalog here instead of being handed an
+// Etsy mount it has no business holding. `?garment=` narrows it to the age
+// bands that garment's listing actually sells (see photographableAudiences).
+router.get('/step/shot-subjects', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
+  const garment = typeof req.query.garment === 'string' ? req.query.garment : undefined
+  try {
+    res.json({ subjects: listShotSubjects(garment ? photographableAudiences(garment as GarmentId) : undefined) })
+  } catch {
+    // An unknown garment is a client mistake, not a server fault — hand back
+    // the full catalog rather than 500-ing a picker.
+    res.json({ subjects: listShotSubjects() })
+  }
+})
+
+// GET /step/in-progress — {} -> { builds: [...] }. Every build part-way
+// through the flow, newest first, each with the step to pick it back up on.
+//
+// David 2026-09-08: "idk where to pick up the step flow i already am doing."
+// Once a design is pulled in it leaves the Designs grid, so without this list
+// a half-finished build would be genuinely hard to find again among thousands
+// of product rows.
+//
+// Registered ahead of `/:id/step` for readability only — the two can't collide
+// ('/step/in-progress' would need the literal second segment to be 'step').
+router.get('/step/in-progress', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50))
+    let query = supabase
+      .from('products')
+      .select('id, name, status, images, category, updated_at, metadata')
+      // `approvals.design` is stamped when a design is selected — the same
+      // signal isInStepFlow() reads, applied here as a jsonb filter so the
+      // database does the work instead of scanning every product row.
+      .not('metadata->step_flow->approvals->>design', 'is', null)
+      // A published build is finished; it belongs in the catalog, not here.
+      .neq('status', 'active')
+    // Customer lane: only YOUR unfinished builds. Without this a customer's
+    // "pick up where you left off" list would be every draft in the shop.
+    if (laneOf(req) === 'customer') query = query.eq('created_by_user_id', actorId(req))
+    const { data, error } = await query.order('updated_at', { ascending: false }).limit(limit)
+    if (error) throw error
+
+    const rows = data || []
+    // One query for the whole page: a nobg asset is what separates "still
+    // stripping the background" from "ready to pick a garment".
+    const { data: nobgRows } = rows.length
+      ? await supabase.from('product_assets').select('product_id').eq('kind', 'nobg').in('product_id', rows.map((r: any) => r.id))
+      : { data: [] as any[] }
+    const hasNobg = new Set((nobgRows || []).map((r: any) => r.product_id))
+
+    const builds = rows
+      .map((p: any) => {
+        const stage = stepFlowStage(p.metadata, p.status, hasNobg.has(p.id))
+        if (!stage || stage === 'published') return null
+        return {
+          id: p.id,
+          name: p.name,
+          image: Array.isArray(p.images) ? p.images[0] ?? null : null,
+          stage,
+          stageLabel: STAGE_LABELS[stage],
+          collection: p.metadata?.collection ?? null,
+          fromLibrary: p.metadata?.import_source === 'design-library',
+          updatedAt: p.updated_at ?? null,
+        }
+      })
+      .filter(Boolean)
+
+    res.json({ builds })
+  } catch (err: any) {
+    req.log?.error({ err: err?.message }, '[step-flow] in-progress error')
+    res.status(500).json({ error: err?.message || 'Failed to load builds in progress' })
+  }
+})
+
 // GET /:id/step — resume: product + step_flow (synced against live job
 // status) + assets + jobs. step_flow.printAdvice/printFile (design doc §10)
 // come through automatically via getStepFlow's pass-through — no separate
 // query needed; `assets` already includes every kind (incl. kind:'print')
 // since the select below has no kind filter.
-router.get('/:id/step', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.get('/:id/step', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { data: product, error: productError } = await supabase.from('products').select('*').eq('id', id).single()
@@ -238,6 +345,120 @@ router.get('/:id/step', requireAuth, requireAdminOrManager, async (req: Request,
   }
 })
 
+/** What `selectDesignForFlow` hands back — the same two fields
+ *  POST /:id/step/select-design has always answered with. */
+interface SelectDesignResult {
+  asset: any
+  rembgJob: any | null
+}
+
+/** Kept distinct from StepFlowValidationError so the routes below can answer
+ *  404 (not 400) for a missing asset, exactly as select-design always has. */
+class StepFlowNotFoundError extends Error {}
+
+/**
+ * The Design step's one approval: mark a source take primary, stamp
+ * `approvals.design`, make the watermarked gallery copy, and (garments only)
+ * strip the background inline.
+ *
+ * Extracted from POST /:id/step/select-design so POST /:id/step/adopt — which
+ * brings an already-drawn design-library PNG into the flow — runs the SAME
+ * path instead of a second copy of it that could drift. Throws
+ * StepFlowNotFoundError (-> 404) or StepFlowValidationError (-> 400) for the
+ * two rejections the caller has to surface.
+ */
+async function selectDesignForFlow(
+  productId: string,
+  assetId: string,
+  log?: { error?: (...args: any[]) => void }
+): Promise<SelectDesignResult> {
+  const { data: asset, error: assetError } = await supabase
+    .from('product_assets')
+    .select('*')
+    .eq('id', assetId)
+    .eq('product_id', productId)
+    .single()
+  if (assetError || !asset) throw new StepFlowNotFoundError('Asset not found on this product')
+  // MUST-FIX #13: only a raw generated design (kind:'source') can become
+  // the flow's selected design — a mockup, the details card, or any other
+  // derived asset id must be rejected here, not silently promoted.
+  if (asset.kind !== 'source') {
+    throw new StepFlowValidationError('Only a source design can be selected — pick one of the generated takes')
+  }
+
+  await supabase.from('product_assets').update({ is_primary: false }).eq('product_id', productId).eq('is_primary', true)
+
+  const { data: updatedAsset, error: updateError } = await supabase
+    .from('product_assets')
+    .update({
+      is_primary: true,
+      asset_role: 'design',
+      metadata: { ...(asset.metadata || {}), is_selected: true, selected_at: new Date().toISOString() },
+    })
+    .eq('id', assetId)
+    .select()
+    .single()
+  if (updateError) throw new Error(updateError.message)
+
+  // Picking a take IS the step's one approval — there's no separate
+  // "approve design" route in the contract, so this stamp is what gates
+  // the next step (Garments for a shirt, Sizes for metal) reachability on
+  // the frontend.
+  const product = await loadProductRow(productId)
+  const stepFlow = getStepFlow(product)
+  stepFlow.approvals = { ...stepFlow.approvals, design: new Date().toISOString() }
+  await saveStepFlow(productId, product.metadata, stepFlow)
+
+  // Gallery contract slot (shared/product-gallery.ts): the WATERMARKED copy
+  // of the chosen design. The classic wizard made this on its mockup
+  // fan-out; the Step Flow never did, so a metal print — whose gallery
+  // LEADS with the artwork — published with scenes only (David 2026-09-02:
+  // "didn't put the main image in the product details, just the mockups").
+  // Fire-and-forget (sharp + GCS upload); /step/publish re-checks and
+  // makes it synchronously if this hasn't landed by then.
+  if (updatedAsset?.url) void createWatermarkedDesignAsset(productId, { id: updatedAsset.id, url: updatedAsset.url })
+
+  if (isMetalStepFlow(stepFlow)) {
+    return { asset: updatedAsset, rembgJob: null }
+  }
+
+  // Pre-claimed as 'running' at insert (2026-09-02) — same pattern as the
+  // mockup jobs in services/step-flow/shots.ts: the production Render
+  // worker only ever picks up 'queued' rows, so this keeps it from seeing
+  // the job at all, and this API process renders it inline instead (below).
+  // Job type stays 'replicate_rembg' — the frontend filters on it.
+  // `input.stepKey` also excludes the row from the worker's stale-'running'
+  // sweep (ai-jobs-worker.ts's processQueuedJobs) — a rembg call rarely
+  // runs long, but without this a slow one crossing 12 minutes would get
+  // reset to 'queued' and double-processed by the worker's old code.
+  const { data: rembgJob, error: jobError } = await supabase
+    .from('ai_jobs')
+    .insert({
+      product_id: productId,
+      type: 'replicate_rembg',
+      status: 'running',
+      input: { selected_asset_id: assetId, stepKey: 'design_rembg' },
+    })
+    .select()
+    .single()
+  if (jobError) throw new Error('Failed to create background removal job')
+
+  // Fire-and-forget: processRemoveBgJob already marks the ai_jobs row
+  // succeeded/failed for every failure path it knows about; this .catch is
+  // the safety net for anything that throws past it, so the row never gets
+  // stuck spinning forever — mirrors every processImageJobInline call site.
+  void processRemoveBgJob(rembgJob).catch(async (err: any) => {
+    const message = err?.message || 'Background removal failed'
+    log?.error?.({ jobId: rembgJob.id, err: message }, '[step-flow] rembg inline job failed')
+    await supabase
+      .from('ai_jobs')
+      .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
+      .eq('id', rembgJob.id)
+  })
+
+  return { asset: updatedAsset, rembgJob }
+}
+
 // POST /:id/step/select-design — { assetId } -> { ok, asset, rembgJob }.
 // Marks the picked take primary and queues rembg ONLY — unlike /select-image,
 // this never queues mockups (David: mockups come later, after garments/colors
@@ -245,7 +466,7 @@ router.get('/:id/step', requireAuth, requireAdminOrManager, async (req: Request,
 // have no transparency to extract — a metal panel is the flat art itself,
 // full-bleed — so a metal product NEVER gets a rembg job here; `rembgJob` in
 // the response is `null` for a metal product.
-router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/select-design', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { assetId } = req.body || {}
@@ -253,94 +474,151 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
       return res.status(400).json({ error: 'assetId is required' })
     }
 
-    const { data: asset, error: assetError } = await supabase
-      .from('product_assets')
-      .select('*')
-      .eq('id', assetId)
-      .eq('product_id', id)
-      .single()
-    if (assetError || !asset) return res.status(404).json({ error: 'Asset not found on this product' })
-    // MUST-FIX #13: only a raw generated design (kind:'source') can become
-    // the flow's selected design — a mockup, the details card, or any other
-    // derived asset id must be rejected here, not silently promoted.
-    if (asset.kind !== 'source') {
-      return res.status(400).json({ error: 'Only a source design can be selected — pick one of the generated takes' })
-    }
-
-    await supabase.from('product_assets').update({ is_primary: false }).eq('product_id', id).eq('is_primary', true)
-
-    const { data: updatedAsset, error: updateError } = await supabase
-      .from('product_assets')
-      .update({
-        is_primary: true,
-        asset_role: 'design',
-        metadata: { ...(asset.metadata || {}), is_selected: true, selected_at: new Date().toISOString() },
-      })
-      .eq('id', assetId)
-      .select()
-      .single()
-    if (updateError) return res.status(500).json({ error: updateError.message })
-
-    // Picking a take IS the step's one approval — there's no separate
-    // "approve design" route in the contract, so this stamp is what gates
-    // the next step (Garments for a shirt, Sizes for metal) reachability on
-    // the frontend.
-    const product = await loadProductRow(id)
-    const stepFlow = getStepFlow(product)
-    stepFlow.approvals = { ...stepFlow.approvals, design: new Date().toISOString() }
-    await saveStepFlow(id, product.metadata, stepFlow)
-
-    // Gallery contract slot (shared/product-gallery.ts): the WATERMARKED copy
-    // of the chosen design. The classic wizard made this on its mockup
-    // fan-out; the Step Flow never did, so a metal print — whose gallery
-    // LEADS with the artwork — published with scenes only (David 2026-09-02:
-    // "didn't put the main image in the product details, just the mockups").
-    // Fire-and-forget (sharp + GCS upload); /step/publish re-checks and
-    // makes it synchronously if this hasn't landed by then.
-    if (updatedAsset?.url) void createWatermarkedDesignAsset(id, { id: updatedAsset.id, url: updatedAsset.url })
-
-    if (isMetalStepFlow(stepFlow)) {
-      return res.json({ ok: true, asset: updatedAsset, rembgJob: null })
-    }
-
-    // Pre-claimed as 'running' at insert (2026-09-02) — same pattern as the
-    // mockup jobs in services/step-flow/shots.ts: the production Render
-    // worker only ever picks up 'queued' rows, so this keeps it from seeing
-    // the job at all, and this API process renders it inline instead (below).
-    // Job type stays 'replicate_rembg' — the frontend filters on it.
-    // `input.stepKey` also excludes the row from the worker's stale-'running'
-    // sweep (ai-jobs-worker.ts's processQueuedJobs) — a rembg call rarely
-    // runs long, but without this a slow one crossing 12 minutes would get
-    // reset to 'queued' and double-processed by the worker's old code.
-    const { data: rembgJob, error: jobError } = await supabase
-      .from('ai_jobs')
-      .insert({
-        product_id: id,
-        type: 'replicate_rembg',
-        status: 'running',
-        input: { selected_asset_id: assetId, stepKey: 'design_rembg' },
-      })
-      .select()
-      .single()
-    if (jobError) return res.status(500).json({ error: 'Failed to create background removal job' })
-
-    // Fire-and-forget: processRemoveBgJob already marks the ai_jobs row
-    // succeeded/failed for every failure path it knows about; this .catch is
-    // the safety net for anything that throws past it, so the row never gets
-    // stuck spinning forever — mirrors every processImageJobInline call site.
-    void processRemoveBgJob(rembgJob).catch(async (err: any) => {
-      const message = err?.message || 'Background removal failed'
-      req.log?.error({ jobId: rembgJob.id, err: message }, '[step-flow] rembg inline job failed')
-      await supabase
-        .from('ai_jobs')
-        .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
-        .eq('id', rembgJob.id)
-    })
-
-    res.json({ ok: true, asset: updatedAsset, rembgJob })
+    const { asset, rembgJob } = await selectDesignForFlow(id, assetId, req.log)
+    res.json({ ok: true, asset, rembgJob })
   } catch (err: any) {
+    if (err instanceof StepFlowNotFoundError) return res.status(404).json({ error: err.message })
+    if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
     req.log?.error({ err: err?.message }, '[step-flow] select-design error')
     res.status(500).json({ error: err?.message || 'Failed to select design' })
+  }
+})
+
+// POST /:id/step/adopt — {} -> { ok, productId, assetId, alreadyAdopted, rembgJob }.
+//
+// Brings an ALREADY-DRAWN design into the Step Flow, so the Idea and Design
+// GENERATE steps are skipped and the flow picks up at Garment & Color →
+// Mockups → Listing → Etsy (David 2026-09-08: "bring that design in and
+// continue the flow ... then make mockups for it so we can use these designs
+// to add to our store").
+//
+// Why a route is needed at all: the design library's ~2,700 rows
+// (scripts/import-designs.mjs) carry their artwork ONLY on
+// `products.images[0]` — the importer never wrote a `product_assets` row. The
+// Step Flow reads its takes from `product_assets` (kind:'source'), so the
+// existing "Continue in Step Flow" deep link lands on an EMPTY Design step for
+// every one of them. This route creates that missing asset row from the
+// catalogued PNG and then runs the ordinary `selectDesignForFlow` path over
+// it, so an adopted design gets exactly the same approval stamp, watermarked
+// gallery copy and background removal as one the flow drew itself. (The PNGs
+// are usually already transparent; services/background-removal.ts detects that
+// and passes them through untouched rather than re-cutting them.)
+//
+// Adopts IN PLACE (David's call, 2026-09-08): the library row IS the product
+// that gets built and published, so the collection grid shows a design flip
+// from draft to LIVE and it stays visible which of the library designs have
+// actually become listings.
+//
+// Idempotent: adopting a product that already has a source design just hands
+// back the existing one (`alreadyAdopted: true`). It also doubles as the
+// repair — a row whose design was never selected, or whose background removal
+// never produced a print file, gets put back through the cut.
+router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { data: product, error: productError } = await supabase.from('products').select('*').eq('id', id).single()
+    if (productError || !product) return res.status(404).json({ error: 'Product not found' })
+
+    // Already in the flow? Never make a second take out of the same artwork —
+    // hand back what's there so the caller can just open the builder.
+    const { data: existing } = await supabase
+      .from('product_assets')
+      .select('*')
+      .eq('product_id', id)
+      .eq('kind', 'source')
+      .order('created_at', { ascending: false })
+    const existingSource = (existing || [])[0]
+    if (existingSource) {
+      // The flow can't move past Design without a transparent print file, and
+      // a failed background removal leaves the step with nothing to show and
+      // no way forward. So this button doubles as the repair: re-select when
+      // the design was never selected (an interrupted adopt) OR when the cut
+      // never landed. Metal prints never get a nobg asset by design, so they
+      // only ever check the selection.
+      const { data: nobg } = await supabase
+        .from('product_assets')
+        .select('id')
+        .eq('product_id', id)
+        .eq('kind', 'nobg')
+        .limit(1)
+      const selected = (existing || []).some((a: any) => a.is_primary)
+      const needsCut = product.category !== 'metal-art' && !(nobg || []).length
+      if (!selected || needsCut) {
+        const { rembgJob } = await selectDesignForFlow(id, existingSource.id, req.log)
+        return res.json({ ok: true, productId: id, assetId: existingSource.id, alreadyAdopted: true, rembgJob })
+      }
+      return res.json({ ok: true, productId: id, assetId: existingSource.id, alreadyAdopted: true, rembgJob: null })
+    }
+
+    const designUrl: string | undefined = Array.isArray(product.images)
+      ? product.images.find((u: unknown) => typeof u === 'string' && u)
+      : undefined
+    if (!designUrl) {
+      return res.status(400).json({ error: 'This product has no design image to bring into the flow' })
+    }
+
+    // The print-resolution gate, enforced HERE because it cannot be enforced
+    // later: /step/publish activates the product directly and never consults
+    // the design-library gate that /design-library/set-status runs. Without
+    // this check, routing a too-small design through the Step Flow would be a
+    // way to put blurry artwork live that the grid's own Activate button
+    // refuses. An admin who has knowingly released the quarantine passes.
+    const verdict = canActivate(product.metadata)
+    if (!verdict.allowed) {
+      return res.status(422).json({
+        error: verdict.check.reason,
+        blocked: [{ id, name: product.name, reason: verdict.check.reason, code: verdict.check.code, gate: 'print' }],
+      })
+    }
+
+    const image = product.metadata?.image || {}
+    const { data: asset, error: assetError } = await supabase
+      .from('product_assets')
+      .insert({
+        product_id: id,
+        kind: 'source',
+        // The importer already stored the GCS object path; reusing it keeps
+        // the asset row pointing at the SAME object as products.images[0]
+        // instead of duplicating an 11 MB PNG into a second bucket path.
+        path: product.metadata?.gcs_path ?? null,
+        url: designUrl,
+        width: Number(image.width_px) || null,
+        height: Number(image.height_px) || null,
+        asset_role: 'design',
+        is_primary: false,
+        display_order: 99,
+        metadata: {
+          adopted_from: product.metadata?.import_source || 'catalog',
+          collection: product.metadata?.collection ?? null,
+          import_key: product.metadata?.import_key ?? null,
+          // Recorded so the Design step / print prep know whether this PNG
+          // arrived with real transparency or is a flat image still to cut.
+          has_alpha: image.has_alpha ?? null,
+          adopted_at: new Date().toISOString(),
+        },
+      })
+      .select()
+      .single()
+    if (assetError || !asset) return res.status(500).json({ error: assetError?.message || 'Failed to create the design asset' })
+
+    // Seed the flow's `idea` with the design's catalogued name so the details
+    // card and the listing composer have something real to work from. `brief`
+    // stays null on purpose — nothing generated this design, so there is no
+    // prompt, and DesignStep correctly disables Tweak when the brief is null.
+    const productRow = await loadProductRow(id)
+    const stepFlow = getStepFlow(productRow)
+    if (!stepFlow.idea) {
+      stepFlow.idea = product.name || 'Design library import'
+      await saveStepFlow(id, productRow.metadata, stepFlow)
+    }
+
+    const { rembgJob } = await selectDesignForFlow(id, asset.id, req.log)
+    res.json({ ok: true, productId: id, assetId: asset.id, alreadyAdopted: false, rembgJob })
+  } catch (err: any) {
+    if (err instanceof StepFlowNotFoundError) return res.status(404).json({ error: err.message })
+    if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
+    req.log?.error({ err: err?.message }, '[step-flow] adopt error')
+    res.status(500).json({ error: err?.message || 'Failed to bring this design into the flow' })
   }
 })
 
@@ -349,7 +627,7 @@ router.post('/:id/step/select-design', requireAuth, requireAdminOrManager, async
 // design needs a halftone screen before DTF pressing — never renders
 // anything, never gates ✓ Approve design (optional). Stored on
 // step_flow.printAdvice so GET /:id/step returns it on reload.
-router.post('/:id/step/print-advice', requireAuth, requireAdminOrManager, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/print-advice', requireAuth, requireStudioAccess, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const product = await loadProductRow(id)
@@ -388,7 +666,7 @@ router.post('/:id/step/print-advice', requireAuth, requireAdminOrManager, rateLi
 // publishes. Redo overwrites: one print file per product, older
 // product_assets row deleted (bucket object stays). Synchronous local sharp
 // transform — no ai_jobs bookkeeping needed.
-router.post('/:id/step/print-file', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/print-file', requireAuth, requireStudioAccess, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { method, frequency, angle, shape, invertDark, colors, detail, despeckle } = req.body || {}
@@ -436,7 +714,7 @@ router.post('/:id/step/print-file', requireAuth, requireAdminOrManager, rateLimi
 // Metal prints (design doc §14) have no garment/shirt color to advise
 // against — this branch still measures the artwork but always returns an
 // empty advice list (adviseColorsForMetal).
-router.post('/:id/step/color-advice', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/color-advice', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const product = await loadProductRow(id)
@@ -497,7 +775,7 @@ function clampPrintSize(current: unknown, garmentMax: number): number {
 // POST /:id/step/garments — { garment, primaryColor, extraColors } -> { ok, step_flow }.
 // Validated against the ITP capability boundary — anything not offered (polo,
 // tank, embroidery, ...) is rejected here before it can ever reach a mockup.
-router.post('/:id/step/garments', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/garments', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { garment, primaryColor, extraColors } = req.body || {}
@@ -577,7 +855,7 @@ router.post('/:id/step/garments', requireAuth, requireAdminOrManager, async (req
 // approval slot the garment flow uses, so every downstream gate that checks
 // `approvals.garments` (e.g. reaching the Mockups step) keeps working
 // unmodified for a metal product.
-router.post('/:id/step/sizes', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/sizes', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { sizes } = req.body || {}
@@ -632,7 +910,7 @@ router.post('/:id/step/sizes', requireAuth, requireAdminOrManager, async (req: R
 // POST /:id/step/shots — { keys? } -> { jobs: [{ key, jobId }] }. Default =
 // every key for the approved garment/colors (product/hanger/model/details +
 // one color:<id> per extra color).
-router.post('/:id/step/shots', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/shots', requireAuth, requireStudioAccess, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { keys } = req.body || {}
@@ -652,7 +930,7 @@ router.post('/:id/step/shots', requireAuth, requireAdminOrManager, rateLimitAI(1
 // asset stays visible until the redo lands; the shot's approval resets to
 // false. `subjectId` (model shot only, David 2026-09-08) picks the exact
 // archetype instead of letting Mrs. Imagine re-cast automatically.
-router.post('/:id/step/shots/:key/redo', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/shots/:key/redo', requireAuth, requireStudioAccess, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id, key } = req.params
     const subjectId = typeof req.body?.subjectId === 'string' && req.body.subjectId.trim() ? req.body.subjectId.trim() : undefined
@@ -668,7 +946,7 @@ router.post('/:id/step/shots/:key/redo', requireAuth, requireAdminOrManager, rat
 // POST /:id/step/shots/model — { subjectId? } -> { job }. Adds ANOTHER
 // on-person shot, keeping every one already taken (David 2026-09-08: "keep
 // the adult and add a kid"). Omit subjectId to let Mrs. Imagine cast it.
-router.post('/:id/step/shots/model', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/shots/model', requireAuth, requireStudioAccess, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const subjectId = typeof req.body?.subjectId === 'string' && req.body.subjectId.trim() ? req.body.subjectId.trim() : undefined
@@ -683,7 +961,7 @@ router.post('/:id/step/shots/model', requireAuth, requireAdminOrManager, rateLim
 
 // DELETE /:id/step/shots/:key — remove an ADDED on-person shot (model:<n>).
 // The first one is part of every listing and can only be redone, not dropped.
-router.delete('/:id/step/shots/:key', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.delete('/:id/step/shots/:key', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id, key } = req.params
     const result = await removeModelShot(id, key as ShotKey)
@@ -698,7 +976,7 @@ router.delete('/:id/step/shots/:key', requireAuth, requireAdminOrManager, async 
 // POST /:id/step/shots/:key/approve — { approved, assetId, skipped? } -> { step_flow }.
 // (MUST-FIX #1c: delegates to the batch path below so a mix of per-key and
 // batch approvals on the same product still serialize through one lock.)
-router.post('/:id/step/shots/:key/approve', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/shots/:key/approve', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id, key } = req.params
     const { approved, assetId, skipped } = req.body || {}
@@ -721,7 +999,7 @@ router.post('/:id/step/shots/:key/approve', requireAuth, requireAdminOrManager, 
 // -> { step_flow }. Batch approve/skip (MUST-FIX #1c) — "Approve all" fires
 // this ONCE instead of N parallel per-key calls racing each other's
 // read-modify-write of the same step_flow.shots object.
-router.post('/:id/step/shots/approve', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+router.post('/:id/step/shots/approve', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { keys, approved, skipped } = req.body || {}
@@ -747,7 +1025,22 @@ router.post('/:id/step/shots/approve', requireAuth, requireAdminOrManager, async
 // shared backend/shared/product-gallery.ts ROLE_ORDER — METAL_ROLE_ORDER,
 // artwork first, for a metal print). `price` is honoured for garments only;
 // a metal print's price comes from shared/metal-art.ts (see below).
-router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+// POST /:id/step/listing-copy — writes the title/description/tags/price the
+// Listing step opens with. Identical to what the admin lane gets from
+// /api/admin/etsy/compose/:id (same composeEtsyPack call); it exists here so
+// the customer lane can compose a listing WITHOUT touching the Etsy router.
+// Etsy-specific fields in the pack are simply not rendered on that lane.
+router.post('/:id/step/listing-copy', requireAuth, requireStudioAccess, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const pack = await composeEtsyPack(req.params.id)
+    res.json({ pack })
+  } catch (err: any) {
+    req.log?.error({ err: err?.message }, '[step-flow] listing-copy error')
+    res.status(500).json({ error: err?.message || 'Failed to write the listing' })
+  }
+})
+
+router.post('/:id/step/publish', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id } = req.params
     const { title, description, tags, price } = req.body || {}
@@ -788,11 +1081,33 @@ router.post('/:id/step/publish', requireAuth, requireAdminOrManager, async (req:
 
     stepFlow.approvals = { ...stepFlow.approvals, listing: new Date().toISOString() }
 
+    // The one place the two lanes genuinely differ. An admin finishing the
+    // flow PUBLISHES — the product goes live on the storefront. A customer
+    // finishing it SUBMITS FOR REVIEW: same gallery, same listing copy, but
+    // `pending_approval` and is_active:false, which is the queue every
+    // creator design already goes through (see routes/creator-studio.ts's
+    // /:id/submit). Nothing a customer builds can reach the storefront
+    // without a human approving it.
+    const lane = laneOf(req)
+    // The review queue (GET /api/admin/user-products/pending) matches on
+    // `metadata.user_submitted === 'true'` AND status pending_approval — BOTH.
+    // Stamping only the status would land a customer's finished build in a
+    // place nothing lists and nobody reviews, so these ride together. Fields
+    // mirror routes/creator-studio.ts's /:id/submit exactly.
+    const submitStamp =
+      lane === 'customer'
+        ? {
+            user_submitted: true,
+            submitted_at: new Date().toISOString(),
+            creator_id: actorId(req),
+            creator_royalty_percent: Number((req as any).creator?.royaltyPercent) || 15,
+          }
+        : {}
     const updates: Record<string, any> = {
-      status: 'active',
-      is_active: true,
+      status: lane === 'customer' ? 'pending_approval' : 'active',
+      is_active: lane !== 'customer',
       images,
-      metadata: { ...product.metadata, step_flow: stepFlow },
+      metadata: { ...product.metadata, ...submitStamp, step_flow: stepFlow },
     }
     if (typeof title === 'string' && title.trim()) updates.name = title.trim()
     if (typeof description === 'string' && description.trim()) updates.description = description.trim()

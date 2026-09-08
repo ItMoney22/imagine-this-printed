@@ -1,11 +1,17 @@
 import React, { useState, useEffect } from 'react'
-import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt, AlertTriangle, Unlock, ShieldCheck, ShieldAlert, ShieldQuestion } from 'lucide-react'
-import api, { aiProducts } from '../lib/api'
+import { useNavigate } from 'react-router-dom'
+import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt, AlertTriangle, Unlock, ShieldCheck, ShieldAlert, ShieldQuestion, Wand2, PlayCircle } from 'lucide-react'
+import api, { aiProducts, stepFlow } from '../lib/api'
 import DesignQaPanel from './DesignQaPanel'
 
 interface Collection {
   name: string
   draft: number
+  /** Draft AND untouched — the pile still available to work on. Absent when
+   *  talking to an API deployed before these views existed. */
+  todo?: number
+  /** Pulled into the Step Flow and not finished yet. Absent on an older API. */
+  in_flow?: number
   active: number
   other: number
   total: number
@@ -45,6 +51,10 @@ interface LibraryProduct {
   quarantine?: { reason?: string; released_at?: string; override_reason?: string } | null
   qa_gate?: QaGateState
   can_activate?: boolean
+  /** Non-null once this design has been pulled into the Step Flow — the stop
+   *  it is standing on, computed server-side from the same rules the builder
+   *  gates on (backend/services/step-flow/progress.ts). */
+  step_flow?: { stage: string; label: string } | null
 }
 
 interface BlockedDesign {
@@ -57,6 +67,17 @@ interface BlockedDesign {
 
 // Badge copy per gate state. `stale` is its own state on purpose: "you changed
 // the listing after it passed" is a different instruction than "it failed".
+/** The grid's views. Not raw products.status — see the /products route. */
+type LibraryView = 'todo' | 'in_flow' | 'active' | 'all' | 'draft'
+
+const VIEW_LABELS: Record<LibraryView, string> = {
+  todo: 'To do',
+  in_flow: 'In Step Flow',
+  active: 'Live',
+  all: 'All',
+  draft: 'Draft',
+}
+
 const QA_BADGE: Record<QaGateState['code'], { label: string; className: string; Icon: typeof ShieldCheck }> = {
   passed: { label: 'QA PASSED', className: 'bg-emerald-100 text-emerald-700', Icon: ShieldCheck },
   overridden: { label: 'QA OVERRIDDEN', className: 'bg-amber-100 text-amber-800', Icon: Unlock },
@@ -66,9 +87,24 @@ const QA_BADGE: Record<QaGateState['code'], { label: string; className: string; 
 }
 
 export default function AdminDesignLibrary() {
+  const navigate = useNavigate()
   const [collections, setCollections] = useState<Collection[]>([])
   const [selected, setSelected] = useState<string | null>(null)
-  const [statusFilter, setStatusFilter] = useState<'all' | 'draft' | 'active'>('all')
+  // Defaults to 'todo' — designs nobody has started. A design leaves this view
+  // the moment it is pulled into the Step Flow, which is the whole point:
+  // David 2026-09-08, "so we dont do the same ones twice".
+  const [statusFilter, setStatusFilter] = useState<LibraryView>('todo')
+  // Whether the API on the other end understands the todo/in_flow views.
+  //
+  // The frontend (Vercel) and the API (Render) deploy INDEPENDENTLY, so a new
+  // build of this file will talk to the old API for a window on every release
+  // — and an old API answers `status=todo` by filtering `products.status =
+  // 'todo'`, which matches nothing and shows an empty grid with no error.
+  // That is exactly what happened to David on 2026-09-08 against a stale local
+  // API, and it would have happened in production too. So: feature-detect off
+  // the /collections response (the new one carries per-view counts) and fall
+  // back to the old chips rather than showing a collection as empty.
+  const [newViews, setNewViews] = useState(true)
   const [products, setProducts] = useState<LibraryProduct[]>([])
   const [total, setTotal] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -82,12 +118,14 @@ export default function AdminDesignLibrary() {
   const [blocked, setBlocked] = useState<BlockedDesign[]>([])
   const [qaTarget, setQaTarget] = useState<LibraryProduct | null>(null)
   const [qaRun, setQaRun] = useState<{ done: number; total: number } | null>(null)
+  const [adopting, setAdopting] = useState<string | null>(null)
 
   const flash = (msg: string) => {
     setNotice(msg)
     setTimeout(() => setNotice(null), 5000)
   }
 
+  const current = collections.find(c => c.name === selected)
   const blockedProducts = products.filter(p => p.can_activate === false)
   // Quarantine release only ever answers the PRINT block. A design held by the
   // presentation gate is released from the QA panel instead, where the reason
@@ -98,7 +136,12 @@ export default function AdminDesignLibrary() {
     try {
       setLoading(true)
       const response = await api.get('/api/admin/design-library/collections')
-      setCollections(response.data.collections || [])
+      const list: Collection[] = response.data.collections || []
+      setCollections(list)
+      // An older API returns {draft, active, other, total} with no per-view
+      // counts. One row is enough to tell; an empty library tells us nothing,
+      // so assume current rather than downgrading on no evidence.
+      if (list.length > 0) setNewViews(typeof list[0].todo === 'number')
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to load collections')
     } finally {
@@ -106,7 +149,7 @@ export default function AdminDesignLibrary() {
     }
   }
 
-  const fetchProducts = async (collection: string, status = statusFilter, off = 0) => {
+  const fetchProducts = async (collection: string, status: LibraryView = statusFilter, off = 0) => {
     try {
       setLoading(true)
       setError(null)
@@ -126,6 +169,11 @@ export default function AdminDesignLibrary() {
   }
 
   useEffect(() => { fetchCollections() }, [])
+  // Drop back to a view the old API understands BEFORE any fetch goes out, so
+  // the skew never renders as "0 design(s)".
+  useEffect(() => {
+    if (!newViews && (statusFilter === 'todo' || statusFilter === 'in_flow')) setStatusFilter('all')
+  }, [newViews, statusFilter])
   useEffect(() => {
     if (selected) fetchProducts(selected, statusFilter, 0)
   }, [selected, statusFilter]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -240,6 +288,33 @@ export default function AdminDesignLibrary() {
     }
   }
 
+  // Take an existing library design straight into the Step Flow (David
+  // 2026-09-08). The design library's rows carry their artwork only on
+  // products.images — the flow reads its takes from product_assets — so the
+  // adopt endpoint creates that missing design asset, selects it and strips
+  // the background, and the builder then opens on the Design step with the
+  // transparent print file already coming up. From there it's the normal
+  // flow: garment & color, mockups, listing, Etsy.
+  //
+  // Adopts IN PLACE: this same product is what gets published, so the design
+  // goes draft -> LIVE in this grid rather than spawning a duplicate.
+  const sendToStepFlow = async (product: LibraryProduct) => {
+    setError(null)
+    setBlocked([])
+    setAdopting(product.id)
+    try {
+      await stepFlow.adopt(product.id)
+      navigate(`/admin/ai/products/create?mode=steps&productId=${encodeURIComponent(product.id)}`)
+    } catch (err: any) {
+      // 422 = the artwork is below print resolution. The Step Flow's publish
+      // step activates a product directly and never re-runs this grid's gate,
+      // so the block has to land here — same banner the bulk Activate uses.
+      if (Array.isArray(err?.body?.blocked)) setBlocked(err.body.blocked)
+      setError(err?.message || 'Failed to bring that design into the Step Flow')
+      setAdopting(null)
+    }
+  }
+
   const toggle = (id: string) => {
     setChecked(prev => {
       const next = new Set(prev)
@@ -271,8 +346,12 @@ export default function AdminDesignLibrary() {
                 <span className="truncate">{c.name}</span>
                 <span className={`text-xs shrink-0 ${selected === c.name ? 'text-purple-200' : 'text-slate-400'}`}>
                   {c.active > 0 && <span className={selected === c.name ? '' : 'text-emerald-600'}>{c.active} live</span>}
-                  {c.active > 0 && c.draft > 0 && ' · '}
-                  {c.draft > 0 && `${c.draft} draft`}
+                  {c.active > 0 && (c.in_flow ?? 0) > 0 && ' · '}
+                  {(c.in_flow ?? 0) > 0 && <span className={selected === c.name ? '' : 'text-indigo-600'}>{c.in_flow} building</span>}
+                  {/* `todo` is absent on an older API — fall back to the raw
+                      draft count so a collection never reads as empty. */}
+                  {(c.active > 0 || (c.in_flow ?? 0) > 0) && (c.todo ?? c.draft) > 0 && ' · '}
+                  {(c.todo ?? c.draft) > 0 && `${c.todo ?? c.draft} ${c.todo === undefined ? 'draft' : 'to do'}`}
                 </span>
               </div>
             </button>
@@ -321,14 +400,21 @@ export default function AdminDesignLibrary() {
               <div className="flex items-center gap-3">
                 <h3 className="text-lg font-display font-bold text-slate-900">{selected}</h3>
                 <div className="flex gap-1">
-                  {(['all', 'draft', 'active'] as const).map(s => (
-                    <button key={s} onClick={() => setStatusFilter(s)}
-                      className={`px-2.5 py-1 rounded-full text-xs font-medium capitalize ${
-                        statusFilter === s ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                      }`}>
-                      {s}
-                    </button>
-                  ))}
+                  {(newViews ? (['todo', 'in_flow', 'active', 'all'] as const) : (['all', 'draft', 'active'] as const)).map(v => {
+                    const count = v === 'todo' ? current?.todo
+                      : v === 'in_flow' ? current?.in_flow
+                      : v === 'active' ? current?.active
+                      : v === 'draft' ? current?.draft
+                      : current?.total
+                    return (
+                      <button key={v} onClick={() => setStatusFilter(v)}
+                        className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                          statusFilter === v ? 'bg-purple-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}>
+                        {VIEW_LABELS[v]}{typeof count === 'number' ? ` ${count}` : ''}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -338,6 +424,25 @@ export default function AdminDesignLibrary() {
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
                       <CheckCircle className="w-4 h-4" /> Activate {checked.size}
                     </button>
+                    {checked.size === 1 && (() => {
+                      // Step Flow is approval-gated one product at a time, so
+                      // this only offers itself for a single selection — the
+                      // bulk path for many designs is Mockups + QA + Activate.
+                      const only = products.find(p => checked.has(p.id))
+                      if (!only) return null
+                      return (
+                        <button onClick={() => sendToStepFlow(only)} disabled={busy || !!mockupRun || !!qaRun || !!adopting}
+                          title={only.step_flow
+                            ? `Already in the Step Flow — pick it back up on ${only.step_flow.label}`
+                            : 'Bring this design into the Step Flow — garment & color, mockups, listing, Etsy'}
+                          className="flex items-center gap-1.5 px-3 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                          {only.step_flow ? <PlayCircle className="w-4 h-4" /> : <Wand2 className="w-4 h-4" />}
+                          {adopting === only.id
+                            ? 'Opening…'
+                            : only.step_flow ? `Resume · ${only.step_flow.label}` : 'Step Flow'}
+                        </button>
+                      )
+                    })()}
                     <button onClick={createMockups} disabled={busy || !!mockupRun || !!qaRun}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
                       <Shirt className="w-4 h-4" />
@@ -412,6 +517,12 @@ export default function AdminDesignLibrary() {
                           </span>
                         )
                       })()}
+                      {p.step_flow && p.step_flow.stage !== 'published' && (
+                        <div title={`In the Step Flow — standing on ${p.step_flow.label}`}
+                          className="mt-1 flex items-center gap-1 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                          <Wand2 className="w-3 h-3 shrink-0" /> IN STEP FLOW
+                        </div>
+                      )}
                       {p.quarantine?.released_at && (
                         <div title={`Override: ${p.quarantine.override_reason || ''}`}
                           className="mt-1 flex items-center gap-1 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
@@ -424,6 +535,37 @@ export default function AdminDesignLibrary() {
                           p.status === 'active' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'
                         }`}>{p.status === 'active' ? 'LIVE' : p.status}</span>
                       </div>
+                      {/* Nested inside the card's own select-toggle button, so
+                          the click has to be stopped explicitly — same pattern
+                          as the QA badge above. Keyboard-reachable too.
+                          Reads "Resume" once this design is already a build in
+                          progress, and names the step it stopped on, so the
+                          same card never quietly gets started twice. */}
+                      <span role="button" tabIndex={0}
+                        onClick={e => { e.stopPropagation(); if (!adopting) void sendToStepFlow(p) }}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.stopPropagation(); e.preventDefault()
+                            if (!adopting) void sendToStepFlow(p)
+                          }
+                        }}
+                        title={p.step_flow
+                          ? `Already in the Step Flow — pick it back up on ${p.step_flow.label}`
+                          : 'Bring this design into the Step Flow — garment & color, mockups, listing, Etsy'}
+                        className={`mt-1.5 flex items-center justify-center gap-1 rounded-lg py-1 text-[11px] font-semibold transition-colors ${
+                          adopting === p.id
+                            ? 'bg-indigo-600 text-white'
+                            : p.step_flow
+                              ? 'bg-amber-50 text-amber-800 hover:bg-amber-100 cursor-pointer'
+                              : 'bg-indigo-50 text-indigo-700 hover:bg-indigo-100 cursor-pointer'
+                        } ${adopting && adopting !== p.id ? 'opacity-40 pointer-events-none' : ''}`}>
+                        {p.step_flow ? <PlayCircle className="w-3 h-3 shrink-0" /> : <Wand2 className="w-3 h-3 shrink-0" />}
+                        {adopting === p.id
+                          ? 'Opening…'
+                          : p.step_flow
+                            ? (p.step_flow.stage === 'published' ? 'Open build' : `Resume · ${p.step_flow.label}`)
+                            : 'Step Flow'}
+                      </span>
                     </button>
                   ))}
                 </div>

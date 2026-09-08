@@ -3,13 +3,13 @@
 // docs/plans/2026-09-01-imagine-studio-step-flow-plan.md ("Track C").
 import React, { useCallback, useEffect, useReducer, useRef } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { stepFlow } from '../../lib/api'
 import {
   canReachStep,
   hasNonTerminalWork,
-  initialStepFlowState,
+  initialStateFor,
   stepFlowReducer,
 } from './stepFlowReducer'
+import { adminLane, StudioLaneProvider, useStudioLane, type StudioLane } from './lane'
 import type { StepId } from './types'
 import { HexTracker, InlineError, StepCard } from './shared'
 import IdeaStep from './IdeaStep'
@@ -25,10 +25,23 @@ const POLL_INTERVAL_MS = 3000
 interface StepFlowBuilderProps {
   /** Resume an existing draft at the right step (?productId= from the page). */
   productId?: string | null
+  /** Which lane this builder runs (components/studio/lane.tsx). Defaults to
+   *  the staff lane, so the admin page keeps working untouched. */
+  lane?: StudioLane
 }
 
-const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
-  const [state, dispatch] = useReducer(stepFlowReducer, initialStepFlowState)
+const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId, lane = adminLane }) => (
+  <StudioLaneProvider lane={lane}>
+    <StepFlowBody productId={productId} />
+  </StudioLaneProvider>
+)
+
+/** Split from the exported component so every step below — and the loader
+ *  itself — reads the lane through the same hook the steps use, rather than
+ *  half the tree taking it as a prop and the other half from context. */
+const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) => {
+  const lane = useStudioLane()
+  const [state, dispatch] = useReducer(stepFlowReducer, lane.steps, initialStateFor)
   const stateRef = useRef(state)
   stateRef.current = state
   const [searchParams, setSearchParams] = useSearchParams()
@@ -37,12 +50,12 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
     const id = opts?.productId ?? stateRef.current.productId
     if (!id) return
     try {
-      const response = await stepFlow.get(id)
+      const response = await lane.api.get(id)
       dispatch({ type: 'HYDRATE', response, advance: opts?.advance })
     } catch (err: any) {
       dispatch({ type: 'SET_ERROR', error: err?.message || 'Failed to load the current step' })
     }
-  }, [])
+  }, [lane])
 
   // Resume: a productId in the URL loads straight to the furthest step this
   // product has actually reached. Skips the refetch when we're already
@@ -92,6 +105,7 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
         canReach={canReach}
         onSelect={goTo}
         labelOverrides={isMetal ? { garments: 'Sizes' } : undefined}
+        steps={lane.steps}
       />
 
       {state.loading && !state.product && (
@@ -112,7 +126,11 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
         ))}
       {state.step === 'mockups' && <MockupStep state={state} dispatch={dispatch} refresh={refresh} />}
       {state.step === 'listing' && <ListingStep state={state} dispatch={dispatch} refresh={refresh} />}
-      {state.step === 'etsy' && <EtsyStep state={state} dispatch={dispatch} refresh={refresh} />}
+      {/* The customer lane has no Etsy stop at all — not in `lane.steps`, not
+          reachable in the reducer, and no route behind it on the server. */}
+      {state.step === 'etsy' && lane.steps.includes('etsy') && (
+        <EtsyStep state={state} dispatch={dispatch} refresh={refresh} />
+      )}
     </div>
   )
 }

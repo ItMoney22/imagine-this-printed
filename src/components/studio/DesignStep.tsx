@@ -1,8 +1,7 @@
 // Step 2 — Design: pick a take, approve it, watch it go transparent.
 import React, { useMemo, useState } from 'react'
 import { Check, RefreshCw, Wand2 } from 'lucide-react'
-import { aiProducts, stepFlow } from '../../lib/api'
-import { createStepFlowProduct } from './createStepFlowProduct'
+import { useStudioLane } from './lane'
 import { getDesignCandidates, getNobgAsset, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
 import { ApproveButton, BusyDot, Checkerboard, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
@@ -20,6 +19,8 @@ interface DesignStepProps {
 }
 
 const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => {
+  const lane = useStudioLane()
+
   const [busyAssetId, setBusyAssetId] = useState<string | null>(null)
   const [regenerating, setRegenerating] = useState(false)
   const [tweaking, setTweaking] = useState(false)
@@ -41,6 +42,14 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
   const isMetal = state.productKind === 'metal'
   const designLocked = isMetal ? !!state.stepFlow?.approvals?.design : !!nobgAsset
 
+  // "Try another" is a paid re-render off the product's stored image_prompt —
+  // exactly what POST /:id/regenerate-images requires. A draft that entered
+  // the flow with an already-drawn design (the design library's /step/adopt)
+  // has no prompt at all, so the button could only ever 400 there. Read the
+  // same two fields the endpoint checks rather than guessing from the source.
+  const canRegenerate = !!(state.product?.metadata?.ai_generated && state.product?.metadata?.image_prompt)
+  const fromLibrary = state.product?.metadata?.import_source === 'design-library'
+
   const designJob = [...state.jobs]
     .filter((j) => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && (j.status === 'queued' || j.status === 'running'))
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
@@ -55,7 +64,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
     setError(null)
     setBusyAssetId(assetId)
     try {
-      await stepFlow.selectDesign(state.productId, assetId)
+      await lane.api.selectDesign(state.productId, assetId)
       await refresh()
     } catch (err: any) {
       setError(err?.message || 'Failed to select that design')
@@ -69,7 +78,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
     setError(null)
     setRegenerating(true)
     try {
-      await aiProducts.regenerateImages(state.productId)
+      await lane.regenerateTakes?.(state.productId)
       await refresh()
     } catch (err: any) {
       setError(err?.message || 'Failed to queue another take')
@@ -96,12 +105,12 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
     const oldHadApprovedDesign = getNobgAsset(state) !== null
     try {
       const brief = { ...existingBrief, designPrompt: tweakPrompt.trim() }
-      const { productId } = await createStepFlowProduct(flow.idea, brief)
+      const { productId } = await lane.createProduct(flow.idea, brief)
       dispatch({ type: 'PRODUCT_CREATED', productId })
       await refresh({ productId, advance: true })
       setTweakOpen(false)
       if (oldProductId && !oldHadApprovedDesign) {
-        aiProducts.delete(oldProductId).catch(() => {
+        lane.discardDraft(oldProductId).catch(() => {
           // Best-effort cleanup — an orphaned draft is untidy, not harmful.
         })
       }
@@ -118,9 +127,11 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
       <p className="text-sm text-muted mb-4">
         {isMetal
           ? 'Fills the whole panel edge to edge.'
-          : state.stepFlow?.brief?.background
-            ? `On a solid ${state.stepFlow.brief.background} background — the background is stripped once you approve.`
-            : 'The background is stripped once you approve.'}
+          : fromLibrary
+            ? 'Brought in from your design library. Check the print file below — that transparent version is what gets pressed.'
+            : state.stepFlow?.brief?.background
+              ? `On a solid ${state.stepFlow.brief.background} background — the background is stripped once you approve.`
+              : 'The background is stripped once you approve.'}
       </p>
 
       {isGenerating && candidates.length === 0 && (
@@ -170,12 +181,18 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
         </div>
       )}
 
-      {candidates.length > 0 && !designLocked && (
+      {candidates.length > 0 && !designLocked && canRegenerate && (
         <div className="mt-4 flex flex-wrap items-center gap-3">
-          <SecondaryButton onClick={handleTryAnother} disabled={regenerating}>
-            {regenerating ? <BusyDot className="w-2 h-2" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            Try another
-          </SecondaryButton>
+          {/* "Try another" re-runs generation on the same draft through an
+              unmetered staff route. A customer's retry is Tweak, which starts
+              a fresh, ITC-charged draft — so this only exists where the house
+              is the one paying (lane.regenerateTakes, components/studio/lane.tsx). */}
+          {lane.regenerateTakes && (
+            <SecondaryButton onClick={handleTryAnother} disabled={regenerating}>
+              {regenerating ? <BusyDot className="w-2 h-2" /> : <RefreshCw className="w-3.5 h-3.5" />}
+              Try another
+            </SecondaryButton>
+          )}
           <SecondaryButton
             onClick={() => setTweakOpen((v) => !v)}
             disabled={tweaking || !state.stepFlow?.brief}
@@ -184,7 +201,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
           </SecondaryButton>
         </div>
       )}
-      {candidates.length > 0 && !designLocked && !state.stepFlow?.brief && (
+      {candidates.length > 0 && !designLocked && canRegenerate && !state.stepFlow?.brief && (
         <p className="text-[11px] text-muted mt-1.5">
           Tweak isn't available for a draft opened outside the Idea step — there's no prompt to edit.
         </p>
@@ -244,7 +261,9 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
                   Approve design
                 </ApproveButton>
               </div>
-              <PrintPrepPanel state={state} refresh={refresh} />
+              {/* Halftone/print-file prep is production tooling — the shop's job,
+                  not the customer's. */}
+              {lane.showTeamTools && <PrintPrepPanel state={state} refresh={refresh} />}
             </>
           ) : null}
         </div>

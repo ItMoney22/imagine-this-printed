@@ -1,8 +1,8 @@
 // Step 5 — Listing: SEO copy from the composer, editable, next to a
 // storefront-style preview built from the approved mockups.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { RefreshCw } from 'lucide-react'
-import { etsy, stepFlow } from '../../lib/api'
+import { Check, RefreshCw } from 'lucide-react'
+import { useStudioLane } from './lane'
 import { getShots, type ShotKey, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
 import { listingDraftFromPack, type EtsyComposePack, type ListingDraft } from './types'
 import { ApproveButton, BusyDot, InlineError, SecondaryButton, StepCard } from './shared'
@@ -32,6 +32,8 @@ const PREVIEW_ORDER: (key: ShotKey) => number = (key) => {
 }
 
 const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
+  const lane = useStudioLane()
+
   const [draft, setDraft] = useState<ListingDraft | null>(null)
   const [tagsText, setTagsText] = useState('')
   const [composing, setComposing] = useState(false)
@@ -61,8 +63,8 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
     }
     composeStartedAtRef.current = Date.now()
     setComposing(true)
-    etsy
-      .compose(state.productId)
+    lane
+      .composeListing(state.productId)
       .then(({ pack }) => applyPack(pack))
       .catch((err: any) => setError(err?.message || 'Failed to compose listing copy'))
       .finally(() => setComposing(false))
@@ -77,7 +79,7 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
     composeStartedAtRef.current = Date.now()
     setComposing(true)
     try {
-      const { pack } = await etsy.compose(state.productId)
+      const { pack } = await lane.composeListing(state.productId)
       applyPack(pack)
     } catch (err: any) {
       setError(err?.message || 'Failed to compose listing copy')
@@ -103,6 +105,13 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
     ? (state.stepFlow!.sizes as MetalArtSizeKey[])
     : [...STUDIO_SIZE_KEYS]
 
+  // Server-side truth, not a local flag: a customer who reloads the page
+  // after submitting should still see "sent", not a live Submit button that
+  // would re-send the same build.
+  const finished =
+    !lane.steps.includes('etsy') &&
+    (state.product?.status === 'pending_approval' || state.product?.status === 'active')
+
   const handlePublish = async () => {
     if (!state.productId || !draft) return
     setError(null)
@@ -114,7 +123,7 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
         .filter(Boolean)
       // Metal: never send the pack's price — the server owns it (see above).
       const { price: draftPrice, ...rest } = draft
-      await stepFlow.publish(state.productId, isMetal ? { ...rest, tags } : { ...rest, tags, price: draftPrice })
+      await lane.api.publish(state.productId, isMetal ? { ...rest, tags } : { ...rest, tags, price: draftPrice })
       await refresh({ advance: true })
     } catch (err: any) {
       setError(err?.message || 'Failed to publish the listing')
@@ -134,7 +143,11 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
           </SecondaryButton>
         )}
       </div>
-      <p className="text-sm text-muted mb-4">SEO copy is generated, then it's yours to edit before it goes live.</p>
+      <p className="text-sm text-muted mb-4">
+        {lane.showTeamTools
+          ? "SEO copy is generated, then it's yours to edit before it goes live."
+          : "We wrote the copy for you — edit anything you like, then send it over."}
+      </p>
 
       {composing && (
         <div className="py-8 px-2 sm:px-8">
@@ -207,7 +220,7 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
               </div>
             )}
 
-            {state.product && <PromoPicker product={state.product} refresh={refresh} />}
+            {lane.showTeamTools && state.product && <PromoPicker product={state.product} refresh={refresh} />}
           </div>
 
           <div>
@@ -234,11 +247,25 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
 
       <InlineError message={error} />
 
-      <div className="mt-6">
-        <ApproveButton onClick={handlePublish} disabled={!draft || publishing} busy={publishing}>
-          {publishing ? 'Publishing…' : 'Approve & publish'}
-        </ApproveButton>
-      </div>
+      {finished ? (
+        // The customer lane ends here — there is no Etsy hex to advance to, so
+        // without this the Submit button would simply stop responding and the
+        // page would look stuck at the exact moment the work succeeded.
+        <div className="mt-6 rounded-xl border border-primary/40 bg-primary/10 p-4">
+          <p className="text-sm font-semibold text-text flex items-center gap-2">
+            <Check className="w-4 h-4 text-primary" />
+            {lane.finishedTitle}
+          </p>
+          <p className="text-sm text-muted mt-1">{lane.finishedBody}</p>
+        </div>
+      ) : (
+        <div className="mt-6">
+          <ApproveButton onClick={handlePublish} disabled={!draft || publishing} busy={publishing}>
+            {publishing ? `${lane.finishLabel}…` : lane.finishLabel}
+          </ApproveButton>
+          <p className="text-xs text-muted mt-2">{lane.finishHint}</p>
+        </div>
+      )}
     </StepCard>
   )
 }

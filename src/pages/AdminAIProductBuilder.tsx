@@ -25,6 +25,7 @@ import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
 import OneShotProductModal from '../components/OneShotProductModal'
 import BulkProductModal from '../components/BulkProductModal'
 import StepFlowBuilder from '../components/studio/StepFlowBuilder'
+import ResumeBuilds from '../components/studio/ResumeBuilds'
 import type { AIJob, ProductTrendFamily, TshirtPrintLocation } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -504,7 +505,7 @@ const VALID_MODES: BuilderMode[] = ['steps', 'studio', 'classic']
 
 const AdminAIProductBuilder: React.FC = () => {
   const { user } = useAuth()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   // Step Flow is the default face now — Live Studio (voice) and the classic
   // wizard stay one click away. `?mode=` always wins (a deep link from the
   // product editor's "Continue in Step Flow" relies on this), then the
@@ -1147,7 +1148,21 @@ const AdminAIProductBuilder: React.FC = () => {
             </div>
           </div>
         ) : mode === 'steps' ? (
-          <StepFlowBuilder productId={stepFlowProductId} />
+          <>
+            {/* Only when nothing is open. Mid-build the strip would just be
+                noise above the step you are actually working on. */}
+            {!stepFlowProductId && (
+              <ResumeBuilds
+                onResume={(productId) => {
+                  const next = new URLSearchParams(searchParams)
+                  next.set('mode', 'steps')
+                  next.set('productId', productId)
+                  setSearchParams(next)
+                }}
+              />
+            )}
+            <StepFlowBuilder productId={stepFlowProductId} />
+          </>
         ) : (
           <>
             {/* Hex step tracker */}

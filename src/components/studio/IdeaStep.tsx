@@ -3,11 +3,10 @@
 // into the best prompt for gpt-image-2 and the design job fires.
 import React, { useRef, useState } from 'react'
 import { Mic, Square, Sparkles, ChevronDown, ChevronUp, RefreshCw, X } from 'lucide-react'
-import { stepFlow } from '../../lib/api'
+import { useStudioLane } from './lane'
 import { getLetteringStyle } from '../../../backend/shared/lettering-styles'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
 import type { LetteringStyleId, Phrase, StepBrief } from './types'
-import { createStepFlowProduct } from './createStepFlowProduct'
 import { useVoiceDictation } from './useVoiceDictation'
 import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
@@ -90,6 +89,8 @@ interface IdeaStepProps {
 }
 
 const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
+  const lane = useStudioLane()
+
   const [writingBrief, setWritingBrief] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -142,7 +143,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     phraseStartedAtRef.current = Date.now()
     setAskingPhrase(true)
     try {
-      const res = await stepFlow.phrases(idea.trim(), undefined, 6)
+      const res = await lane.api.phrases(idea.trim(), undefined, 6)
       setPhraseCandidates(res.phrases)
       setPhraseIntro(res.intro ?? null)
     } catch (err: any) {
@@ -184,7 +185,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     writingStartedAtRef.current = Date.now()
     setWritingBrief(true)
     try {
-      const { brief: newBrief } = await stepFlow.brief(idea.trim(), phrase ?? undefined, inspiration ?? undefined, state.productKind)
+      const { brief: newBrief } = await lane.api.brief(idea.trim(), phrase ?? undefined, inspiration ?? undefined, state.productKind)
       // The product-kind chip is the admin's explicit choice — it wins over
       // whatever garment the writing brain guessed from the idea text alone.
       const resolvedBrief: StepBrief =
@@ -203,7 +204,7 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
     setError(null)
     setCreating(true)
     try {
-      const { productId } = await createStepFlowProduct(idea.trim(), brief, inspiration ?? undefined)
+      const { productId } = await lane.createProduct(idea.trim(), brief, inspiration ?? undefined)
       dispatch({ type: 'PRODUCT_CREATED', productId })
       await refresh({ productId, advance: true })
     } catch (err: any) {

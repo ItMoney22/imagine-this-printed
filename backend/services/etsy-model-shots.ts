@@ -248,10 +248,16 @@ const EXPRESSIONS = [
   'an easy open grin', 'chin slightly down, warm and unbothered'
 ] as const
 
+// Every pose here keeps the arms OFF the chest. "Arms crossed loosely" used to
+// live in this pool and was the single most reliable way to fail design-fidelity
+// QA (David 2026-09-08: "The lower portion of the owl artwork is hidden behind
+// the model's crossed arms") — the prompt was instructing the exact pose that
+// its own fidelity rule 5 forbids. A pose that covers the print is not a style
+// choice, it is a wasted render.
 const POSES = [
   'hands in their pockets', 'arms hanging loose at their sides',
   'one hand tugging the shirt hem straight', 'a shoulder leaned against whatever is behind them',
-  'weight shifted onto one hip', 'arms crossed loosely',
+  'weight shifted onto one hip', 'both arms relaxed and open, well clear of the chest',
   'thumbs hooked in their belt loops', 'one hand up adjusting their hair'
 ] as const
 
@@ -284,7 +290,7 @@ const YOUTH_EXPRESSIONS = [
 
 const YOUTH_POSES = [
   'standing squarely with hands at their sides', 'hands in their pockets',
-  'one hand tugging the shirt hem straight', 'arms crossed loosely',
+  'one hand tugging the shirt hem straight', 'both arms relaxed at their sides, well clear of the chest',
   'weight on one foot, relaxed', 'both thumbs hooked in their jeans pockets',
 ] as const
 
@@ -389,7 +395,7 @@ const ARCHETYPES: readonly ShotArchetype[] = [
   },
   {
     id: 'student', label: 'student', role: 'with college-student energy', ages: AGES_YOUNG,
-    details: ['a backpack over one shoulder', 'a messy topknot', 'a lanyard tucked into the collar', 'earbuds in one ear', 'a spiral notebook under the arm', 'a hoodie tied around the waist'],
+    details: ['a backpack worn on BOTH shoulders with the straps behind the arms', 'a messy topknot', 'a lanyard tucked into the collar', 'earbuds in one ear', 'a pen tucked behind one ear', 'a hoodie tied around the waist'],
     keywords: ['school', 'student', 'back to school', 'class', 'grade', 'campus', 'college', 'university', 'academy', 'homework', 'kid', 'kids', 'youth', 'teen', 'junior', 'graduate', 'senior']
   },
   {
@@ -399,7 +405,7 @@ const ARCHETYPES: readonly ShotArchetype[] = [
   },
   {
     id: 'studious', label: 'studious', role: 'with a thoughtful, studious look', ages: AGES_YOUNG,
-    details: ['wire-frame glasses', 'a slightly overgrown haircut', 'a paperback in one hand', 'a headset around the neck', 'ink on the side of the hand', 'a subtle enamel pin on the collar'],
+    details: ['wire-frame glasses', 'a slightly overgrown haircut', 'a paperback held down at their side', 'a headset around the neck', 'ink on the side of the hand', 'a subtle enamel pin on the collar'],
     keywords: ['nerd', 'geek', 'gamer', 'gaming', 'math', 'science', 'book', 'read', 'library', 'chess', 'coder', 'code']
   },
   {
@@ -409,7 +415,7 @@ const ARCHETYPES: readonly ShotArchetype[] = [
   },
   {
     id: 'gym', label: 'gym', role: 'with an athletic, energetic build', ages: AGES_YOUNG,
-    details: ['a sweat-damp hairline', 'a fitness tracker on the wrist', 'a towel over one shoulder', 'a high tight ponytail', 'lifting-chalk dust on the hands', 'a shaker bottle in hand'],
+    details: ['a sweat-damp hairline', 'a fitness tracker on the wrist', 'a sweatband on one wrist', 'a high tight ponytail', 'lifting-chalk dust on the hands', 'a shaker bottle in hand'],
     keywords: ['gym', 'lift', 'workout', 'fitness', 'run', 'muscle', 'protein', 'athlete', 'sport', 'coach']
   },
   // Split from one "grandparent" archetype on purpose: the chip label is a
@@ -432,7 +438,7 @@ const ARCHETYPES: readonly ShotArchetype[] = [
   },
   {
     id: 'country', label: 'country', role: 'with an easygoing country style', ages: AGES_ADULT,
-    details: ['a well-shaped trucker cap', 'a sunburned neck', 'a big belt buckle just in frame', 'work-callused hands', 'a braid over one shoulder', 'a straw hat pushed back'],
+    details: ['a well-shaped trucker cap', 'a sunburned neck', 'a big belt buckle just in frame', 'work-callused hands', 'a braid worn down their back', 'a straw hat pushed back'],
     keywords: ['country', 'farm', 'ranch', 'truck', 'cowboy', 'hunting', 'southern', 'rodeo', 'horse']
   },
   // --- Youth lane (youth garments only) -------------------------------------
@@ -442,19 +448,19 @@ const ARCHETYPES: readonly ShotArchetype[] = [
   {
     id: 'kid', label: 'kid', role: 'with easy everyday kid energy', ages: YOUTH_AGES, audience: 'youth',
     presentations: YOUTH_PRESENTATIONS,
-    details: ['a simple everyday haircut', 'hair in a ponytail', 'light-up sneakers just in frame', 'a small backpack over one shoulder', 'two braids', 'a bucket hat pushed back'],
+    details: ['a simple everyday haircut', 'hair in a ponytail', 'light-up sneakers just in frame', 'a small backpack worn on BOTH shoulders, straps behind the arms', 'two braids', 'a bucket hat pushed back'],
     keywords: ['kid', 'kids', 'child', 'children', 'youth', 'boy', 'girl', 'toddler', 'cute', 'birthday', 'school', 'first grade', 'kindergarten']
   },
   {
     id: 'kid-playful', label: 'playful kid', role: 'with bright, playful energy', ages: YOUTH_AGES, audience: 'youth',
     presentations: YOUTH_PRESENTATIONS,
-    details: ['a gap-toothed grin', 'a soccer ball under one arm', 'chalk dust on the fingers', 'a scooter helmet held at their side', 'hair still messy from playing', 'a friendship bracelet'],
+    details: ['a gap-toothed grin', 'a soccer ball resting at their feet', 'chalk dust on the fingers', 'a scooter helmet held at their side', 'hair still messy from playing', 'a friendship bracelet'],
     keywords: ['play', 'playful', 'fun', 'silly', 'funny', 'dino', 'dinosaur', 'unicorn', 'space', 'rainbow', 'monster', 'ghost', 'halloween', 'trick or treat', 'spooky cute']
   },
   {
     id: 'kid-sporty', label: 'sporty kid', role: 'with sporty, active energy', ages: YOUTH_AGES, audience: 'youth',
     presentations: YOUTH_PRESENTATIONS,
-    details: ['a team ball cap', 'a high ponytail through the cap', 'grass-stained knees just in frame', 'a water bottle in one hand', 'shin guards just in frame', 'a fresh short haircut'],
+    details: ['a team ball cap', 'a high ponytail through the cap', 'grass-stained knees just in frame', 'a water bottle held down at their side', 'shin guards just in frame', 'a fresh short haircut'],
     keywords: ['sport', 'sports', 'soccer', 'baseball', 'basketball', 'football', 'team', 'coach', 'little league', 'dance', 'gymnastics', 'karate']
   },
   // --- Group lane (several people, one frame) --------------------------------
@@ -468,7 +474,7 @@ const ARCHETYPES: readonly ShotArchetype[] = [
   {
     id: 'family', label: 'family', role: 'a family wearing matching shirts', ages: YOUTH_AGES, audience: 'youth', group: true,
     presentations: YOUTH_PRESENTATIONS,
-    details: ['standing shoulder to shoulder', 'the younger one held on a hip', 'arms around each other', 'lined up youngest to oldest'],
+    details: ['standing shoulder to shoulder', 'the youngest standing in front, every shirt fully visible', 'arms around each other', 'lined up youngest to oldest'],
     keywords: ['family', 'matching', 'mom', 'dad', 'mama', 'papa', 'siblings', 'brother', 'sister', 'reunion', 'vacation', 'squad', 'crew', 'christmas', 'halloween', 'trick or treat']
   },
   {
@@ -855,7 +861,10 @@ const designFidelityRules = (placement: string, sizeInches: number, audience: Ga
   'or add a frame, border or background to the artwork.\n' +
   '4. Do NOT add ANY element the INPUT does not contain — no extra words, no logos, no brand marks, no watermarks, ' +
   'no signatures, no icons, no sparkles, no drop shadows.\n' +
-  '5. The whole graphic stays visible: nothing covers it — not hands, hair, arms, bag straps, jackets or shadow.\n' +
+  '5. The whole graphic stays visible: nothing covers it — not hands, hair, arms, bag straps, jackets or shadow. ' +
+  'This OUTRANKS the pose and the props described above: if folding the arms, holding an object, or wearing a ' +
+  'strap would cross the printed area, do not do it — drop the arms open at the sides, move the object down to ' +
+  'the hip or out of frame, and keep the chest completely unobstructed. A covered print is a failed photo.\n' +
   '6. The ONLY permitted deformation is real fabric behavior — the print follows the shirt\'s folds and the ' +
   'curve of the body like a genuine DTF transfer, slightly matte, ink sitting on the weave.\n' +
   `7. ${shotPlacementRule(placement, sizeInches, audience)}\n` +

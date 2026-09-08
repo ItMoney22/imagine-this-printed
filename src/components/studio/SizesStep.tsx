@@ -5,7 +5,7 @@
 // approval string the garment flow's Garments step stamps, so the rest of
 // the reducer's gating (canReachStep('mockups')) needs no metal branch.
 import React, { useState } from 'react'
-import { stepFlow } from '../../lib/api'
+import { useStudioLane } from './lane'
 import { METAL_ADDONS, METAL_ART_PRICES, STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../../backend/shared/metal-art'
 import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
 import { ApproveButton, InlineError, StepCard } from './shared'
@@ -33,6 +33,8 @@ interface SizesStepProps {
 }
 
 const SizesStep: React.FC<SizesStepProps> = ({ state, refresh }) => {
+  const lane = useStudioLane()
+
   const [sizes, setSizes] = useState<MetalArtSizeKey[]>(
     (state.stepFlow?.sizes as MetalArtSizeKey[] | undefined)?.length
       ? (state.stepFlow!.sizes as MetalArtSizeKey[])
@@ -50,7 +52,7 @@ const SizesStep: React.FC<SizesStepProps> = ({ state, refresh }) => {
     setError(null)
     setApproving(true)
     try {
-      await stepFlow.sizes(state.productId, sizes)
+      await lane.api.sizes(state.productId, sizes)
       await refresh({ advance: true })
     } catch (err: any) {
       setError(err?.message || 'Failed to approve sizes')

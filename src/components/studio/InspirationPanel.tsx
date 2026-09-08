@@ -8,7 +8,7 @@
 // she basically breaks down the whole design."
 import React, { useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, ImagePlus, RefreshCw, Sparkles, X } from 'lucide-react'
-import { stepFlow } from '../../lib/api'
+import { useStudioLane } from './lane'
 import type { InspirationBreakdown, InspirationChoices, InspirationQuestion, SelectedInspiration } from './types'
 import { InlineError, SecondaryButton } from './shared'
 import ProgressBar from './ProgressBar'
@@ -146,6 +146,8 @@ interface InspirationPanelProps {
 }
 
 const InspirationPanel: React.FC<InspirationPanelProps> = ({ inspiration, onIdeaChange, onSetInspiration }) => {
+  const lane = useStudioLane()
+
   const [open, setOpen] = useState(false)
   const [dragOver, setDragOver] = useState(false)
   const [urlInput, setUrlInput] = useState('')
@@ -174,7 +176,7 @@ const InspirationPanel: React.FC<InspirationPanelProps> = ({ inspiration, onIdea
     analyzeStartedAtRef.current = Date.now()
     setAnalyzing(true)
     try {
-      const res = await stepFlow.inspiration(imageSrc)
+      const res = await lane.api.inspiration(imageSrc)
       setResult({
         intro: res.intro,
         imageUrl: res.inspiration.imageUrl,
