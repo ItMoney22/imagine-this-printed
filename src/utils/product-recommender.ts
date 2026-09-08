@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { applyStorefrontVisibility } from '../lib/product-visibility'
 import type { Product, User, CartItem } from '../types'
 
 export interface RecommendationScore {
@@ -117,11 +118,14 @@ export class ProductRecommender {
       .slice(0, limit)
       .map(([id]) => id)
 
-    const { data: products, error: productsError } = await supabase
-      .from('products')
-      .select('id, name, description, price, images, category, is_active, is_featured')
-      .in('id', rankedIds)
-      .eq('is_active', true)
+    // Storefront gate, not just is_active — a co-purchase row can point at a
+    // product that has since been pulled back to draft.
+    const { data: products, error: productsError } = await applyStorefrontVisibility(
+      supabase
+        .from('products')
+        .select('id, name, description, price, images, category, is_active, is_featured, status')
+        .in('id', rankedIds)
+    )
 
     if (productsError || !products) return []
 
@@ -141,11 +145,14 @@ export class ProductRecommender {
     excludeIds: string[],
     limit: number
   ): Promise<Product[]> {
-    const { data, error } = await supabase
-      .from('products')
-      .select('id, name, description, price, images, category, is_active, is_featured')
-      .eq('is_active', true)
-      .limit(limit * 3 + excludeIds.length + 5)
+    // Same gate the catalog uses. Filtering on `is_active` alone pulled from
+    // every unfinished draft design in the table (2,538 rows vs 118 live ones),
+    // which is how raw un-priced artwork ended up in "Recommended for You".
+    const { data, error } = await applyStorefrontVisibility(
+      supabase
+        .from('products')
+        .select('id, name, description, price, images, category, is_active, is_featured, status')
+    ).limit(limit * 3 + excludeIds.length + 5)
 
     if (error || !data) return []
 

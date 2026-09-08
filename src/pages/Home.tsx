@@ -7,6 +7,7 @@ import BlankTeesSection from '../components/BlankTeesSection'
 import type { Product } from '../types'
 
 import { supabase } from '../lib/supabase'
+import { applyStorefrontVisibility } from '../lib/product-visibility'
 
 // Lazy load heavy components - they load AFTER initial render
 const ProductRecommendations = lazy(() => import('../components/ProductRecommendations'))
@@ -85,12 +86,12 @@ const Home: React.FC = () => {
     const fetchFeaturedProducts = async () => {
       try {
         // Optimized query - only fetch needed columns
-        const { data, error } = await supabase
-          .from('products')
-          .select('id, name, description, price, images, category, is_active, is_featured')
-          .eq('is_featured', true)
-          .eq('is_active', true)
-          .limit(12)
+        const { data, error } = await applyStorefrontVisibility(
+          supabase
+            .from('products')
+            .select('id, name, description, price, images, category, is_active, is_featured, status')
+            .eq('is_featured', true)
+        ).limit(12)
 
         if (error) throw error
 
@@ -124,11 +125,14 @@ const Home: React.FC = () => {
   useEffect(() => {
     const fetchCommunityProducts = async () => {
       try {
-        const { data, error } = await supabase
-          .from('products')
-          .select('id, name, description, price, images, category, is_active, is_featured, is_user_generated')
-          .eq('is_user_generated', true)
-          .eq('is_active', true)
+        // status='active' matters here, not just is_active: three of the
+        // thirteen rows this used to return were unfinished drafts.
+        const { data, error } = await applyStorefrontVisibility(
+          supabase
+            .from('products')
+            .select('id, name, description, price, images, category, is_active, is_featured, is_user_generated, status')
+            .eq('is_user_generated', true)
+        )
           .order('created_at', { ascending: false })
           .limit(8)
 

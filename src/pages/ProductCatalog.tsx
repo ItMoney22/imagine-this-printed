@@ -3,6 +3,10 @@ import { useParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
 import { canonicalCategoryOf, categoryValuesFor } from '../lib/product-kind'
+// The approval predicate now lives in the shared visibility module so the
+// catalog and the recommendation widget cannot answer "is this sellable?"
+// differently again — they did, and drafts leaked into recommendations.
+import { applyApprovalFilter } from '../lib/product-visibility'
 import type { Product } from '../types'
 
 // Products per page. Chosen as a multiple of the 3-column xl grid so the
@@ -32,19 +36,6 @@ function mapProductRow(p: any): Product {
     colors: p.colors || p.metadata?.colors || [],
     isUserSubmitted: p.metadata?.is_user_submitted || false
   } as Product
-}
-
-// Unapproved user-submitted designs must never leave the server — this used
-// to be a client-side `.filter(Boolean)` run AFTER the full row (name,
-// image, price, everything) had already been sent to the browser. Written as
-// an explicit "keep if NOT flagged unapproved" OR, not a negated AND: most
-// catalog rows never set metadata.is_user_submitted at all, and Postgres's
-// 3-valued NULL logic makes `NOT (a AND b)` silently drop rows where a/b are
-// simply unset — this would have hidden the entire non-user-submitted catalog.
-function applyApprovalFilter(query: any) {
-  return query.or(
-    'metadata->>is_user_submitted.is.null,metadata->>is_user_submitted.eq.false,metadata->>approved_by_admin.eq.true'
-  )
 }
 
 // Server-side mirror of canonicalCategoryOf (src/lib/product-kind.ts). Metal
