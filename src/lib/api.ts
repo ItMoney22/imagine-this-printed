@@ -737,11 +737,22 @@ export interface CastingDecision {
   label: string
   audience: 'adult' | 'youth'
   reason: string
-  source: 'mrs-imagine' | 'keywords' | 'default'
+  source: 'mrs-imagine' | 'keywords' | 'default' | 'manual'
   read?: CastingRead
   /** Set when the artwork reads as a kids' design but the garment is an adult
    *  size — the shot still shows an adult; this is the nudge to switch. */
   mismatch?: string
+}
+
+/** One castable model archetype (backend/services/etsy-model-shots.ts's
+ *  ARCHETYPES, via GET /api/admin/etsy/shot-subjects). `persona` doubles as
+ *  the picker's tooltip. */
+export interface ShotSubject {
+  id: string
+  label: string
+  persona: string
+  keywords: string[]
+  audience: 'adult' | 'youth'
 }
 
 export interface ColorAdvice {
@@ -1003,11 +1014,20 @@ export const stepFlow = {
       body: JSON.stringify(keys ? { keys } : {}),
     }),
 
-  /** Re-queues one shot with a fresh nonce; the old asset stays (unapproved) until the redo lands. */
-  redoShot: (productId: string, key: ShotKey): Promise<{ job: StepFlowJob }> =>
+  /** Re-queues one shot with a fresh nonce; the old asset stays (unapproved)
+   *  until the redo lands. `subjectId` (model shot only, David 2026-09-08)
+   *  picks exactly who models it instead of letting Mrs. Imagine re-cast. */
+  redoShot: (productId: string, key: ShotKey, subjectId?: string): Promise<{ job: StepFlowJob }> =>
     stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}/redo`, {
       method: 'POST',
+      body: JSON.stringify(subjectId ? { subjectId } : {}),
     }),
+
+  /** The archetypes castable on a garment (GET /api/admin/etsy/shot-subjects)
+   *  — youth-only, adult-only, or the full catalog with no `garment`. Powers
+   *  the "who should model this" picker on the Mockups step. */
+  shotSubjects: (garment?: StepFlowGarmentId): Promise<{ subjects: ShotSubject[] }> =>
+    stepFlowRequest(`/api/admin/etsy/shot-subjects${garment ? `?garment=${encodeURIComponent(garment)}` : ''}`),
 
   /** Approves (or rejects) one shot's asset. `skipped` marks a failed shot as
    *  settled without redoing it — `assetId` is optional so an orphaned/never-

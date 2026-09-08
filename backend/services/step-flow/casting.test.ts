@@ -20,7 +20,7 @@ vi.mock('openai', () => ({
   },
 }))
 
-const { castForDesign, pickByKeywords, coerceDesignRead, mismatchNote } = await import('./casting.js')
+const { castForDesign, pickByKeywords, coerceDesignRead, mismatchNote, manualCast } = await import('./casting.js')
 
 /** One vision reply, in the shape the model is asked for. */
 const reply = (body: Record<string, unknown>) => ({
@@ -63,6 +63,26 @@ describe('pickByKeywords', () => {
   it('does not fire on a keyword buried inside another word', () => {
     // 'art' must not match "heart", 'kid' must not match "kidney".
     expect(pickByKeywords('Heart Kidney Anatomy Poster', 'adult')).toBeNull()
+  })
+})
+
+describe('manualCast — the admin picks the model directly', () => {
+  it('builds a decision from the id without calling the vision model', () => {
+    const decision = manualCast('kid-playful', 'youth-tshirt')
+    expect(decision).toMatchObject({ subjectId: 'kid-playful', audience: 'youth', source: 'manual' })
+    expect(decision?.reason).toContain('you picked')
+    expect(create).not.toHaveBeenCalled()
+  })
+
+  it('returns null for a subject outside the garment audience', () => {
+    // 'goth' is a real archetype, but an ADULT one — never castable on a
+    // youth tee, admin pick or not.
+    expect(manualCast('goth', 'youth-tshirt')).toBeNull()
+    expect(manualCast('kid-playful', 'tshirt')).toBeNull()
+  })
+
+  it('returns null for an unknown id', () => {
+    expect(manualCast('not-a-real-subject', 'tshirt')).toBeNull()
   })
 })
 

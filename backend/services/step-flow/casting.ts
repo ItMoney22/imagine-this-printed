@@ -61,7 +61,7 @@ export interface CastingDecision {
   /** One plain sentence for the panel: why this person is wearing this design. */
   reason: string
   /** Where the decision came from, so a bad cast is explainable. */
-  source: 'mrs-imagine' | 'keywords' | 'default'
+  source: 'mrs-imagine' | 'keywords' | 'default' | 'manual'
   read?: DesignRead
   /**
    * Set when the DESIGN reads as a different audience than the GARMENT sells
@@ -129,6 +129,28 @@ function defaultSubject(audience: GarmentAudience): ShotSubject {
   const all = listShotSubjects(audience)
   // 'classic' (adult) and 'kid' (youth) are the deliberately plain ones.
   return all.find((s) => s.id === 'classic' || s.id === 'kid') ?? all[0]
+}
+
+/**
+ * Skip Mrs. Imagine entirely — the admin already knows who they want (David
+ * 2026-09-08: "I should be able to say who I want the mock up to be").
+ * Still bound by the same garment-audience wall as every other path here: a
+ * youth subject can never be forced onto an adult garment or vice versa, so
+ * an id outside `garment`'s castable list returns null and the caller
+ * decides how to handle that (reject the request rather than silently
+ * falling back to a random cast — the admin asked for a SPECIFIC person).
+ */
+export function manualCast(subjectId: string, garment: GarmentId): CastingDecision | null {
+  const audience = audienceForGarment(garment)
+  const subject = listShotSubjects(audience).find((s) => s.id === subjectId)
+  if (!subject) return null
+  return {
+    subjectId: subject.id,
+    label: subject.label,
+    audience,
+    source: 'manual',
+    reason: `${subject.label} — you picked this person for the shot.`,
+  }
 }
 
 // ---------------------------------------------------------------------------
