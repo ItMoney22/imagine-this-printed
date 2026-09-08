@@ -3169,3 +3169,169 @@ Mockups step and re-publishing is the existing clean path.
 
 ## Merge-and-push sweep #2 (2026-09-08, zero-nine, David: "theres new things to push go check it and get it done")
 Found four separate finished-but-uncommitted tasks sitting in the shared checkout (the three above this entry plus the multi-model-shot work), each already self-documented in this file as verified and explicitly held back pending a push decision. Re-ran backend+frontend typecheck, `npx eslint`, the five relevant vitest files (139 tests) and a full `npm run build` against the combined working tree before committing anything — all green. Committed as four separate commits along the approved shortlists above (one shared file, `src/lib/api.ts`, genuinely carries both the design-QA-autofix and add-another-model changes interleaved; filed with the latter) and pushed as one deploy.
+
+## Library design -> Step Flow (2026-09-08, zero-nine, David: "a button that allows me to bring into step flow ... it will name it etc then make mockups for it so we can use these designs to add to our store")
+- File shortlist (approved scope): `backend/routes/admin/ai-products-step-flow.ts` (+ test), `backend/services/step-flow/shots.ts`, `src/lib/api.ts`, `src/components/AdminDesignLibrary.tsx`, `src/components/studio/DesignStep.tsx`, `TASK_NOTES.md`.
+- WHY: the admin Designs tab holds ~2,700 imported designs and there was no way to turn one into a real listing through the Step Flow. The existing "Continue in Step Flow" deep link (AdminProductEditModal) does NOT work for them: `scripts/import-designs.mjs` writes the artwork ONLY to `products.images` and never creates a `product_assets` row, while the flow reads its takes from `product_assets` (`kind:'source'`) — so every library design opened an EMPTY Design step with no candidate to pick and no way forward.
+- WHAT CHANGED: new `POST /:id/step/adopt`. It creates the missing `kind:'source'` design asset from `products.images[0]` (reusing `metadata.gcs_path`, so it points at the SAME GCS object rather than duplicating an 11 MB PNG), seeds `step_flow.idea` from the design's catalogued name, and then runs the ordinary design-selection path over it. That path was extracted out of `POST /:id/step/select-design` into `selectDesignForFlow()` so an adopted design gets exactly the same approval stamp, watermarked gallery copy and inline background removal as one the flow drew itself — no second implementation to drift. Adopts IN PLACE (David's call): the library row is the product that gets published, so the grid shows a design flip draft -> LIVE and it stays visible which designs have become listings. `brief` stays `null` (nothing generated this design, so there is no prompt to store or tweak).
+- THE GATE THAT HAD TO MOVE: `/step/publish` sets `status:'active'` directly and never consults the design-library print-quality gate that `/design-library/set-status` runs, so routing a design through the Step Flow would have been a way to put blurry artwork live that the grid's own Activate button refuses. `adopt` therefore runs `canActivate()` itself and 422s with the same `blocked` payload the grid already renders (a knowingly-released quarantine still passes).
+- ALSO FIXED, both pre-existing and both hit by this path: the details card fell back to the literal string 'Custom Design'/'Custom Metal Print' for any draft without a brief (the classic-wizard deep link had the same bug) — it now falls back to `product.name` first; and DesignStep's "Try another" offered a paid re-render on drafts with no `image_prompt`, where `POST /:id/regenerate-images` can only ever 400. It now reads the same two fields that endpoint checks.
+- The button doubles as the repair: pressing it on a product whose source was never selected, or whose background removal never produced a `nobg` asset, re-runs the cut. Without that a failed rembg dead-ends the Design step with nothing to approve.
+- UI: a "Step Flow" action on every design card in the library grid (nested inside the card's own select-toggle, so the click is stopped explicitly — same pattern as the QA badge), plus a toolbar button when exactly one design is selected. Bulk is deliberately not offered: the flow is approval-gated one product at a time; the bulk path for many designs stays Mockups + QA + Activate.
+- VERIFIED: `npx vitest run backend/routes/admin/ai-products-step-flow.test.ts` 28/28 green (10 new adopt tests: asset creation from `products.images`, GCS path reuse, approval stamp + idea seeding, inline rembg pre-claimed as running, the 422 print block, the released-quarantine pass, idempotency, the half-adopted repair, the failed-cut retry, and the no-image refusal, plus 2 pinning the select-design status contract the extraction had to preserve — a missing asset is 404, a non-source asset is 400, and `StepFlowNotFoundError` exists solely to keep that 404 from collapsing into 400); `backend/routes/admin` + `backend/services/step-flow` + `src/components/studio` 332/332 green; backend `tsc --noEmit` clean (file confirmed in the program via `--listFiles`); `npm run build` succeeds; `npx eslint` 0 errors on the changed files. Full `npx vitest run` has 12 failures, ALL of them inside `.claude/worktrees/` (other sessions' stale checkouts), none in this tree.
+- KNOWN, NOT ADDRESSED: a library PNG carrying a PAINTED checkerboard (opaque fake transparency — see [[itp-design-qa-transparency-gap]]) still falls through to AI segmentation, which can eat art detached from the main subject. That is the pre-existing site-wide behaviour, not something adopt introduces, and the Design step's checkerboard/white/black preview shows it before anything is approved.
+- NOT COMMITTED, NOT DEPLOYED as of when this was written — the shared checkout is on `main` and a push there is a production deploy.
+
+## Designs in the Step Flow leave the to-do pile (2026-09-08, zero-nine, David: "once i bring it into step flow it should show up under products it takes it down from designs ... so we dont do the same ones twice because idk where to pick up the step flow i already am doing")
+- File shortlist (approved scope): `backend/services/step-flow/progress.ts` (NEW, + test), `backend/routes/admin/design-library.ts`, `backend/routes/admin/ai-products-step-flow.ts` (+ test), `src/lib/api.ts`, `src/components/AdminDesignLibrary.tsx`, `src/components/studio/ResumeBuilds.tsx` (NEW), `src/pages/AdminAIProductBuilder.tsx`, `src/pages/AdminDashboard.tsx`, `TASK_NOTES.md`.
+- WHY: with the adopt button from the entry above, a design pulled into the Step Flow stayed sitting in the Designs grid looking exactly like untouched work — so the same design could be started twice — and a half-finished build was then near-impossible to find again, because it is one draft row among ~2,700 in the catalog with nothing marking it.
+- NEW `services/step-flow/progress.ts`: `isInStepFlow()` + `stepFlowStage()`, the server-side answer to "where is this build standing". Deliberately mirrors `canReachStep` in `stepFlowReducer.ts` — including the two awkward rules, that `design -> garments` is gated on the no-background ASSET existing (not on `approvals.design`, which is stamped before the cut even starts) and that metal art is exempt from that because it never gets one. If the two rule sets drift, a list promises one step and the builder opens another.
+- DESIGNS GRID: the chips are now `To do | In Step Flow | Live | All` and **To do is the default** — `status:'draft'` AND not in the flow, which is the view that answers "don't do the same one twice". Filtering happens IN SQL (`metadata->step_flow->approvals->>design`), not after the fetch, because `.range()` has already been applied and a post-filter would corrupt both the page count and the paging. The last hop is `->>` rather than `->` on purpose: that is the extraction form already proven against this project's PostgREST by the neighbouring `metadata->>import_source` filter. Sidebar counts split `draft` into `to do` / `building` so the number agrees with the default view. An in-flow card keeps an `IN STEP FLOW` badge and its button reads `Resume · <step>`.
+- FINDING IT AGAIN, three ways: (1) the `In Step Flow` chip in the Designs grid; (2) NEW `GET /api/admin/products/ai/step/in-progress` behind a "Pick up where you left off" strip on the builder page, shown only when no build is open — this covers builds generated from an idea too, not just adopted designs, and it works retroactively for drafts that predate all of this because it queries the approval stamp rather than a new flag; (3) the Products tab, where the status dropdown gained "In Step Flow (building)" and the row shows a `Resume Step Flow` link. That third one is what David asked for literally ("show up under products") — the rows were always there, they just had nothing to distinguish them.
+- Deliberately NOT hidden outright from the Designs grid: it leaves the default To-do view but stays findable under its own chip. Hiding it entirely would make an abandoned build unreachable from the place David is looking.
+- A published build (`status:'active'`) drops out of every in-progress list and shows under Live — the design genuinely does flip from draft to LIVE in the same grid.
+- VERIFIED: `progress.test.ts` 16/16 new unit tests (incl. the metal exemption, a failed-but-not-skipped shot NOT counting as settled, and published winning over everything); `ai-products-step-flow.test.ts` 32/32 with 4 new in-progress endpoint tests — this needed the suite's fake supabase extended with `neq`/`in`/`is`/`not` and a jsonb-path resolver, since it only understood `eq` on flat columns before; backend `tsc --noEmit` clean; `npm run build` (which runs `tsc -b`) succeeds; `npx eslint` 0 errors. Backend + component suites 1586 passing, the only 8 failures are in `.claude/worktrees/` (other sessions' stale checkouts).
+- NOT COMMITTED, NOT DEPLOYED — same as the entry above, and both must ship together: the adopt button without this tracking is what created the confusion.
+
+### Follow-up 2026-09-08 — "all the designs went away and the 1 live one isnt even showing up in products"
+Screenshot: Halloween showing `To do` / `In Step Flow` with NO counts, `Live 1`, `All 30`, and "0 design(s)". Diagnosed against the live DB and the running processes rather than guessed at — **no data was lost**: Halloween holds all 30 rows (29 draft, 1 active), and 3 Step Flow builds are unfinished across the catalog.
+
+**Cause 1 — frontend/API version skew (a defect I introduced).** David's browser was on the new frontend while the API answering it was older: prod `/api/admin/products/ai/step/in-progress` returns 404, and his local API on :4000 returns 404 for it while returning 401 for `/step/adopt` — i.e. a `tsx` process (no `--watch`, see backend `dev` script) started between the two rounds of work. An older API answers `status=todo` by filtering `products.status = 'todo'`, matches nothing, and returns an empty page with a 200. The chip counts confirmed it exactly: `current?.todo`/`in_flow` were `undefined` (old `/collections` shape) so those chips rendered with no number, while `active`/`total` rendered 1 and 30.
+This is NOT just a stale-dev-server story — **Vercel and Render deploy independently**, so every real release has a window with precisely this pairing, and the Designs grid would have gone blank in production. Fixed on both sides:
+- Frontend feature-detects off the `/collections` response (the new one carries per-view counts) and falls back to the old `All | Draft | Live` chips, coercing `statusFilter` away from `todo`/`in_flow` BEFORE any fetch goes out. Sidebar counts fall back to the raw `draft` count, so a collection can never read as empty.
+- Backend now only filters on a whitelisted real status (`RAW_STATUSES`); any unrecognised view — including one from a NEWER frontend than the API — falls through to "all". Fails open and visible instead of blank and mysterious.
+- NEW `src/components/AdminDesignLibrary.test.tsx` (5 tests) pins both directions of the skew, including "never asks an older API for a view it cannot answer".
+
+**Cause 2 — the Products tab was silently truncated (pre-existing, unrelated to this work).** `loadProducts` did `supabase.from('products').select('*')` with no range. PostgREST caps an unbounded select at **1,000 rows** and reports nothing; the catalog has **2,592**. The tab therefore only ever held the newest 1,000, and since search/filter/paging all run client-side over that array, the missing 1,592 were unreachable by any means. David's live design "Resting Witch Face" sits at row 1,523 — genuinely impossible to find. Now paged in 1,000-row batches until exhausted. The select was also narrowed from `*` (32 columns) to the 12 the tab renders, because the mapping was discarding ~20 columns of description/keyword/SEO text on every row — that claws back most of the cost of fetching 2.6x more rows (measured: 3.25 MB truncated before → 6.25 MB complete after, vs 8.42 MB if `*` had been kept). `is_featured` was also being dropped by that mapping while the row rendered `product.is_featured`, so the featured star read as off for every product regardless of the column; it is now carried through.
+
+**Also confirmed working:** David has real Step Flow builds — "Resting Witch Face" published live end to end (garment tee, 5 shots incl. a colour variant), plus three unfinished ones the new resume list will show: Hip-Hop Gorilla Swag Tee (on Listing), Bad Witch Vibes (on Mockups, 4 shots rendered awaiting approval) and Mic Drop Monkey Tee (shots still rendering).
+
+**Immediate unblock for David:** restart the local backend on :4000 — it is a `tsx` process with no watcher, so it is pinned to the code as of whenever it was started.
+- VERIFIED: `npm run build` clean; backend `tsc --noEmit` clean; `backend/routes/admin` + `backend/services/step-flow` + `src/components` 373 tests passing.
+
+### Correction 2026-09-08 — "you moved them ALL to products and i dont want that"
+Paging the Products tab (previous entry) fixed the truncation but did it by loading **everything**, which pushed 2,368 untouched design-library drafts into a tab that is meant to be the store. David's rule, stated plainly: *"the only ones that go into products is the ones that i put through the step flow, they stay in designs till i move them through step flow. the moment they done with step flow they should be in products."*
+
+**The rule, encoded:** a design-library row earns a place in Products by going LIVE — which is exactly what finishing the Step Flow does to it (`/step/publish` sets `status:'active'`). Until then it belongs to the Designs tab, in progress or not.
+
+Written as an OR, not as "not a design-library draft":
+```
+metadata->>import_source.is.null,metadata->>import_source.neq.design-library,status.eq.active
+```
+The `is.null` branch is load-bearing — `metadata->>import_source` is NULL for everything that was never imported, and in SQL `NULL <> 'design-library'` evaluates to NULL rather than true, so a plain `.neq()` would have silently dropped the entire real catalog. Verified against the live DB before shipping rather than reasoned about: **224 rows shown (was 2,592), the only design-library row among them is the one that is live ("Resting Witch Face"), and 2,368 hidden + 224 shown = 2,592 exactly** — nothing lost, nothing double-counted.
+
+Side effect worth having: the tab now transfers **0.70 MB** instead of 6.25 MB — lighter than the 3.25 MB *truncated* list it originally replaced, so correctness and speed both improved.
+
+Nothing is hidden silently: the count line reads "224 of 224 products · 2,368 designs waiting in Designs", and that number is a button that jumps to the Designs tab. The count is a real `head:true` query, not an assumption.
+
+Kept deliberately: the "In Step Flow (building)" status option and the per-row `Resume Step Flow` link. Those now only ever match builds that were GENERATED in the flow (never imported), which are legitimately products — a library design in progress is no longer in this tab at all, which is the rule.
+- VERIFIED: `npm run build` clean; backend `tsc --noEmit` clean; 373 tests passing; the row-count invariant checked directly against production data.
+
+### Follow-up 2026-09-08 — "the 1 product that i put through step flow, why isnt that 1 in products??"
+It WAS in Products. It was on **page 4**. Reproduced the browser's exact query with the anon key (RLS on, unlike the earlier service-role checks) rather than reasoning about it: 224 rows returned, "Resting Witch Face" present at row 170 of a 50-row-per-page table.
+
+**Cause: the table sorted by `created_at`, and for an imported design that is the IMPORT date, not the date it became a product.** Resting Witch Face was created 2026-07-06 (import) and published 2026-09-08 (Step Flow). So the thing David had *just finished* sorted as if it were two months old and landed four pages down. Ordering the same 224 rows by `updated_at` puts it at row 0.
+
+Fixed by ordering the Products tab on `updated_at desc` with `nullsFirst:false` — Postgres sorts NULLs FIRST on a DESC order, which would float any never-touched row above everything real (0 such rows today, but the flag costs nothing and the alternative is a silent future regression). Finishing a build now puts it at the top of the list, which is where you go looking for it.
+
+Also added a **"Built in Step Flow"** option to the status dropdown (products carrying `step_flow.approvals.design`, finished or not) alongside the existing "In Step Flow (building)", so "where is the thing I just made" has an answer that does not depend on remembering its name. Both are opt-in dropdown values — no change to the default view, which is what David has twice asked not to be cluttered.
+- VERIFIED: browser-equivalent anon query returns the product; ordering by `updated_at` puts it at row 0 / page 1; `npm run build` clean; 373 tests passing.
+
+---
+
+## Current request (2026-09-08) — the customer studio must BE the Step Flow
+
+David: *"look at our step flow which is really good i wanted our customers to have
+the same flow on design studio but its diff it needs to match and have mrs
+imagine on it. please look and mimic minus the etsy step ofc"*
+
+Answered in-session: the surface is **`/creator/studio`** (the only customer page
+that is already a build flow), and with Etsy gone the last hex is
+**Listing -> Submit for review** (pending_approval, the queue creators already
+go through) — never a direct publish.
+
+### What was different
+`CreatorStudio.tsx` was a chat-with-Mr.-Imagine build (Type / Brief / Generate /
+Pick / Shots / Submit) on its own `/api/creator/studio` rail. The admin Step Flow
+(Idea / Design / Garment & Color / Mockups / Listing / Etsy) is a different state
+machine, a different look, and it is the one with Mrs. Imagine on it (phrase
+pitches + inspiration breakdown). Nothing was shared between them.
+
+### Approach — one flow, two lanes (not a fork)
+The step components are reused verbatim; what changes is a **lane** they read out
+of React context: which hexes exist, which API base the calls go to, whether the
+team-only panels render, and what the last button says. Same on the server: the
+existing step-flow router is mounted a SECOND time behind a customer gate, so
+there is exactly one implementation of every step.
+
+### File shortlist (approved scope — 2026-09-08 customer step flow)
+Backend
+- `backend/routes/studio-flow.ts` (new — customer lane: creator gate, ownership,
+  ITC metering, `/step/create`, mounts the shared router)
+- `backend/routes/admin/ai-products-step-flow.ts` (lane-aware guard; lane-aware
+  finish; `GET /step/shot-subjects`; `POST /:id/step/listing-copy`)
+- `backend/routes/admin/ai-products.ts` (export the `/create` handler; stamp
+  ownership when a customer lane calls it)
+- `backend/index.ts` (mount `/api/studio`)
+- `backend/routes/studio-flow.test.ts` (new)
+Frontend
+- `src/lib/api.ts` (`createStepFlowApi(base)` factory + `customerStepFlow`)
+- `src/components/studio/lane.tsx` (new — lane context)
+- `src/components/studio/types.ts`, `shared.tsx`, `stepFlowReducer.ts`,
+  `StepFlowBuilder.tsx` (lane-aware step order + tracker)
+- `src/components/studio/{Idea,Design,Garment,Sizes,Mockup,Listing}Step.tsx`,
+  `InspirationPanel.tsx`, `PrintPrepPanel.tsx`, `ResumeBuilds.tsx` (use the lane's api)
+- `src/pages/CreatorStudio.tsx` + `src/pages/CreatorStudioVoice.tsx` (the old chat
+  build, kept behind a toggle)
+- `src/components/studio/lane.test.tsx` (new)
+
+### Work log 2026-09-08 — the customer studio IS the Step Flow now
+- **One router, two mounts.** `/api/studio` mounts the SAME
+  `ai-products-step-flow.ts` router behind `routes/studio-flow.ts`. That file
+  owns everything that must not be shared: the creator gate, ownership, ITC
+  metering, and the `req.studioLane` flag. The shared router's role check
+  skips only when that flag is set, and the flag is set by the mount — never
+  by the client — after auth + creator + ownership have already run.
+- **One frontend factory, two lanes.** `createStepFlowApi(base)` in
+  `src/lib/api.ts` replaces the hard-coded admin paths; `components/studio/lane.tsx`
+  binds a lane's api + hexes + copy into context, and every step component now
+  calls `lane.api.*` instead of the module-level `stepFlow`. The admin page
+  passes no lane and behaves exactly as before (the context defaults to it).
+- **Two real traps found while wiring it, both fixed with a test:**
+  1. The ownership guard keyed on the FIRST path segment, which sent
+     `/pricing` off to look up a product named "pricing" and 404'd the page's
+     own price call. Keyed on the second segment being `step` instead.
+  2. `furthestReachableStep` walked a module-level `STEP_ORDER`, so the moment
+     a customer's listing was approved it resolved to `etsy` — a step their
+     lane cannot render and their server has no route for. The builder would
+     have gone blank at the exact moment the build succeeded. The lane's own
+     order now lives on reducer state.
+- **The review queue matches on TWO things.** `GET /api/admin/user-products/pending`
+  filters `metadata.user_submitted = 'true'` AND `status = 'pending_approval'`.
+  Stamping only the status would have dropped every customer build into a place
+  nothing lists and nobody reviews, so the finish stamps `user_submitted`,
+  `submitted_at`, `creator_id` and `creator_royalty_percent` together — the same
+  fields `creator-studio.ts`'s own `/:id/submit` writes.
+- **The mockup fan-out is charged once per build, not per call.** The Mockups
+  step queues whatever keys are missing and can fire again later (an extra
+  colour adds a `color:<id>` shot); a flat per-call meter would have re-billed
+  the whole 5x fan-out for one extra render. The charge is recorded on
+  `products.metadata.studio_billing.shots` and never taken twice. Redoes and
+  extra model shots stay per-render, because that IS one render each.
+- **Team-only tooling stays team-only:** the halftone print-prep panel, the
+  storefront promo picker, and "Try another" (an unmetered staff spend route —
+  a customer retries via Tweak, which creates a fresh, charged draft) are all
+  behind the lane.
+- **Every door on the Creator Hub now opens the same builder** (David: "clicking
+  create new and the other tab should all go to the new step flow so the other
+  stuff needs to be gone"): the header "Create New", the "Apparel & Designs"
+  card, and the empty-state "Start Creating" all navigate to `/creator/studio`.
+  The "build LIVE with Mr. Imagine" banner and the old multi-option
+  `CreateDesignModal` are off the page. The voice build itself is not deleted —
+  it moved to `/creator/studio/voice` with a link from the studio header.
+  `src/components/CreateDesignModal.tsx` is now unreferenced; left on disk
+  pending David's word rather than deleted in the same pass.
+- VERIFIED: `npm run build` clean; backend `tsc --noEmit` clean; 92 files /
+  1,493 tests passing in this checkout (the 12 failures in a full `vitest run`
+  are inside `.claude/worktrees/**` — two other sessions' checkouts vitest
+  scans, untouched by this work). NOT yet exercised against a live backend.
