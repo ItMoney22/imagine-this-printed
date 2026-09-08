@@ -159,6 +159,8 @@ vi.mock('../../worker/ai-jobs-worker.js', () => ({ processMockupJob: (...args: a
 const {
   queueStepShots,
   redoShot,
+  addModelShot,
+  removeModelShot,
   approveShot,
   approveShotsBatch,
   resolveStepFlow,
@@ -683,6 +685,64 @@ describe('redoShot', () => {
       },
     })
     await expect(redoShot('p1', 'user-1', 'details')).rejects.toBeInstanceOf(StepFlowValidationError)
+  })
+
+  // David 2026-09-08: "keep the adult and add a kid ... or even what if i want
+  // a family all wearing the shirts."
+  describe('addModelShot — more than one person on a listing', () => {
+    it('adds a second on-person shot without touching the first', async () => {
+      seedProduct({
+        metadata: {
+          step_flow: {
+            version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+            shots: { model: { assetId: 'adult-shot', url: 'https://cdn/adult.png', approved: true, status: 'done' } },
+            approvals: {},
+          },
+        },
+      })
+      shootOneModelShot.mockResolvedValue({ url: 'https://cdn/kid.png', check: { ok: true } })
+
+      const { job } = await addModelShot('p1', 'user-1', 'known-subject')
+      expect(job.key).toBe('model:2')
+
+      await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots['model:2']?.status === 'done')
+      const sf = getStepFlow(db.products.find((p) => p.id === 'p1')!)
+      // The adult shot is untouched — still approved, same asset.
+      expect(sf.shots.model).toMatchObject({ assetId: 'adult-shot', approved: true, status: 'done' })
+      // ...and the new one landed in its own gallery slot with its own cast.
+      expect(sf.shots['model:2']?.casting).toMatchObject({ subjectId: 'known-subject' })
+      expect(db.product_assets.some((a) => a.asset_role === 'mockup_model_2')).toBe(true)
+    })
+
+    it('keeps allocating fresh slots and can remove an added one', async () => {
+      seedProduct({
+        metadata: {
+          step_flow: {
+            version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+            shots: {
+              model: { approved: true, status: 'done' },
+              'model:2': { approved: true, status: 'done' },
+            },
+            approvals: {},
+          },
+        },
+      })
+      shootOneModelShot.mockResolvedValue({ url: 'https://cdn/third.png', check: { ok: true } })
+
+      const { job } = await addModelShot('p1', 'user-1')
+      expect(job.key).toBe('model:3')
+
+      await removeModelShot('p1', 'model:3' as any)
+      expect(getStepFlow(db.products.find((p) => p.id === 'p1')!).shots['model:3']).toBeUndefined()
+      // The first on-person shot is part of every listing — it is redone, never dropped.
+      await expect(removeModelShot('p1', 'model' as any)).rejects.toBeInstanceOf(StepFlowValidationError)
+    })
+
+    it('routes an added shot to its own asset role', () => {
+      expect(roleForShotKey('model' as any)).toBe('mockup_model_1')
+      expect(roleForShotKey('model:2' as any)).toBe('mockup_model_2')
+      expect(roleForShotKey('model:7' as any)).toBe('mockup_model_7')
+    })
   })
 
   // David 2026-09-08: "I should be able to say who I want the mock up to be."

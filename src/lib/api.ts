@@ -497,6 +497,22 @@ export interface QaReview {
   rework: QaReworkItem[]
 }
 
+/** What Mrs. Imagine's repair pass changed, and what it deliberately did not.
+ *  See POST /api/admin/design-qa/autofix/:productId. */
+export interface QaAutofix {
+  /** False when there was nothing on file to repair (never reviewed, or the
+   *  latest verdict was not a failure) — `reason` says which. */
+  attempted: boolean
+  changed: boolean
+  reason: string | null
+  copy: { repaired: boolean; changes: string[]; note: string | null }
+  photos: { redone: Array<{ key: string; jobId: string | null }>; note: string | null }
+  price: { repaired: boolean; to: number | null }
+  /** Blocking findings nothing automatic should touch — David's call. */
+  unfixable: QaReworkItem[]
+  summary: string
+}
+
 const qaAuthHeaders = async (): Promise<Record<string, string>> => {
   const { data } = await supabase.auth.getSession()
   const token = data.session?.access_token
@@ -523,6 +539,41 @@ export const designQa = {
       warnings: Number(body?.warnings ?? 0),
       submission_no: Number(body?.submission_no ?? 0),
       rework: Array.isArray(body?.rework) ? body.rework : [],
+    }
+  },
+
+  /** MRS. IMAGINE STEPS IN. Repairs what is safely repairable about a failed
+   *  review's presentation — the listing copy, an out-of-band price, and a
+   *  re-shoot of the photo a finding is about — then leaves it to the caller
+   *  to submit a FRESH review. It passes nothing and overrides nothing.
+   *
+   *  `photos.redone` jobs are asynchronous: poll `stepFlow.get` until those
+   *  shot keys are terminal before resubmitting, or the review grades the
+   *  photo that is being replaced. */
+  autofix: async (productId: string, channel: QaChannel = 'etsy'): Promise<QaAutofix> => {
+    const response = await fetch(`${API_BASE}/api/admin/design-qa/autofix/${productId}`, {
+      method: 'POST',
+      headers: await qaAuthHeaders(),
+      body: JSON.stringify({ channel }),
+    })
+    const body = await response.json().catch(() => ({}))
+    if (!response.ok) throw new Error(body?.error || `HTTP ${response.status}`)
+    return {
+      attempted: body?.attempted === true,
+      changed: body?.changed === true,
+      reason: body?.reason ?? null,
+      copy: {
+        repaired: body?.copy?.repaired === true,
+        changes: Array.isArray(body?.copy?.changes) ? body.copy.changes : [],
+        note: body?.copy?.note ?? null,
+      },
+      photos: {
+        redone: Array.isArray(body?.photos?.redone) ? body.photos.redone : [],
+        note: body?.photos?.note ?? null,
+      },
+      price: { repaired: body?.price?.repaired === true, to: body?.price?.to ?? null },
+      unfixable: Array.isArray(body?.unfixable) ? body.unfixable : [],
+      summary: String(body?.summary ?? ''),
     }
   },
 
@@ -693,6 +744,10 @@ export type ShotKey =
   | 'hanger'
   | 'model'
   | 'details'
+  // Extra on-person shots the admin added (David 2026-09-08: "keep the adult
+  // and add a kid"). `model` is the first one and always exists; `model:2`,
+  // `model:3`, … are added people, each with its own cast.
+  | `model:${string}`
   | `color:${string}`
   // Metal print scenes (design doc §14) — one per approved size, e.g.
   // `scene:4x6`, `scene:8x10`. Never fired alongside product/hanger/model/
@@ -715,6 +770,9 @@ export interface ShotState {
    *  from, so a later redo of `product` can tell a stale details render
    *  apart from a fresh one. */
   sourceAssetId?: string
+  /** On-person shots only: who is in THIS photo and why. Per-slot, because a
+   *  listing can carry several people; `step_flow.casting` describes the first. */
+  casting?: CastingDecision
   /** A shot that SUCCEEDED but not as cast, in plain English — today only the
    *  youth no-model fallback (both image engines declined a child subject, so
    *  the shirt was photographed empty). Shown next to the thumbnail; distinct
@@ -753,6 +811,9 @@ export interface ShotSubject {
   persona: string
   keywords: string[]
   audience: 'adult' | 'youth'
+  /** Several people in one frame (family, couple) rather than a single model.
+   *  Only offered where the listing sells a size for everyone in the picture. */
+  group?: boolean
 }
 
 export interface ColorAdvice {
@@ -1021,6 +1082,21 @@ export const stepFlow = {
     stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}/redo`, {
       method: 'POST',
       body: JSON.stringify(subjectId ? { subjectId } : {}),
+    }),
+
+  /** Adds ANOTHER on-person shot, keeping every one already taken. Omit
+   *  `subjectId` to let Mrs. Imagine cast it from the artwork. */
+  addModelShot: (productId: string, subjectId?: string): Promise<{ job: StepFlowJob }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/model`, {
+      method: 'POST',
+      body: JSON.stringify(subjectId ? { subjectId } : {}),
+    }),
+
+  /** Drops an ADDED on-person shot (`model:<n>`) and its asset. The first
+   *  on-person shot can only be redone, never removed. */
+  removeShot: (productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> =>
+    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}`, {
+      method: 'DELETE',
     }),
 
   /** The archetypes castable on a garment (GET /api/admin/etsy/shot-subjects)

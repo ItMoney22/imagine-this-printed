@@ -54,6 +54,25 @@ export interface GalleryAsset {
 const COLOR_ROLE_WILDCARD = 'mockup_color_*'
 const COLOR_ROLE_PREFIX = 'mockup_color_'
 
+/**
+ * Sentinel role matching any `mockup_model_<n>` on-person shot.
+ *
+ * This used to be a hardcoded pair (`mockup_model_1`, `mockup_model_2`) back
+ * when the Etsy shoot always produced exactly two. David 2026-09-08: "what if
+ * i want another model? keep the adult and add a kid... or even what if i want
+ * a family all wearing the shirts" — a listing can now carry as many people as
+ * the admin adds, so this is a numerically-sorted wildcard like the extra
+ * colors above rather than a fixed list that silently swallows the third shot.
+ */
+const MODEL_ROLE_WILDCARD = 'mockup_model_*'
+const MODEL_ROLE_PREFIX = 'mockup_model_'
+
+/** `mockup_model_10` must sort AFTER `mockup_model_2`, which a plain sort gets wrong. */
+const byTrailingNumber = (a: string, b: string): number => {
+  const n = (r: string) => Number(r.slice(r.lastIndexOf('_') + 1)) || 0
+  return n(a) - n(b)
+}
+
 export const ROLE_ORDER = [
   'mockup_ghost_mannequin',
   'mockup_flat_lay',
@@ -61,8 +80,7 @@ export const ROLE_ORDER = [
   // Back view right after the front flat lay so a two-sided product reads
   // front-then-back, before the lifestyle shots.
   'mockup_back',
-  'mockup_model_1',
-  'mockup_model_2',
+  MODEL_ROLE_WILDCARD,
   // Metal print size scenes (Step Flow §14) — largest first, right before
   // the details card, same "biggest photo leads" convention as the rest of
   // this list. A garment product never has these roles; a metal product
@@ -110,6 +128,23 @@ export function buildProductGallery(assets: GalleryAsset[], order: readonly stri
   const images: string[] = []
 
   for (const role of order) {
+    if (role === MODEL_ROLE_WILDCARD) {
+      // Every on-person shot the admin added, in the order they were added
+      // (model_1 first), newest render winning within each slot.
+      const modelRoles = Array.from(
+        new Set(
+          assets
+            .filter((a) => a.asset_role && a.asset_role.startsWith(MODEL_ROLE_PREFIX) && a.url)
+            .map((a) => a.asset_role as string)
+        )
+      ).sort(byTrailingNumber)
+      for (const modelRole of modelRoles) {
+        const candidates = assets.filter((a) => a.asset_role === modelRole && a.url)
+        candidates.sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
+        if (candidates[0]?.url) images.push(candidates[0].url as string)
+      }
+      continue
+    }
     if (role === COLOR_ROLE_WILDCARD) {
       // Extra-color shots: one per distinct mockup_color_<id> role (there can
       // be several — one per approved extra color), newest wins within a role.

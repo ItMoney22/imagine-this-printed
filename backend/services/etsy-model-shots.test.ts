@@ -218,8 +218,31 @@ describe('youth casting pools', () => {
     expect(youth).not.toContain('goth')
     expect(adult).toContain('goth')
     expect(adult).not.toContain('kid')
-    // No argument = the full catalog, which the Etsy panel still lists.
-    expect(listShotSubjects().length).toBe(youth.length + adult.length)
+    // No argument = the full catalog, which the Etsy panel still lists. It is
+    // BIGGER than the two single-band lists combined, because a group shot
+    // (the family) needs both bands and so appears in neither of them.
+    expect(listShotSubjects().length).toBeGreaterThan(youth.length + adult.length)
+    expect(youth).not.toContain('family')
+    expect(adult).not.toContain('family')
+  })
+
+  // A family puts adults AND children in one frame, so it is castable only
+  // where the listing sells a size for both (David 2026-09-08).
+  it('offers a family only when both bands are sellable', () => {
+    const both = listShotSubjects(['adult', 'youth']).map((s) => s.id)
+    expect(both).toContain('family')
+    expect(both).toContain('couple')
+    // A couple is two adults, so an adult-only listing can still shoot one.
+    expect(listShotSubjects('adult').map((s) => s.id)).toContain('couple')
+    // ...but never on a youth-only listing: the adults would be wearing a
+    // size that listing doesn't sell.
+    expect(listShotSubjects('youth').map((s) => s.id)).not.toContain('couple')
+  })
+
+  it('refuses a group the listing cannot dress', () => {
+    expect(() => resolveCast({ subjects: ['family'] }, 'adult')).toThrow(/youth size/)
+    expect(() => resolveCast({ subjects: ['couple'] }, 'youth')).toThrow(ShotCastError)
+    expect(resolveCast({ subjects: ['family'] }, ['adult', 'youth'])[0].label).toBe('family')
   })
 
   it('offers both pools to a listing that sells both bands', () => {
@@ -227,6 +250,19 @@ describe('youth casting pools', () => {
     expect(both).toContain('kid')
     expect(both).toContain('goth')
     expect(both.length).toBe(listShotSubjects().length)
+  })
+
+  it('composes a family as a group, and never as one person', () => {
+    const member = resolveCast({ subjects: ['family'] }, ['adult', 'youth'])[0]
+    for (let i = 0; i < 20; i++) {
+      const { persona } = composeSubject(member)
+      expect(persona).toMatch(/family/)
+      // Adults AND children are named, which is the whole point of the shot.
+      expect(persona).toMatch(/mother|father|parents|mom|dad/)
+      expect(persona).toMatch(/child|children|girl|boy/)
+      // Never the adult-only trait pools that would be wrong around kids.
+      expect(persona).not.toMatch(/tattoo|piercing|stubble|wedding band/i)
+    }
   })
 
   it('dresses a kid from the youth trait pools, never the adult ones', () => {

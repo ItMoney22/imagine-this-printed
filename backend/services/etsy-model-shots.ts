@@ -327,11 +327,29 @@ interface ShotArchetype {
   keywords: readonly string[]
   /**
    * Who this archetype is. Absent means 'adult'. A 'youth' archetype is only
-   * castable on a youth garment — see castableFor() — so the catalogue, not
-   * the prompt, is what decides whether a child can appear in a photo.
+   * castable where the listing sells youth sizes — see castableFor() — so the
+   * catalogue, not the prompt, is what decides whether a child can appear in
+   * a photo.
    */
   audience?: GarmentAudience
+  /**
+   * Several people in ONE frame, all wearing the shirt (David 2026-09-08:
+   * "what if i want a family all wearing the shirts"). A group is castable
+   * only where the listing sells a size for EVERY body in the picture, so
+   * `family` needs both bands — see groupBandsFor(). Its persona is composed
+   * by composeGroup rather than the single-person trait draw, and the prompt
+   * switches to matching-shirts wording and a wider frame.
+   */
+  group?: boolean
 }
+
+/**
+ * The bands a group archetype puts in frame — every one of them has to be
+ * sellable on the listing, or the photo advertises a size we don't stock.
+ * A family shows adults AND children; a couple is two adults.
+ */
+const groupBandsFor = (a: ShotArchetype): GarmentAudience[] =>
+  a.id === 'family' ? ['adult', 'youth'] : ['adult']
 
 const ARCHETYPES: readonly ShotArchetype[] = [
   {
@@ -438,6 +456,25 @@ const ARCHETYPES: readonly ShotArchetype[] = [
     presentations: YOUTH_PRESENTATIONS,
     details: ['a team ball cap', 'a high ponytail through the cap', 'grass-stained knees just in frame', 'a water bottle in one hand', 'shin guards just in frame', 'a fresh short haircut'],
     keywords: ['sport', 'sports', 'soccer', 'baseball', 'basketball', 'football', 'team', 'coach', 'little league', 'dance', 'gymnastics', 'karate']
+  },
+  // --- Group lane (several people, one frame) --------------------------------
+  // David 2026-09-08: "what if i want a family all wearing the shirts". These
+  // sell the matching-set idea a single-model photo cannot show at all, and on
+  // a listing that carries both an adult and a youth cut they photograph both
+  // buyable variants in one image. `audience: 'youth'` on the family is
+  // deliberate: a child is in frame, so every child-safety rule in the youth
+  // lane (wholesome scenes, YOUTH_REALISM, no stock-photo anchor) applies to
+  // the whole shot.
+  {
+    id: 'family', label: 'family', role: 'a family wearing matching shirts', ages: YOUTH_AGES, audience: 'youth', group: true,
+    presentations: YOUTH_PRESENTATIONS,
+    details: ['standing shoulder to shoulder', 'the younger one held on a hip', 'arms around each other', 'lined up youngest to oldest'],
+    keywords: ['family', 'matching', 'mom', 'dad', 'mama', 'papa', 'siblings', 'brother', 'sister', 'reunion', 'vacation', 'squad', 'crew', 'christmas', 'halloween', 'trick or treat']
+  },
+  {
+    id: 'couple', label: 'couple', role: 'a couple wearing matching shirts', ages: AGES_ADULT, audience: 'adult', group: true,
+    details: ['standing side by side', 'arms around each other', 'leaning together, laughing'],
+    keywords: ['couple', 'matching', 'his and hers', 'anniversary', 'valentine', 'wedding', 'engaged', 'honeymoon', 'date night']
   }
 ] as const
 
@@ -449,6 +486,8 @@ export interface ShotSubject {
   keywords: readonly string[]
   /** 'youth' subjects are only offered where the listing actually sells youth sizes. */
   audience: GarmentAudience
+  /** Several people in one frame (family, couple) rather than a single model. */
+  group: boolean
 }
 
 /**
@@ -461,19 +500,34 @@ export interface ShotSubject {
 export function listShotSubjects(audience?: GarmentAudience | GarmentAudience[]): ShotSubject[] {
   const allowed = audience == null ? null : new Set(Array.isArray(audience) ? audience : [audience])
   return ARCHETYPES
-    .filter(a => !allowed || allowed.has(a.audience ?? 'adult'))
+    .filter(a => !allowed || castableIn(a, allowed))
     .map(a => ({
       id: a.id,
       label: a.label,
-      persona: `Someone ${a.role} — a different person every shoot`,
+      persona: a.group
+        ? `${a.role.replace(/^a /, 'A ')} — a different ${a.label} every shoot`
+        : `Someone ${a.role} — a different person every shoot`,
       keywords: [...a.keywords],
       audience: a.audience ?? 'adult',
+      group: a.group === true,
     }))
 }
 
-/** The archetypes castable on a garment of this audience. Never mixes the two. */
+/**
+ * Whether this archetype may be cast where `allowed` are the sellable bands.
+ * A single person needs their own band; a GROUP needs every band it puts in
+ * frame, so a family can't be shot for a listing that sells only kids' sizes
+ * (the adults in the photo would be wearing a size nobody can buy).
+ */
+function castableIn(a: ShotArchetype, allowed: Set<GarmentAudience>): boolean {
+  if (a.group) return groupBandsFor(a).every(b => allowed.has(b))
+  return allowed.has(a.audience ?? 'adult')
+}
+
+/** The archetypes a RANDOM draw may use for this audience — never a group: a
+ *  group shot is always a deliberate choice, never something a fallback picks. */
 const castableFor = (audience: GarmentAudience): ShotArchetype[] =>
-  ARCHETYPES.filter(a => (a.audience ?? 'adult') === audience)
+  ARCHETYPES.filter(a => !a.group && (a.audience ?? 'adult') === audience)
 
 const pick = <T,>(pool: readonly T[]): T => pool[Math.floor(Math.random() * pool.length)]
 
@@ -507,6 +561,42 @@ export class ShotCastError extends Error {}
  * people. A custom subject keeps the admin's words verbatim and only varies the
  * human detail around them.
  */
+/** Who is in a family/couple frame. Drawn fresh per shoot like every other
+ *  cast, so two family shots are two different families. Kept deliberately
+ *  plain and wholesome — children are in frame. */
+const FAMILY_ADULTS = ['a mother and a father', 'two parents', 'a mom and a dad'] as const
+const FAMILY_KIDS = [
+  'two school-age children',
+  'a school-age girl and a younger boy',
+  'three school-age children',
+  'one school-age boy',
+  'two school-age girls',
+] as const
+const COUPLE_PAIRS = [
+  'a man and a woman in their late twenties',
+  'two women in their thirties',
+  'two men in their thirties',
+  'a couple in their forties',
+] as const
+
+function composeGroup(a: ShotArchetype): { persona: string; signature: string } {
+  const heritage = pick(HERITAGE)
+  const arrangement = pick(a.details)
+  if (a.id === 'family') {
+    const adults = pick(FAMILY_ADULTS)
+    const kids = pick(FAMILY_KIDS)
+    return {
+      persona: `a ${heritage} family — ${adults} with ${kids} — ${arrangement}`,
+      signature: ['family', heritage, adults, kids, arrangement].join(' · '),
+    }
+  }
+  const pair = pick(COUPLE_PAIRS)
+  return {
+    persona: `a ${heritage} couple — ${pair} — ${arrangement}`,
+    signature: ['couple', heritage, pair, arrangement].join(' · '),
+  }
+}
+
 export function composeSubject(member: CastMember): { persona: string; signature: string } {
   const isYouth = (member.archetype?.audience ?? 'adult') === 'youth'
   const feature = pick(isYouth ? YOUTH_FEATURES : EVERYDAY_FEATURES)
@@ -523,6 +613,8 @@ export function composeSubject(member: CastMember): { persona: string; signature
       signature: ['custom', feature, expression, pose].join(' · ')
     }
   }
+
+  if (member.archetype.group) return composeGroup(member.archetype)
 
   const a = member.archetype
   const age = pick(a.ages)
@@ -564,11 +656,14 @@ export function resolveCast(
     const match = ARCHETYPES.find(a => a.id === id)
     if (!match) throw new ShotCastError(`Unknown model subject "${id}"`)
     const subjectAudience = match.audience ?? 'adult'
-    if (!allowed.has(subjectAudience)) {
+    if (!castableIn(match, allowed)) {
+      const missing = match.group ? groupBandsFor(match).filter(b => !allowed.has(b)) : []
       throw new ShotCastError(
-        subjectAudience === 'youth'
-          ? `"${match.label}" is a youth subject and this listing sells no youth size — a child model would advertise a size this product isn't sold in. Pick an adult subject.`
-          : `"${match.label}" is an adult subject and this listing is a youth garment. Pick one of: ${castableFor('youth').map(a => a.label).join(', ')}.`
+        match.group
+          ? `"${match.label}" puts ${missing.join(' and ')} bodies in the photo and this listing sells no ${missing.join('/')} size — everyone in a group shot has to be wearing a size someone can buy.`
+          : subjectAudience === 'youth'
+            ? `"${match.label}" is a youth subject and this listing sells no youth size — a child model would advertise a size this product isn't sold in. Pick an adult subject.`
+            : `"${match.label}" is an adult subject and this listing is a youth garment. Pick one of: ${castableFor('youth').map(a => a.label).join(', ')}.`
       )
     }
     members.push({ label: match.label, archetype: match, custom: null })
@@ -664,6 +759,9 @@ export interface ShotPlan {
    * tail and the print-scale wording. Absent means 'adult'.
    */
   audience?: GarmentAudience
+  /** Several people in one frame — switches the prompt to matching-shirts
+   *  wording and a wider crop that fits everybody. */
+  group?: boolean
   /**
    * Set on the last-ditch attempt after both engines declined the subject:
    * render the garment with NO person in it. Only ever used for youth shots
@@ -681,7 +779,8 @@ const slateId = (): string =>
 function castShot(key: string, member: CastMember, scene: string): ShotPlan {
   const { persona, signature } = composeSubject(member)
   const audience = member.archetype?.audience ?? 'adult'
-  return { key, label: member.label, persona, scene, treatment: pick(TREATMENTS), signature, variant: slateId(), audience }
+  const group = member.archetype?.group === true
+  return { key, label: member.label, persona, scene, treatment: pick(TREATMENTS), signature, variant: slateId(), audience, group }
 }
 
 /** Scene pool for a cast slot — youth shots stay in the wholesome, public YOUTH_SCENES. */
@@ -796,12 +895,25 @@ const YOUTH_REALISM =
   'neutral stance, exactly like a catalog product photo. The PHOTOGRAPH is professional: correctly exposed, ' +
   'sharp focus, clean color, no motion blur. Wholesome, ordinary, and entirely about the shirt.'
 
-const promptTail = (placement: string, sizeInches: number, audience: GarmentAudience = 'adult'): string =>
-  'Show the full torso from shoulders to waist with realistic fabric texture, natural drape and true-to-life ' +
-  'lighting. ' +
-  (audience === 'youth'
-    ? 'The model is a school-age child and the garment is a youth-size t-shirt. '
-    : 'The model is clearly an adult. ') +
+const promptTail = (
+  placement: string,
+  sizeInches: number,
+  audience: GarmentAudience = 'adult',
+  group = false
+): string =>
+  (group
+    ? 'Frame all of them together from head to waist, everyone fully in shot, with realistic fabric texture, ' +
+      'natural drape and true-to-life lighting. EVERY person wears the SAME shirt with the SAME graphic, ' +
+      'each print reproduced identically and fully visible — no one turned away, no one cropped out. '
+    : 'Show the full torso from shoulders to waist with realistic fabric texture, natural drape and true-to-life ' +
+      'lighting. ') +
+  (group
+    ? audience === 'youth'
+      ? 'The group includes both adults and school-age children, photographed for a family-apparel catalog. '
+      : 'Everyone in the photo is clearly an adult. '
+    : audience === 'youth'
+      ? 'The model is a school-age child and the garment is a youth-size t-shirt. '
+      : 'The model is clearly an adult. ') +
   'High-resolution product photography suitable for an online marketplace listing.\n' +
   (audience === 'youth' ? YOUTH_REALISM : EVERYDAY_REALISM) + '\n' +
   designFidelityRules(placement, sizeInches, audience)
@@ -869,12 +981,18 @@ export function buildGptPrompt(
   return (
     retryPreamble(plan) +
     `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
-    `Task: a professional ecommerce fashion photograph of ${plan.persona} wearing a ${shirtColor} ${garmentNoun} ` +
+    `Task: a professional ecommerce fashion photograph of ${plan.persona} ${wearingVerb(plan, shirtColor, garmentNoun)} ` +
     `with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
     `${castingSlate(plan)}\n` +
-    promptTail(placement, sizeInches, plan.audience)
+    promptTail(placement, sizeInches, plan.audience, plan.group)
   )
 }
+
+/** "wearing a black t-shirt" for one person; "all wearing matching black t-shirts" for a group. */
+const wearingVerb = (plan: ShotPlan, shirtColor: string, garmentNoun: string): string =>
+  plan.group
+    ? `all wearing matching ${shirtColor} ${garmentNoun}s`
+    : `wearing a ${shirtColor} ${garmentNoun}`
 
 // Last-ditch youth staging: the garment itself, no person in it. Used only
 // when both engines refused to render a child (see generateOneShot). It is a
@@ -925,14 +1043,18 @@ export function buildNanoPrompt(
   // A youth shot gets NO stock anchor (see generateOneShot) — the two stock
   // photos are adults, and anchoring a child render on an adult body is both
   // a bad reference and an obviously bad idea. Its prompt is design-only.
-  if (plan.audience === 'youth') {
+  // A youth shot gets no anchor, and neither does a GROUP: both stock photos
+  // are a single adult, so anchoring a family of four on one body gives the
+  // model a framing reference it has to fight rather than follow.
+  if (plan.audience === 'youth' || plan.group) {
     return (
       retryPreamble(plan) +
       `The INPUT image is a flat 2D graphic design (a DTF print artwork). ` +
-      `Task: a professional children's-apparel catalog photograph of ${plan.persona} wearing a ${shirtColor} ` +
-      `${garmentNoun} with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
+      `Task: a professional ${plan.audience === 'youth' ? "children's-apparel catalog" : 'ecommerce fashion'} ` +
+      `photograph of ${plan.persona} ${wearingVerb(plan, shirtColor, garmentNoun)} ` +
+      `with the graphic from the INPUT ${wearingClause(placement)}, ${plan.scene}.\n` +
       `${castingSlate(plan)}\n` +
-      promptTail(placement, sizeInches, plan.audience)
+      promptTail(placement, sizeInches, plan.audience, plan.group)
     )
   }
   return (
@@ -977,7 +1099,7 @@ async function generateOneShot(
     // No anchor for metal art (no human at all) and none for a youth shot —
     // both stock models are adults, and buildNanoPrompt's youth branch is
     // written for a design-only input.
-    const inputImages = plan.persona && plan.audience !== 'youth' && !plan.noModel
+    const inputImages = plan.persona && plan.audience !== 'youth' && !plan.group && !plan.noModel
       ? [await stockModelUrl(plan.key === 'shot1' ? 'female-caucasian-athletic' : 'male-caucasian-athletic'), designUrl]
       : [designUrl]
     const output = await replicate.run(NANO_BANANA as any, {

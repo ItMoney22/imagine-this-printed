@@ -22,6 +22,8 @@ import { createWatermarkedDesignAsset } from '../../services/product-build.js'
 import {
   queueStepShots,
   redoShot,
+  addModelShot,
+  removeModelShot,
   approveShot,
   approveShotsBatch,
   resolveStepFlow,
@@ -660,6 +662,36 @@ router.post('/:id/step/shots/:key/redo', requireAuth, requireAdminOrManager, rat
     if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
     req.log?.error({ err: err?.message }, '[step-flow] redo error')
     res.status(500).json({ error: err?.message || 'Failed to redo shot' })
+  }
+})
+
+// POST /:id/step/shots/model — { subjectId? } -> { job }. Adds ANOTHER
+// on-person shot, keeping every one already taken (David 2026-09-08: "keep
+// the adult and add a kid"). Omit subjectId to let Mrs. Imagine cast it.
+router.post('/:id/step/shots/model', requireAuth, requireAdminOrManager, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const subjectId = typeof req.body?.subjectId === 'string' && req.body.subjectId.trim() ? req.body.subjectId.trim() : undefined
+    const result = await addModelShot(id, actorId(req), subjectId)
+    res.json(result)
+  } catch (err: any) {
+    if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
+    req.log?.error({ err: err?.message }, '[step-flow] add model error')
+    res.status(500).json({ error: err?.message || 'Failed to add a model shot' })
+  }
+})
+
+// DELETE /:id/step/shots/:key — remove an ADDED on-person shot (model:<n>).
+// The first one is part of every listing and can only be redone, not dropped.
+router.delete('/:id/step/shots/:key', requireAuth, requireAdminOrManager, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id, key } = req.params
+    const result = await removeModelShot(id, key as ShotKey)
+    res.json(result)
+  } catch (err: any) {
+    if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
+    req.log?.error({ err: err?.message }, '[step-flow] remove model error')
+    res.status(500).json({ error: err?.message || 'Failed to remove the shot' })
   }
 })
 

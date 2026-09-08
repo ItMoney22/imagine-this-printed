@@ -2,7 +2,7 @@
 // extra color. Every card needs its own approve before Listing unlocks;
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, RefreshCw, UserRound, X } from 'lucide-react'
+import { AlertTriangle, Check, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
 import { stepFlow, type ShotSubject } from '../../lib/api'
 import { COLORS } from '../../../backend/shared/catalog-capability'
 import {
@@ -73,6 +73,7 @@ export const shotLabel = (key: ShotKey): string => {
   if (key === 'product') return 'Product shot'
   if (key === 'hanger') return 'On a hanger'
   if (key === 'model') return 'On a person'
+  if (key.startsWith('model:')) return `On a person ${key.slice('model:'.length)}`
   if (key === 'details') return 'Product details card'
   if (key.startsWith('color:')) {
     const id = key.slice('color:'.length)
@@ -84,6 +85,63 @@ export const shotLabel = (key: ShotKey): string => {
   }
   return key
 }
+
+/** 'model' and every added `model:<n>` — all the on-person slots. */
+export const isModelShot = (key: ShotKey): boolean => key === 'model' || key.startsWith('model:')
+
+/** How the cast chips are grouped. A family/couple is its own row: grouping it
+ *  by `audience` would file the family under "Kids" (it carries the youth band
+ *  so the child-safety rules apply), which reads as a lie to whoever's picking. */
+const CAST_BANDS = [
+  { id: 'group', label: 'Together', match: (s: ShotSubject) => s.group === true },
+  { id: 'youth', label: 'Kids', match: (s: ShotSubject) => !s.group && s.audience === 'youth' },
+  { id: 'adult', label: 'Adults', match: (s: ShotSubject) => !s.group && s.audience === 'adult' },
+] as const
+
+/**
+ * The cast chips, grouped. Used by BOTH pickers — the per-shot "Who?" recast
+ * and the "add another person" panel — so the two can't drift apart.
+ */
+const SubjectChips: React.FC<{
+  subjects: ShotSubject[]
+  onPick: (subjectId: string) => void
+  disabled?: boolean
+  /** Highlighted as the current cast, when this picker is recasting a shot. */
+  selectedId?: string
+}> = ({ subjects, onPick, disabled, selectedId }) => (
+  <>
+    {CAST_BANDS.map((band) => {
+      const inBand = subjects.filter(band.match)
+      if (!inBand.length) return null
+      return (
+        <div key={band.id} className="mb-1.5 last:mb-0">
+          {/* One band on offer (the youth tee) makes the header noise. */}
+          {CAST_BANDS.filter((b) => subjects.some(b.match)).length > 1 && (
+            <p className="text-[9px] uppercase tracking-wide text-muted mb-1">{band.label}</p>
+          )}
+          <div className="flex flex-wrap gap-1">
+            {inBand.map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                title={s.persona}
+                disabled={disabled}
+                onClick={() => onPick(s.id)}
+                className={`text-[10px] px-2 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                  selectedId === s.id
+                    ? 'bg-primary border-primary text-white'
+                    : 'bg-card border-border-subtle text-text hover:border-primary/50'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )
+    })}
+  </>
+)
 
 const STATUS_STYLE: Record<string, string> = {
   queued: 'bg-muted/20 text-muted',
@@ -153,9 +211,11 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   // 2026-09-08: "I should be able to say who I want the mock up to be") —
   // fetched once the garment is known; empty until then or on a metal print.
   const [subjects, setSubjects] = useState<ShotSubject[]>([])
-  // The one shot card with its model picker expanded. Only ever 'model'
-  // today, but kept as a ShotKey so a second pickable shot needs no rework.
+  // Which on-person card has its "who's in this photo" picker expanded.
   const [pickerKey, setPickerKey] = useState<ShotKey | null>(null)
+  // The "add another person" picker at the bottom of the grid, and its busy flag.
+  const [addPickerOpen, setAddPickerOpen] = useState(false)
+  const [addingModel, setAddingModel] = useState(false)
   // Keys we've already asked the server to queue this session — guards
   // against both React StrictMode's double-invoke and re-firing a key whose
   // shot just hasn't landed in `shots` yet (the async request is in flight).
@@ -225,6 +285,38 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
       cancelled = true
     }
   }, [state.productKind, garment])
+
+  /** Add ANOTHER person, keeping every shot already taken. `subjectId` picks
+   *  who; omitting it lets Mrs. Imagine cast from the artwork. */
+  const handleAddModel = async (subjectId?: string) => {
+    if (!state.productId) return
+    setAddingModel(true)
+    setError(null)
+    try {
+      await stepFlow.addModelShot(state.productId, subjectId)
+      await refresh()
+    } catch (err: any) {
+      setError(err?.message || 'Failed to add another person')
+    } finally {
+      setAddingModel(false)
+      setAddPickerOpen(false)
+    }
+  }
+
+  /** Drop an added person. The first on-person shot can only be redone. */
+  const handleRemoveModel = async (key: ShotKey) => {
+    if (!state.productId) return
+    setBusyKey(key)
+    setError(null)
+    try {
+      await stepFlow.removeShot(state.productId, key)
+      await refresh()
+    } catch (err: any) {
+      setError(err?.message || `Failed to remove ${shotLabel(key)}`)
+    } finally {
+      setBusyKey(null)
+    }
+  }
 
   const handleApprove = async (key: ShotKey, shot: ShotState) => {
     if (!state.productId || !shot.assetId) return
@@ -397,6 +489,14 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                       {badgeLabel}
                     </span>
                   </div>
+                  {/* Who is in THIS photo — each on-person slot carries its own cast. */}
+                  {isModelShot(key) && shot.casting && (
+                    <p className="text-[10px] text-muted truncate" title={shot.casting.reason}>
+                      <UserRound className="w-2.5 h-2.5 inline -mt-0.5 mr-0.5" />
+                      {shot.casting.label}
+                      {shot.casting.audience === 'youth' && ' (kid)'}
+                    </p>
+                  )}
                   {shot.status === 'failed' && shot.error && <p className="text-[10px] text-red-400 truncate" title={shot.error}>{shot.error}</p>}
                   {shot.note && shot.status !== 'failed' && (
                     <p className="text-[10px] text-amber-400 line-clamp-2" title={shot.note}>{shot.note}</p>
@@ -427,7 +527,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         {busy ? <BusyDot className="w-1.5 h-1.5" /> : <RefreshCw className="w-3 h-3" />} Redo
                       </button>
                     )}
-                    {key === 'model' && subjects.length > 0 && (shot.status === 'done' || shot.status === 'failed') && (
+                    {isModelShot(key) && subjects.length > 0 && (shot.status === 'done' || shot.status === 'failed') && (
                       <button
                         type="button"
                         onClick={() => setPickerKey(pickerKey === key ? null : key)}
@@ -442,6 +542,19 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         <UserRound className="w-3 h-3" /> Who?
                       </button>
                     )}
+                    {/* Only an ADDED person can be dropped — the first on-person
+                        shot is part of every listing and is redone, not removed. */}
+                    {isModelShot(key) && key !== 'model' && (
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveModel(key)}
+                        disabled={busy}
+                        title="Remove this person from the listing"
+                        className="inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg text-muted hover:text-red-400 disabled:opacity-50"
+                      >
+                        {busy ? <BusyDot className="w-1.5 h-1.5" /> : <Trash2 className="w-3 h-3" />}
+                      </button>
+                    )}
                     {canSkip && (
                       <button
                         type="button"
@@ -454,48 +567,68 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                       </button>
                     )}
                   </div>
-                  {key === 'model' && pickerKey === key && (
+                  {isModelShot(key) && pickerKey === key && (
                     <div className="rounded-lg border border-border-subtle bg-card-elevated p-2">
                       <p className="text-[10px] text-muted mb-1.5">Redo as:</p>
-                      {(['youth', 'adult'] as const).map((band) => {
-                        const inBand = subjects.filter((s) => s.audience === band)
-                        if (!inBand.length) return null
-                        return (
-                          <div key={band} className="mb-1.5 last:mb-0">
-                            {/* Only worth labelling when both bands are on offer — on the
-                                youth tee every chip is a kid and the header is noise. */}
-                            {subjects.some((s) => s.audience !== band) && (
-                              <p className="text-[9px] uppercase tracking-wide text-muted mb-1">
-                                {band === 'youth' ? 'Kids' : 'Adults'}
-                              </p>
-                            )}
-                            <div className="flex flex-wrap gap-1">
-                              {inBand.map((s) => (
-                                <button
-                                  key={s.id}
-                                  type="button"
-                                  title={s.persona}
-                                  disabled={busy}
-                                  onClick={() => handleRedo('model', s.id)}
-                                  className={`text-[10px] px-2 py-1 rounded-full border transition-colors disabled:opacity-50 ${
-                                    state.stepFlow?.casting?.subjectId === s.id
-                                      ? 'bg-primary border-primary text-white'
-                                      : 'bg-card border-border-subtle text-text hover:border-primary/50'
-                                  }`}
-                                >
-                                  {s.label}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })}
+                      {/* `key`, never a hardcoded 'model' — on an added shot this
+                          has to recast THAT photo, not the first one. */}
+                      <SubjectChips
+                        subjects={subjects}
+                        disabled={busy}
+                        selectedId={shot.casting?.subjectId}
+                        onPick={(subjectId) => handleRedo(key, subjectId)}
+                      />
                     </div>
                   )}
                 </div>
               </div>
             )
           })}
+        </div>
+      )}
+
+      {/* Add another person. David 2026-09-08: "keep the adult and add a kid...
+          or even what if i want a family all wearing the shirts". Each pick
+          becomes its own listing photo alongside the ones already shot. */}
+      {state.productKind === 'garment' && subjects.length > 0 && entries.length > 0 && (
+        <div className="mt-4">
+          {!addPickerOpen ? (
+            <button
+              type="button"
+              onClick={() => setAddPickerOpen(true)}
+              disabled={addingModel}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold py-2 px-3 rounded-lg bg-card border border-border-subtle text-text hover:bg-card-elevated disabled:opacity-50"
+            >
+              {addingModel ? <BusyDot className="w-2 h-2" /> : <Plus className="w-3.5 h-3.5" />}
+              Add another person
+            </button>
+          ) : (
+            <div className="rounded-xl border border-border-subtle bg-card-elevated p-3">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <p className="text-xs font-semibold text-text">Who else is wearing it?</p>
+                <button
+                  type="button"
+                  onClick={() => setAddPickerOpen(false)}
+                  className="text-muted hover:text-text"
+                  aria-label="Close"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              <p className="text-[11px] text-muted mb-2">
+                This adds a new photo — everything you've already shot stays.
+              </p>
+              <SubjectChips subjects={subjects} disabled={addingModel} onPick={handleAddModel} />
+              <button
+                type="button"
+                onClick={() => handleAddModel()}
+                disabled={addingModel}
+                className="mt-1 text-[11px] text-muted hover:text-text underline disabled:opacity-50"
+              >
+                Let Mrs. Imagine pick
+              </button>
+            </div>
+          )}
         </div>
       )}
 

@@ -3011,3 +3011,161 @@ Rationale: the prior CLAUDE_TASK.md/shortlist covers the Etsy live-shop audit an
   - `earth/zero-nine/candle-cradle` — SKIPPED, real conflict. Both it and the already-merged `print-factory-core`/`qr-plaque` independently wrote a `degenerate_reasons()` mesh-QA function with different logic, and the fixture registry needs both `qr_plaque` and `candle_cradle` registered together. Python print-factory tooling, not part of the deployed web app — needs someone who knows the tool's current intent, left unmerged rather than guessed.
   - `earth/zero-nine/fix-wallet-tx-migration-renames-8dccb9da` — NOT touched, needs David. Real `.sql` migration-file renames + DDL corrections reconstructed against a live-prod introspection (RLS policy differences, FK target, CHECK enum) — exactly the case the merge-train's migration gate exists for. Thorough-looking work but a DB schema change deserves a human read before it ships, not a sweep-merge.
 - Net: 5 branches landed on main across 3 pushes (qr-plaque/print-factory-core/print-factory-publish, then joshua-knight+jimmy-phix), all typechecked clean before each push. Also deleted one 0-byte junk file (`{if(!o`) that had been sitting untracked in the shared checkout — debris from an unrelated broken command, not anyone's work.
+
+## Delete images from the product editor (2026-09-08, zero-nine, David: "it should let me delete some of these mockups cas some are not even true to design")
+- File shortlist (approved scope): `src/components/admin/AdminProductEditModal.tsx`, `src/components/admin/ImageLightbox.tsx`, `src/pages/AdminDashboard.tsx`, `TASK_NOTES.md`.
+- WHY IT WAS UNREACHABLE: delete existed, but only inside the lightbox (open Edit Product -> Images -> click a thumb -> click the big viewer to zoom -> Delete), and the lightbox hid the button unless the image had a `product_assets` row (`{onDelete && current.assetId && ...}`). So a bad mockup took four clicks to remove, and Etsy model shots (which live on `products.metadata.etsy_shots.images`, no asset row) plus hand-uploaded listing images (which live only in `products.images`) could not be deleted from the admin UI AT ALL.
+- WHAT CHANGED: a trash button now sits on every thumbnail in the Images tab, hover/focus-revealed at the top-right, opposite Set-as-main. The lightbox's delete no longer requires an assetId — the gallery owner decides. `onDeleteImage` now hands the parent the whole gallery entry (`{url, assetId?, group}`) instead of `(assetId, url)`, because the three kinds of image need three different removals: pipeline assets delete their `product_assets` row; model shots go through `PUT /api/admin/etsy/model-shots/:productId` (that route realigns the POSITIONAL `cast`/`checks` arrays, so writing metadata by hand here would make photo 2 inherit the removed photo's QA warning); every case also strips the URL out of `products.images` so a deleted image cannot keep showing on the storefront. The lightbox delete resolves its target by `gallery[lightboxIndex]`, not by URL, so a URL shared across two groups cannot be mistaken.
+- CONFIRM COPY IS NOW SPECIFIC: deleting the SOURCE warns that the mockups and print files were made from it; deleting the MAIN image warns that the next image becomes main. Both read off `editingProductData` before the dialog opens.
+- BUG FIXED IN PASSING: `handleDeleteImage`'s post-delete refresh rebuilt `productAssetGroups` from a hardcoded `{source, nobg, mockup, upscaled}` whitelist, so any delete made the modal's team-only Print files section disappear until the page was reloaded (`loadProductJobs` groups by whatever kinds come back; the two had drifted). Now grouped dynamically, matching the loader.
+- VERIFIED: `npx tsc -b` clean, `npx eslint` on all three files reports 0 errors (85 pre-existing `any`/unused warnings, none new), `npx vite build` succeeds. Checked live prod RLS before shipping the button: `product_assets` carries an ALL policy "Admins can manage assets" and `products` an admin UPDATE policy, so an admin browser session can really delete the row and rewrite `images` — this is not a button that 200s on zero rows.
+- NOT DONE: the storage object itself (GCS/Supabase Storage) is left in place, same as the pre-existing delete — only the DB row and the images array are cleared. Legacy `metadata.mockup_url` / `metadata.assets` bundles (3 prod products per `services/product-files.ts`) are not touched, but they never render as tiles in this modal either. NOT COMMITTED, NOT DEPLOYED - the shared checkout is on `main` and a push there is a production deploy.
+
+---
+
+## Current request (2026-09-08) — Step Flow Etsy step: unreadable panel + no self-repair
+
+David, on the Queue-to-Etsy step showing "design review failed — score 59, 3
+things to fix": *"the color on this box is way to hard for me to see. 2 if
+theres something wrong then mrs imagine should step in and fix it so it can
+proccess"*.
+
+Two defects, one cosmetic and one structural.
+
+### 1. The amber panel is unreadable
+`EtsyStep.tsx` paints the QA panel `bg-amber-500/10` with `text-amber-200` /
+`text-amber-300`. Those are DARK-THEME colours, and this app is light-only
+(`ThemeProvider.tsx`: "Always use light mode"; `src/index.css` defines a single
+light `:root`). amber-200 (#FDE68A) on a near-white wash is ~1.3:1 contrast —
+below every WCAG floor, which is exactly what David is seeing. The same bug is
+in `InspirationPanel.tsx`.
+
+### 2. Nothing tries to FIX a failure — it only reports one
+The step runs the review (that was the 09-03 fix) but a failure dead-ends into
+three manual buttons. The three findings in David's screenshot split cleanly:
+- "Title is 32 characters; the minimum is 40" — COPY
+- "Only 0 tag(s); at least 10 are required"  — COPY
+- "The towel obscures part of the printed artwork" — PHOTO (a fidelity failure
+  on the primary shot; the fix is a re-render)
+
+The copy pair is diagnostic on its own: a 32-char title + ZERO tags is the
+`mechanicalPack()` fallback in `etsy-seo-composer.ts` firing with empty
+`search_keywords` — i.e. the composer model was unavailable (no
+OPENROUTER/OPENAI key, or the call failed) and nothing downstream noticed. So
+the repair CANNOT be "ask the model again" alone; it needs a deterministic
+backstop that works with no model at all.
+
+### File shortlist (approved scope — 2026-09-08 Etsy step self-repair)
+- `backend/services/etsy-copy-repair.ts` (new — deterministic + model repair)
+- `backend/services/etsy-copy-repair.test.ts` (new)
+- `backend/services/design-qa-autofix.ts` (new — lanes a verdict into copy /
+  photo / artwork / price / manual and drives each lane's fixer)
+- `backend/services/design-qa-autofix.test.ts` (new)
+- `backend/services/etsy-seo-composer.ts` (export the model client + sanitizer
+  so the repair shares ONE composer config)
+- `backend/services/presentation-qa.ts` (export FILLER_TAGS)
+- `backend/routes/admin/design-qa.ts` (POST /autofix/:productId)
+- `src/lib/api.ts` (designQa.autofix)
+- `src/components/studio/EtsyStep.tsx` (readable panel + auto-repair loop)
+- `src/components/studio/EtsyStep.test.tsx`
+- `src/components/studio/shared.tsx` (one shared readable WarnPanel)
+- `src/components/studio/StepFlowBuilder.tsx` (pass `refresh` to EtsyStep)
+- `src/components/studio/InspirationPanel.tsx` (same contrast bug)
+- `TASK_NOTES.md`
+
+### File shortlist (approved scope — 2026-09-08 draft designs in recommendations)
+David: "this pops up a lot and these are designs that are pending and not even
+ready for sale... it should only use active designs."
+- `src/lib/product-visibility.ts` (new — the one storefront visibility rule)
+- `src/utils/product-recommender.ts` (both ranking paths gated)
+- `src/pages/Home.tsx` (featured + community showcase gated)
+- `src/pages/ProductCatalog.tsx` (local approval helper replaced by the shared one)
+- `TASK_NOTES.md`
+
+- 2026-09-08 — **"Recommended for You" was serving unfinished draft designs.**
+  Root cause: the storefront had two different answers to "is this product
+  sellable?". `ProductCatalog` gated on `status='active'` AND `is_active=true`
+  AND the approval predicate; `product-recommender.ts` gated on `is_active`
+  alone. On the live table that is 118 rows vs **2,538** — the widget was
+  drawing from a pool ~95% unfinished drafts, which is why shoppers saw raw
+  transparent-background art. Verified against prod: all six products in
+  David's screenshot are `status='draft', is_active=true`.
+  Fix: new `src/lib/product-visibility.ts` owns the rule
+  (`applyStorefrontVisibility` / `applyApprovalFilter`); the recommender's
+  co-purchase path AND fallback path both use it, `ProductCatalog` imports the
+  approval predicate instead of redefining it, and `Home.tsx` uses it for
+  featured + community (the community showcase was leaking 3 drafts of 13;
+  featured happened to be clean but a featured draft would have leaked).
+  Verified live with the anon key under RLS: the exact query the widget now
+  sends returns 23 rows, **0 non-active**, all with a real price and mockup,
+  and each of the six screenshotted products is BLOCKED. `tsc --noEmit` clean,
+  eslint 0 errors, `npm run build` green. Not committed/pushed — a push to main
+  is a production deploy and David has not asked for one.
+
+### Work log 2026-09-08 (Etsy step: readable panel + Mrs. Imagine's repair pass)
+- **Contrast.** Added ONE shared `WarnPanel` in `studio/shared.tsx` (amber-50
+  ground, amber-900 heading, amber-950 body, stone-700 secondary) and moved the
+  Etsy QA panel onto it. Measured on that ground: heading 8.75:1, body 14.4:1,
+  secondary 9.9:1, icon 4.8:1 — against the 1.16:1 the old `text-amber-200`
+  actually scored. Same fix applied to `InlineError` (red-400 on white was
+  2.77:1 -> red-800 on red-50 is 7.6:1) and to `InspirationPanel`'s copy of the
+  bug. The exported `WARN_*` tokens exist so the next step to need this colour
+  does not reach for a raw dark-theme amber utility again.
+- **Repair, layer 1 — `etsy-copy-repair.ts`.** `repairCopy()` is PURE and
+  rewrites title/tags/description until `checkSeo` (the gate's own function,
+  imported, not re-implemented) is satisfied: grows a short title into the
+  50-90 band, collapses a comma-stacked one, strips emoji, drops filler and
+  duplicate and over-length tags then backfills all 13 from phrases built out
+  of the design's own name -> the catalogue keywords -> a per-kind bank, and
+  writes the missing description sections. Hoodie/tee/metal/transfer each get
+  their own vocabulary — a metal print never gets "machine wash cold".
+  `repairEtsyPack()` wraps it with ONE targeted model call that is TOLD the
+  gate's objections, then holds whatever comes back to the same rules.
+  **The model layer is optional by design**: David's 32-char title + 0 tags was
+  `mechanicalPack()` firing with no composer key, so a repair that needed a
+  model would have looped forever on exactly the case that prompted it.
+- **Repair, layer 2 — `design-qa-autofix.ts`.** Lanes each blocking finding:
+  `seo`->copy, `pricing`->price (anchor reset, and ONLY when the anchor lands
+  inside the band; below-cost is never auto-fixed), the render criteria->photo
+  (re-queue that shot through the existing `redoShot`), `print_background`
+  split by which read produced it (vision = the render, re-shootable; opacity =
+  the print file, not), everything else->manual. A vision OUTAGE is routed to
+  manual so an infrastructure blip never buys a render. Capped at
+  `MAX_RESHOOTS` (2) per pass.
+- **It is not an override.** Autofix writes no `design_qa_reviews` row and
+  stamps nothing; it changes the presentation and the caller must earn a fresh
+  verdict. That is why an agent may call `/autofix` when it may not call
+  `/override`.
+- **The loop — `EtsyStep.tsx`.** A failed review now goes straight into
+  repair -> wait for any re-shoot -> re-review -> queue, up to `MAX_FIX_ROUNDS`
+  (2), with the progress bar naming the stage. The findings panel only appears
+  once she has actually run out of moves, and it leads with what she already
+  tried so it does not read as if nothing happened. The success screen names
+  the changes too — the draft that went out is not quite the one David last saw.
+- **Tests.** 20 in `etsy-copy-repair.test.ts` (David's exact 32-char/0-tag case
+  is the first one), 16 in `design-qa-autofix.test.ts` (lane routing is most of
+  it — sending a print-file defect down the photo lane would buy renders that
+  fix nothing), 15 in `EtsyStep.test.tsx` including the no-click happy path,
+  the re-shoot wait ordering, and both stop conditions. `npx vitest run src
+  backend` is green; the only failures in a bare `npx vitest run` are inside
+  other sessions' `.claude/worktrees/` checkouts and predate this work.
+
+#### Known, NOT fixed here (needs David's call)
+A re-shoot at the Etsy step lands after the Listing step already published, so
+`products.images` still holds the OLD photo. `services/etsy.ts` uploads
+`etsy_shots.images` first and then appends `products.images`, so the Etsy draft
+gets the new photo as its hero AND the replaced one behind it. The draft is
+invisible until David flips it, and this is pre-existing publish behaviour (a
+manual redo on the Mockups step does the same), so it was left alone rather
+than quietly rewriting a live product's gallery. Approving the new shot on the
+Mockups step and re-publishing is the existing clean path.
+
+## Add another model to a listing (2026-09-08, zero-nine, David: "what if i want another model? keep the adult and add a kid... or even what if i want a family all wearing the shirts")
+- File shortlist (approved scope): `backend/services/step-flow/shots.ts` (+ test), `backend/services/etsy-model-shots.ts` (+ test), `backend/routes/admin/ai-products-step-flow.ts`, `backend/shared/product-gallery.ts`, `src/components/studio/MockupStep.tsx`, `src/lib/api.ts`, `TASK_NOTES.md`.
+- WHY: `ShotKey`'s on-person slot was a single hardcoded `'model'`, and `ROLE_ORDER` mirrored that with exactly `mockup_model_1`/`mockup_model_2` — a listing could carry at most the one cast Mrs. Imagine picked, with no way to add a second person once shot.
+- WHAT CHANGED: `ShotKey` gained `` `model:${string}` `` (`model` stays the first slot unrenamed, so every existing product keeps working) with `isModelKey()`/`modelSlot()` helpers; `product-gallery.ts`'s `ROLE_ORDER` swapped the fixed pair for a `mockup_model_*` wildcard sorted by trailing slot number (mirrors the pre-existing `mockup_color_*` pattern) so a third or fourth added person is never silently dropped from the gallery. `runModelShot`/`queueModelShot` in `step-flow/shots.ts` are now keyed by `ShotKey` instead of hardcoded `'model'`, and the per-shot cast decision is written under a `withStepFlowLock` merge (previously an unlocked `mergeStepFlow('casting', ...)` — safe for one shot, but a race waiting to happen once shots can be added concurrently: the fire-and-forget model-shot write could land on a stale snapshot mid-`queueStepShots` and drop whatever the queue loop wrote in between). `MockupStep.tsx` adds an "add another person" control (`handleAddModel`, `stepFlow.addModelShot`) with a `SubjectChips` picker shared between it and the existing per-shot recast picker (banded Together/Kids/Adults so a group photo doesn't misfile under Kids just because it includes the youth tee), plus `stepFlow.removeShot` to drop an added slot (the original `model` shot can only be redone, never removed). `ShotSubject` gained an optional `group` flag for family/couple archetypes.
+- VERIFIED: backend + frontend `tsc --noEmit` both clean; `npx vitest run backend/services/step-flow/shots.test.ts backend/services/etsy-model-shots.test.ts` green; `npx eslint` reports 0 new errors (pre-existing warnings only); `npm run build` succeeds.
+- NOT COMMITTED, NOT DEPLOYED as of when this was written — the shared checkout is on `main` and a push there is a production deploy.
+
+## Merge-and-push sweep #2 (2026-09-08, zero-nine, David: "theres new things to push go check it and get it done")
+Found four separate finished-but-uncommitted tasks sitting in the shared checkout (the three above this entry plus the multi-model-shot work), each already self-documented in this file as verified and explicitly held back pending a push decision. Re-ran backend+frontend typecheck, `npx eslint`, the five relevant vitest files (139 tests) and a full `npm run build` against the combined working tree before committing anything — all green. Committed as four separate commits along the approved shortlists above (one shared file, `src/lib/api.ts`, genuinely carries both the design-QA-autofix and add-another-model changes interleaved; filed with the latter) and pushed as one deploy.

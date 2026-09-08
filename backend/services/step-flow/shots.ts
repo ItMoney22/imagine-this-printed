@@ -37,7 +37,27 @@ import type { PrintAdvice, PrintFileResult } from './print-prep.js'
 // from backend/worker/index.ts.
 import { processMockupJob } from '../../worker/ai-jobs-worker.js'
 
-export type ShotKey = 'product' | 'hanger' | 'model' | 'details' | `color:${string}` | `scene:${string}`
+/**
+ * `model` is the first on-person shot; `model:2`, `model:3`, … are extra
+ * people the admin added (David 2026-09-08: "keep the adult and add a kid").
+ * The bare `model` key is deliberately kept rather than renamed to `model:1`
+ * so every product shot before this change keeps working untouched.
+ */
+export type ShotKey =
+  | 'product'
+  | 'hanger'
+  | 'model'
+  | 'details'
+  | `model:${string}`
+  | `color:${string}`
+  | `scene:${string}`
+
+/** True for `model` and every `model:<n>`. */
+export const isModelKey = (key: ShotKey): boolean => key === 'model' || key.startsWith('model:')
+
+/** 1 for `model`, n for `model:<n>` — the slot number, which is also its gallery position. */
+export const modelSlot = (key: ShotKey): number =>
+  key === 'model' ? 1 : Math.max(2, Number(key.slice('model:'.length)) || 2)
 
 export interface ShotState {
   jobId?: string
@@ -68,6 +88,12 @@ export interface ShotState {
    * the details card can be re-rendered instead of silently going stale.
    */
   sourceAssetId?: string
+  /**
+   * On-person shots only: who is in THIS photo and why. A listing can now
+   * carry several people (David 2026-09-08), so the cast has to live per-slot
+   * — `stepFlow.casting` only ever describes the first one.
+   */
+  casting?: CastingDecision
 }
 
 export interface StepFlowMeta {
@@ -296,7 +322,7 @@ function pickTemplate(garment: GarmentId): 'ghost_mannequin' | 'flat_lay' {
 export function roleForShotKey(key: ShotKey, garment?: GarmentId): string {
   if (key.startsWith('scene:')) return `mockup_metal_${key.slice('scene:'.length)}`
   if (key === 'hanger') return 'mockup_hanger'
-  if (key === 'model') return 'mockup_model_1'
+  if (isModelKey(key)) return `mockup_model_${modelSlot(key)}`
   if (key === 'details') return 'mockup_details'
   if (key.startsWith('color:')) return `mockup_color_${key.slice('color:'.length)}`
   if (key === 'product') {
@@ -547,6 +573,8 @@ async function runModelShot(
   productId: string,
   userId: string,
   jobId: string,
+  /** Which on-person slot this is — 'model', or 'model:<n>' for an added person. */
+  key: ShotKey,
   garment: GarmentId,
   shirtColor: ColorId,
   nonce: string,
@@ -579,9 +607,28 @@ async function runModelShot(
         idea: castContext.idea,
       }))
     console.log(
-      `[step-flow/shots] ${productId} cast ${decision.label} (${decision.source}) for the model shot: ${decision.reason}`
+      `[step-flow/shots] ${productId} cast ${decision.label} (${decision.source}) for "${key}": ${decision.reason}`
     )
-    await mergeStepFlow(productId, (stepFlow) => ({ ...stepFlow, casting: decision }))
+    // Each on-person slot carries its OWN cast, so a listing with an adult and
+    // a kid can explain both. The top-level `casting` still mirrors the FIRST
+    // slot — the panel's summary line and every pre-existing reader expect it.
+    //
+    // ONE locked merge for both. Writing them separately (or writing the
+    // top-level one through a bare `mergeStepFlow`, as this did before the
+    // per-slot cast existed) races the queue loop's own patches: this runs
+    // fire-and-forget while `queueStepShots` is still persisting the other
+    // keys, so an unlocked read-modify-write here can land on a stale snapshot
+    // and silently drop whichever shot was written in between.
+    await withStepFlowLock(productId, () =>
+      mergeStepFlow(productId, (stepFlow) => {
+        const existing: ShotState = stepFlow.shots[key] ?? { approved: false, status: 'queued' }
+        return {
+          ...stepFlow,
+          shots: { ...stepFlow.shots, [key]: { ...existing, casting: decision } },
+          ...(key === 'model' ? { casting: decision } : {}),
+        }
+      })
+    )
 
     const { url, check } = await shootOneModelShot(productId, userId, {
       shirtColor,
@@ -598,13 +645,13 @@ async function runModelShot(
       // product's mockup_model_1 asset: mirroring a rejected take would ship
       // a wrong-design photo to the storefront the moment it's approved.
       const message = check.reason || 'Model shot failed design-fidelity QA'
-      console.warn(`[step-flow/shots] ${productId} model shot failed QA (not mirrored): ${message}`)
+      console.warn(`[step-flow/shots] ${productId} "${key}" failed QA (not mirrored): ${message}`)
       await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', jobId)
-      await patchShotState(productId, 'model', { status: 'failed', error: message })
+      await patchShotState(productId, key, { status: 'failed', error: message })
       return
     }
 
-    const asset = await mirrorUrlToProductAsset(productId, 'mockup_model_1', url, 5, {
+    const asset = await mirrorUrlToProductAsset(productId, roleForShotKey(key), url, 4 + modelSlot(key), {
       template: 'step_flow_model_shot',
       generated_with: 'etsy-model-shots',
     })
@@ -613,19 +660,20 @@ async function runModelShot(
     // was cast (today: both engines declined a child subject, so the youth
     // shirt was photographed empty). It is a usable photo, so this is a note
     // on a DONE shot rather than a failure — but it is never silent.
-    await patchShotState(productId, 'model', {
+    await patchShotState(productId, key, {
       status: 'done', assetId: asset.id, url: asset.url, error: undefined, note: check.degraded,
     })
   } catch (err: any) {
     const message = err?.message || 'Model shot failed'
-    console.error('[step-flow/shots] model shot failed:', message)
+    console.error(`[step-flow/shots] "${key}" model shot failed:`, message)
     await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', jobId)
-    await patchShotState(productId, 'model', { status: 'failed', error: message })
+    await patchShotState(productId, key, { status: 'failed', error: message })
   }
 }
 
 async function queueModelShot(
   product: ProductRow,
+  key: ShotKey,
   garment: GarmentId,
   primaryColor: ColorId,
   userId: string,
@@ -646,7 +694,7 @@ async function queueModelShot(
       product_id: product.id,
       type: 'step_flow_model_shot', // bookkeeping only — pre-claimed as 'running' so the worker never touches it
       status: 'running',
-      input: { stepKey: 'model', shirtColor: primaryColor, garment, nonce },
+      input: { stepKey: key, shirtColor: primaryColor, garment, nonce },
     })
     .select()
     .single()
@@ -657,12 +705,13 @@ async function queueModelShot(
   // fully-mocked test) it could resolve and patch its own 'done' state
   // before this write lands. Writing first — not "build a patch and let the
   // caller save it later" — makes the ordering correct regardless of timing.
-  await patchShotState(product.id, 'model', { status: 'running', jobId: job.id, approved: false, error: undefined })
+  await patchShotState(product.id, key, { status: 'running', jobId: job.id, approved: false, error: undefined })
 
   void runModelShot(
     product.id,
     userId,
     job.id,
+    key,
     garment,
     primaryColor,
     nonce,
@@ -797,12 +846,12 @@ async function buildShotJob(
   }
   assertOffered(garment, colors.primary)
 
-  if (key === 'model') {
+  if (isModelKey(key)) {
     // MUST-FIX #3: on a redo, thread the prior shot's URL through so
     // shootOneModelShot REPLACES it in metadata.etsy_shots.images instead of
     // appending another take for the Etsy uploader to potentially pick up.
-    const previousUrl = mode === 'redo' ? stepFlow.shots.model?.url : undefined
-    return queueModelShot(product, garment, colors.primary, userId, previousUrl, subjectOverride)
+    const previousUrl = mode === 'redo' ? stepFlow.shots[key]?.url : undefined
+    return queueModelShot(product, key, garment, colors.primary, userId, previousUrl, subjectOverride)
   }
 
   if (key === 'details') {
@@ -908,12 +957,15 @@ export async function redoShot(
     allKeys = defaultShotKeys(stepFlow.colors)
   }
 
-  if (!allKeys.includes(key)) {
+  // An added person (`model:<n>`) is not in the default key set — it exists
+  // because the admin added it, so its own presence in `shots` is what makes
+  // it redoable.
+  if (!allKeys.includes(key) && !(isModelKey(key) && stepFlow.shots[key])) {
     throw new StepFlowValidationError(`Unknown shot key "${key}" for the current garment/colors`)
   }
 
-  if (subjectOverride && key !== 'model') {
-    throw new StepFlowValidationError('A model can only be picked for the on-person shot')
+  if (subjectOverride && !isModelKey(key)) {
+    throw new StepFlowValidationError('A model can only be picked for an on-person shot')
   }
 
   // Old asset stays visible until the redo lands — every builder's internal
@@ -922,6 +974,74 @@ export async function redoShot(
   // its render is synchronous.
   const { jobId, status } = await buildShotJob(product, stepFlow, key, userId, 'redo', subjectOverride)
   return { job: { id: jobId, key, status } }
+}
+
+/** Every on-person slot this product has, in gallery order. */
+export function modelShotKeys(stepFlow: StepFlowMeta): ShotKey[] {
+  return (Object.keys(stepFlow.shots) as ShotKey[])
+    .filter(isModelKey)
+    .sort((a, b) => modelSlot(a) - modelSlot(b))
+}
+
+/**
+ * Add ANOTHER person to the listing, keeping every shot already taken (David
+ * 2026-09-08: "keep the adult and add a kid ... or even what if i want a
+ * family all wearing the shirts"). Allocates the next free `model:<n>` slot
+ * and shoots it — `subjectId` picks who, or leaves it to Mrs. Imagine.
+ *
+ * Deliberately NOT part of `defaultShotKeys`: the first on-person shot is
+ * automatic, every extra one is a decision the admin made, so re-entering the
+ * step never silently re-fires a person they removed or paid for already.
+ */
+export async function addModelShot(
+  productId: string,
+  userId: string,
+  subjectId?: string
+): Promise<{ job: { id: string | null; key: ShotKey; status: ShotState['status'] } }> {
+  const product = await loadProductRow(productId)
+  const stepFlow = getStepFlow(product)
+
+  if (isMetalStepFlow(stepFlow)) {
+    throw new StepFlowValidationError('A metal print has no on-person shot')
+  }
+  const garment = stepFlow.garment
+  const colors = stepFlow.colors
+  if (!garment || !colors?.primary) {
+    throw new StepFlowValidationError('Approve garments & colors before adding a model')
+  }
+  assertOffered(garment, colors.primary)
+
+  const used = new Set(modelShotKeys(stepFlow).map(modelSlot))
+  let slot = 2
+  while (used.has(slot)) slot++
+  if (slot > MAX_MODEL_SHOTS) {
+    throw new StepFlowValidationError(`A listing can carry at most ${MAX_MODEL_SHOTS} on-person shots`)
+  }
+  const key = `model:${slot}` as ShotKey
+
+  const { jobId, status } = await queueModelShot(product, key, garment, colors.primary, userId, undefined, subjectId)
+  return { job: { id: jobId, key, status } }
+}
+
+/** Etsy shows ten images per listing and the other shots need room too. */
+const MAX_MODEL_SHOTS = 6
+
+/** Drop an added person entirely — the first on-person shot can't be removed. */
+export async function removeModelShot(productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> {
+  if (!isModelKey(key) || key === 'model') {
+    throw new StepFlowValidationError('Only an added on-person shot can be removed')
+  }
+  return withStepFlowLock(productId, async () => {
+    const stepFlow = await mergeStepFlow(productId, (sf) => {
+      const shots = { ...sf.shots }
+      delete shots[key]
+      return { ...sf, shots }
+    })
+    // The asset row goes too, or the publish gallery keeps showing a person
+    // the admin just deleted.
+    await supabase.from('product_assets').delete().eq('product_id', productId).eq('asset_role', roleForShotKey(key))
+    return { step_flow: stepFlow }
+  })
 }
 
 export interface ApproveItem {
@@ -985,7 +1105,12 @@ export async function approveShotsBatch(
         const trackedKeys = isMetalStepFlow(stepFlow)
           ? defaultMetalShotKeys(stepFlow.sizes || [])
           : stepFlow.colors
-            ? defaultShotKeys(stepFlow.colors)
+            ? [
+                ...defaultShotKeys(stepFlow.colors),
+                // Added people are tracked too, or an extra on-person shot
+                // nobody approved would let Listing unlock behind its back.
+                ...(Object.keys(shots) as ShotKey[]).filter((k) => isModelKey(k) && k !== 'model'),
+              ]
             : []
         const tracked = trackedKeys.filter((k) => shots[k])
         const allSettled =
