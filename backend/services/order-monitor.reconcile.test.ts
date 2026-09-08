@@ -81,7 +81,7 @@ vi.mock('./order-payment.js', () => ({
   applyPaidCheckoutOrder: (...args: any[]) => applyPaidCheckoutOrder(...(args as [])) as any
 }))
 
-const { reconcileUnrecordedPayments } = await import('./order-monitor.js')
+const { reconcileUnrecordedPayments, reconcilePaymentsFast } = await import('./order-monitor.js')
 
 const PAID_ORDER = {
   id: 'bf1abb5f-0e9a-4e29-803a-015e82161d3a',
@@ -217,5 +217,70 @@ describe('reconcileUnrecordedPayments', () => {
     } finally {
       process.env.STRIPE_SECRET_KEY = saved
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The fast pass (2026-09-08).
+//
+// Order ITP-MTRQH7VJ-2UO1 was paid at 21:09 and the crew was not told until
+// 22:08 — 59 minutes — because Stripe's webhook was being rejected on a
+// signature mismatch and reconciliation only ran on the hourly cleanup sweep.
+// These pin the properties that keep that from costing an hour again.
+// ---------------------------------------------------------------------------
+describe('reconcilePaymentsFast', () => {
+  it('heals a paid order exactly like the hourly pass does', async () => {
+    orderRows = [PAID_ORDER]
+
+    const result = await reconcilePaymentsFast()
+
+    expect(result.healed).toBe(1)
+    expect(applyPaidCheckoutOrder).toHaveBeenCalledTimes(1)
+    // Same function the webhook calls — the crew alert and customer email come
+    // from there, so a reconciled order notifies identically.
+    expect(applyPaidCheckoutOrder.mock.calls[0][2]).toBe('reconciler')
+  })
+
+  it('still refuses to touch an abandoned checkout', async () => {
+    orderRows = [ABANDONED_ORDER]
+
+    const result = await reconcilePaymentsFast()
+
+    expect(result.healed).toBe(0)
+    expect(applyPaidCheckoutOrder).not.toHaveBeenCalled()
+  })
+
+  it('does not run concurrently with itself', async () => {
+    // The fast interval and the hourly sweep can overlap; without the guard
+    // both would hit Stripe for the same intents.
+    orderRows = [PAID_ORDER]
+    const [first, second] = await Promise.all([reconcilePaymentsFast(), reconcilePaymentsFast()])
+    const skipped = [first, second].filter(r => r.skipped)
+    expect(skipped).toHaveLength(1)
+    expect(applyPaidCheckoutOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases its guard so the next tick still runs', async () => {
+    orderRows = [PAID_ORDER]
+    await reconcilePaymentsFast()
+    applyPaidCheckoutOrder.mockClear()
+    orderRows = [PAID_ORDER]
+
+    const again = await reconcilePaymentsFast()
+
+    expect(again.skipped).toBeUndefined()
+    expect(applyPaidCheckoutOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('releases its guard even when the pass throws', async () => {
+    orderQueryError = { message: 'connection reset' }
+    await reconcilePaymentsFast()
+    orderQueryError = null
+    orderRows = [PAID_ORDER]
+
+    const after = await reconcilePaymentsFast()
+
+    expect(after.skipped).toBeUndefined()
+    expect(after.healed).toBe(1)
   })
 })

@@ -291,12 +291,45 @@ const RECONCILE_LOOKBACK_HOURS = Number(process.env.RECONCILE_LOOKBACK_HOURS || 
 // Cap per run so one sweep can't spend the whole hour hitting Stripe.
 const RECONCILE_MAX_PER_RUN = Number(process.env.RECONCILE_MAX_PER_RUN || 25)
 
-export async function reconcileUnrecordedPayments(): Promise<{ checked: number; healed: number }> {
+// The FAST pass only looks at orders from the last few hours. It runs every
+// couple of minutes (see startPaymentReconciler in worker/ai-jobs-worker.ts),
+// so it must stay cheap: a narrow window means the same two or three abandoned
+// drafts get re-checked rather than a fortnight of them.
+const RECONCILE_FAST_LOOKBACK_HOURS = Number(process.env.RECONCILE_FAST_LOOKBACK_HOURS || 6)
+
+/**
+ * Guards against two passes running at once — the fast interval and the hourly
+ * sweep can overlap, and both would otherwise hit Stripe for the same intents.
+ * applyPaidCheckoutOrder is idempotent so a race was never *unsafe*, just
+ * wasteful and noisy in the logs.
+ */
+let reconcileInFlight = false
+
+export async function reconcileUnrecordedPayments(
+  opts: { mode?: 'full' | 'fast' } = {}
+): Promise<{ checked: number; healed: number; skipped?: boolean }> {
   const stripeKey = process.env.STRIPE_SECRET_KEY
   if (!stripeKey) {
     console.warn('[reconciler] STRIPE_SECRET_KEY not set — skipping payment reconciliation')
     return { checked: 0, healed: 0 }
   }
+
+  if (reconcileInFlight) {
+    return { checked: 0, healed: 0, skipped: true }
+  }
+  reconcileInFlight = true
+  try {
+    return await runReconcile(stripeKey, opts.mode ?? 'full')
+  } finally {
+    reconcileInFlight = false
+  }
+}
+
+async function runReconcile(
+  stripeKey: string,
+  mode: 'full' | 'fast'
+): Promise<{ checked: number; healed: number }> {
+  const lookbackHours = mode === 'fast' ? RECONCILE_FAST_LOOKBACK_HOURS : RECONCILE_LOOKBACK_HOURS
 
   // Candidates: we think they're unpaid, but they have a PaymentIntent, so the
   // customer at least reached Stripe. Cancelled/refunded orders are excluded —
@@ -308,7 +341,7 @@ export async function reconcileUnrecordedPayments(): Promise<{ checked: number; 
     .neq('payment_status', 'paid')
     .not('payment_intent_id', 'is', null)
     .not('status', 'in', '(cancelled,refunded)')
-    .gt('created_at', hoursAgoIso(RECONCILE_LOOKBACK_HOURS))
+    .gt('created_at', hoursAgoIso(lookbackHours))
     .order('created_at', { ascending: false })
     .limit(RECONCILE_MAX_PER_RUN)
 
@@ -370,8 +403,30 @@ export async function reconcileUnrecordedPayments(): Promise<{ checked: number; 
     })
   }
 
-  console.log(`[reconciler] Checked ${candidates.length} unpaid order(s) against Stripe, healed ${healed}`)
+  // The fast pass runs every couple of minutes and is almost always a no-op;
+  // logging that would bury everything else. Only speak up when it did work.
+  if (mode === 'full' || healed > 0) {
+    console.log(`[reconciler:${mode}] Checked ${candidates.length} unpaid order(s) against Stripe, healed ${healed}`)
+  }
   return { checked: candidates.length, healed }
+}
+
+/**
+ * The two-minute pass. Narrow window, so a paid order is noticed in minutes
+ * instead of up to an hour.
+ *
+ * WHY THIS EXISTS (2026-09-08): order ITP-MTRQH7VJ-2UO1 was paid at 21:09 and
+ * the crew was not told until 22:08 — 59 minutes — because Stripe's webhook was
+ * rejected (signature mismatch) and reconciliation only ran on the hourly
+ * cleanup sweep. David: "we need to be notified right away when we get a order."
+ *
+ * The webhook is still the fast path and should be fixed on its own merits.
+ * This exists so that when webhook delivery breaks again — and on this shop it
+ * has broken twice now — the cost is a couple of minutes of delay rather than
+ * an hour of silence.
+ */
+export async function reconcilePaymentsFast(): Promise<{ checked: number; healed: number; skipped?: boolean }> {
+  return reconcileUnrecordedPayments({ mode: 'fast' })
 }
 
 // Entry point for the worker's hourly loop.

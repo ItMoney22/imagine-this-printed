@@ -12,7 +12,7 @@ import { convertGlbToStl } from '../services/glb-to-stl.js'
 import { addWatermark } from '../services/watermark.js'
 import { extractPalette } from '../services/print-palette.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
-import { monitorHealthAndOrders } from '../services/order-monitor.js'
+import { monitorHealthAndOrders, reconcilePaymentsFast } from '../services/order-monitor.js'
 import { sweepAbandonedCarts } from '../services/abandoned-cart.js'
 import { sweepMissingSeoPacks } from '../services/seo-pack.js'
 import { claimOnce } from '../lib/webhook-helpers.js'
@@ -2526,6 +2526,9 @@ async function checkJobStatus(job: any) {
 
 // Cleanup interval: 1 hour
 const CLEANUP_INTERVAL = 60 * 60 * 1000
+// How often to ask Stripe "did any unpaid order actually get paid?" — the net
+// under a broken webhook. 2 minutes by default; see startWorker for why.
+const PAYMENT_RECONCILE_INTERVAL = Number(process.env.PAYMENT_RECONCILE_INTERVAL_MS || 2 * 60 * 1000)
 
 // Delete incomplete orders older than 10 days
 async function cleanupIncompleteOrders() {
@@ -2680,6 +2683,35 @@ export function startWorker() {
       console.error('[worker] ❌ Uncaught error from cleanup interval:', error)
     }
   }, CLEANUP_INTERVAL)
+
+  // Payment reconciliation on its OWN fast clock (default every 2 minutes).
+  //
+  // It used to ride the hourly cleanup sweep above, which is why order
+  // ITP-MTRQH7VJ-2UO1 was paid at 21:09 and the crew was not told until 22:08 —
+  // Stripe's webhook was being rejected and the only other path ran once an
+  // hour. David, 2026-09-08: "we need to be notified right away when we get a
+  // order."
+  //
+  // Cheap by construction: one indexed Supabase query that normally returns
+  // nothing, and it only talks to Stripe when there is an unpaid order carrying
+  // a PaymentIntent from the last few hours. Self-guarded against overlapping
+  // with the hourly pass.
+  console.log(`[worker] 💳 Payment reconciler every ${Math.round(PAYMENT_RECONCILE_INTERVAL / 1000)}s`)
+  setInterval(async () => {
+    try {
+      await reconcilePaymentsFast()
+    } catch (error) {
+      console.error('[worker] ❌ Uncaught error from payment reconciler interval:', error)
+    }
+  }, PAYMENT_RECONCILE_INTERVAL)
+
+  // First payment check shortly after boot, so a payment taken during a deploy
+  // (exactly what happened on 2026-09-07) is caught in seconds, not an hour.
+  setTimeout(() => {
+    reconcilePaymentsFast().catch((error) => {
+      console.error('[worker] ❌ Uncaught error from startup payment reconcile:', error)
+    })
+  }, 15000)
 
   // Process immediately on start
   processQueuedJobs().catch((error) => {
