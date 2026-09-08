@@ -1527,19 +1527,63 @@ const AdminDashboard: React.FC = () => {
     handleUpdateProductField(persistField, persistValue)
   }
 
-  const handleDeleteImage = async (productId: string, assetId: string, imageUrl: string) => {
-    if (!confirm('Are you sure you want to delete this image? This action cannot be undone.')) {
+  // Delete one image off a product. Three kinds of image reach here and they
+  // live in three different places, which is why this takes the whole gallery
+  // entry instead of an assetId:
+  //   - pipeline assets (source/nobg/upscaled/mockup) -> product_assets row
+  //   - Etsy model shots -> products.metadata.etsy_shots.images, no asset row
+  //   - hand-uploaded listing images -> products.images only
+  // Every case also strips the URL out of products.images so a deleted image
+  // can never keep showing on the storefront.
+  const handleDeleteImage = async (
+    productId: string,
+    image: { url: string; assetId?: string; group?: string }
+  ) => {
+    const { url: imageUrl, assetId, group } = image
+    const editing = editingProductData?.id === productId ? editingProductData : null
+    const isMain = editing?.images?.[0] === imageUrl
+    const warnings = [
+      group === 'source'
+        ? 'This is the SOURCE design the mockups and print files were made from.'
+        : '',
+      isMain ? 'It is the MAIN image, so the next image becomes the main one.' : ''
+    ].filter(Boolean)
+    const prompt = warnings.length
+      ? 'Delete this image?\n\n' + warnings.join('\n') + '\n\nThis cannot be undone.'
+      : 'Delete this image? This cannot be undone.'
+    if (!confirm(prompt)) {
       return
     }
 
     try {
-      // 1. Delete from product_assets table
-      const { error: assetError } = await supabase
-        .from('product_assets')
-        .delete()
-        .eq('id', assetId)
+      // 1. Delete from product_assets table (model shots and plain listing
+      //    images have no row, so this step is skipped for them)
+      if (assetId) {
+        const { error: assetError } = await supabase
+          .from('product_assets')
+          .delete()
+          .eq('id', assetId)
 
-      if (assetError) throw assetError
+        if (assetError) throw assetError
+      }
+
+      // 1b. Model shots live on metadata, and their cast/QA verdicts are
+      //     positional — the backend route prunes those rows alongside the
+      //     image, so go through it rather than writing metadata by hand.
+      if (group === 'model') {
+        const { data: current } = await supabase
+          .from('products')
+          .select('metadata')
+          .eq('id', productId)
+          .single()
+
+        const shots: string[] = Array.isArray(current?.metadata?.etsy_shots?.images)
+          ? current.metadata.etsy_shots.images
+          : []
+        await api.put(`/api/admin/etsy/model-shots/${productId}`, {
+          images: shots.filter((u: string) => u !== imageUrl)
+        })
+      }
 
       // 2. Remove from products.images array
       const { data: product } = await supabase
@@ -1569,17 +1613,14 @@ const AdminDashboard: React.FC = () => {
         .eq('product_id', productId)
         .order('created_at', { ascending: false })
 
-      const groupedAssets: Record<string, any[]> = {
-        source: [],
-        nobg: [],
-        mockup: [],
-        upscaled: []
-      }
+      // Group by whatever kinds actually come back. A fixed whitelist here
+      // used to drop 'print' assets, so deleting any image made the modal's
+      // print-files section vanish until the page was reloaded.
+      const groupedAssets: Record<string, any[]> = {}
 
       assets?.forEach(asset => {
-        if (groupedAssets[asset.kind]) {
-          groupedAssets[asset.kind].push(asset)
-        }
+        if (!groupedAssets[asset.kind]) groupedAssets[asset.kind] = []
+        groupedAssets[asset.kind].push(asset)
       })
 
       setProductAssetGroups(prev => ({
@@ -4083,7 +4124,7 @@ const AdminDashboard: React.FC = () => {
             onClose={() => setShowEnhancedEditModal(false)}
             onSave={handleEditModalSave}
             onSetMain={(url) => handleSetMainImage(editingProductData.id, url)}
-            onDeleteImage={(assetId, url) => handleDeleteImage(editingProductData.id, assetId, url)}
+            onDeleteImage={(image) => handleDeleteImage(editingProductData.id, image)}
             onRegenerate={() => handleRegenerateImages(editingProductData.id)}
             onRemoveBackground={() => handleRemoveBackground(editingProductData.id)}
             onUpscale={() => handleUpscaleImage(editingProductData.id)}

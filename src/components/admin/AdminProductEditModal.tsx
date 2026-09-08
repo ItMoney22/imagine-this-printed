@@ -16,7 +16,7 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   X, RefreshCw, Scissors, ArrowUpCircle, LayoutGrid, Sparkles,
-  ExternalLink, Wand2, ImageOff, Check, Download,
+  ExternalLink, Wand2, ImageOff, Check, Download, Trash2,
 } from 'lucide-react'
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
 import { COLOR_PRESETS, isLightSwatch } from '../../utils/color-presets'
@@ -24,7 +24,7 @@ import { STUDIO_SIZE_KEYS, METAL_ART_PRICES } from '../../../backend/shared/meta
 import { MockupProgressPanel, type MockupProgress } from '../MockupProgressPanel'
 import { ImageLightbox, type LightboxImage } from './ImageLightbox'
 
-type AssetGroupKey = 'listing' | 'source' | 'nobg' | 'upscaled' | 'mockup' | 'model'
+export type AssetGroupKey = 'listing' | 'source' | 'nobg' | 'upscaled' | 'mockup' | 'model'
 
 const GROUP_LABELS: Record<AssetGroupKey, string> = {
   listing: 'Listing Images',
@@ -41,7 +41,7 @@ const GROUP_LABELS: Record<AssetGroupKey, string> = {
 // into 'listing', so the tab sections and the lightbox agree on sequence.
 const GROUP_ORDER: AssetGroupKey[] = ['source', 'nobg', 'upscaled', 'mockup', 'model', 'listing']
 
-interface GalleryImage {
+export interface GalleryImage {
   url: string
   assetId?: string
   group: AssetGroupKey
@@ -101,7 +101,12 @@ export interface AdminProductEditModalProps {
   // `is_active` — which is why this isn't a plain (field, value) pair.
   onSave: (localPatch: Record<string, any>, persistField: string, persistValue: any) => void
   onSetMain: (imageUrl: string) => void
-  onDeleteImage: (assetId: string, imageUrl: string) => void
+  // Delete any gallery image. The whole entry goes back to the parent, not
+  // just an id, because the three kinds of image live in three places:
+  // pipeline assets have a product_assets row (`assetId`), Etsy model shots
+  // live on product metadata, and hand-uploaded listing images exist only in
+  // products.images — the parent keys off `group` to tell them apart.
+  onDeleteImage: (image: GalleryImage) => void
   onRegenerate: () => void
   onRemoveBackground: () => void
   onUpscale: () => void
@@ -168,9 +173,13 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
   const handleLightboxSetMain = (image: LightboxImage) => {
     onSetMain(image.url)
   }
-  const handleLightboxDelete = (image: LightboxImage) => {
-    if (!image.assetId) return
-    onDeleteImage(image.assetId, image.url)
+  // The lightbox walks the flattened gallery, so the entry it is showing is
+  // gallery[lightboxIndex] — taken by index rather than by URL so a mockup
+  // that happens to share a URL with another group can't be confused for it.
+  const handleLightboxDelete = () => {
+    const image = lightboxIndex === null ? null : gallery[lightboxIndex]
+    if (!image) return
+    onDeleteImage(image)
     setLightboxIndex(null)
   }
 
@@ -312,6 +321,7 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
                   mainImageUrl={mainImageUrl}
                   onSelect={setSelectedUrl}
                   onSetMain={onSetMain}
+                  onDelete={onDeleteImage}
                   printAssets={printAssets}
                 />
               )}
@@ -612,8 +622,9 @@ const ImagesTab: React.FC<{
   mainImageUrl: string | null
   onSelect: (url: string) => void
   onSetMain: (url: string) => void
+  onDelete: (image: GalleryImage) => void
   printAssets: any[]
-}> = ({ gallery, selectedUrl, mainImageUrl, onSelect, onSetMain, printAssets }) => {
+}> = ({ gallery, selectedUrl, mainImageUrl, onSelect, onSetMain, onDelete, printAssets }) => {
   if (gallery.length === 0 && printAssets.length === 0) {
     return <p className="text-sm text-muted">No images yet for this product.</p>
   }
@@ -622,7 +633,8 @@ const ImagesTab: React.FC<{
     <div className="space-y-5">
       <p className="text-[11px] text-muted">
         The <span className="font-semibold text-text">MAIN</span> image is the one customers see on
-        the catalog card and at the top of the product page. Hover any image to make it the main one.
+        the catalog card and at the top of the product page. Hover any image to make it the main one
+        or to delete it — a mockup that came out wrong does not have to stay on the product.
       </p>
       {GROUP_ORDER.map((key) => {
         const imgs = gallery.filter(g => g.group === key)
@@ -649,6 +661,20 @@ const ImagesTab: React.FC<{
                     aria-label={`View ${GROUP_LABELS[key]} ${i + 1}`}
                   >
                     <img src={img.url} alt={`${GROUP_LABELS[key]} ${i + 1}`} className="w-full h-full object-contain" />
+                  </button>
+                  {/* Delete lived only inside the lightbox, and only for
+                      images with a product_assets row, so a bad mockup or a
+                      model shot that missed the design could not be removed
+                      from here at all (David, 2026-09-08). It now sits on the
+                      thumbnail next to Set-as-main. */}
+                  <button
+                    type="button"
+                    onClick={() => onDelete(img)}
+                    title="Delete this image"
+                    aria-label={`Delete ${GROUP_LABELS[key]} ${i + 1}`}
+                    className="absolute top-1 right-1 p-1.5 rounded-md bg-black/70 text-white opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity hover:bg-red-600"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                   {mainImageUrl === img.url ? (
                     <span className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-accent text-black">

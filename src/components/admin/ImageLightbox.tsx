@@ -1,8 +1,9 @@
 // Full-screen image viewer for the admin product editor. Opened from the
 // large viewer in AdminProductEditModal — click-to-zoom (wheel or +/-
 // buttons), prev/next through the flattened gallery, download, set-as-main,
-// and delete (only offered when the current image actually has a
-// product_assets row, i.e. `assetId` is set — Etsy model shots don't).
+// and delete. Delete used to be hidden unless the image had a product_assets
+// row (`assetId`), which silently made Etsy model shots and hand-uploaded
+// listing images undeletable; the owner of the gallery decides now.
 import React, { useEffect, useRef, useState } from 'react'
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, Star, Trash2 } from 'lucide-react'
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
@@ -188,7 +189,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
           </button>
         )}
 
-        {onDelete && current.assetId && (
+        {onDelete && (
           <button
             type="button"
             onClick={() => onDelete(current)}
