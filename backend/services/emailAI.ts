@@ -2,6 +2,7 @@ import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
 import { buildOrderStatusUrl } from '../utils/order-status-token.js'
+import { buildAccountClaimUrl } from '../utils/account-claim-token.js'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -166,7 +167,10 @@ Make it personal, creative, and memorable. This should feel like it came from a 
       trackingNumber: context.trackingNumber,
       carrier: context.carrier,
       ctaText: getCtaText(context.templateKey),
-      ctaUrl: getCtaUrl(context.templateKey, context)
+      ctaUrl: getCtaUrl(context.templateKey, context),
+      // Only the confirmation invites an account — repeating the ask on every
+      // later email would read as nagging a customer who already said no.
+      claimUrl: context.templateKey === 'order_confirmation' ? buildAccountClaimUrl(context.orderId) : null
     })
 
     // Note: Email logging is now done after sending (with messageId) in email.ts
@@ -223,6 +227,7 @@ function buildMrImagineEmail(options: {
   carrier?: string
   ctaText?: string
   ctaUrl?: string
+  claimUrl?: string | null
 }): string {
   const itemsHtml = options.items ? `
     <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
@@ -313,6 +318,19 @@ function buildMrImagineEmail(options: {
               <a href="${options.ctaUrl}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px; box-shadow: 0 4px 15px rgba(124, 58, 237, 0.3);">
                 ${options.ctaText || 'Continue'}
               </a>
+            </div>
+          ` : ''}
+
+          ${options.claimUrl ? `
+            <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 12px; padding: 18px; margin: 25px 0; text-align: center;">
+              <p style="color: #5b21b6; font-size: 15px; font-weight: 600; margin: 0 0 6px;">Want to keep an eye on all your orders?</p>
+              <p style="color: #6b7280; font-size: 13px; line-height: 1.6; margin: 0 0 14px;">
+                Set up an account and this order is already waiting inside it — no re-typing, no order numbers to hunt down.
+              </p>
+              <a href="${options.claimUrl}" style="display: inline-block; background: #7c3aed; color: white; padding: 11px 24px; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 14px;">
+                Create My Account
+              </a>
+              <p style="color: #9ca3af; font-size: 11px; margin: 10px 0 0;">Totally optional — your order is on its way either way.</p>
             </div>
           ` : ''}
 
@@ -452,7 +470,10 @@ function generateFallbackEmail(context: EmailContext): GeneratedEmail {
     trackingNumber: context.trackingNumber,
     carrier: context.carrier,
     ctaText: getCtaText(context.templateKey),
-    ctaUrl: getCtaUrl(context.templateKey, context)
+    ctaUrl: getCtaUrl(context.templateKey, context),
+    // Only the confirmation invites an account — repeating the ask on every
+    // later email would read as nagging a customer who already said no.
+    claimUrl: context.templateKey === 'order_confirmation' ? buildAccountClaimUrl(context.orderId) : null
   })
 
   return {

@@ -12,6 +12,7 @@ import { sendViaResend } from '../services/email-resend.js'
 import { getSuppression } from '../services/email-suppression.js'
 import { resolveCarrier } from './carrier-tracking.js'
 import { buildOrderStatusUrl } from './order-status-token.js'
+import { buildAccountClaimUrl } from './account-claim-token.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -956,6 +957,19 @@ export const sendOrderConfirmationEmail = async (
   const orderRef = displayOrderNumber(orderNumber, options.orderId)
   const name = greetingName(customerName || options.customerName)
   const statusUrl = buildOrderStatusUrl(options.orderId)
+  // Opt-in only: this is an invitation, never an account we made for them.
+  const claimUrl = buildAccountClaimUrl(options.orderId)
+  const claimHtml = claimUrl ? `
+          <div style="background: #f5f3ff; border: 1px solid #ddd6fe; border-radius: 12px; padding: 18px; margin-bottom: 20px; text-align: center;">
+            <p style="color: #5b21b6; font-size: 15px; font-weight: 600; margin: 0 0 6px;">Want to keep an eye on all your orders?</p>
+            <p style="color: #6b7280; font-size: 13px; line-height: 1.6; margin: 0 0 14px;">
+              Set up an account and this order is already waiting inside it — no re-typing, no order numbers to hunt down.
+            </p>
+            <a href="${esc(claimUrl)}" style="display: inline-block; background: #7c3aed; color: white; padding: 11px 24px; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 14px;">
+              Create My Account
+            </a>
+            <p style="color: #9ca3af; font-size: 11px; margin: 10px 0 0;">Totally optional — your order is on its way either way.</p>
+          </div>` : ''
 
   // Try AI-powered email first
   if (AI_EMAIL_ENABLED && generateAIEmail) {
@@ -1052,6 +1066,8 @@ export const sendOrderConfirmationEmail = async (
             </a>
             <p style="color: #9ca3af; font-size: 12px; margin: 10px 0 0;">No account needed — this link is just for you.</p>
           </div>
+
+${claimHtml}
 
           <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 20px;">
             <p style="color: #6b7280; font-size: 14px; margin: 0;">

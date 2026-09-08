@@ -80,6 +80,7 @@ const UserMediaGallery = lazy(() => import('./pages/UserMediaGallery'))
 const UserDesignDashboard = lazy(() => import('./pages/UserDesignDashboard'))
 const MyOrders = lazy(() => import('./pages/MyOrders'))
 const OrderStatus = lazy(() => import('./pages/OrderStatus'))
+const ClaimAccount = lazy(() => import('./pages/ClaimAccount'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationProducts'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
@@ -172,6 +173,7 @@ function App() {
                   <Route path="/order-success" element={<OrderSuccess />} />
                   {/* PUBLIC — tokenized link from order emails; guests have no login */}
                   <Route path="/order-status/:orderId" element={<OrderStatus />} />
+                  <Route path="/claim-account/:orderId" element={<ClaimAccount />} />
                   <Route path="/founders" element={<FoundersDashboard />} />
                   <Route path="/vendor" element={<VendorDashboard />} />
                   {/* PUBLIC — the Toy Factory is the kid-marketed toy page;
