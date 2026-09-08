@@ -76,9 +76,47 @@ export const Checkerboard: React.FC<{ children: React.ReactNode; className?: str
   </div>
 )
 
+/**
+ * The "something needs your attention" panel — one place, because this kept
+ * being re-invented per step in DARK-THEME colours on a LIGHT-ONLY app.
+ *
+ * David, 2026-09-08, on the Etsy step's QA panel: "the color on this box is
+ * way to hard for me to see". It was `text-amber-200` (#FDE68A) on
+ * `bg-amber-500/10` over a white card: 1.16:1 measured, against a 4.5:1 floor
+ * for body text — effectively invisible, and he was reading it on a screen he
+ * can barely see as it is. Those are DARK-theme colours, and this app has no
+ * dark theme to fall back to: ThemeProvider.tsx pins it to light mode and
+ * src/index.css defines a single light `:root`, so pale amber has nothing
+ * dark to sit on and never will.
+ *
+ * Measured on the amber-50 ground below: heading 8.75:1, body 14.4:1,
+ * secondary text 9.9:1, the icon 4.8:1.
+ *
+ * WARN_TEXT / WARN_HEADING are exported for the places that need the colour
+ * without the whole panel — do not reach for a raw amber utility instead.
+ */
+export const WARN_HEADING = 'text-amber-900'
+export const WARN_TEXT = 'text-amber-950'
+export const WARN_MUTED = 'text-stone-700'
+
+export const WarnPanel: React.FC<{
+  icon?: React.ReactNode
+  title: React.ReactNode
+  children?: React.ReactNode
+  className?: string
+}> = ({ icon, title, children, className }) => (
+  <div className={`rounded-xl border border-amber-500/50 bg-amber-50 p-4 ${className ?? ''}`}>
+    <div className="flex items-center gap-2 mb-1.5">
+      {icon}
+      <p className={`text-sm font-semibold ${WARN_HEADING}`}>{title}</p>
+    </div>
+    {children}
+  </div>
+)
+
 export const InlineError: React.FC<{ message: string | null }> = ({ message }) =>
   message ? (
-    <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">{message}</div>
+    <div className="text-sm text-red-800 bg-red-50 border border-red-500/40 rounded-xl px-4 py-2.5">{message}</div>
   ) : null
 
 /** The six-hex step tracker, click-to-navigate to any already-reachable step.

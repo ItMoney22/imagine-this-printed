@@ -10,13 +10,24 @@
 // all the time". This step now RUNS the review itself and, when it fails,
 // shows what to fix plus the admin override the gate was always designed to
 // have. The gate stays binding — the only way to pass is still to be reviewed.
+//
+// MRS. IMAGINE STEPS IN (2026-09-08). Reporting a failure well is not the same
+// as clearing it, and David said so: "if theres something wrong then mrs
+// imagine should step in and fix it so it can proccess". A failed review now
+// goes straight into the repair pass (POST /design-qa/autofix) — rewrite the
+// copy, re-shoot the photo the finding is about — and then RE-REVIEWS, up to
+// MAX_FIX_ROUNDS times, before it ever asks David for anything. He only sees
+// the panel below when she has genuinely run out of moves.
+//
+// Note what did NOT change: the gate. Autofix stamps nothing and passes
+// nothing; every round still has to earn a fresh verdict on the same terms.
 import React, { useRef, useState } from 'react'
-import { AlertTriangle, Check, ExternalLink, Send, ShieldCheck } from 'lucide-react'
-import { designQa, etsy, type EtsyTier, type QaReview } from '../../lib/api'
+import { AlertTriangle, Check, ExternalLink, Send, ShieldCheck, Sparkles } from 'lucide-react'
+import { designQa, etsy, stepFlow, type EtsyTier, type QaAutofix, type QaReview } from '../../lib/api'
 import { tiersForCategory } from '../../../backend/shared/etsy-tiers'
 import { METAL_ART_PRICES, STUDIO_SIZE_KEYS } from '../../../backend/shared/metal-art'
-import type { StepFlowAction, StepFlowState } from './stepFlowReducer'
-import { InlineError, SecondaryButton, StepCard } from './shared'
+import type { ShotKey, StepFlowAction, StepFlowState } from './stepFlowReducer'
+import { InlineError, SecondaryButton, StepCard, WarnPanel, WARN_HEADING, WARN_TEXT } from './shared'
 import ProgressBar from './ProgressBar'
 
 // No live job to watch here — it's a synchronous write-a-draft call.
@@ -27,10 +38,29 @@ const REVIEW_EXPECTED_MS = 25_000
 // One LLM call for the listing copy (etsy-seo-composer.ts), same call the
 // Listing step makes.
 const COMPOSE_EXPECTED_MS = 12_000
+// The repair pass itself: at most one copy-rewrite call plus the writes that
+// queue a re-shoot. The re-shoot's own render is timed separately below.
+const FIX_EXPECTED_MS = 15_000
+// A model shot, matching MockupStep's SHOT_EXPECTED_MS for the same key.
+const RESHOOT_EXPECTED_MS = 45_000
+
+/** How many times Mrs. Imagine may repair-and-resubmit before handing it back.
+ *  Every round costs a review (two vision calls) and possibly a render, and a
+ *  design that is still failing after two honest attempts has something wrong
+ *  with it that David needs to see rather than pay to re-measure. */
+const MAX_FIX_ROUNDS = 2
+/** Ceiling on waiting for a re-shoot before giving up on it. A model shot runs
+ *  ~45s; this is generous enough to survive a busy worker queue and short
+ *  enough that the step never looks hung. */
+const RESHOOT_TIMEOUT_MS = 4 * 60_000
+const SHOT_POLL_MS = 3000
 
 interface EtsyStepProps {
   state: StepFlowState
   dispatch: React.Dispatch<StepFlowAction>
+  /** Re-hydrates the builder from the server. Used after a re-shoot so the
+   *  Mockups step shows the new photo instead of the one just replaced. */
+  refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
 }
 
 // The anchors the composer stamps on a pack (etsy-seo-composer.ts:
@@ -79,7 +109,10 @@ interface QueueResult {
   skipped: Array<{ tier: string; reason: string }>
 }
 
-const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
+const shotWord = (key: string): string =>
+  key === 'model' ? 'the on-person photo' : key === 'product' ? 'the product photo' : key === 'hanger' ? 'the hanger photo' : `the ${key} photo`
+
+const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh }) => {
   const category: string | null = (state.product as { category?: string } | null)?.category ?? null
   const isMetal = category === 'metal-art'
   const tierOrder: EtsyTier[] = tiersForCategory(category)
@@ -103,10 +136,15 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
         : GARMENT_TIER_META[t]
   const [tiers, setTiers] = useState<EtsyTier[]>(['primary'])
   const [skipped, setSkipped] = useState(false)
-  const [phase, setPhase] = useState<'idle' | 'composing' | 'reviewing' | 'queueing'>('idle')
+  const [phase, setPhase] = useState<'idle' | 'composing' | 'reviewing' | 'queueing' | 'fixing' | 'reshooting'>('idle')
   const [result, setResult] = useState<QueueResult | null>(null)
   const [gate, setGate] = useState<GateRefusal | null>(null)
   const [review, setReview] = useState<QaReview | null>(null)
+  const [autofix, setAutofix] = useState<QaAutofix | null>(null)
+  /** True once Mrs. Imagine has stopped trying — either she ran out of rounds
+   *  or the remaining findings are ones nothing automatic should touch. Only
+   *  then does the manual panel appear. */
+  const [handedBack, setHandedBack] = useState(false)
   const [overrideOpen, setOverrideOpen] = useState(false)
   const [overrideReason, setOverrideReason] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -115,6 +153,10 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
   // `etsy.compose` is a paid LLM call, so it happens at most once per visit to
   // this step — same discipline as ListingStep's composedRef.
   const packEnsuredRef = useRef(false)
+  // Rounds already spent, across every attempt on this product this visit —
+  // deliberately NOT reset by "Review it again", so a stuck design cannot be
+  // walked into an unbounded spend by clicking.
+  const fixRoundsRef = useRef(0)
 
   const busy = phase !== 'idle'
 
@@ -165,7 +207,8 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
    *  Reaching this step without a pack means the Listing step was skipped or
    *  its compose call failed, so this is a backstop, not the normal path. A
    *  compose failure is deliberately NOT fatal: the fallback is legal copy
-   *  (etsy.ts and the gate both run it through toEtsyTags), just weaker. */
+   *  (etsy.ts and the gate both run it through toEtsyTags), just weaker — and
+   *  since 2026-09-08 the repair pass rewrites it deterministically anyway. */
   const ensurePack = async (productId: string): Promise<void> => {
     if (packEnsuredRef.current) return
     const existing = (state.product as { metadata?: { etsy_pack?: unknown } } | null)?.metadata?.etsy_pack
@@ -209,18 +252,122 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
     }
   }
 
+  /** Wait for re-queued shots to land. The review has to grade the NEW photo,
+   *  so resubmitting before the render finishes would just measure the one
+   *  being replaced and fail for the same reason. Resolves on the timeout too
+   *  — a stuck render is reported by the next review, not by hanging here. */
+  const waitForShots = async (keys: ShotKey[]): Promise<void> => {
+    if (!state.productId || keys.length === 0) return
+    startedAtRef.current = Date.now()
+    setPhase('reshooting')
+    const deadline = Date.now() + RESHOOT_TIMEOUT_MS
+    try {
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, SHOT_POLL_MS))
+        let shots: Partial<Record<ShotKey, { status?: string }>> = {}
+        try {
+          const response = await stepFlow.get(state.productId)
+          shots = response.step_flow?.shots ?? {}
+        } catch {
+          // A transient read failure is not a reason to abandon a render that
+          // is already paid for — keep waiting until the deadline.
+          continue
+        }
+        const settled = keys.every((k) => {
+          const status = shots[k]?.status
+          return !status || status === 'done' || status === 'failed'
+        })
+        if (settled) break
+      }
+      // Pull the new photo into the builder so the Mockups step shows what
+      // actually shipped rather than the shot it replaced.
+      await refresh()
+    } finally {
+      setPhase('idle')
+    }
+  }
+
+  /**
+   * The repair loop. Runs only on a FAILED verdict, and stops the moment it
+   * stops making progress:
+   *   - the server had nothing to repair, or repaired nothing  -> hand back
+   *   - the review itself could not run                        -> hand back
+   *   - MAX_FIX_ROUNDS spent                                   -> hand back
+   * Returns true when the design ended up passing.
+   */
+  const runRepairLoop = async (productId: string, failed: QaReview): Promise<boolean> => {
+    let verdict: QaReview = failed
+    while (verdict.status === 'failed' && fixRoundsRef.current < MAX_FIX_ROUNDS) {
+      fixRoundsRef.current += 1
+
+      startedAtRef.current = Date.now()
+      setPhase('fixing')
+      let report: QaAutofix
+      try {
+        report = await designQa.autofix(productId, 'etsy')
+      } catch (err: any) {
+        setError(err?.message || 'Mrs. Imagine could not run her repair pass')
+        setHandedBack(true)
+        return false
+      } finally {
+        setPhase('idle')
+      }
+      setAutofix(report)
+
+      if (!report.attempted || !report.changed) {
+        setHandedBack(true)
+        return false
+      }
+
+      const keys = report.photos.redone.map((r) => r.key as ShotKey)
+      if (keys.length) await waitForShots(keys)
+
+      const next = await runReview(productId)
+      if (!next) {
+        setHandedBack(true)
+        return false
+      }
+      verdict = next
+    }
+
+    if (verdict.status === 'failed') {
+      setHandedBack(true)
+      return false
+    }
+    return true
+  }
+
+  /** Failed review -> repair -> re-review -> queue, without David clicking. */
+  const repairThenQueue = async (productId: string, failed: QaReview): Promise<void> => {
+    const passed = await runRepairLoop(productId, failed)
+    if (!passed) return
+    setGate(null)
+    await tryQueue(productId)
+  }
+
   const handleQueue = async () => {
     if (!state.productId || tiers.length === 0 || busy) return
     setError(null)
     setGate(null)
+    setHandedBack(false)
 
     const refusal = await tryQueue(state.productId)
-    if (!refusal || !AUTO_REVIEWABLE.has(refusal.code)) return
+    if (!refusal || !AUTO_REVIEWABLE.has(refusal.code)) {
+      // A recorded failure the gate is still holding: go straight to repair
+      // rather than re-measuring an unchanged design first.
+      if (refusal && review?.status === 'failed') await repairThenQueue(state.productId, review)
+      else if (refusal) setHandedBack(true)
+      return
+    }
 
     // Never reviewed (every fresh step-flow build) or stale after an edit —
     // run the review right here rather than dead-ending the flow.
     const verdict = await runReview(state.productId)
-    if (!verdict || verdict.status === 'failed') return
+    if (!verdict) return
+    if (verdict.status === 'failed') {
+      await repairThenQueue(state.productId, verdict)
+      return
+    }
 
     setGate(null)
     await tryQueue(state.productId)
@@ -229,8 +376,13 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
   const handleReviewAgain = async () => {
     if (!state.productId || busy) return
     setError(null)
+    setHandedBack(false)
     const verdict = await runReview(state.productId)
-    if (!verdict || verdict.status === 'failed') return
+    if (!verdict) return
+    if (verdict.status === 'failed') {
+      await repairThenQueue(state.productId, verdict)
+      return
+    }
     setGate(null)
     await tryQueue(state.productId)
   }
@@ -250,6 +402,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
     setPhase('idle')
     setReview(null)
     setGate(null)
+    setHandedBack(false)
     setOverrideOpen(false)
     setOverrideReason('')
     await tryQueue(state.productId)
@@ -258,8 +411,15 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
   const blocking = (review?.rework ?? []).filter((r) => r.severity === 'block')
   const warnings = (review?.rework ?? []).filter((r) => r.severity !== 'block')
   const failedReview = review?.status === 'failed'
-  const showGatePanel = !!gate || failedReview
+  // The panel is David's cue to act, so it appears only once Mrs. Imagine has
+  // finished trying. Mid-loop, the progress bar below is the whole story.
+  const showGatePanel = handedBack && (!!gate || failedReview)
   const overrideReady = overrideReason.trim().length >= 10
+  const fixedThings = [
+    ...(autofix?.copy.repaired ? autofix.copy.changes : []),
+    ...(autofix?.price.repaired && autofix.price.to != null ? [`Reset the listing price to $${autofix.price.to}.`] : []),
+    ...(autofix?.photos.redone ?? []).map((r) => `Re-shot ${shotWord(r.key)}.`),
+  ]
 
   return (
     <StepCard>
@@ -279,7 +439,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
         </div>
       ) : result ? (
         <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4">
-          <div className="flex items-center gap-2 text-emerald-400 font-semibold text-sm mb-1">
+          <div className="flex items-center gap-2 text-emerald-700 font-semibold text-sm mb-1">
             <Check className="w-4 h-4" /> Queued
           </div>
           <p className="text-xs text-text">
@@ -289,6 +449,18 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
             <p className="text-xs text-muted mt-1">
               Skipped: {result.skipped.map((s) => `${s.tier} (${s.reason})`).join(', ')}
             </p>
+          )}
+          {/* What Mrs. Imagine changed on the way through. Worth carrying onto
+              the success screen: the draft that went out is not quite the one
+              David last looked at, and that is easier to know now than to
+              discover in Shop Manager. */}
+          {fixedThings.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-emerald-500/20">
+              <p className="text-xs font-semibold text-text mb-0.5">Mrs. Imagine fixed this first:</p>
+              <ul className="text-xs text-muted space-y-0.5">
+                {fixedThings.map((c, i) => <li key={i}>{c}</li>)}
+              </ul>
+            </div>
           )}
           {/* Carried onto the success screen on purpose: a draft that went out
               on the mechanical fallback copy still went out, and that is worth
@@ -327,7 +499,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
 
           {review && !failedReview && !gate && (
             <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 mb-4 flex items-center gap-2">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+              <ShieldCheck className="w-4 h-4 text-emerald-700 shrink-0" />
               <p className="text-sm text-text">
                 Design review {review.status === 'overridden' ? 'overridden' : 'passed'} — score {review.score}
                 {review.warnings > 0 ? `, ${review.warnings} suggestion${review.warnings > 1 ? 's' : ''} noted` : ''}.
@@ -336,34 +508,49 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
           )}
 
           {showGatePanel && (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 mb-4">
-              <div className="flex items-center gap-2 mb-1.5">
-                <AlertTriangle className="w-4 h-4 text-amber-300 shrink-0" />
-                <p className="text-sm font-semibold text-amber-200">
-                  {failedReview && review
-                    ? `The design review failed — score ${review.score}, ${blocking.length} thing${blocking.length === 1 ? '' : 's'} to fix.`
-                    : 'The design review is holding this listing.'}
-                </p>
-              </div>
+            <WarnPanel
+              className="mb-4"
+              icon={<AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />}
+              title={
+                failedReview && review
+                  ? `The design review failed — score ${review.score}, ${blocking.length} thing${blocking.length === 1 ? '' : 's'} to fix.`
+                  : 'The design review is holding this listing.'
+              }
+            >
+              {/* What she already tried, first — otherwise the same list of
+                  findings reads as if nothing happened. */}
+              {fixedThings.length > 0 && (
+                <div className="mb-3 rounded-lg bg-amber-100/60 px-3 py-2">
+                  <p className={`text-xs font-semibold ${WARN_HEADING} mb-0.5 inline-flex items-center gap-1.5`}>
+                    <Sparkles className="w-3.5 h-3.5" /> Mrs. Imagine already tried this:
+                  </p>
+                  <ul className={`text-xs ${WARN_TEXT} space-y-0.5`}>
+                    {fixedThings.map((c, i) => <li key={i}>{c}</li>)}
+                  </ul>
+                </div>
+              )}
+              {autofix && !autofix.changed && (
+                <p className={`text-sm ${WARN_TEXT} mb-3`}>{autofix.summary}</p>
+              )}
 
               {failedReview ? (
                 <>
                   <ul className="space-y-2 mb-3">
                     {blocking.map((item, i) => (
-                      <li key={`${item.criterion}-${i}`} className="text-sm text-text">
-                        <span className="text-amber-200">{item.issue}</span>
-                        {item.fix && <span className="block text-xs text-muted mt-0.5">{item.fix}</span>}
+                      <li key={`${item.criterion}-${i}`} className="text-sm">
+                        <span className={`font-medium ${WARN_TEXT}`}>{item.issue}</span>
+                        {item.fix && <span className="block text-xs text-stone-700 mt-0.5">{item.fix}</span>}
                       </li>
                     ))}
                   </ul>
                   {warnings.length > 0 && (
-                    <p className="text-xs text-muted mb-3">
+                    <p className="text-xs text-stone-700 mb-3">
                       Worth a look, but not blocking: {warnings.map((w) => w.issue).join(' ')}
                     </p>
                   )}
                 </>
               ) : (
-                <p className="text-sm text-amber-200 mb-3">{gate?.reason}</p>
+                <p className={`text-sm ${WARN_TEXT} mb-3`}>{gate?.reason}</p>
               )}
 
               <div className="flex flex-wrap items-center gap-2">
@@ -381,8 +568,8 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
               </div>
 
               {overrideOpen && (
-                <div className="mt-3 pt-3 border-t border-amber-500/20">
-                  <label className="block text-xs text-muted mb-1.5">
+                <div className="mt-3 pt-3 border-t border-amber-500/30">
+                  <label className="block text-xs text-stone-700 mb-1.5">
                     Why is this one going out despite the review? Recorded against the listing.
                   </label>
                   <textarea
@@ -399,11 +586,11 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
                     <SecondaryButton onClick={() => setOverrideOpen(false)} disabled={busy}>
                       Cancel
                     </SecondaryButton>
-                    {!overrideReady && <span className="text-[11px] text-muted">A sentence or two is enough.</span>}
+                    {!overrideReady && <span className="text-[11px] text-stone-700">A sentence or two is enough.</span>}
                   </div>
                 </div>
               )}
-            </div>
+            </WarnPanel>
           )}
 
           <InlineError message={error} />
@@ -421,9 +608,13 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
               ? 'Writing copy…'
               : phase === 'reviewing'
                 ? 'Reviewing…'
-                : phase === 'queueing'
-                  ? 'Queueing…'
-                  : `Queue ${tiers.length > 1 ? `${tiers.length} drafts` : 'draft'}`}
+                : phase === 'fixing'
+                  ? 'Fixing…'
+                  : phase === 'reshooting'
+                    ? 'Re-shooting…'
+                    : phase === 'queueing'
+                      ? 'Queueing…'
+                      : `Queue ${tiers.length > 1 ? `${tiers.length} drafts` : 'draft'}`}
           </button>
           <SecondaryButton onClick={() => setSkipped(true)} disabled={busy}>
             Skip Etsy — finish here
@@ -438,7 +629,11 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
                     ? 'Writing the Etsy listing copy…'
                     : phase === 'reviewing'
                       ? 'Running the design review…'
-                      : 'Queueing to Etsy…'
+                      : phase === 'fixing'
+                        ? 'Mrs. Imagine is fixing what the review flagged…'
+                        : phase === 'reshooting'
+                          ? 'Re-shooting the photo the review flagged…'
+                          : 'Queueing to Etsy…'
                 }
                 startedAt={startedAtRef.current ?? Date.now()}
                 expectedMs={
@@ -446,7 +641,11 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch }) => {
                     ? COMPOSE_EXPECTED_MS
                     : phase === 'reviewing'
                       ? REVIEW_EXPECTED_MS
-                      : QUEUE_EXPECTED_MS
+                      : phase === 'fixing'
+                        ? FIX_EXPECTED_MS
+                        : phase === 'reshooting'
+                          ? RESHOOT_EXPECTED_MS
+                          : QUEUE_EXPECTED_MS
                 }
               />
             </div>

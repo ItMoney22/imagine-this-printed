@@ -112,7 +112,7 @@ const StepFlowBuilder: React.FC<StepFlowBuilderProps> = ({ productId }) => {
         ))}
       {state.step === 'mockups' && <MockupStep state={state} dispatch={dispatch} refresh={refresh} />}
       {state.step === 'listing' && <ListingStep state={state} dispatch={dispatch} refresh={refresh} />}
-      {state.step === 'etsy' && <EtsyStep state={state} dispatch={dispatch} />}
+      {state.step === 'etsy' && <EtsyStep state={state} dispatch={dispatch} refresh={refresh} />}
     </div>
   )
 }

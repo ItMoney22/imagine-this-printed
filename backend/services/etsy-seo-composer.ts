@@ -33,7 +33,9 @@ import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY, ETSY_SIZ
 // ETSY_SEO_MODEL still overrides on either client (use an OpenRouter slug,
 // e.g. "google/gemini-2.5-flash", when OPENROUTER_API_KEY is set).
 const USE_OPENROUTER = !!process.env.OPENROUTER_API_KEY
-const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || (USE_OPENROUTER ? 'google/gemini-2.5-flash' : 'gpt-5.6-terra')
+// Exported so the repair pass (services/etsy-copy-repair.ts) runs on the SAME
+// model and wallet rather than growing a second config that drifts from this one.
+export const COMPOSER_MODEL = process.env.ETSY_SEO_MODEL || (USE_OPENROUTER ? 'google/gemini-2.5-flash' : 'gpt-5.6-terra')
 // gpt-5.x/o-series reasoning models reject the legacy `max_tokens` param —
 // verified live during the sibling design-assistant.ts migration (see
 // handoff-joshua-knight-1785113728792.json).
@@ -84,6 +86,10 @@ const openai = USE_OPENROUTER
       defaultHeaders: { 'HTTP-Referer': 'https://imaginethisprinted.com', 'X-Title': 'ITP Etsy Composer' },
     })
   : process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+
+/** The configured client, or null when neither wallet has a key. Same
+ *  instance the composer itself uses. */
+export const composerClient = (): OpenAI | null => openai
 
 export interface EtsyPack {
   title: string

@@ -226,7 +226,7 @@ export const NO_PLACEMENT = 'not-applicable'
 
 /** Tags that are pure filler on a print shop: they match everything, so they
  *  rank for nothing. Only rejected when the tag is JUST this word. */
-const FILLER_TAGS = new Set([
+export const FILLER_TAGS = new Set([
   'shirt', 'shirts', 'tshirt', 't shirt', 'tee', 'tees', 'top', 'clothing', 'apparel',
   'gift', 'gifts', 'art', 'design', 'designs', 'print', 'prints', 'cool', 'nice', 'cute',
   'custom', 'unique', 'new', 'best', 'quality', 'trendy', 'style'

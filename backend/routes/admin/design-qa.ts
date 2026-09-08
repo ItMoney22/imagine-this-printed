@@ -31,6 +31,7 @@ import {
   checkGate,
   type Channel
 } from '../../services/design-qa-gate.js'
+import { autofixPresentation } from '../../services/design-qa-autofix.js'
 import {
   CRITERIA,
   SEO_RULES,
@@ -311,6 +312,64 @@ router.get('/summary', async (req: Request, res: Response) => {
     })
   } catch (error: any) {
     console.error('[design-qa] summary failed:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * POST /api/admin/design-qa/autofix/:productId
+ * Body: { channel?: 'storefront' | 'etsy' }
+ *
+ * MRS. IMAGINE STEPS IN. Reads the latest review, and repairs what is safely
+ * repairable about the PRESENTATION: the listing copy, an out-of-band price,
+ * and a re-shoot of the photo a blocking finding is about.
+ *
+ * This is deliberately NOT an override, and the difference is the reason the
+ * gate is worth having:
+ *   - it writes no design_qa_reviews row and stamps nothing as passed
+ *   - the caller must submit a FRESH review afterwards, which grades the
+ *     repaired presentation on exactly the same terms as the first one
+ * So an agent may call it (unlike /override, which is admins only): changing
+ * the work and asking to be graded again is what an agent is supposed to do.
+ * The `photos.redone` jobs are asynchronous — poll the step-flow shots and
+ * resubmit once they land.
+ */
+router.post('/autofix/:productId', async (req: Request, res: Response) => {
+  try {
+    const channel = channelOf(req.body?.channel)
+    const { data: last, error } = await supabase
+      .from('design_qa_reviews')
+      .select('id, status, rework, created_at')
+      .eq('product_id', req.params.productId)
+      .eq('channel', channel)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (error) throw error
+
+    // Nothing on file, or the last verdict was not a failure: there is nothing
+    // to repair, and inventing work here would spend renders on a design that
+    // is already fine.
+    if (!last || last.status !== 'failed') {
+      return res.json({
+        product_id: req.params.productId,
+        channel,
+        attempted: false,
+        reason: last ? `The latest review is ${last.status}, not a failure.` : 'This design has not been reviewed yet.'
+      })
+    }
+
+    const rework = Array.isArray(last.rework) ? last.rework : []
+    const report = await autofixPresentation({
+      productId: req.params.productId,
+      channel,
+      userId: req.qaActor?.id || 'unknown',
+      rework
+    })
+
+    return res.json({ product_id: req.params.productId, attempted: true, review_id: last.id, ...report })
+  } catch (error: any) {
+    console.error('[design-qa] autofix failed:', error)
     return res.status(500).json({ error: error.message })
   }
 })
