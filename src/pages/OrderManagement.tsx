@@ -450,11 +450,17 @@ const OrderManagement: React.FC = () => {
         ? { ...prev, trackingNumber: tracking, trackingCompany: carrier || null, status: nextStatus }
         : prev)
 
+      // Vercel and Render deploy independently, so a new frontend can be talking
+      // to an API that predates `customerNotified`. Undefined means "this API
+      // can't tell me" — say that, rather than reporting a missing email address
+      // that isn't missing.
       toast.success(
         'Tracking saved',
         result?.customerNotified === 'shipped'
           ? `Emailed ${order?.shippingAddress?.email || 'the customer'} a tracking link.`
-          : 'Saved. No email went out - this order has no customer email on file.'
+          : result?.customerNotified === null
+            ? 'Saved. No email went out - this order has no customer email on file.'
+            : 'Saved. Could not confirm whether the customer email went out - check the order in a minute.'
       )
     } catch (err) {
       console.error('Failed to save tracking:', err)
