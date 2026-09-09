@@ -3457,3 +3457,94 @@ untouched by this change).
 - 2026-09-09 — Replaced the hardcoded OpenAI image model with a fallback chain
   led by `gpt-image-2.5-flare` (29 tests). Confirmed against the live key that
   2.5 is not granted to this org yet — the code is ready, the access is not.
+
+## Follow-up (2026-09-09) — on-person shot printed the design as a framed panel
+
+David, right after the push: "on person used the wrong image has background".
+The `92dd5bb9` (Crazy Witch) on-person card came back with the artwork printed
+as a hard-edged square panel on a dark ground; the hanger, product and details
+cards on the SAME product printed the same design clean.
+
+### Scope added (approved by David 2026-09-09)
+The fix lives outside the earlier shortlist, so per CLAUDE.md's rule it is
+added here with rationale BEFORE editing:
+- `backend/services/etsy-model-shots.ts` — owns the on-person render path
+  (`generateOneShot`'s gpt-image branch) and the shot-fidelity QA prompt. The
+  defect is in both; nothing else can reach them.
+- `backend/services/etsy-model-shots.test.ts` — tests for the above.
+- `backend/services/image-flow/providers/openai-image.ts` (already in scope) —
+  needs to accept pre-rendered source BYTES so the flattened design can be sent
+  without a pointless re-upload just to obtain a URL.
+
+### Not the cause (ruled out with evidence, not reasoning)
+- **Not asset selection.** The model shot resolves `kind='source'` via
+  `designReferenceUrl`; the mockup path prefers `dtf` > `nobg` > `source`. That
+  asymmetry is real but inert here: on this product `source` and `nobg` are the
+  SAME FILE (md5 `2caa2534…` both). This was the first hypothesis and it was wrong.
+- **Not the artwork.** The source PNG is a clean cut-out — 39% alpha 0, 59%
+  alpha 224-255, and composited on both white and black it shows no frame, no
+  ground, no panel.
+- **Not the 2.5 model chain pushed 10 minutes earlier.** The key still cannot
+  see 2.5, so the chain resolves to `gpt-image-2` — exactly the model that was
+  hardcoded before the change.
+
+### Root cause: the ENGINE, handed a live alpha channel
+On-person shots default to OpenAI gpt-image (`SHOTS_ENGINE`, etsy-model-shots.ts
+— `ETSY_SHOTS_MODEL` is unset) and `generateOneShot`'s gpt-image branch passes
+the design straight to `images.edit` as a transparent PNG. The hanger/product/
+colour cards never touch that path: they composite through Replicate
+`nano-banana-2-lite`, which handles alpha correctly. That is the entire
+asymmetry between the four cards on this product. Given the raw alpha, the
+engine rendered this dense full-bleed illustration as a framed picture — a
+hard-edged square on an invented dark ground — instead of a borderless DTF
+transfer. The prompt's own rule 3 ("do NOT ... add a frame, border or
+background") could not save it, because from the engine's side it was
+reproducing what it thought it had been given.
+
+Blast radius is narrower than it looks: the three most recent on-person shots on
+other products print clean, and all three are sparse text/line-art. This is the
+only dense, full-colour, near-full-frame design in the set. Proven NOT to be the
+2.5 chain pushed 10 minutes earlier (that still resolves to `gpt-image-2`, the
+model that was hardcoded before).
+
+### Second defect: the fidelity gate is blind to it by construction
+`verifyDesignFidelity` DID run on this shot and passed it. Its FAIL list has
+"elements were added that are not in the source", but its PASS clause then said
+"...perspective, the model, the background, or the print being small in frame" —
+meaning the SCENE, which a vision model reads as cover for a ground added around
+the artwork too. One line cancelled the other, so the gate could never fail this.
+
+### Fix
+- `flattenDesignOntoGarment` composites cut-out art onto the garment colour
+  before the gpt-image call, so there is no transparent region to frame and the
+  ground the art keeps is the shirt itself. Applied ONLY to the gpt-image branch
+  of garment shots — not nano-banana (the engine that already gets it right) and
+  not metal art (`!plan.persona`), where a rectangular panel IS the product.
+  An unrecognised colour returns null and falls through unflattened, because a
+  guessed ground would paint the exact panel this removes.
+- `editOpenAIImage` gained `sourceImage?: Buffer` so the flattened bytes go
+  straight to the API instead of being uploaded somewhere public just to
+  produce a URL.
+- The QA prompt is extracted as `DESIGN_FIDELITY_QA_PROMPT`, gained a
+  printed-on panel/frame/backdrop FAIL line, and its excuse is now explicitly
+  "the scene behind the model" rather than a blanket "the background".
+
+### Verification
+`npx tsc --noEmit` (backend) clean; eslint 0 errors on the touched files (43
+warnings, all the house `no-explicit-any`); backend suite 103 files / 1535 tests
+green, the single failing file being the pre-existing stale
+`.claude/worktrees/mr-imagine-builder` copy that needs SUPABASE_URL at import.
+The real Crazy Witch design was run through the actual flatten call: 1024x1024,
+`hasAlpha=false`, corner pixel 255,255,255 — a clean white ground on a white tee.
+NOT verified: a live re-render, which costs a paid shot — the engine's behaviour
+on the flattened input is reasoned from the defect, not yet observed.
+
+### Work log (append-only)
+- 2026-09-09 — Pushed the stall sweep + 2.5 chain to main (a28f67c, 3 commits);
+  PR #11 auto-closed as merged. Branch protection reported "Bypassed rule
+  violations" — 2 required status checks did not gate the deploy.
+- 2026-09-09 — Diagnosed the framed-panel on-person shot. Ruled out asset
+  selection (source and nobg are byte-identical here) and the artwork itself
+  (clean cut-out over both white and black) before touching code.
+- 2026-09-09 — Flattened cut-out art onto the garment colour for the gpt-image
+  branch and gave the fidelity gate a printed-on-frame criterion (12 new tests).

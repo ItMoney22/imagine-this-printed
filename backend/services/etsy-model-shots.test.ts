@@ -14,7 +14,7 @@ vi.mock('../lib/supabase.js', () => ({ supabase: { from: () => ({}), rpc: async 
 
 import sharp from 'sharp'
 
-import { buildGptPrompt, buildNanoPrompt, ensureListingResolution, resolveCast, composeSubject, listShotSubjects, ShotCastError, type ShotPlan } from './etsy-model-shots.js'
+import { buildGptPrompt, buildNanoPrompt, ensureListingResolution, resolveCast, composeSubject, listShotSubjects, ShotCastError, garmentColorHex, flattenDesignOntoGarment, DESIGN_FIDELITY_QA_PROMPT, type ShotPlan } from './etsy-model-shots.js'
 
 function plan(over: Partial<ShotPlan> = {}): ShotPlan {
   return {
@@ -292,5 +292,110 @@ describe('youth casting pools', () => {
       // Adult-only trait pools that would be grotesque on a child.
       expect(persona).not.toMatch(/tattoo|piercing|acne|farmer tan|wedding band|stubble/i)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The on-person shot printed the design as a framed panel (David 2026-09-09)
+// ---------------------------------------------------------------------------
+// The gpt-image edit path was handed the design as a PNG with a live alpha
+// channel. For a dense, full-bleed illustration the engine rendered it as a
+// hard-edged rectangle on an invented dark ground instead of a borderless DTF
+// print on the fabric. Flattening the art onto the GARMENT colour first leaves
+// nothing to frame — and the ground it keeps is the shirt itself.
+
+/** A 4x4 fully transparent PNG with one opaque red pixel — stands in for cut-out art. */
+async function transparentArt(): Promise<Buffer> {
+  return sharp({
+    create: { width: 4, height: 4, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } },
+  })
+    .composite([
+      {
+        input: await sharp({ create: { width: 1, height: 1, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } } })
+          .png()
+          .toBuffer(),
+        left: 1,
+        top: 1,
+      },
+    ])
+    .png()
+    .toBuffer()
+}
+
+describe('garmentColorHex', () => {
+  it('resolves a catalog colour by the lowercased LABEL the shot pipeline passes down', () => {
+    expect(garmentColorHex('white')).toBe('#FFFFFF')
+    expect(garmentColorHex('black')).toBe('#000000')
+    expect(garmentColorHex('heather grey')).toBe('#9CA3AF')
+  })
+
+  it('resolves by colour id too, since callers pass either', () => {
+    expect(garmentColorHex('heather-grey')).toBe('#9CA3AF')
+    expect(garmentColorHex('forest-green')).toBe('#166534')
+  })
+
+  it('returns null for a colour the catalog does not sell', () => {
+    // A guessed ground would PAINT the very panel this fix removes, so an
+    // unknown colour must fall through to the old unflattened behaviour.
+    expect(garmentColorHex('lilac')).toBeNull()
+    expect(garmentColorHex('')).toBeNull()
+  })
+})
+
+describe('flattenDesignOntoGarment', () => {
+  it('removes the alpha channel so the engine has no transparent region to frame', async () => {
+    const out = await flattenDesignOntoGarment(await transparentArt(), 'white')
+    expect(out).not.toBeNull()
+    const meta = await sharp(out!).metadata()
+    expect(meta.hasAlpha).toBe(false)
+  })
+
+  it('composites onto the garment colour, so the ground IS the shirt', async () => {
+    const out = await flattenDesignOntoGarment(await transparentArt(), 'white')
+    const { data } = await sharp(out!).raw().toBuffer({ resolveWithObject: true })
+    // Corner pixel was transparent; it must now be the shirt's white.
+    expect([data[0], data[1], data[2]]).toEqual([255, 255, 255])
+  })
+
+  it('uses black for a black shirt rather than defaulting to white', async () => {
+    const out = await flattenDesignOntoGarment(await transparentArt(), 'black')
+    const { data } = await sharp(out!).raw().toBuffer({ resolveWithObject: true })
+    expect([data[0], data[1], data[2]]).toEqual([0, 0, 0])
+  })
+
+  it('keeps the artwork itself untouched', async () => {
+    const out = await flattenDesignOntoGarment(await transparentArt(), 'white')
+    const { data, info } = await sharp(out!).raw().toBuffer({ resolveWithObject: true })
+    const px = (info.channels * (1 * info.width + 1))
+    expect([data[px], data[px + 1], data[px + 2]]).toEqual([255, 0, 0])
+  })
+
+  it('returns null for an unknown colour so the caller sends the design unflattened', async () => {
+    expect(await flattenDesignOntoGarment(await transparentArt(), 'lilac')).toBeNull()
+  })
+})
+
+describe('DESIGN_FIDELITY_QA_PROMPT — a printed-on frame or ground is a defect', () => {
+  it('fails a shot that prints the artwork as a panel, block, border or backdrop', () => {
+    // The defect that reached David: the witch art came back inside a square
+    // dark panel. The old prompt could not fail it (see the next test).
+    expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/panel|rectangle|frame|border|backdrop/i)
+  })
+
+  it('no longer excuses "the background" wholesale', () => {
+    // The old PASS clause read "...perspective, the model, the background, or
+    // the print being small in frame", which a vision model reads as cover for
+    // a ground added AROUND THE ARTWORK, not just the scene behind the person.
+    expect(DESIGN_FIDELITY_QA_PROMPT).not.toMatch(/the model, the background,/i)
+  })
+
+  it('still excuses the SCENE behind the model, which is never a print defect', () => {
+    expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/scene behind/i)
+  })
+
+  it('still carries the criteria it always had, so this is an addition not a rewrite', () => {
+    expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/misspelled/i)
+    expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/restyled, redrawn/i)
+    expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/"matches": true\|false/)
   })
 })

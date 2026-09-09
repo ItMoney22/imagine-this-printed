@@ -105,6 +105,74 @@ export async function ensureListingResolution(buffer: Buffer, label: string): Pr
   }
 }
 
+/**
+ * The catalog hex for a garment colour as the shot pipeline spells it.
+ *
+ * `generateOneShot` is handed a lowercased human LABEL ("heather grey"), not a
+ * ColorId — `shootOneModelShot` maps the id through `COLORS[...].label` and
+ * `colorFor` can hand back an `etsy_pack.colors` string — so both spellings
+ * resolve here. Returns null for anything the catalog does not sell: a GUESSED
+ * ground would paint the very panel `flattenDesignOntoGarment` exists to
+ * remove, so an unknown colour must fall through to the unflattened design.
+ */
+export function garmentColorHex(shirtColor: string): string | null {
+  const want = (shirtColor || '').trim().toLowerCase()
+  if (!want) return null
+  for (const c of Object.values(COLORS)) {
+    if (c.id === want || c.label.toLowerCase() === want) return c.hex
+  }
+  return null
+}
+
+/**
+ * Composite cut-out design art onto the garment colour before it is sent to
+ * the gpt-image edit engine.
+ *
+ * David 2026-09-09 ("on person used the wrong image has background"): the
+ * on-person shot for the Crazy Witch tee came back with the artwork printed as
+ * a hard-edged square panel on an invented dark ground, while the hanger,
+ * product and details cards on the SAME product — and the same `kind='source'`
+ * file, verified byte-identical to the `nobg` one — printed it clean. The art
+ * itself is a genuine cut-out (39% of it fully transparent, and it shows no
+ * frame composited over either white or black), so the ground was the engine's.
+ *
+ * The asymmetry is the ENGINE, not the asset: the mockup cards composite
+ * through Replicate `nano-banana-2-lite`, which handles a live alpha channel
+ * correctly, while on-person shots default to OpenAI gpt-image (see
+ * SHOTS_ENGINE below) and get the transparent PNG raw. Flattening first leaves
+ * no transparent region to interpret and no reason to draw a frame, and the
+ * ground the art does keep is the shirt it is printed on.
+ *
+ * Deliberately NOT applied to the nano-banana path (it is the engine that
+ * already gets this right) and NOT to metal art, where a rectangular panel is
+ * the actual product rather than a defect.
+ */
+export async function flattenDesignOntoGarment(design: Buffer, shirtColor: string): Promise<Buffer | null> {
+  const hex = garmentColorHex(shirtColor)
+  if (!hex) return null
+  return sharp(design).flatten({ background: hex }).png().toBuffer()
+}
+
+/**
+ * Fetch + flatten for the render path, returning null on ANY failure so a shot
+ * never dies over this: unflattened is the old behaviour, which is a worse
+ * picture but still a picture.
+ */
+async function flattenedDesignSource(designUrl: string, shirtColor: string, label: string): Promise<Buffer | null> {
+  if (!garmentColorHex(shirtColor)) {
+    console.warn(`[etsy-shots] ${label} garment colour "${shirtColor}" is not in the catalog — sending the design unflattened`)
+    return null
+  }
+  try {
+    const resp = await fetch(designUrl)
+    if (!resp.ok) throw new Error(`design fetch ${resp.status}`)
+    return await flattenDesignOntoGarment(Buffer.from(await resp.arrayBuffer()), shirtColor)
+  } catch (err: any) {
+    console.warn(`[etsy-shots] ${label} could not flatten the design (${err?.message}) — sending it unflattened`)
+    return null
+  }
+}
+
 // Engine: gpt-image (OpenAI-direct, the codebase's premium compositor — best
 // design/text fidelity, and its known empty-garment wearer-drift bug doesn't
 // apply here because a wearer is exactly what we want) with nano-banana as the
@@ -1091,8 +1159,17 @@ async function generateOneShot(
   garmentNoun: string = 'crew neck t-shirt'
 ): Promise<{ url: string; degraded?: string }> {
   const viaGptImage = async (): Promise<string> => {
+    // Cut-out art goes to this engine flattened onto the garment colour —
+    // handed the live alpha channel it prints the design as a framed panel
+    // (see flattenDesignOntoGarment). `plan.persona` is the same test
+    // buildGptPrompt uses to tell a garment shot from metal art, where a
+    // rectangular panel is the product rather than the defect.
+    const flattened = plan.persona
+      ? await flattenedDesignSource(designUrl, shirtColor, `${productId} ${plan.key}`)
+      : null
     const { url, modelId } = await editOpenAIImage({
       sourceUrl: designUrl,
+      ...(flattened ? { sourceImage: flattened } : {}),
       prompt: buildGptPrompt(plan, shirtColor, placement, sizeInches, garmentNoun),
       size: '1024x1536', // portrait, matches the 3:4 listing crop
       quality: 'high',
@@ -1179,6 +1256,40 @@ async function generateOneShot(
 // If the checker itself errors or isn't configured, the shot passes — QA
 // trouble must never cost a paid render.
 // ---------------------------------------------------------------------------
+/**
+ * The instruction `verifyDesignFidelity` inspects a rendered shot with.
+ *
+ * Extracted and amended 2026-09-09. The old wording ended its PASS clause with
+ * "...perspective, the model, the background, or the print being small in
+ * frame", meaning the SCENE behind the person — but a vision model reads "the
+ * background" as cover for a ground added AROUND THE ARTWORK too. So when the
+ * gpt-image engine printed the Crazy Witch design as a square panel on a dark
+ * ground, this gate ran and PASSED it: the one criterion that could have caught
+ * it ("elements were added that are not in the source") was cancelled out two
+ * lines later. The excuse is now explicitly the scene only, and a printed-on
+ * panel/frame/backdrop is its own FAIL line.
+ */
+export const DESIGN_FIDELITY_QA_PROMPT =
+  'IMAGE 1 is the source artwork. IMAGE 2 is a generated product photo that is supposed to show ' +
+  'IMAGE 1 printed on the item.\n\n' +
+  'FAIL the photo if any of these are true:\n' +
+  '- Any text differs: misspelled, different wording, re-drawn in a different typeface, different ' +
+  'line breaks, or letters that are garbled/illegible.\n' +
+  '- The artwork was restyled, redrawn, or re-illustrated rather than reproduced.\n' +
+  '- Colors are clearly different from the source.\n' +
+  '- Elements were added that are not in the source (extra text, logos, watermarks, icons).\n' +
+  '- The artwork is printed as a framed picture: a rectangle, square panel, block, box, border or ' +
+  'solid backdrop sits behind the artwork on the product but is NOT in IMAGE 1. Cut-out artwork must ' +
+  'sit directly on the material, with the material itself showing through everywhere IMAGE 1 is ' +
+  'transparent.\n' +
+  '- Part of the artwork is missing, cropped off, or hidden behind an arm, hair or object.\n\n' +
+  'PASS the photo if the artwork is faithfully reproduced. Do NOT fail it for fabric folds ' +
+  'distorting the print, lighting, shadow across the print, perspective, the model, or the scene ' +
+  'behind the model (the room, street, studio, props and backdrop of the PHOTOGRAPH), or the print ' +
+  'being small in frame. Those are photography; the rule above is about the printed artwork itself.\n\n' +
+  'Respond in JSON: {"matches": true|false, "issue": "one short sentence naming the single worst ' +
+  'defect, or empty string when it passes"}'
+
 async function verifyDesignFidelity(designUrl: string, shotUrl: string): Promise<ShotCheck | null> {
   if (!openai) return null
   try {
@@ -1197,20 +1308,7 @@ async function verifyDesignFidelity(designUrl: string, shotUrl: string): Promise
             {
               type: 'text',
               text:
-                'IMAGE 1 is the source artwork. IMAGE 2 is a generated product photo that is supposed to show ' +
-                'IMAGE 1 printed on the item.\n\n' +
-                'FAIL the photo if any of these are true:\n' +
-                '- Any text differs: misspelled, different wording, re-drawn in a different typeface, different ' +
-                'line breaks, or letters that are garbled/illegible.\n' +
-                '- The artwork was restyled, redrawn, or re-illustrated rather than reproduced.\n' +
-                '- Colors are clearly different from the source.\n' +
-                '- Elements were added that are not in the source (extra text, logos, watermarks, icons).\n' +
-                '- Part of the artwork is missing, cropped off, or hidden behind an arm, hair or object.\n\n' +
-                'PASS the photo if the artwork is faithfully reproduced. Do NOT fail it for fabric folds ' +
-                'distorting the print, lighting, shadow across the print, perspective, the model, the ' +
-                'background, or the print being small in frame.\n\n' +
-                'Respond in JSON: {"matches": true|false, "issue": "one short sentence naming the single worst ' +
-                'defect, or empty string when it passes"}'
+                DESIGN_FIDELITY_QA_PROMPT
             },
             { type: 'image_url', image_url: { url: designUrl, detail: 'high' } },
             { type: 'image_url', image_url: { url: shotUrl, detail: 'high' } }
