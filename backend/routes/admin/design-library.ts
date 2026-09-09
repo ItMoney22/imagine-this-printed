@@ -16,16 +16,23 @@ import {
   MIN_PRINT_INCHES
 } from '../../services/design-library-quality.js'
 import { partitionByQa, evaluateGate } from '../../services/design-qa-gate.js'
+// "Which of these am I already part-way through building?" — see that module
+// for why the rules mirror the builder's own step gate.
+import { isInStepFlow, stepFlowStage, STAGE_LABELS, type StepFlowStage } from '../../services/step-flow/progress.js'
 
 const router = Router()
 
 // Rows carrying the fields the print-quality gate needs.
 const SELECT_FOR_GATE = 'id, name, status, metadata'
 
-/** What the admin grid needs to render a design's print + presentation verdicts. */
-const annotate = (product: any) => {
+/** What the admin grid needs to render a design's print + presentation verdicts.
+ *  `hasNobg` says whether this design's background-removal output exists — the
+ *  grid's caller looks that up for the whole page in one query (see below),
+ *  because it is what separates "still cutting" from "ready to pick a shirt". */
+const annotate = (product: any, hasNobg = false) => {
   const verdict = canActivate(product.metadata)
   const qa = evaluateGate(product.metadata, 'storefront')
+  const stage = stepFlowStage(product.metadata, product.status, hasNobg)
   return {
     ...product,
     print_check: verdict.check,
@@ -33,8 +40,20 @@ const annotate = (product: any) => {
     qa_gate: { allowed: qa.allowed, code: qa.code, reason: qa.reason, stamp: qa.stamp },
     // Both gates must pass. They are reported separately because the fixes are
     // completely different: re-export the artwork bigger vs rewrite the listing.
-    can_activate: verdict.allowed && qa.allowed
+    can_activate: verdict.allowed && qa.allowed,
+    // Null for a design nobody has started on. Non-null means it has left the
+    // "to do" pile and is a build in progress (or finished) — the grid shows
+    // where to pick it back up instead of offering it again as fresh work.
+    step_flow: stage ? { stage, label: STAGE_LABELS[stage as StepFlowStage] } : null
   }
+}
+
+/** Which of these products have a background-removal output — one query for a
+ *  whole page rather than one per card. */
+async function nobgProductIds(ids: string[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set()
+  const { data } = await supabase.from('product_assets').select('product_id').eq('kind', 'nobg').in('product_id', ids)
+  return new Set((data || []).map((r: any) => r.product_id))
 }
 
 router.use(requireAuth)
@@ -43,7 +62,11 @@ router.use(requireRole(['admin', 'manager']))
 // GET /api/admin/design-library/collections — counts per collection
 router.get('/collections', async (_req: Request, res: Response) => {
   try {
-    const collections: Record<string, { draft: number; active: number; other: number }> = {}
+    // `todo` and `in_flow` split what `draft` used to lump together, so the
+    // sidebar count agrees with the grid's default view instead of promising
+    // 50 designs to work on when three of them are already half-built.
+    // `draft` is kept as the raw column total for the unchanged Draft view.
+    const collections: Record<string, { draft: number; todo: number; in_flow: number; active: number; other: number }> = {}
     let from = 0
     for (;;) {
       const { data, error } = await supabase
@@ -54,10 +77,18 @@ router.get('/collections', async (_req: Request, res: Response) => {
       if (error) throw error
       for (const p of data || []) {
         const c = p.metadata?.collection || 'Uncategorized'
-        collections[c] = collections[c] || { draft: 0, active: 0, other: 0 }
-        if (p.status === 'draft') collections[c].draft++
-        else if (p.status === 'active') collections[c].active++
-        else collections[c].other++
+        collections[c] = collections[c] || { draft: 0, todo: 0, in_flow: 0, active: 0, other: 0 }
+        const inFlow = isInStepFlow(p.metadata)
+        if (p.status === 'draft') {
+          collections[c].draft++
+          if (inFlow) collections[c].in_flow++
+          else collections[c].todo++
+        } else if (p.status === 'active') {
+          collections[c].active++
+        } else {
+          collections[c].other++
+          if (inFlow) collections[c].in_flow++
+        }
       }
       if (!data || data.length < 1000) break
       from += 1000
@@ -72,13 +103,39 @@ router.get('/collections', async (_req: Request, res: Response) => {
   }
 })
 
-// GET /api/admin/design-library/products?collection=Gaming&status=draft&offset=0
+// The jsonb path `approvals.design` is stamped the moment a design is selected,
+// so it is the same signal isInStepFlow() reads — expressed here as a filter so
+// the exclusion happens IN SQL. Doing it after the fact would corrupt both the
+// page count and the paging, since `.range()` has already been applied.
+//
+// The last hop is `->>` (text) rather than `->` (jsonb) deliberately: that is
+// the extraction form already proven against this project's PostgREST by the
+// `metadata->>import_source` filter two lines below every use of it. Either
+// reads as SQL NULL when any level of the path is missing, which is exactly
+// what "never entered the flow" looks like.
+const IN_FLOW_PATH = 'metadata->step_flow->approvals->>design'
+
+/** Real `products.status` values the grid may be asked to filter on directly. */
+const RAW_STATUSES = new Set(['draft', 'active', 'pending_approval', 'incomplete', 'rejected'])
+
+// GET /api/admin/design-library/products?collection=Gaming&status=todo&offset=0
+//
+// `status` is the grid's view, not the raw products.status column:
+//   todo     designs nobody has started — draft AND not in the Step Flow.
+//            This is the default and the one that answers David's "so we dont
+//            do the same ones twice": a design leaves this pile the instant it
+//            is pulled into the flow.
+//   in_flow  part-way through a build; the grid shows where to pick it up.
+//   active   live on the storefront.
+//   draft    the raw column, in-flow ones included (the old behaviour).
+//   all      everything, with an in-flow badge to tell them apart.
 router.get('/products', async (req: Request, res: Response) => {
   try {
     const collection = String(req.query.collection || '')
     if (!collection) return res.status(400).json({ error: 'collection is required' })
     const offset = Math.max(0, Number(req.query.offset) || 0)
     const pageSize = 60
+    const view = String(req.query.status || 'all')
 
     let query = supabase
       .from('products')
@@ -87,12 +144,26 @@ router.get('/products', async (req: Request, res: Response) => {
       .eq('metadata->>collection', collection)
       .order('name')
       .range(offset, offset + pageSize - 1)
-    if (req.query.status && req.query.status !== 'all') query = query.eq('status', String(req.query.status))
+
+    if (view === 'todo') {
+      query = query.eq('status', 'draft').is(IN_FLOW_PATH, null)
+    } else if (view === 'in_flow') {
+      // Published builds are no longer "in progress" — they show under active.
+      query = query.not(IN_FLOW_PATH, 'is', null).neq('status', 'active')
+    } else if (RAW_STATUSES.has(view)) {
+      query = query.eq('status', view)
+    }
+    // Anything else (including a view name from a NEWER frontend than this
+    // API) deliberately falls through to "all". Filtering on an unrecognized
+    // value would answer with an empty grid and no error, which reads as "my
+    // designs are gone" — showing everything is the safe failure.
 
     const { data, error, count } = await query
     if (error) throw error
+    const rows = data || []
+    const nobg = await nobgProductIds(rows.map((r: any) => r.id))
     return res.json({
-      products: (data || []).map(annotate),
+      products: rows.map((r: any) => annotate(r, nobg.has(r.id))),
       total: count ?? 0,
       offset,
       page_size: pageSize,

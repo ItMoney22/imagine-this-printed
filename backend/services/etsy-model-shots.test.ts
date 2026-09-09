@@ -252,6 +252,22 @@ describe('youth casting pools', () => {
     expect(both.length).toBe(listShotSubjects().length)
   })
 
+  // David 2026-09-08: "The lower portion of the owl artwork is hidden behind
+  // the model's crossed arms." The cast description was instructing the exact
+  // pose fidelity rule 5 forbids, so the shot failed QA and the render was
+  // wasted. Nothing drawn into a persona may sit across the printed chest.
+  it('never describes a pose or prop that covers the chest print', () => {
+    const OCCLUDING = /crossed arms|arms crossed|under (the|one) arm|over one shoulder|on a hip|in one hand(?! held)/i
+    const ids = listShotSubjects().map((s) => s.id)
+    for (const id of ids) {
+      const member = resolveCast({ subjects: [id] }, ['adult', 'youth'])[0]
+      for (let i = 0; i < 30; i++) {
+        const { persona } = composeSubject(member)
+        expect(persona, `${id}: "${persona}"`).not.toMatch(OCCLUDING)
+      }
+    }
+  })
+
   it('composes a family as a group, and never as one person', () => {
     const member = resolveCast({ subjects: ['family'] }, ['adult', 'youth'])[0]
     for (let i = 0; i < 20; i++) {

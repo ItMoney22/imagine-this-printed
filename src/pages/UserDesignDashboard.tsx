@@ -31,7 +31,6 @@ import {
   Layers3,
   Landmark
 } from 'lucide-react'
-import { CreateDesignModal } from '../components/CreateDesignModal'
 import { Create3DModelForm, Model3DCard, Model3DDetailModal } from '../components/3d-models'
 import type { User3DModel } from '../types'
 import api, { imaginationApi } from '../lib/api'
@@ -96,7 +95,6 @@ export default function UserDesignDashboard() {
   const [selectedDesign, setSelectedDesign] = useState<UserDesign | null>(null)
   const [toolProcessing, setToolProcessing] = useState<string | null>(null)
   const [toolResult, setToolResult] = useState<{ url: string; type: string } | null>(null)
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
 
   // 3D Models state
   const [models3D, setModels3D] = useState<User3DModel[]>([])
@@ -370,39 +368,18 @@ export default function UserDesignDashboard() {
                   <p className="text-2xl font-display font-bold text-text">{wallet.itc_balance}</p>
                 </div>
               </div>
+              {/* David 2026-09-08: "clicking create new and the other tab
+                  should all go to the new step flow". Every door on this page
+                  opens the SAME builder now — the old multi-option create
+                  modal was a second, competing way to make a design. */}
               <button
-                onClick={() => setIsCreateModalOpen(true)}
+                onClick={() => navigate('/creator/studio')}
                 className="btn-primary group"
               >
                 <Plus className="w-5 h-5 group-hover:rotate-90 transition-transform duration-300" />
                 Create New
               </button>
             </div>
-          </div>
-
-          {/* Creator Studio — the flagship live voice build flow */}
-          <div className="mt-10 sm:mt-12">
-            <button
-              onClick={() => navigate('/creator/studio')}
-              className="w-full text-left relative rounded-2xl overflow-hidden border border-primary/30 hover:border-primary/60 transition-colors shadow-lg bg-gradient-to-r from-primary/15 via-purple-500/10 to-secondary/15 p-5 sm:p-6 group"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                <div className="w-12 h-12 bg-primary/20 rounded-2xl flex items-center justify-center border border-primary/40 flex-shrink-0 group-hover:scale-110 transition-transform">
-                  <Sparkles className="w-6 h-6 text-primary" />
-                </div>
-                <div className="flex-1">
-                  <h2 className="text-lg sm:text-xl font-display font-bold text-text mb-1">
-                    NEW — build LIVE with Mr. Imagine
-                  </h2>
-                  <p className="text-sm text-muted">
-                    Talk your idea out loud and watch designs, mockups, and real model photos appear. Shirts, metal art, 3D prints — pick every design you love and each becomes its own product.
-                  </p>
-                </div>
-                <span className="inline-flex items-center gap-2 px-4 py-2.5 bg-primary/80 group-hover:bg-primary text-white font-semibold rounded-xl transition-colors text-sm flex-shrink-0">
-                  Enter the studio
-                </span>
-              </div>
-            </button>
           </div>
 
           {/* Creator Hub — three earn tracks */}
@@ -437,10 +414,7 @@ export default function UserDesignDashboard() {
                     </span>
                   </div>
                   <button
-                    onClick={() => {
-                      setActiveTab('designs')
-                      setIsCreateModalOpen(true)
-                    }}
+                    onClick={() => navigate('/creator/studio')}
                     className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-primary/80 hover:bg-primary backdrop-blur-sm text-white font-semibold rounded-xl transition-colors text-sm"
                   >
                     <Sparkles className="w-4 h-4" />
@@ -623,7 +597,7 @@ export default function UserDesignDashboard() {
                     Create your first design with Mr. Imagine and start earning royalties!
                   </p>
                   <button
-                    onClick={() => setIsCreateModalOpen(true)}
+                    onClick={() => navigate('/creator/studio')}
                     className="btn-primary"
                   >
                     <Sparkles className="w-5 h-5" />
@@ -1193,21 +1167,6 @@ export default function UserDesignDashboard() {
           </div>
         </div>
       )}
-
-      {/* Create Design Modal */}
-      <CreateDesignModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        itcBalance={wallet.itc_balance}
-        onDesignCreated={(designId, imageUrl) => {
-          setIsCreateModalOpen(false)
-          // Refresh designs list
-          fetchData()
-        }}
-        onBalanceChange={(newBalance) => {
-          setWallet(prev => ({ ...prev, itc_balance: newBalance }))
-        }}
-      />
 
       {/* 3D Model Detail Modal */}
       {selectedModel3D && (

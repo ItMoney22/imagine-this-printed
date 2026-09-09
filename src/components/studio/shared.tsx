@@ -119,21 +119,25 @@ export const InlineError: React.FC<{ message: string | null }> = ({ message }) =
     <div className="text-sm text-red-800 bg-red-50 border border-red-500/40 rounded-xl px-4 py-2.5">{message}</div>
   ) : null
 
-/** The six-hex step tracker, click-to-navigate to any already-reachable step.
+/** The hex step tracker, click-to-navigate to any already-reachable step.
  *  `labelOverrides` lets a caller rename a hex without touching the shared
  *  `STEP_LABELS` map — used for the Garments hex, which reads "Sizes" on a
- *  metal print (design doc §14) but "Garment & Color" everywhere else. */
+ *  metal print (design doc §14) but "Garment & Color" everywhere else.
+ *  `steps` is the lane's own order (see components/studio/lane.tsx): six for
+ *  staff, five for a customer, who has no Etsy stop. */
 export const HexTracker: React.FC<{
   step: StepId
   canReach: (step: StepId) => boolean
   onSelect: (step: StepId) => void
   labelOverrides?: Partial<Record<StepId, string>>
-}> = ({ step, canReach, onSelect, labelOverrides }) => {
-  const activeIndex = STEP_ORDER.indexOf(step)
+  steps?: StepId[]
+}> = ({ step, canReach, onSelect, labelOverrides, steps }) => {
+  const order = steps ?? STEP_ORDER
+  const activeIndex = order.indexOf(step)
   const labelFor = (s: StepId) => labelOverrides?.[s] ?? STEP_LABELS[s]
   return (
     <div className="flex items-center justify-center gap-1 sm:gap-2 flex-wrap">
-      {STEP_ORDER.map((s, i) => {
+      {order.map((s, i) => {
         const reachable = canReach(s)
         const done = i < activeIndex
         const isActive = s === step

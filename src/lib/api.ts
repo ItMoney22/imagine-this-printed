@@ -952,6 +952,20 @@ export interface StepFlowProductSnapshot {
   [key: string]: any
 }
 
+/** One unfinished Step Flow build, as listed by `stepFlow.inProgress()`. */
+export interface StepFlowBuild {
+  id: string
+  name: string | null
+  image: string | null
+  /** Which stop it is sitting on — matches the builder's own step ids. */
+  stage: 'design' | 'garments' | 'mockups' | 'listing'
+  stageLabel: string
+  collection: string | null
+  /** True when this started life as an imported design rather than a generated one. */
+  fromLibrary: boolean
+  updatedAt: string | null
+}
+
 export interface StepFlowGetResponse {
   product: StepFlowProductSnapshot
   step_flow: StepFlowMeta
@@ -982,187 +996,253 @@ async function stepFlowRequest(path: string, init: RequestInit = {}) {
   return response.json()
 }
 
-export const stepFlow = {
-  /** POST /api/admin/products/ai/step/brief — idea (+ optional phrase, +
-   *  optional pinned inspiration, + optional product kind) → best-prompt
-   *  brief. Runs before a product exists. `productKind` defaults server-side
-   *  to 'garment' when omitted. */
-  brief: (
-    idea: string,
-    phrase?: SelectedPhrase,
-    inspiration?: SelectedInspiration,
-    productKind?: StepFlowProductKind
-  ): Promise<{ brief: StepBrief }> =>
-    stepFlowRequest('/api/admin/products/ai/step/brief', {
-      method: 'POST',
-      body: JSON.stringify({
-        idea,
-        ...(phrase ? { phrase } : {}),
-        ...(inspiration ? { inspiration } : {}),
-        ...(productKind ? { productKind } : {}),
+/**
+ * The Step Flow endpoint set, bound to one lane's base path.
+ *
+ * David 2026-09-08 ("our customers should have the same flow"): the flow runs
+ * on two rails — `/api/admin/products/ai` for staff and `/api/studio` for
+ * customers — and the server mounts ONE router at both. Binding the client the
+ * same way is what keeps the two honest: every step component calls the same
+ * method names and cannot reach across lanes, because it only ever holds the
+ * object it was handed. `<lane>` in the docblocks below is whichever base this
+ * instance was built with.
+ */
+export function createStepFlowApi(base: string, subjectsPath = `${base}/step/shot-subjects`) {
+  return {
+    /** POST <lane>/step/brief — idea (+ optional phrase, +
+     *  optional pinned inspiration, + optional product kind) → best-prompt
+     *  brief. Runs before a product exists. `productKind` defaults server-side
+     *  to 'garment' when omitted. */
+    brief: (
+      idea: string,
+      phrase?: SelectedPhrase,
+      inspiration?: SelectedInspiration,
+      productKind?: StepFlowProductKind
+    ): Promise<{ brief: StepBrief }> =>
+      stepFlowRequest(`${base}/step/brief`, {
+        method: 'POST',
+        body: JSON.stringify({
+          idea,
+          ...(phrase ? { phrase } : {}),
+          ...(inspiration ? { inspiration } : {}),
+          ...(productKind ? { productKind } : {}),
+        }),
       }),
-    }),
 
-  /** POST /api/admin/products/ai/step/inspiration — upload/paste a reference
-   *  image; Mrs. Imagine breaks it down (subject/style/palette/…) and pitches
-   *  keep-vs-change questions plus a suggested idea. Runs before a product
-   *  exists, same as `brief`/`phrases`. ~6-12s. */
-  inspiration: (image: string): Promise<{ persona: 'mrs-imagine'; intro: string; inspiration: InspirationAnalysis }> =>
-    stepFlowRequest('/api/admin/products/ai/step/inspiration', {
-      method: 'POST',
-      body: JSON.stringify({ image }),
-    }),
+    /** POST <lane>/step/inspiration — upload/paste a reference
+     *  image; Mrs. Imagine breaks it down (subject/style/palette/…) and pitches
+     *  keep-vs-change questions plus a suggested idea. Runs before a product
+     *  exists, same as `brief`/`phrases`. ~6-12s. */
+    inspiration: (image: string): Promise<{ persona: 'mrs-imagine'; intro: string; inspiration: InspirationAnalysis }> =>
+      stepFlowRequest(`${base}/step/inspiration`, {
+        method: 'POST',
+        body: JSON.stringify({ image }),
+      }),
 
-  /** POST /api/admin/products/ai/step/phrases — Mrs. Imagine pitches catchy,
-   *  print-friendly phrases for the idea (server-side copyright-gate
-   *  filtered). Runs before a product exists, same as `brief`. `intro`, when
-   *  present, is her own line to show above the chips — the caller falls
-   *  back to a hardcoded line client-side when it's absent. */
-  phrases: (
-    idea: string,
-    brief?: StepBrief,
-    count?: number
-  ): Promise<{ persona: 'mrs-imagine'; phrases: Phrase[]; intro?: string }> =>
-    stepFlowRequest('/api/admin/products/ai/step/phrases', {
-      method: 'POST',
-      body: JSON.stringify({ idea, ...(brief ? { brief } : {}), ...(count ? { count } : {}) }),
-    }),
+    /** POST <lane>/step/phrases — Mrs. Imagine pitches catchy,
+     *  print-friendly phrases for the idea (server-side copyright-gate
+     *  filtered). Runs before a product exists, same as `brief`. `intro`, when
+     *  present, is her own line to show above the chips — the caller falls
+     *  back to a hardcoded line client-side when it's absent. */
+    phrases: (
+      idea: string,
+      brief?: StepBrief,
+      count?: number
+    ): Promise<{ persona: 'mrs-imagine'; phrases: Phrase[]; intro?: string }> =>
+      stepFlowRequest(`${base}/step/phrases`, {
+        method: 'POST',
+        body: JSON.stringify({ idea, ...(brief ? { brief } : {}), ...(count ? { count } : {}) }),
+      }),
 
-  /** GET /api/admin/products/ai/:id/step — resume: product + step_flow + assets + jobs, merged. */
-  get: (productId: string): Promise<StepFlowGetResponse> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step`),
+    /** GET <lane>/:id/step — resume: product + step_flow + assets + jobs, merged. */
+    get: (productId: string): Promise<StepFlowGetResponse> =>
+      stepFlowRequest(`${base}/${productId}/step`),
 
-  /** Marks the chosen take primary and queues background removal — never queues mockups. */
-  selectDesign: (
-    productId: string,
-    assetId: string
-  ): Promise<{ ok: boolean; asset: StepFlowAsset; rembgJob: StepFlowJob | null }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/select-design`, {
-      method: 'POST',
-      body: JSON.stringify({ assetId }),
-    }),
+    /** GET <lane>/step/in-progress — every build part-way
+     *  through the flow, newest first, each with the step to resume on. A design
+     *  pulled into the flow leaves the Designs grid, so this is where a
+     *  half-finished build is found again. */
+    inProgress: (limit?: number): Promise<{ builds: StepFlowBuild[] }> =>
+      stepFlowRequest(`${base}/step/in-progress${limit ? `?limit=${limit}` : ''}`),
 
-  /** Measures the nobg (falls back to source) asset and ranks ITP colors by contrast to the artwork. */
-  colorAdvice: (productId: string): Promise<{ advice: ColorAdvice[]; artwork: ArtworkStats }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/color-advice`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
+    /** Marks the chosen take primary and queues background removal — never queues mockups. */
+    selectDesign: (
+      productId: string,
+      assetId: string
+    ): Promise<{ ok: boolean; asset: StepFlowAsset; rembgJob: StepFlowJob | null }> =>
+      stepFlowRequest(`${base}/${productId}/step/select-design`, {
+        method: 'POST',
+        body: JSON.stringify({ assetId }),
+      }),
 
-  /** Approves garment + colors; writes product_type/shirt_color/colors/print_placement/category. */
-  garments: (
-    productId: string,
-    payload: { garment: StepFlowGarmentId; primaryColor: StepFlowColorId; extraColors: StepFlowColorId[] }
-  ): Promise<{ ok: boolean; step_flow: StepFlowMeta }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/garments`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    /** POST <lane>/:id/step/adopt — bring an already-drawn
+     *  design (a design-library row, whose artwork lives only on
+     *  `products.images[0]`) into the flow: creates the missing `kind:'source'`
+     *  asset from that PNG, selects it, and strips the background — so the
+     *  builder opens on the Design step with the print file already being made
+     *  instead of an empty Idea step. Idempotent (`alreadyAdopted: true` when
+     *  the product already had a design). Rejects with status 422 and a
+     *  `blocked` body when the artwork is below print resolution. */
+    adopt: (
+      productId: string
+    ): Promise<{ ok: boolean; productId: string; assetId: string; alreadyAdopted: boolean; rembgJob: StepFlowJob | null }> =>
+      stepFlowRequest(`${base}/${productId}/step/adopt`, { method: 'POST' }),
 
-  /** Metal print analogue of `garments` — approves the sizes this listing
-   *  ships in and stamps `approvals.garments` (design doc §14). At least one
-   *  size is required server-side. */
-  sizes: (productId: string, sizes: MetalArtSizeKey[]): Promise<{ step_flow: StepFlowMeta }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/sizes`, {
-      method: 'POST',
-      body: JSON.stringify({ sizes }),
-    }),
+    /** Measures the nobg (falls back to source) asset and ranks ITP colors by contrast to the artwork. */
+    colorAdvice: (productId: string): Promise<{ advice: ColorAdvice[]; artwork: ArtworkStats }> =>
+      stepFlowRequest(`${base}/${productId}/step/color-advice`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
 
-  /** Fires mockup jobs. Omit `keys` to queue every key for the approved garment/colors. */
-  shots: (productId: string, keys?: ShotKey[]): Promise<{ jobs: Array<{ key: ShotKey; jobId: string | null }> }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots`, {
-      method: 'POST',
-      body: JSON.stringify(keys ? { keys } : {}),
-    }),
+    /** Approves garment + colors; writes product_type/shirt_color/colors/print_placement/category. */
+    garments: (
+      productId: string,
+      payload: { garment: StepFlowGarmentId; primaryColor: StepFlowColorId; extraColors: StepFlowColorId[] }
+    ): Promise<{ ok: boolean; step_flow: StepFlowMeta }> =>
+      stepFlowRequest(`${base}/${productId}/step/garments`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
 
-  /** Re-queues one shot with a fresh nonce; the old asset stays (unapproved)
-   *  until the redo lands. `subjectId` (model shot only, David 2026-09-08)
-   *  picks exactly who models it instead of letting Mrs. Imagine re-cast. */
-  redoShot: (productId: string, key: ShotKey, subjectId?: string): Promise<{ job: StepFlowJob }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}/redo`, {
-      method: 'POST',
-      body: JSON.stringify(subjectId ? { subjectId } : {}),
-    }),
+    /** Metal print analogue of `garments` — approves the sizes this listing
+     *  ships in and stamps `approvals.garments` (design doc §14). At least one
+     *  size is required server-side. */
+    sizes: (productId: string, sizes: MetalArtSizeKey[]): Promise<{ step_flow: StepFlowMeta }> =>
+      stepFlowRequest(`${base}/${productId}/step/sizes`, {
+        method: 'POST',
+        body: JSON.stringify({ sizes }),
+      }),
 
-  /** Adds ANOTHER on-person shot, keeping every one already taken. Omit
-   *  `subjectId` to let Mrs. Imagine cast it from the artwork. */
-  addModelShot: (productId: string, subjectId?: string): Promise<{ job: StepFlowJob }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/model`, {
-      method: 'POST',
-      body: JSON.stringify(subjectId ? { subjectId } : {}),
-    }),
+    /** Fires mockup jobs. Omit `keys` to queue every key for the approved garment/colors. */
+    shots: (productId: string, keys?: ShotKey[]): Promise<{ jobs: Array<{ key: ShotKey; jobId: string | null }> }> =>
+      stepFlowRequest(`${base}/${productId}/step/shots`, {
+        method: 'POST',
+        body: JSON.stringify(keys ? { keys } : {}),
+      }),
 
-  /** Drops an ADDED on-person shot (`model:<n>`) and its asset. The first
-   *  on-person shot can only be redone, never removed. */
-  removeShot: (productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}`, {
-      method: 'DELETE',
-    }),
+    /** Re-queues one shot with a fresh nonce; the old asset stays (unapproved)
+     *  until the redo lands. `subjectId` (model shot only, David 2026-09-08)
+     *  picks exactly who models it instead of letting Mrs. Imagine re-cast. */
+    redoShot: (productId: string, key: ShotKey, subjectId?: string): Promise<{ job: StepFlowJob }> =>
+      stepFlowRequest(`${base}/${productId}/step/shots/${encodeURIComponent(key)}/redo`, {
+        method: 'POST',
+        body: JSON.stringify(subjectId ? { subjectId } : {}),
+      }),
 
-  /** The archetypes castable on a garment (GET /api/admin/etsy/shot-subjects)
-   *  — youth-only, adult-only, or the full catalog with no `garment`. Powers
-   *  the "who should model this" picker on the Mockups step. */
-  shotSubjects: (garment?: StepFlowGarmentId): Promise<{ subjects: ShotSubject[] }> =>
-    stepFlowRequest(`/api/admin/etsy/shot-subjects${garment ? `?garment=${encodeURIComponent(garment)}` : ''}`),
+    /** Adds ANOTHER on-person shot, keeping every one already taken. Omit
+     *  `subjectId` to let Mrs. Imagine cast it from the artwork. */
+    addModelShot: (productId: string, subjectId?: string): Promise<{ job: StepFlowJob }> =>
+      stepFlowRequest(`${base}/${productId}/step/shots/model`, {
+        method: 'POST',
+        body: JSON.stringify(subjectId ? { subjectId } : {}),
+      }),
 
-  /** Approves (or rejects) one shot's asset. `skipped` marks a failed shot as
-   *  settled without redoing it — `assetId` is optional so an orphaned/never-
-   *  rendered shot can still be skipped. */
-  approveShot: (
-    productId: string,
-    key: ShotKey,
-    approved: boolean,
-    assetId?: string,
-    skipped?: boolean
-  ): Promise<{ step_flow: StepFlowMeta }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/${encodeURIComponent(key)}/approve`, {
-      method: 'POST',
-      body: JSON.stringify({ approved, assetId, skipped }),
-    }),
+    /** Drops an ADDED on-person shot (`model:<n>`) and its asset. The first
+     *  on-person shot can only be redone, never removed. */
+    removeShot: (productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> =>
+      stepFlowRequest(`${base}/${productId}/step/shots/${encodeURIComponent(key)}`, {
+        method: 'DELETE',
+      }),
 
-  /** Batch approve/skip — POST /:id/step/shots/approve. "Approve all" fires
-   *  this ONCE instead of N parallel per-key approveShot calls racing each
-   *  other's read-modify-write of the same step_flow.shots object. */
-  approveShots: (
-    productId: string,
-    keys: ShotKey[],
-    approved: boolean,
-    skipped?: boolean
-  ): Promise<{ step_flow: StepFlowMeta }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/shots/approve`, {
-      method: 'POST',
-      body: JSON.stringify({ keys, approved, skipped }),
-    }),
+    /** The archetypes castable on a garment (GET <lane>/step/shot-subjects)
+     *  — youth-only, adult-only, or the full catalog with no `garment`. Powers
+     *  the "who should model this" picker on the Mockups step. */
+    shotSubjects: (garment?: StepFlowGarmentId): Promise<{ subjects: ShotSubject[] }> =>
+      stepFlowRequest(`${subjectsPath}${garment ? `?garment=${encodeURIComponent(garment)}` : ''}`),
 
-  /** Measures the nobg asset for halftone-vs-clean printability (smooth-ramp
-   *  share, color count, soft-edge share) and returns a suggested screen.
-   *  Never gates any approval — purely advisory. */
-  printAdvice: (productId: string): Promise<{ advice: PrintAdvice }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/print-advice`, {
-      method: 'POST',
-      body: JSON.stringify({}),
-    }),
+    /** Approves (or rejects) one shot's asset. `skipped` marks a failed shot as
+     *  settled without redoing it — `assetId` is optional so an orphaned/never-
+     *  rendered shot can still be skipped. */
+    approveShot: (
+      productId: string,
+      key: ShotKey,
+      approved: boolean,
+      assetId?: string,
+      skipped?: boolean
+    ): Promise<{ step_flow: StepFlowMeta }> =>
+      stepFlowRequest(`${base}/${productId}/step/shots/${encodeURIComponent(key)}/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ approved, assetId, skipped }),
+      }),
 
-  /** Renders the team-only halftone/diffusion print file from the nobg asset
-   *  (synchronous, ~3-8s). Redo overwrites — one print file per product. */
-  printFile: (productId: string, options?: PrintFileOptions): Promise<{ printFile: PrintFile }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/print-file`, {
-      method: 'POST',
-      body: JSON.stringify(options ?? {}),
-    }),
+    /** Batch approve/skip — POST /:id/step/shots/approve. "Approve all" fires
+     *  this ONCE instead of N parallel per-key approveShot calls racing each
+     *  other's read-modify-write of the same step_flow.shots object. */
+    approveShots: (
+      productId: string,
+      keys: ShotKey[],
+      approved: boolean,
+      skipped?: boolean
+    ): Promise<{ step_flow: StepFlowMeta }> =>
+      stepFlowRequest(`${base}/${productId}/step/shots/approve`, {
+        method: 'POST',
+        body: JSON.stringify({ keys, approved, skipped }),
+      }),
 
-  /** Publishes: status active, images from buildProductGallery, stamps approvals.listing.
-   *  `price` is for garments only — a metal print's price is owned server-side
-   *  (backend/shared/metal-art.ts) and ignored if sent. */
-  publish: (
-    productId: string,
-    payload: { title: string; description: string; tags: string[]; price?: number }
-  ): Promise<{ product: StepFlowProductSnapshot }> =>
-    stepFlowRequest(`/api/admin/products/ai/${productId}/step/publish`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+    /** Measures the nobg asset for halftone-vs-clean printability (smooth-ramp
+     *  share, color count, soft-edge share) and returns a suggested screen.
+     *  Never gates any approval — purely advisory. */
+    printAdvice: (productId: string): Promise<{ advice: PrintAdvice }> =>
+      stepFlowRequest(`${base}/${productId}/step/print-advice`, {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
+
+    /** Renders the team-only halftone/diffusion print file from the nobg asset
+     *  (synchronous, ~3-8s). Redo overwrites — one print file per product. */
+    printFile: (productId: string, options?: PrintFileOptions): Promise<{ printFile: PrintFile }> =>
+      stepFlowRequest(`${base}/${productId}/step/print-file`, {
+        method: 'POST',
+        body: JSON.stringify(options ?? {}),
+      }),
+
+    /** Publishes: status active, images from buildProductGallery, stamps approvals.listing.
+     *  `price` is for garments only — a metal print's price is owned server-side
+     *  (backend/shared/metal-art.ts) and ignored if sent. */
+    publish: (
+      productId: string,
+      payload: { title: string; description: string; tags: string[]; price?: number }
+    ): Promise<{ product: StepFlowProductSnapshot }> =>
+      stepFlowRequest(`${base}/${productId}/step/publish`, {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      }),
+
+    /** POST <lane>/:id/step/listing-copy — the title/description/tags/price the
+     *  Listing step opens with. Same composer the admin lane reaches through
+     *  `etsy.compose`, exposed on the flow itself so the customer lane can
+     *  write a listing without touching the Etsy router. */
+    listingCopy: (productId: string): Promise<{ pack: EtsyComposePack }> =>
+      stepFlowRequest(`${base}/${productId}/step/listing-copy`, { method: 'POST' }),
+
+    /** POST <lane>/step/create — spins up the draft product and fires the first
+     *  design generation. Customer lane only: the admin lane creates through
+     *  `aiProducts.create` (POST /api/admin/products/ai/create), which is the
+     *  same handler behind a different gate. */
+    createProduct: (payload: Record<string, unknown>): Promise<{ productId: string }> =>
+      stepFlowRequest(`${base}/step/create`, { method: 'POST', body: JSON.stringify(payload) }),
+
+    /** GET <lane>/pricing — what this lane charges per step, plus the wallet
+     *  balance. Customer lane only; the admin lane spends house money. */
+    pricing: (): Promise<{ generate: number; shots: number; balance: number }> =>
+      stepFlowRequest(`${base}/pricing`),
+
+    /** DELETE <lane>/:id/step/draft — discards a scratch draft (Tweak's
+     *  cleanup). Customer lane only; staff use `aiProducts.delete`. */
+    discardDraft: (productId: string): Promise<{ ok: boolean }> =>
+      stepFlowRequest(`${base}/${productId}/step/draft`, { method: 'DELETE' }),
+  }
 }
+
+export type StepFlowApi = ReturnType<typeof createStepFlowApi>
+
+/** Staff lane — unchanged surface, including the admin Etsy casting catalog. */
+export const stepFlow = createStepFlowApi('/api/admin/products/ai', '/api/admin/etsy/shot-subjects')
+
+/** Customer lane (backend/routes/studio-flow.ts): creator-gated, owner-scoped,
+ *  ITC-metered, and with no Etsy route behind it at all. */
+export const customerStepFlow = createStepFlowApi('/api/studio')
 
 // Mrs. Imagine — autonomous house designer: realtime Etsy research → designs
 // → mockups → QA self-review → Etsy draft queue. Admin-triggered here; the

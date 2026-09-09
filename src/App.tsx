@@ -87,6 +87,7 @@ const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
 const ToyAR = lazy(() => import('./pages/ToyAR'))
 const BecomeCreator = lazy(() => import('./pages/BecomeCreator'))
 const CreatorStudio = lazy(() => import('./pages/CreatorStudio'))
+const CreatorStudioVoice = lazy(() => import('./pages/CreatorStudioVoice'))
 
 // Routes that should hide the sidebar for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk', '/ar/']
@@ -219,6 +220,9 @@ function App() {
                       itself redirects non-creators to /become-creator */}
                   <Route path="/become-creator" element={<ProtectedRoute><BecomeCreator /></ProtectedRoute>} />
                   <Route path="/creator/studio" element={<ProtectedRoute><CreatorStudio /></ProtectedRoute>} />
+                  {/* The talk-to-Mr.-Imagine build the studio used to open on —
+                      still reachable, just no longer the front door. */}
+                  <Route path="/creator/studio/voice" element={<ProtectedRoute><CreatorStudioVoice /></ProtectedRoute>} />
 
                   {/* Vendor Routes */}
                   <Route path="/vendor/dashboard" element={<VendorDashboard />} />

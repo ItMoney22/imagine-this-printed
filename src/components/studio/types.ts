@@ -73,10 +73,19 @@ export type {
   SuggestedPrintOptions,
 }
 
-/** The six stops of the builder, in order. */
+/** Every stop the builder knows about, in order. */
 export type StepId = 'idea' | 'design' | 'garments' | 'mockups' | 'listing' | 'etsy'
 
-export const STEP_ORDER: StepId[] = ['idea', 'design', 'garments', 'mockups', 'listing', 'etsy']
+/** Staff: the full six, ending in the Etsy hand-off. */
+export const ADMIN_STEP_ORDER: StepId[] = ['idea', 'design', 'garments', 'mockups', 'listing', 'etsy']
+
+/** Customers: the same flow "minus the etsy step ofc" (David 2026-09-08).
+ *  Listing is the last stop and finishes as Submit for review. */
+export const CUSTOMER_STEP_ORDER: StepId[] = ['idea', 'design', 'garments', 'mockups', 'listing']
+
+/** Back-compat alias — the admin order was the only order until 2026-09-08,
+ *  and it stays the default for anything that doesn't declare a lane. */
+export const STEP_ORDER = ADMIN_STEP_ORDER
 
 export const STEP_LABELS: Record<StepId, string> = {
   idea: 'Idea',

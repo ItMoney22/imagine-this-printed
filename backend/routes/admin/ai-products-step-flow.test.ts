@@ -36,14 +36,29 @@ function resetDb() {
   idCounter = 0
 }
 
-function matches(row: Row, filters: [string, any][]): boolean {
-  return filters.every(([k, v]) => row[k] === v)
+type Predicate = (row: Row) => boolean
+
+function matches(row: Row, filters: Predicate[]): boolean {
+  return filters.every((f) => f(row))
+}
+
+/** Resolve a PostgREST jsonb path ("metadata->step_flow->approvals->design",
+ *  "metadata->>collection") the way the real column filter would — every
+ *  missing level collapses to undefined, which is how SQL NULL reads here. */
+function resolvePath(row: Row, path: string): any {
+  const [head, ...rest] = path.split(/->>?/)
+  let value: any = row[head as string]
+  for (const key of rest) {
+    if (value == null) return undefined
+    value = value[key]
+  }
+  return value
 }
 
 function makeQuery(table: string) {
   let mode: 'select' | 'insert' | 'update' | 'delete' | null = null
   let payload: any = null
-  const filters: [string, any][] = []
+  const filters: Predicate[] = []
   let orderBy: { col: string; asc: boolean } | null = null
   let limitN: number | null = null
 
@@ -92,7 +107,24 @@ function makeQuery(table: string) {
       return chain
     },
     eq: (k: string, v: any) => {
-      filters.push([k, v])
+      filters.push((row) => resolvePath(row, k) === v)
+      return chain
+    },
+    neq: (k: string, v: any) => {
+      filters.push((row) => resolvePath(row, k) !== v)
+      return chain
+    },
+    in: (k: string, vals: any[]) => {
+      filters.push((row) => vals.includes(resolvePath(row, k)))
+      return chain
+    },
+    is: (k: string, v: any) => {
+      // Only `is(col, null)` is used; PostgREST's null means "absent too".
+      filters.push((row) => (v === null ? resolvePath(row, k) == null : resolvePath(row, k) === v))
+      return chain
+    },
+    not: (k: string, op: string, v: any) => {
+      filters.push((row) => (op === 'is' && v === null ? resolvePath(row, k) != null : resolvePath(row, k) !== v))
       return chain
     },
     order: (col: string, opts?: { ascending?: boolean }) => {
@@ -577,5 +609,346 @@ describe('POST /:id/step/publish — metal print', () => {
     const saved = db.products.find((r) => r.id === 'p1')!
     expect(saved.price).toBe(27.5)
     expect(saved.images).toEqual(['ghost.png', 'wm.png'])
+  })
+})
+
+// ---------------------------------------------------------------------------
+// POST /:id/step/adopt — bring an already-drawn design-library design into the
+// flow (David 2026-09-08). The library importer writes the artwork ONLY to
+// products.images, so without this the Step Flow's Design step is empty for
+// all ~2,700 of them.
+// ---------------------------------------------------------------------------
+describe('POST /:id/step/adopt — design library into the Step Flow', () => {
+  // The route fires the rembg job inline and attaches a .catch to it, so the
+  // mocked worker has to hand back a real promise (same as the select-design
+  // suites above, which this route shares its implementation with).
+  beforeEach(() => {
+    processRemoveBgJob.mockResolvedValue(undefined)
+  })
+
+  /** A design-library row exactly as scripts/import-designs.mjs writes it: an
+   *  image on the product, measured dimensions, and NO product_assets row. */
+  function seedLibraryDesign(over: Record<string, any> = {}): void {
+    db.products.push({
+      id: 'p1',
+      name: 'Avocado Cat Cuddle',
+      category: 'shirts',
+      price: 24.99,
+      status: 'draft',
+      images: ['https://api.example.test/api/media/design-library/cats/avogato.png'],
+      metadata: {
+        import_source: 'design-library',
+        import_key: 'Cats/avogato',
+        collection: 'Cats',
+        gcs_path: 'design-library/cats/avogato.png',
+        image: { width_px: 4500, height_px: 5400, has_alpha: true },
+        ...over,
+      },
+    })
+  }
+
+  it('creates the missing source asset from products.images and selects it', async () => {
+    seedLibraryDesign()
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.alreadyAdopted).toBe(false)
+
+    const assets = db.product_assets.filter((a) => a.product_id === 'p1')
+    expect(assets).toHaveLength(1)
+    expect(assets[0].kind).toBe('source')
+    expect(assets[0].asset_role).toBe('design')
+    expect(assets[0].url).toBe('https://api.example.test/api/media/design-library/cats/avogato.png')
+    // Points at the SAME GCS object the catalog image does — no duplicate upload.
+    expect(assets[0].path).toBe('design-library/cats/avogato.png')
+    expect(assets[0].width).toBe(4500)
+    // Selected, so the Design step opens on it rather than an empty grid.
+    expect(assets[0].is_primary).toBe(true)
+  })
+
+  it('stamps approvals.design and seeds the idea from the design name', async () => {
+    seedLibraryDesign()
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, makeRes())
+
+    const flow = db.products.find((r) => r.id === 'p1')!.metadata.step_flow
+    expect(flow.idea).toBe('Avocado Cat Cuddle')
+    // No prompt drew this design, so there is no brief to fake.
+    expect(flow.brief).toBeNull()
+    expect(flow.approvals.design).toBeTruthy()
+  })
+
+  it('runs background removal inline on the adopted design', async () => {
+    seedLibraryDesign()
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+    const jobs = db.ai_jobs.filter((j) => j.product_id === 'p1')
+    expect(jobs).toHaveLength(1)
+    expect(jobs[0].type).toBe('replicate_rembg')
+    // Pre-claimed, so the Render worker never double-processes it.
+    expect(jobs[0].status).toBe('running')
+    await waitUntil(() => processRemoveBgJob.mock.calls.length === 1)
+  })
+
+  it('blocks a design that is too small to print, with the reason', async () => {
+    seedLibraryDesign({ image: { width_px: 400, height_px: 400, has_alpha: true } })
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+    // 422, not a silent pass: /step/publish activates directly and never
+    // re-runs the design-library grid's print gate.
+    expect(res.statusCode).toBe(422)
+    expect(res.body.blocked[0].gate).toBe('print')
+    expect(res.body.error).toMatch(/print/i)
+    expect(db.product_assets).toHaveLength(0)
+    expect(db.ai_jobs).toHaveLength(0)
+  })
+
+  it('lets a released (knowingly overridden) low-res design through', async () => {
+    seedLibraryDesign({
+      image: { width_px: 400, height_px: 400, has_alpha: true },
+      quarantine: { reason: 'too small', released_at: '2026-09-01T00:00:00.000Z', override_reason: 'sold small only' },
+    })
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    expect(db.product_assets).toHaveLength(1)
+  })
+
+  it('is idempotent — a second adopt makes no second take and no second rembg', async () => {
+    seedLibraryDesign()
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, makeRes())
+    await waitUntil(() => processRemoveBgJob.mock.calls.length === 1)
+    // The cut landed — the second press has nothing left to do.
+    db.product_assets.push({ id: 'nobg1', product_id: 'p1', kind: 'nobg', url: 'clear.png', created_at: '2026-01-02' })
+
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    expect(res.body.alreadyAdopted).toBe(true)
+    expect(db.product_assets.filter((a) => a.kind === 'source')).toHaveLength(1)
+    expect(db.ai_jobs).toHaveLength(1)
+  })
+
+  it('re-runs the cut when a previous background removal never produced one', async () => {
+    seedLibraryDesign()
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, makeRes())
+    await waitUntil(() => processRemoveBgJob.mock.calls.length === 1)
+    // No nobg asset ever landed (the cut failed): pressing the button again is
+    // the retry — otherwise the Design step dead-ends with nothing to approve.
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(200)
+    expect(db.product_assets.filter((a) => a.kind === 'source')).toHaveLength(1)
+    expect(db.ai_jobs).toHaveLength(2)
+    await waitUntil(() => processRemoveBgJob.mock.calls.length === 2)
+  })
+
+  it('finishes a half-adopted product by selecting the source it already has', async () => {
+    seedLibraryDesign()
+    db.product_assets.push({
+      id: 'src-orphan', product_id: 'p1', kind: 'source', asset_role: 'design',
+      url: 'raw.png', is_primary: false, created_at: '2026-01-01',
+    })
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.assetId).toBe('src-orphan')
+    expect(db.product_assets.filter((a) => a.kind === 'source')).toHaveLength(1)
+    expect(db.product_assets.find((a) => a.id === 'src-orphan')!.is_primary).toBe(true)
+    expect(db.products.find((r) => r.id === 'p1')!.metadata.step_flow.approvals.design).toBeTruthy()
+  })
+
+  it('refuses a product with no design image at all', async () => {
+    db.products.push({ id: 'p1', name: 'Empty', category: 'shirts', images: [], metadata: { image: { width_px: 4500, height_px: 5400 } } })
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(400)
+    expect(db.product_assets).toHaveLength(0)
+  })
+})
+
+describe('POST /:id/step/select-design — status contract after the selectDesignForFlow extraction', () => {
+  it('still answers 404 (not 400) for an asset that is not on this product', async () => {
+    seedProduct()
+    const handler = getRouteHandler('post', '/:id/step/select-design')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { assetId: 'nope' }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(404)
+  })
+
+  it('still answers 400 when the asset exists but is not a source design', async () => {
+    seedProduct()
+    db.product_assets.push({ id: 'm1', product_id: 'p1', kind: 'mockup', url: 'mock.png', created_at: '2026-01-01' })
+    const handler = getRouteHandler('post', '/:id/step/select-design')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: { assetId: 'm1' }, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.statusCode).toBe(400)
+    expect(res.body.error).toMatch(/source design/i)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// GET /step/in-progress — the resume list (David 2026-09-08: "idk where to
+// pick up the step flow i already am doing"). A design that has been pulled
+// into the flow leaves the Designs grid's to-do view, so this is the list that
+// has to be able to find it again.
+// ---------------------------------------------------------------------------
+describe('GET /step/in-progress — builds waiting to be picked back up', () => {
+  const build = (over: Record<string, any>) => ({
+    id: 'x', name: 'A design', status: 'draft', images: ['art.png'], category: 'shirts',
+    updated_at: '2026-09-08T00:00:00.000Z', metadata: {}, ...over,
+  })
+
+  it('lists a build with the step to resume on, and skips untouched designs', async () => {
+    db.products.push(
+      build({ id: 'started', name: 'Avocado Cat Cuddle', metadata: { collection: 'Cats', import_source: 'design-library', step_flow: { shots: {}, approvals: { design: 'x' } } } }),
+      // Never pulled in — still fresh work in the Designs grid, not a build.
+      build({ id: 'untouched', metadata: { import_source: 'design-library', collection: 'Cats' } }),
+    )
+    db.product_assets.push({ id: 'n1', product_id: 'started', kind: 'nobg', url: 'clear.png', created_at: '2026-01-01' })
+
+    const handler = getRouteHandler('get', '/step/in-progress')
+    const res = makeRes()
+    await handler({ params: {}, query: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+    expect(res.statusCode).toBe(200)
+    expect(res.body.builds).toHaveLength(1)
+    expect(res.body.builds[0]).toMatchObject({
+      id: 'started',
+      name: 'Avocado Cat Cuddle',
+      // The cut landed, so the next thing to do is pick a shirt.
+      stage: 'garments',
+      stageLabel: 'Garment & Color',
+      collection: 'Cats',
+      fromLibrary: true,
+      image: 'art.png',
+    })
+  })
+
+  it('says Design while the background is still coming off', async () => {
+    db.products.push(build({ id: 'cutting', metadata: { step_flow: { shots: {}, approvals: { design: 'x' } } } }))
+    const handler = getRouteHandler('get', '/step/in-progress')
+    const res = makeRes()
+    await handler({ params: {}, query: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.body.builds[0].stage).toBe('design')
+  })
+
+  it('drops a build once it is published — it belongs in the catalog now', async () => {
+    db.products.push(
+      build({ id: 'live', status: 'active', metadata: { step_flow: { shots: {}, approvals: { design: 'x', listing: 'x' } } } }),
+      build({ id: 'still-going', metadata: { step_flow: { garment: 'tshirt', shots: {}, approvals: { design: 'x', garments: 'x' } } } }),
+    )
+    const handler = getRouteHandler('get', '/step/in-progress')
+    const res = makeRes()
+    await handler({ params: {}, query: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.body.builds.map((b: any) => b.id)).toEqual(['still-going'])
+    expect(res.body.builds[0].stage).toBe('mockups')
+  })
+
+  it('marks a generated (non-library) build as such', async () => {
+    db.products.push(build({ id: 'gen', metadata: { step_flow: { brief: { title: 'X' }, shots: {}, approvals: { design: 'x' } } } }))
+    const handler = getRouteHandler('get', '/step/in-progress')
+    const res = makeRes()
+    await handler({ params: {}, query: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+    expect(res.body.builds[0].fromLibrary).toBe(false)
+    expect(res.body.builds[0].collection).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The customer lane (David 2026-09-08). Same router, marked `studioLane:
+// 'customer'` by routes/studio-flow.ts once it has authenticated the caller,
+// confirmed the creator opt-in, and proven ownership. These cover the two
+// places that marking changes behaviour.
+// ---------------------------------------------------------------------------
+describe('the customer lane', () => {
+  function seedPublishableGarment(): void {
+    db.products.push({
+      id: 'p1',
+      category: 't-shirts',
+      price: 24,
+      metadata: {
+        step_flow: {
+          version: 1,
+          idea: 'hip-hop street monkey',
+          brief: { title: 'Street Monkey' },
+          garment: 'tshirt',
+          shots: { product: { approved: true, status: 'done', assetId: 'm1', url: 'front.png' } },
+          approvals: { design: 'x', garments: 'x', mockups: 'x' },
+        },
+      },
+    })
+    db.product_assets.push(
+      { id: 'src1', product_id: 'p1', kind: 'source', asset_role: 'design', is_primary: true, url: 'raw.png', created_at: '2026-01-01', metadata: {} },
+      { id: 'w1', product_id: 'p1', kind: 'design_preview', asset_role: 'design_watermarked', url: 'art-wm.png', created_at: '2026-01-02' },
+      { id: 'm1', product_id: 'p1', kind: 'mockup', asset_role: 'mockup_product', url: 'front.png', created_at: '2026-01-01' },
+    )
+  }
+
+  const finish = async (over: Record<string, any>) => {
+    seedPublishableGarment()
+    const handler = getRouteHandler('post', '/:id/step/publish')
+    const res = makeRes()
+    await handler(
+      { params: { id: 'p1' }, body: { title: 'Street Monkey Tee', description: 'd', tags: ['tee'], price: 26 }, user: { id: 'u9', sub: 'u9' }, log: undefined, ...over },
+      res
+    )
+    return res
+  }
+
+  it('an admin finishing the flow publishes live', async () => {
+    const res = await finish({})
+    expect(res.statusCode).toBe(200)
+    const saved = db.products.find((r) => r.id === 'p1')!
+    expect(saved.status).toBe('active')
+    expect(saved.is_active).toBe(true)
+    expect(saved.metadata.user_submitted).toBeUndefined()
+  })
+
+  it('a customer finishing the flow submits for review instead of publishing', async () => {
+    const res = await finish({ studioLane: 'customer', creator: { royaltyPercent: 15 } })
+    expect(res.statusCode).toBe(200)
+    const saved = db.products.find((r) => r.id === 'p1')!
+    expect(saved.status).toBe('pending_approval')
+    expect(saved.is_active).toBe(false)
+  })
+
+  // The review queue (GET /api/admin/user-products/pending) matches on
+  // metadata.user_submitted AND the status — a submission carrying only the
+  // status would be invisible to the people meant to review it.
+  it("stamps the fields the shop's review queue actually filters on", async () => {
+    await finish({ studioLane: 'customer', creator: { royaltyPercent: 20 } })
+    const saved = db.products.find((r) => r.id === 'p1')!
+    expect(saved.metadata.user_submitted).toBe(true)
+    expect(saved.metadata.creator_id).toBe('u9')
+    expect(saved.metadata.creator_royalty_percent).toBe(20)
+    expect(typeof saved.metadata.submitted_at).toBe('string')
+    // The listing itself still lands exactly as the admin lane writes it.
+    expect(saved.name).toBe('Street Monkey Tee')
+    expect(saved.price).toBe(26)
+    expect(saved.images.length).toBeGreaterThan(0)
+  })
+
+  it("lists only the caller's own unfinished builds", async () => {
+    db.products.push(
+      { id: 'mine', name: 'Mine', status: 'draft', created_by_user_id: 'u9', updated_at: '2026-01-02', metadata: { step_flow: { brief: { title: 'M' }, shots: {}, approvals: { design: 'x' } } } },
+      { id: 'theirs', name: 'Theirs', status: 'draft', created_by_user_id: 'u2', updated_at: '2026-01-03', metadata: { step_flow: { brief: { title: 'T' }, shots: {}, approvals: { design: 'x' } } } }
+    )
+    const handler = getRouteHandler('get', '/step/in-progress')
+    const res = makeRes()
+    await handler({ params: {}, query: {}, studioLane: 'customer', user: { id: 'u9', sub: 'u9' }, log: undefined }, res)
+    expect(res.body.builds.map((b: any) => b.id)).toEqual(['mine'])
   })
 })

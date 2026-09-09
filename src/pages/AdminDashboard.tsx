@@ -251,7 +251,19 @@ const AdminDashboard: React.FC = () => {
       } else if (productCollectionFilter !== 'all' && (p.metadata?.collection || '') !== productCollectionFilter) {
         return false
       }
-      if (productStatusFilter !== 'all' && (p.status || 'draft') !== productStatusFilter) return false
+      // 'in_flow' is not a products.status value — it is "part-way through the
+      // Step Flow", the same signal the Designs grid uses to take a design out
+      // of the to-do pile (backend/services/step-flow/progress.ts). Surfaced
+      // here so a build David started is findable under Products, which is
+      // where he expects it to land once it leaves Designs.
+      if (productStatusFilter === 'in_flow') {
+        if (!p.metadata?.step_flow?.approvals?.design || p.status === 'active') return false
+      } else if (productStatusFilter === 'from_flow') {
+        // Everything that came OUT of the Step Flow — the finished builds.
+        // "Where is the thing I just made" deserves an answer that does not
+        // depend on remembering its name.
+        if (!p.metadata?.step_flow?.approvals?.design) return false
+      } else if (productStatusFilter !== 'all' && (p.status || 'draft') !== productStatusFilter) return false
       if (q && !`${p.name} ${p.category}`.toLowerCase().includes(q)) return false
       return true
     })
@@ -260,6 +272,9 @@ const AdminDashboard: React.FC = () => {
   useEffect(() => { setProductPage(0) }, [productCollectionFilter, productStatusFilter, productSearch])
   // Flat `{ productId: { url, path } }` — the ONE source asset per product,
   // written only by loadProducts(). Feeds the products-table thumbnail.
+  // How many imported designs the Products tab is deliberately not showing —
+  // rendered next to the count so their absence is stated, never mysterious.
+  const [designLibraryHeldBack, setDesignLibraryHeldBack] = useState(0)
   const [productAssets, setProductAssets] = useState<Record<string, any>>({})
   // Grouped-by-kind `{ productId: { source: [...], nobg: [...], mockup: [...], upscaled: [...] } }`
   // — written by loadProductJobs()/handleDeleteImage() and read by the enhanced
@@ -735,14 +750,69 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
+  // Only the columns this tab actually renders. `select('*')` pulled 32 columns
+  // and the mapping below threw ~20 of them away — on thousands of rows that is
+  // megabytes of description/keyword/SEO text nothing reads.
+  const PRODUCT_COLUMNS =
+    'id, name, description, price, images, category, is_active, is_featured, created_at, updated_at, status, metadata'
+
+  // An imported design is NOT a product yet. David 2026-09-08: "the only ones
+  // that go into products is the ones that i put through the step flow, they
+  // stay in designs till i move them through step flow. the moment they done
+  // with step flow they should be in products."
+  //
+  // So a design-library row earns its place here by going LIVE — which is what
+  // finishing the Step Flow does to it (/step/publish sets status 'active').
+  // Until then it belongs to the Designs tab, in progress or not.
+  //
+  // Written as an OR rather than "not a design-library draft" because
+  // `metadata->>import_source` is NULL for everything that was not imported,
+  // and in SQL `NULL <> 'design-library'` is NULL, not true — a plain `neq`
+  // would silently drop the entire real catalog.
+  const NOT_A_LIBRARY_DRAFT =
+    'metadata->>import_source.is.null,metadata->>import_source.neq.design-library,status.eq.active'
+
   const loadProducts = async () => {
     try {
-      const { data, error } = await supabase
-        .from('products')
-        .select('*')
-        .order('created_at', { ascending: false })
+      // PAGED, because PostgREST caps an unbounded select at 1,000 rows and
+      // says nothing about it. The tab was silently showing only the newest
+      // 1,000 of 2,592 — a live product created before that cut-off could not
+      // be found by scrolling, searching or filtering, because the rows it
+      // filters were never fetched (David 2026-09-08: "the 1 live one isnt
+      // even showing up in products" — it sat at row 1,523). Paging plus the
+      // filter above lands at ~224 rows: complete, and lighter than the
+      // truncated list it replaces.
+      const data: any[] = []
+      for (let from = 0; ; from += 1000) {
+        const { data: page, error } = await supabase
+          .from('products')
+          .select(PRODUCT_COLUMNS)
+          .or(NOT_A_LIBRARY_DRAFT)
+          // Most recently CHANGED first, not most recently created. An
+          // imported design carries the date it was imported, so a design
+          // finished in the Step Flow today sorted as if it were months old:
+          // "Resting Witch Face" was published 2026-09-08 but created
+          // 2026-07-06, which put it at row 170 — page 4 of a 50-row table —
+          // the moment David went looking for it (2026-09-08: "why isnt that
+          // 1 in products??"). By updated_at it is row 0. Finishing a build
+          // should put it at the top, which is where you go looking for it.
+          // nullsFirst:false because Postgres sorts NULLs FIRST on DESC, which
+          // would float any never-touched row above everything real.
+          .order('updated_at', { ascending: false, nullsFirst: false })
+          .range(from, from + 999)
+        if (error) throw error
+        data.push(...(page || []))
+        if (!page || page.length < 1000) break
+      }
 
-      if (error) throw error
+      // Counted, not guessed, so the tab can say out loud where the rest are
+      // instead of just appearing to be missing them.
+      const { count: libraryDrafts } = await supabase
+        .from('products')
+        .select('*', { count: 'exact', head: true })
+        .eq('metadata->>import_source', 'design-library')
+        .neq('status', 'active')
+      setDesignLibraryHeldBack(libraryDrafts ?? 0)
 
       // Map Supabase product to our Product type, including metadata and status
       const mappedProducts: Product[] = (data || []).map((p: any) => ({
@@ -753,12 +823,16 @@ const AdminDashboard: React.FC = () => {
         images: p.images || [],
         category: p.category || 'shirts',
         inStock: p.is_active !== false,
+        // Was dropped by this mapping while the row still rendered
+        // `product.is_featured`, so the featured star read as off for every
+        // product no matter what the column said.
+        is_featured: p.is_featured ?? false,
         createdAt: p.created_at,
         updatedAt: p.updated_at,
         status: p.status || 'draft',
         metadata: p.metadata || {},
         isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false
-      }))
+      } as any))
 
       setProducts(mappedProducts as any)
 
@@ -2785,12 +2859,29 @@ const AdminDashboard: React.FC = () => {
                   className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
                 >
                   <option value="all">All statuses</option>
+                  <option value="from_flow">Built in Step Flow</option>
+                  <option value="in_flow">In Step Flow (building)</option>
                   <option value="active">Active (live)</option>
                   <option value="draft">Draft</option>
                   <option value="pending_approval">Pending approval</option>
                   <option value="incomplete">Incomplete</option>
                 </select>
-                <span className="text-sm text-slate-500">{filteredProducts.length} of {products.length} products</span>
+                <span className="text-sm text-slate-500">
+                  {filteredProducts.length} of {products.length} products
+                  {designLibraryHeldBack > 0 && (
+                    <>
+                      {' · '}
+                      <button
+                        type="button"
+                        onClick={() => goToTab('designs')}
+                        className="underline hover:text-slate-700"
+                        title="Imported designs become products by going through the Step Flow"
+                      >
+                        {designLibraryHeldBack.toLocaleString()} designs waiting in Designs
+                      </button>
+                    </>
+                  )}
+                </span>
               </div>
               {selectedProducts.size > 0 && (
                 <div className="flex items-center space-x-3 bg-purple-50 border border-purple-100 p-4 rounded-xl">
@@ -2935,6 +3026,15 @@ const AdminDashboard: React.FC = () => {
                                   }`}>
                                   {product.inStock ? 'In Stock' : 'Out'}
                                 </span>
+                                {(product as any).metadata?.step_flow?.approvals?.design && product.status !== 'active' && (
+                                  <a
+                                    href={`/admin/ai/products/create?mode=steps&productId=${encodeURIComponent(product.id)}`}
+                                    title="This build is part-way through the Step Flow — open it to carry on"
+                                    className="w-fit px-2.5 py-0.5 text-[10px] font-semibold rounded-full bg-indigo-100 text-indigo-700 hover:bg-indigo-200"
+                                  >
+                                    Resume Step Flow
+                                  </a>
+                                )}
                               </div>
 
                             </td>
