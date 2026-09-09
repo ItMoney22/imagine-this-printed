@@ -3548,3 +3548,67 @@ on the flattened input is reasoned from the defect, not yet observed.
   (clean cut-out over both white and black) before touching code.
 - 2026-09-09 — Flattened cut-out art onto the garment colour for the gpt-image
   branch and gave the fidelity gate a printed-on-frame criterion (12 new tests).
+
+### CORRECTION (2026-09-09) — the earlier root cause above was WRONG
+David: "its still coming out boxed please fix this one yourself". The flattening
+fix was never deployed (committed, unpushed), so his redo ran the old code — but
+chasing it properly showed the diagnosis was wrong anyway, and the flattening has
+been REVERTED as dead code on this path.
+
+Nine test renders through the real engines — gpt-image-2, gpt-image-1 and
+nano-banana, with and without the retry preamble — ALL came back clean and
+unboxed. Neither engine boxes this design on its own. Production logs then gave
+the actual chain (Render API, srv-d7jpgut7…, both of David's redos):
+
+    13:35:33  step-model-k987kw7d (kid) via nano-banana → …
+    13:35:43  failed fidelity QA: "The dark purple-to-orange background from the
+              source artwork is missing, leaving a white shirt background around
+              the illustration." — one retry
+    13:35:49  step-model-k987kw7d (kid) via nano-banana → …   ← the boxed one
+
+and the 13:22 redo is identical, with reason "The source artwork's dark
+multicolor gradient background is missing from the shirt print."
+
+**The QA gate manufactured the defect.** The FIRST render was correct both
+times. The inspector is shown the cut-out PNG, decodes its transparent region as
+a dark coloured field, believes that field is part of the artwork, and fails the
+correct shot for "missing" it. `retryPreamble` then quotes the complaint into the
+render brief verbatim — so "the dark purple background is missing" becomes a
+literal instruction to paint a dark purple box behind the print. The retry obeys,
+and the second QA pass PASSES it, because now the two images agree. That is the
+`checks: [{ok: true, retried: true}]` on the product.
+
+Two other things the logs settle: production runs **nano-banana**, not gpt-image
+(no "primary engine failed" warning is ever logged), so the gpt-image flattening
+could never have run for these shots at all; and the shot David is looking at
+cost two renders, one of which was thrown away for being right.
+
+### Fix (this is the one that matters)
+- `DESIGN_FIDELITY_QA_PROMPT` now states that IMAGE 1 is cut-out art whose
+  background is TRANSPARENT, that a viewer may render that as black/white/grey/
+  checkerboard/a coloured field, and that the garment showing through is the
+  CORRECT result — then refuses "the background is missing" outright and forbids
+  asking for one to be added. It keeps the printed-on panel FAIL line, which
+  catches the boxed output itself, and its old blanket "the background" excuse is
+  now scoped to the photographic scene.
+- `asksForAMissingBackground` + a guard in `renderVerifiedShot`: a verdict that
+  asks for a background the cut-out source never had is treated as a PASS of the
+  first render, never as a retry. Defence in depth — the prompt is still a vision
+  model guessing at an alpha channel, and one hallucinated sentence is all it
+  takes to paint the box. It also stops paying for a retry that makes the shot
+  worse. Real defects that merely mention the background still buy their retry.
+- REVERTED: `flattenDesignOntoGarment`/`garmentColorHex` and the `sourceImage`
+  plumbing on `editOpenAIImage`. Unproven, and on the branch production does not
+  use.
+
+### Verification
+`npx tsc --noEmit` clean; eslint 0 errors (42 warnings, house `no-explicit-any`);
+backend suite 103 files / 1532 tests green, the one failing file being the
+pre-existing stale `.claude/worktrees/mr-imagine-builder` copy. The two guard
+tests use the VERBATIM production QA reasons from the logs above.
+
+### Work log (append-only)
+- 2026-09-09 — Reproduced nothing in 9 paid renders, then pulled the Render logs
+  and found the real cause: the fidelity gate fails a correct render for a
+  hallucinated background and the retry preamble turns that into an instruction
+  to paint one. Fixed the prompt, added the retry guard, reverted the flattening.

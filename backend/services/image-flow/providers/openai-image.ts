@@ -255,15 +255,6 @@ export async function runOpenAIImage(opts: OpenAIImageOpts): Promise<{ url: stri
 export interface OpenAIEditOpts {
   /** Source image (the design to edit). */
   sourceUrl: string
-  /**
-   * Pre-rendered source BYTES to edit instead of fetching `sourceUrl`.
-   * The on-person shot path flattens cut-out art onto the garment colour
-   * before the call (see etsy-model-shots.ts's flattenDesignOntoGarment) and
-   * would otherwise have to upload the flattened copy somewhere public purely
-   * to hand this function a URL. `sourceUrl` stays required either way — it is
-   * still what the shot was composed FROM, and the fidelity check reads it.
-   */
-  sourceImage?: Buffer
   /** Optional extra reference images (multi-image compositing). */
   refUrls?: string[]
   prompt: string
@@ -290,15 +281,10 @@ async function urlToFile(url: string, idx: number): Promise<any> {
 
 /** Image+prompt edit / compositing, walking the model chain (see the header). */
 export async function editOpenAIImage(opts: OpenAIEditOpts): Promise<{ url: string; path: string; modelId: string }> {
-  const refs = opts.refUrls ?? []
+  const urls = [opts.sourceUrl, ...(opts.refUrls ?? [])]
   // Fetched ONCE, ahead of the chain: a fallback that re-downloaded every
   // reference image would triple the egress on a compositing call.
-  const files = await Promise.all([
-    opts.sourceImage
-      ? Promise.resolve(toFile(opts.sourceImage, 'edit-src-0.png', { type: 'image/png' }))
-      : urlToFile(opts.sourceUrl, 0),
-    ...refs.map((u, i) => urlToFile(u, i + 1)),
-  ])
+  const files = await Promise.all(urls.map((u, i) => urlToFile(u, i)))
   const base: Record<string, unknown> = {
     image: files.length === 1 ? files[0] : files,
     prompt: opts.prompt,
