@@ -13,6 +13,7 @@
 // (grouped by kind, this modal's Images tab) live as separate state. See the
 // bug note on `onSave` below for why field edits use a two-part contract.
 import React, { useEffect, useMemo, useState } from 'react'
+import ProductPersonalizationEditor, { type PersonalizationMetadata } from './ProductPersonalizationEditor'
 import { useNavigate } from 'react-router-dom'
 import {
   X, RefreshCw, Scissors, ArrowUpCircle, LayoutGrid, Sparkles,
@@ -207,6 +208,20 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
     }
   }
 
+  // The artwork the print zones are measured against. Mirrors the server's own
+  // precedence in services/personalization-print.ts (dtf, else the design
+  // source) so the overlay lines up with what actually gets rendered.
+  const printFileUrl: string | null =
+    assetGroups?.dtf?.[0]?.url ?? assetGroups?.source?.[0]?.url ?? null
+
+  // products.metadata is written whole (same as the sizes/colours branch in
+  // AdminDashboard.handleUpdateProductField), so merge rather than replace or
+  // every other metadata key on the product would be dropped.
+  const handlePersonalizationChange = (next: PersonalizationMetadata) => {
+    const nextMetadata = { ...(product?.metadata || {}), personalization: next }
+    onSave({ metadata: nextMetadata }, 'metadata', nextMetadata)
+  }
+
   if (!product) return null
 
   return (
@@ -312,6 +327,8 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
                   customColorHex={customColorHex}
                   onCustomColorHexChange={setCustomColorHex}
                   onAddCustomColor={addCustomColor}
+                  printFileUrl={printFileUrl}
+                  onPersonalizationChange={handlePersonalizationChange}
                 />
               )}
               {activeTab === 'images' && (
@@ -380,9 +397,12 @@ const DetailsTab: React.FC<{
   customColorHex: string
   onCustomColorHexChange: (v: string) => void
   onAddCustomColor: () => void
+  printFileUrl: string | null
+  onPersonalizationChange: (next: PersonalizationMetadata) => void
 }> = ({
   product, sizeOptions, generatingGptText, onGptAssist, onField,
   onToggleSize, onToggleColor, customColorHex, onCustomColorHexChange, onAddCustomColor,
+  printFileUrl, onPersonalizationChange,
 }) => {
   const showColors = product.category !== '3d-models' && product.category !== 'metal-art'
 
@@ -576,6 +596,13 @@ const DetailsTab: React.FC<{
           )}
         </div>
       )}
+
+      <ProductPersonalizationEditor
+        productId={product.id}
+        printFileUrl={printFileUrl}
+        value={product.metadata?.personalization}
+        onChange={onPersonalizationChange}
+      />
 
       {product.metadata?.ai_generated && (
         <div className="border border-primary/20 rounded-xl p-4 bg-primary/5">

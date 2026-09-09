@@ -1615,6 +1615,15 @@ export const imaginationApi = {
 
 // Admin API methods
 export const adminApi = {
+  /**
+   * Renders the product's real print file with sample Team/Name/Number through
+   * the same code path a paid order uses, so print zones can be positioned by
+   * looking at the result instead of guessing at pixel coordinates.
+   * Returns { url } on success; a 422 carries a plain-English `message`.
+   */
+  previewPersonalization: (productId: string, values: { team?: string; name?: string; number?: string }) =>
+    api.post(`/api/admin/products/${productId}/personalization/preview`, { values }),
+
   // Imagination Station Pricing
   getImaginationPricing: () =>
     api.get('/api/admin/imagination-pricing'),

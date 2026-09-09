@@ -5,6 +5,7 @@ import { uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { requireAdmin } from '../../middleware/requireAdmin.js'
 import { requireVendorOrAdmin } from '../../middleware/requireVendorOrAdmin.js'
+import { renderPersonalizedPrintForProduct } from '../../services/personalization-print.js'
 import { nanoid } from 'nanoid'
 
 const router = express.Router()
@@ -212,6 +213,47 @@ Respond in JSON format:
   } catch (error: any) {
     console.error('[admin/products] Error getting AI suggestion:', error)
     res.status(500).json({ error: error.message || 'Failed to get AI suggestion' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Personalization preview (2026-09-09)
+//
+// Zones are pixel geometry on the print file. Authoring them as four numbers
+// with no way to look at the result is how you end up selling a shirt with the
+// player's name printed across his face, so the admin editor renders the real
+// artwork with sample text through the SAME code path a real order uses.
+// ---------------------------------------------------------------------------
+
+/** Plain-English reasons — the admin should not have to read a slug. */
+const PERSONALIZATION_PREVIEW_MESSAGES: Record<string, string> = {
+  'product-not-found': 'That product no longer exists.',
+  'not-personalizable': 'Turn on "Let buyers personalize this" first, then save.',
+  'no-zones': 'No print zones yet — add a zone for at least one field so there is somewhere to put the text.',
+  'nothing-to-print': 'Type some sample text into at least one field to preview it.',
+  'no-print-file': 'This product has no print file (no DTF and no design asset) to print onto.'
+}
+
+router.post('/products/:id/personalization/preview', requireAuth, requireAdmin, async (req, res) => {
+  try {
+    const result = await renderPersonalizedPrintForProduct({
+      productId: req.params.id,
+      values: req.body?.values ?? {}
+    })
+    if (!result.ok) {
+      // src/lib/api.ts throws `error.error` FIRST, so the human sentence has to
+      // be in `error` or the admin would just see the slug 'no-zones'.
+      return res.status(422).json({
+        error: PERSONALIZATION_PREVIEW_MESSAGES[result.reason] || result.reason,
+        reason: result.reason
+      })
+    }
+    res.json({ url: result.url, path: result.path })
+  } catch (error: any) {
+    // A zone outside the artwork lands here (PersonalizationRenderError) — a
+    // real setup mistake the admin needs to see, not a 500.
+    console.warn('[admin/products] personalization preview failed:', error?.message)
+    res.status(400).json({ error: error?.message || 'Could not render the preview', reason: 'render-failed' })
   }
 })
 

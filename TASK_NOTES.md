@@ -56,7 +56,36 @@ which always keeps the raw text so a buyer who ignores the format is never lost.
 - `src/pages/ProductPage.tsx` — the three fields + validation.
 - `TASK_NOTES.md`
 
+### Scope amendment (2026-09-09) — David said yes to the admin toggle, the
+### zone editor, and a first real product
+Turning a product personalizable was a raw database write, and the print zones
+had no authoring surface at all — so the renderer built earlier could never
+actually fire on anything. Added to scope:
+- `backend/services/personalization-print.ts` (new) + `.test.ts` (new) — render
+  the buyer text onto the product's real print file and upload it. Every
+  dependency is injected, so it tests without Supabase or GCS. The base print
+  file is resolved with the EXISTING `getProductFilesFor` (dtf, else design)
+  rather than a second competing resolver.
+- `backend/routes/admin/products.ts` — an admin preview route, so zones are
+  authored against the actual artwork instead of guessed as numbers.
+- `src/components/admin/ProductPersonalizationEditor.tsx` (new) — the toggle,
+  per-field config, zone geometry, a live overlay and a rendered preview.
+- `src/components/admin/AdminProductEditModal.tsx` — mounts the editor.
+- `src/lib/api.ts` — the preview call.
+
 ### Work log (append-only)
+- 2026-09-09 - Made it usable: admin toggle, zone editor, and a real render.
+  Personalization was opt-in via a raw metadata write and the print zones had
+  no authoring surface, so the renderer could never fire. Added
+  personalization-print.ts (resolve product -> resolve its print file via the
+  EXISTING getProductFilesFor -> render -> upload, all deps injected), an admin
+  preview route, and ProductPersonalizationEditor: the enable toggle, per-field
+  config, zone geometry, a live overlay of the zones on the real print file,
+  and a rendered preview that goes through the same server code a paid order
+  uses. Caught in integration: src/lib/api.ts throws `error.error` first, so
+  the route had to put the human sentence there or admins would only ever see
+  the slug "no-zones". Verified: backend 77 files / 1333 tests green, frontend
+  20 files / 333 tests green, frontend tsc clean, eslint 0 errors.
 - 2026-09-09 - Built personalized listings end to end. Size x Color variations
   already worked on BOTH rails and were left alone; the real gap was
   personalization, missing at five independent points. Added
