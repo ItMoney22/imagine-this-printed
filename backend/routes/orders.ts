@@ -7,6 +7,7 @@ import { processReferralFirstPurchase } from '../services/referral-service.js'
 import { attachProductFiles } from '../services/product-files.js'
 import { verifyOrderStatusToken } from '../utils/order-status-token.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
+import { sendOrderShippedEmail, sendOrderDeliveredEmail } from '../utils/email.js'
 import { WAREHOUSE_ADDRESS_FROM } from './shipping.js'
 
 const router = Router()
@@ -425,6 +426,69 @@ router.get('/:orderId', requireAuth, async (req: Request, res: Response): Promis
   }
 })
 
+// ---------------------------------------------------------------------------
+// Telling the customer their order moved.
+//
+// Every path that shipped an order used to go silent: PATCH /api/orders/:id
+// (what all the Order Management status buttons call) and the Shippo label
+// purchase both wrote tracking_number + status 'shipped' and sent nothing. The
+// only code that ever mailed a shipping notice lives on
+// PATCH /api/stripe/orders/:id/status, which no screen in the app calls — so in
+// practice a buyer heard about their package only if they went looking for it.
+//
+// Fail-soft on purpose: a dead mail provider must never fail the admin's write.
+// The order is already updated by the time this runs.
+// ---------------------------------------------------------------------------
+type NotifiableOrder = {
+  id: string
+  order_number?: string | null
+  customer_email?: string | null
+  customer_name?: string | null
+  shipping_address?: any
+}
+
+const buyerName = (order: NotifiableOrder): string | undefined =>
+  order.customer_name ||
+  [order.shipping_address?.firstName, order.shipping_address?.lastName]
+    .filter(Boolean)
+    .join(' ') ||
+  undefined
+
+const notifyShipped = async (
+  order: NotifiableOrder,
+  trackingNumber?: string | null,
+  carrier?: string | null
+): Promise<boolean> => {
+  if (!order.customer_email) return false
+  try {
+    await sendOrderShippedEmail(
+      order.customer_email,
+      order.order_number || order.id,
+      trackingNumber || undefined,
+      carrier || undefined,
+      { orderId: order.id, customerName: buyerName(order) }
+    )
+    return true
+  } catch (error) {
+    console.error('[orders] Shipped email failed:', error)
+    return false
+  }
+}
+
+const notifyDelivered = async (order: NotifiableOrder): Promise<boolean> => {
+  if (!order.customer_email) return false
+  try {
+    await sendOrderDeliveredEmail(order.customer_email, order.order_number || order.id, {
+      orderId: order.id,
+      customerName: buyerName(order)
+    })
+    return true
+  } catch (error) {
+    console.error('[orders] Delivered email failed:', error)
+    return false
+  }
+}
+
 // PATCH /api/orders/:orderId - Update order status and/or notes (admin/manager)
 //
 // Replaces the direct-from-browser supabase writes that OrderManagement.tsx
@@ -475,7 +539,7 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
 
     const { data: order, error: orderError } = await supabase
       .from('orders')
-      .select('id, status')
+      .select('id, status, order_number, customer_email, customer_name, shipping_address, tracking_number, tracking_company')
       .eq('id', orderId)
       .single()
 
@@ -505,6 +569,21 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
       }
     }
 
+    // Saving a tracking number IS the shipment event, so an order that is
+    // legally allowed to move to 'shipped' does so in the same write — the
+    // admin should not have to remember a second click for the board and the
+    // buyer to agree. The state machine stays the only authority on "legal":
+    // pending (unpaid) and on_hold cannot reach shipped, and for those the
+    // tracking still saves rather than 409-ing the whole request away.
+    if (wantsTrackingNumber && !wantsStatus && tracking_number.trim().length > 0) {
+      const autoShip = checkOrderTransition(order.status, 'shipped')
+      if (autoShip.ok && autoShip.kind === 'move') {
+        updateData.status = 'shipped'
+        updateData.fulfillment_status = 'fulfilled'
+        updateData.shipped_at = new Date().toISOString()
+      }
+    }
+
     if (wantsInternalNotes) updateData.internal_notes = internal_notes
     if (wantsNotes) updateData.notes = notes
     // Carrier label fields (Watchtower task f2b836ab): a purchased label is
@@ -528,6 +607,28 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
       return res.status(500).json({ error: updateError?.message || 'Failed to update order' })
     }
 
+    // Mail the buyer, but only on real news: a genuine move into shipped or
+    // delivered, or a tracking number that actually changed value. Re-saving
+    // the same values — a double-clicked status button, or editing the notes
+    // afterwards — must not re-announce the shipment.
+    const trackingChanged =
+      wantsTrackingNumber &&
+      tracking_number.trim().length > 0 &&
+      tracking_number.trim() !== (order.tracking_number || '')
+
+    let customerNotified: 'shipped' | 'delivered' | null = null
+
+    if (updateData.status === 'delivered') {
+      if (await notifyDelivered(order)) customerNotified = 'delivered'
+    } else if (updateData.status === 'shipped' || trackingChanged) {
+      // A tracking number IS the shipment event, so adding one notifies even
+      // when the status was already 'shipped' (label bought first, number
+      // corrected after).
+      if (await notifyShipped(order, updated.tracking_number, updated.tracking_company)) {
+        customerNotified = 'shipped'
+      }
+    }
+
     if (updateData.status) {
       await supabase.from('audit_logs').insert({
         user_id: req.user?.sub,
@@ -539,7 +640,7 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
       })
     }
 
-    return res.json({ ok: true, order: updated })
+    return res.json({ ok: true, order: updated, customerNotified })
   } catch (error: any) {
     console.error('[orders] PATCH error:', error)
     return res.status(500).json({ error: error.message })
@@ -934,6 +1035,13 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
       console.error('[orders/shipping-label] Label purchased but order update failed:', updateError)
     }
 
+    // Buying the label is the moment the order ships, so this is where the
+    // buyer hears about it. Notify even when the order row failed to persist —
+    // the label is paid for and the tracking number is real either way.
+    const customerNotified = (await notifyShipped(order, label.trackingNumber, label.carrier))
+      ? 'shipped'
+      : null
+
     await supabase.from('audit_logs').insert({
       user_id: req.user?.sub,
       action: 'shipping_label_purchased',
@@ -944,12 +1052,13 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
         service: label.service,
         cost: label.cost,
         tracking_number: label.trackingNumber,
-        persisted
+        persisted,
+        customer_notified: customerNotified !== null
       },
       created_at: now
     })
 
-    return res.json({ ok: true, mock: false, persisted, persistError, label })
+    return res.json({ ok: true, mock: false, persisted, persistError, customerNotified, label })
   } catch (error: any) {
     console.error('[orders/shipping-label] Error:', error)
     return res.status(500).json({ error: error.message })

@@ -22,6 +22,7 @@ interface DBOrder {
   fulfillment_status: string
   shipping_address: any
   tracking_number: string | null
+  tracking_company: string | null
   shipping_label_url: string | null
   notes: string | null
   internal_notes: string | null
@@ -120,6 +121,8 @@ interface ShippingChoice {
 }
 
 type AdminOrder = Order & {
+  /** orders.tracking_company — free text ("USPS", "UPS Ground"). */
+  trackingCompany?: string | null
   shippingChoice?: ShippingChoice | null
   /** Production detail per line — see FulfilmentLine. */
   fulfilmentLines?: FulfilmentLine[]
@@ -202,6 +205,13 @@ const OrderManagement: React.FC = () => {
   const [labelMockMode, setLabelMockMode] = useState(false)
   const [internalNotes, setInternalNotes] = useState('')
   const [customerNotes, setCustomerNotes] = useState('')
+  // Tracking typed in by hand — for the far more common case where the label
+  // was bought at the post office counter or in Shippo's own dashboard, not
+  // through the Buy Label button. Before this, such an order could never get a
+  // tracking number at all: the field was display-only.
+  const [trackingInput, setTrackingInput] = useState('')
+  const [carrierInput, setCarrierInput] = useState('')
+  const [savingTracking, setSavingTracking] = useState(false)
 
   // Refund states
   const [showRefundModal, setShowRefundModal] = useState(false)
@@ -256,6 +266,7 @@ const OrderManagement: React.FC = () => {
         createdAt: dbOrder.created_at,
         updatedAt: dbOrder.updated_at,
         trackingNumber: dbOrder.tracking_number || undefined,
+        trackingCompany: dbOrder.tracking_company || null,
         shippingLabelUrl: dbOrder.shipping_label_url || undefined,
         shippingAddress: dbOrder.shipping_address ? {
           name: dbOrder.customer_name || (dbOrder.shipping_address.firstName + ' ' + dbOrder.shipping_address.lastName) || '',
@@ -402,6 +413,54 @@ const OrderManagement: React.FC = () => {
       console.error('Failed to update order notes:', err)
       toast.error('Notes not saved', extractApiError(err, 'Could not save the order notes.'))
       return false
+    }
+  }
+
+  // Tracking from a label bought outside the app. The same PATCH mails the
+  // buyer a tracking link and, when the lifecycle allows it, moves the order to
+  // shipped — so there is one action here, not three.
+  const saveTracking = async (orderId: string) => {
+    const order = orders.find(o => o.id === orderId)
+    const tracking = trackingInput.trim()
+    const carrier = carrierInput.trim()
+
+    if (!tracking) {
+      toast.error('Nothing to save', 'Paste the tracking number from the label first.')
+      return
+    }
+    if (tracking === (order?.trackingNumber || '') && carrier === (order?.trackingCompany || '')) {
+      toast.info('Already saved', 'That is the tracking already on this order — the customer has it.')
+      return
+    }
+
+    setSavingTracking(true)
+    try {
+      const result = await apiFetch(`/api/orders/${dbId(order, orderId)}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ tracking_number: tracking, tracking_company: carrier })
+      })
+
+      const persisted = result?.order
+      const nextStatus = (persisted?.status ?? order?.status) as Order['status']
+
+      setOrders(prev => prev.map(o => o.id === orderId
+        ? { ...o, trackingNumber: tracking, trackingCompany: carrier || null, status: nextStatus }
+        : o))
+      setSelectedOrder(prev => prev && prev.id === orderId
+        ? { ...prev, trackingNumber: tracking, trackingCompany: carrier || null, status: nextStatus }
+        : prev)
+
+      toast.success(
+        'Tracking saved',
+        result?.customerNotified === 'shipped'
+          ? `Emailed ${order?.shippingAddress?.email || 'the customer'} a tracking link.`
+          : 'Saved. No email went out - this order has no customer email on file.'
+      )
+    } catch (err) {
+      console.error('Failed to save tracking:', err)
+      toast.error('Tracking not saved', extractApiError(err, 'Could not save the tracking number.'))
+    } finally {
+      setSavingTracking(false)
     }
   }
 
@@ -863,6 +922,8 @@ const OrderManagement: React.FC = () => {
                               setSelectedOrder(order)
                               setInternalNotes(order.internalNotes || '')
                               setCustomerNotes(order.customerNotes || '')
+                              setTrackingInput(order.trackingNumber || '')
+                              setCarrierInput(order.trackingCompany || '')
                               setShowOrderModal(true)
                             }}
                             className="px-3 py-1.5 bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-lg text-sm font-medium hover:bg-purple-200 dark:hover:bg-purple-900/50 transition-colors"
@@ -1244,6 +1305,64 @@ const OrderManagement: React.FC = () => {
                   </div>
                 )
               })()}
+
+              <div className="mb-6 rounded-xl border border-blue-500/30 bg-blue-50/60 dark:bg-blue-950/20 p-4">
+                <h4 className="font-semibold text-text mb-1 flex items-center">
+                  <svg className="w-5 h-5 mr-2 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17a2 2 0 11-4 0 2 2 0 014 0zM19 17a2 2 0 11-4 0 2 2 0 014 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1" />
+                  </svg>
+                  Shipping &amp; Tracking
+                </h4>
+                <p className="text-xs text-muted mb-3">
+                  Paste the tracking number from any label - post office counter, Shippo, UPS Store.
+                  Saving it emails the customer a tracking link and marks the order shipped.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-[2fr_1fr_auto] gap-3 items-end">
+                  <div>
+                    <label className="block text-xs font-medium text-text mb-1">Tracking number</label>
+                    <input
+                      type="text"
+                      value={trackingInput}
+                      onChange={(e) => setTrackingInput(e.target.value)}
+                      placeholder="9400 1118 9922 3197 4284 90"
+                      className="w-full bg-bg border border-blue-500/30 rounded-xl px-4 py-2.5 text-text font-mono text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-text mb-1">Carrier</label>
+                    <input
+                      type="text"
+                      value={carrierInput}
+                      onChange={(e) => setCarrierInput(e.target.value)}
+                      placeholder="USPS"
+                      list="itp-carriers"
+                      className="w-full bg-bg border border-blue-500/30 rounded-xl px-4 py-2.5 text-text text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    />
+                    <datalist id="itp-carriers">
+                      <option value="USPS" />
+                      <option value="UPS" />
+                      <option value="FedEx" />
+                      <option value="DHL" />
+                    </datalist>
+                  </div>
+                  <button
+                    onClick={() => saveTracking(selectedOrder.id)}
+                    disabled={savingTracking || !trackingInput.trim()}
+                    className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors whitespace-nowrap"
+                  >
+                    {savingTracking ? 'Saving...' : 'Save & notify customer'}
+                  </button>
+                </div>
+
+                <p className="text-xs text-muted mt-2">
+                  {selectedOrder.trackingNumber
+                    ? `Currently on this order: ${selectedOrder.trackingNumber}${selectedOrder.trackingCompany ? ` (${selectedOrder.trackingCompany})` : ''}. Saving a different number re-notifies the customer.`
+                    : 'No tracking on this order yet - the customer has not been told it shipped.'}
+                  {!selectedOrder.shippingAddress?.email && ' No email on file for this order, so nothing can be sent.'}
+                </p>
+              </div>
 
               <div className="mb-6">
                 <h4 className="font-semibold text-text mb-3 flex items-center">
