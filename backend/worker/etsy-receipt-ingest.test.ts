@@ -166,3 +166,92 @@ describe('ingestReceipt', () => {
     expect(db.orderItemsInserted[0].product_id).toBeNull()
   })
 })
+
+// --- personalization -------------------------------------------------------
+// Etsy delivers the buyer's personalization as another entry in the SAME
+// `variations` array as size and colour. Before 2026-09-09 extractVariant()
+// matched only /^size/ and /colou?r/, so that entry was read and silently
+// dropped: we would have sold a "Custom Football Mom Shirt" and never learned
+// what to print on it.
+describe('ingestReceipt — buyer personalization', () => {
+  const personalizedReceipt = (personalizationValue: string) =>
+    baseReceipt({
+      transactions: [
+        {
+          transaction_id: 999,
+          listing_id: 555,
+          title: 'Custom Football Mom Shirt',
+          quantity: 1,
+          price: { amount: 2500, divisor: 100, currency_code: 'USD' },
+          variations: [
+            { formatted_name: 'Size', formatted_value: 'L' },
+            { formatted_name: 'Primary color', formatted_value: 'Sand' },
+            { formatted_name: 'Personalization', formatted_value: personalizationValue }
+          ]
+        }
+      ]
+    })
+
+  it('parses Team / Name / Number onto the order item', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: 555, product_id: 'prod-abc' }] })
+    await ingestReceipt(personalizedReceipt('Team: Wildcats, Name: Smith, Number: 12') as any, db as any)
+
+    expect(db.orderItemsInserted[0].metadata.personalization).toMatchObject({
+      team: 'Wildcats',
+      name: 'Smith',
+      number: '12'
+    })
+  })
+
+  it('still captures size and colour alongside it', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: 555, product_id: 'prod-abc' }] })
+    await ingestReceipt(personalizedReceipt('Team: Wildcats, Name: Smith, Number: 12') as any, db as any)
+    expect(db.orderItemsInserted[0].metadata).toMatchObject({ size: 'L', color: 'Sand' })
+  })
+
+  it('keeps the raw text so an order we cannot parse is still fulfillable by a human', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: 555, product_id: 'prod-abc' }] })
+    await ingestReceipt(personalizedReceipt('go wildcats!! bobby wears 12') as any, db as any)
+
+    const p = db.orderItemsInserted[0].metadata.personalization
+    expect(p.raw).toBe('go wildcats!! bobby wears 12')
+  })
+
+  it('puts it in the durable orders.metadata.items snapshot too, not only order_items', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: 555, product_id: 'prod-abc' }] })
+    await ingestReceipt(personalizedReceipt('Team: Wildcats, Name: Smith, Number: 12') as any, db as any)
+
+    expect(db.ordersInserted[0].metadata.items[0].personalization).toMatchObject({ name: 'Smith' })
+  })
+
+  it('matches the personalization entry however Etsy labels it', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: 555, product_id: 'prod-abc' }] })
+    const receipt = baseReceipt({
+      transactions: [
+        {
+          transaction_id: 999,
+          listing_id: 555,
+          title: 'Custom Football Mom Shirt',
+          quantity: 1,
+          price: { amount: 2500, divisor: 100, currency_code: 'USD' },
+          variations: [{ formatted_name: 'Personalisation', formatted_value: 'Name: Smith' }]
+        }
+      ]
+    })
+    await ingestReceipt(receipt as any, db as any)
+    expect(db.orderItemsInserted[0].metadata.personalization).toMatchObject({ name: 'Smith' })
+  })
+
+  it('leaves personalization null for an ordinary order rather than inventing an empty object', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: 555, product_id: 'prod-abc' }] })
+    await ingestReceipt(baseReceipt() as any, db as any)
+    expect(db.orderItemsInserted[0].metadata.personalization).toBeNull()
+  })
+
+  it('does not mistake the size variation for personalization', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: 555, product_id: 'prod-abc' }] })
+    await ingestReceipt(baseReceipt() as any, db as any)
+    expect(db.orderItemsInserted[0].metadata.size).toBe('M')
+    expect(db.orderItemsInserted[0].metadata.personalization).toBeNull()
+  })
+})

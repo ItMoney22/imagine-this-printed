@@ -15,6 +15,7 @@ import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
+import { resolvePersonalization, validatePersonalization, type PersonalizationValues, type PersonalizationFieldId } from '../../backend/shared/personalization'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
 import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
@@ -55,6 +56,10 @@ const ProductPage: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [selectedSize, setSelectedSize] = useState<string>('')
   const [selectedColor, setSelectedColor] = useState<string>('')
+  // Buyer-typed Team / Name / Number on a personalized listing (opt-in per
+  // product via metadata.personalization — null for the whole ordinary catalogue).
+  const [personalization, setPersonalization] = useState<PersonalizationValues>({})
+  const [personalizationErrors, setPersonalizationErrors] = useState<Partial<Record<PersonalizationFieldId, string>>>({})
   const [selectedPrintLocation, setSelectedPrintLocation] = useState<string>('')
   // Garment quality tier (printed apparel only) — defaults to the standard
   // blank so checkout works with zero interaction; premium tiers upcharge.
@@ -460,6 +465,28 @@ const ProductPage: React.FC = () => {
     })
   }
 
+  // Null for every product that does not opt in, which is the whole ordinary
+  // catalogue — so nothing below renders or validates for them.
+  const personalizationConfig = resolvePersonalization(product)
+
+  /**
+   * Runs the SAME validator the server and the Etsy rail use
+   * (backend/shared/personalization.ts), so a buyer cannot be told their name
+   * is fine here and have it rejected at checkout.
+   */
+  const checkPersonalization = (): { ok: boolean; values?: PersonalizationValues } => {
+    if (!personalizationConfig) return { ok: true }
+    const result = validatePersonalization(personalizationConfig, personalization)
+    if (!result.ok) {
+      setPersonalizationErrors(result.errors)
+      const first = Object.values(result.errors)[0]
+      toast.warning('Personalization required', first || 'Please complete the personalization fields')
+      return { ok: false }
+    }
+    setPersonalizationErrors({})
+    return { ok: true, values: result.values }
+  }
+
   const handleAddToCart = (attribution?: { tryonId: string | null; secondsSinceTryon: number }) => {
     // Size is required only when the listing actually offers sizes — a
     // one-size 3D print has no picker to answer.
@@ -475,10 +502,12 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a print placement')
       return
     }
+    const personalizationCheck = checkPersonalization()
+    if (!personalizationCheck.ok) return
     if (product) {
       // A blank has nothing to print, so it carries no placement (its seeded
       // print_locations exist only to satisfy the shirts CHECK constraint).
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined, personalizationCheck.values)
       trackCartForTryOn(attribution)
       toast.success('Added to cart', product.name)
     }
@@ -499,10 +528,12 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a print placement')
       return
     }
+    const personalizationCheck = checkPersonalization()
+    if (!personalizationCheck.ok) return
     if (product) {
       // A blank has nothing to print, so it carries no placement (its seeded
       // print_locations exist only to satisfy the shirts CHECK constraint).
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined, personalizationCheck.values)
       // Buy Now still puts the item in the cart, so it counts in the funnel.
       trackCartForTryOn()
       navigate('/checkout')
@@ -965,6 +996,47 @@ const ProductPage: React.FC = () => {
                       </button>
                     )
                   })}
+                </div>
+              </div>
+            )}
+
+            {personalizationConfig && (
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-text mb-2">
+                  Personalize
+                  <span className="ml-2 text-xs text-muted font-normal">— printed exactly as you type it</span>
+                </label>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  {personalizationConfig.fields.map(field => (
+                    <div key={field.id}>
+                      <label htmlFor={`personalization-${field.id}`} className="block text-xs text-muted mb-1">
+                        {field.label}
+                        {field.required && <span className="ml-1 text-amber-400">*</span>}
+                      </label>
+                      <input
+                        id={`personalization-${field.id}`}
+                        type="text"
+                        inputMode={field.id === 'number' ? 'numeric' : 'text'}
+                        maxLength={field.maxLength}
+                        value={personalization[field.id] ?? ''}
+                        onChange={e => {
+                          const value = e.target.value
+                          setPersonalization(prev => ({ ...prev, [field.id]: value }))
+                          // Clear this field's error as soon as they start fixing it.
+                          setPersonalizationErrors(prev => ({ ...prev, [field.id]: undefined }))
+                        }}
+                        aria-invalid={personalizationErrors[field.id] ? true : undefined}
+                        className={`w-full px-3 py-2 rounded-md border bg-card text-text text-sm ${
+                          personalizationErrors[field.id]
+                            ? 'border-red-500'
+                            : 'border-slate-300 focus:border-primary'
+                        }`}
+                      />
+                      {personalizationErrors[field.id] && (
+                        <p className="mt-1 text-xs text-red-500">{personalizationErrors[field.id]}</p>
+                      )}
+                    </div>
+                  ))}
                 </div>
               </div>
             )}

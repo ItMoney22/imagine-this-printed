@@ -1,3 +1,5 @@
+import type { PersonalizationValues } from '../../backend/shared/personalization'
+
 // T-shirt multi-select print placements. Mirrors the `products.print_locations`
 // TEXT[] column (migration 20260629_tshirt_print_locations.sql). A shirt is
 // offered with one or more of these; the DB CHECK enforces >= 1 for `shirts`.
@@ -69,6 +71,10 @@ export interface CartItem {
    *  printed apparel only. Undefined = standard blank, no upcharge. */
   selectedTier?: string
   selectedAddons?: CartAddon[]
+  /** Buyer-typed Team / Name / Number for a personalized listing.
+   *  Defined once in backend/shared/personalization.ts — the storefront, the
+   *  checkout path, the Etsy publisher and the Etsy receipt poller all read it. */
+  personalization?: PersonalizationValues
   paymentMethod?: 'usd' | 'itc'
   designData?: {
     elements: any[]

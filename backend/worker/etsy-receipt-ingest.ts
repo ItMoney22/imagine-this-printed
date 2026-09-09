@@ -26,6 +26,7 @@
 import { supabase } from '../lib/supabase.js'
 import { getShopReceipts, etsyMoneyToDollars, isEtsyEnabled, type EtsyReceipt, type EtsyReceiptTransaction } from '../services/etsy.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
+import { isPersonalized, parseEtsyPersonalization, type PersonalizationValues } from '../shared/personalization.js'
 
 const RECEIPT_POLL_INTERVAL = 60_000 // 60s — order ingestion isn't latency-critical; low volume, keeps well under Etsy rate limits
 const WATERMARK_ROW_ID = 1
@@ -92,6 +93,22 @@ function extractVariant(txn: EtsyReceiptTransaction): { size: string | null; col
   const sizeVar = vars.find((v) => SIZE_NAME_RE.test(v.formatted_name || ''))
   const colorVar = vars.find((v) => COLOR_NAME_RE.test(v.formatted_name || ''))
   return { size: sizeVar?.formatted_value ?? null, color: colorVar?.formatted_value ?? null }
+}
+
+// Etsy delivers the buyer's personalization as ANOTHER entry in this same
+// `variations` array, not as a field of its own. Until 2026-09-09 extractVariant
+// above matched only /^size/ and /colou?r/, so that entry was read and thrown
+// away — we would have sold a "Custom Football Mom Shirt" and never learned what
+// to print on it. Etsy spells it both ways depending on shop locale.
+const PERSONALIZATION_NAME_RE = /personali[sz]ation/i
+
+function extractPersonalization(txn: EtsyReceiptTransaction): PersonalizationValues | null {
+  const entry = (txn.variations || []).find((v) => PERSONALIZATION_NAME_RE.test(v.formatted_name || ''))
+  if (!entry) return null
+  // parseEtsyPersonalization always preserves the raw text, so a buyer who
+  // ignored the format still produces a fulfillable order rather than a blank.
+  const values = parseEtsyPersonalization(entry.formatted_value)
+  return isPersonalized(values) ? values : null
 }
 
 /**
@@ -161,7 +178,8 @@ export async function ingestReceipt(
         name: t.title,
         quantity: t.quantity,
         price: etsyMoneyToDollars(t.price),
-        ...extractVariant(t)
+        ...extractVariant(t),
+        personalization: extractPersonalization(t)
       }))
     }
   }
@@ -186,7 +204,8 @@ export async function ingestReceipt(
         etsy_transaction_id: t.transaction_id,
         etsy_listing_id: t.listing_id,
         size: variant.size,
-        color: variant.color
+        color: variant.color,
+        personalization: extractPersonalization(t)
       }
     }
   })

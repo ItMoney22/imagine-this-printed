@@ -1,5 +1,76 @@
 # TASK_NOTES
 
+## Current request (2026-09-09) — personalized listings (team / name / number)
+
+David linked a live Etsy listing (Comfort Colors Custom Football Mom Shirt) and
+asked: "i need to be able to add a listing just like this and with couple
+variations how do we accomplish this? Both site and Etsy". Then: "separate
+fields for team, name, and number - build it".
+
+### What already existed (verified, not rebuilt)
+- **Size x Color variations on Etsy** — `applyListingVariations` (services/etsy.ts)
+  already writes a real inventory axis, adult S-3XL + youth band, per-size
+  pricing, pinned by `etsy-variations.test.ts`.
+- **Site variation UI** — ProductPage already collects size, colour, garment
+  tier, print location and add-ons, and they already ride through to order_items.
+- **Comfort Colors** is already a real garment tier (`shared/blank-line.ts`
+  style 1717 via Jiffy, +$7), already passed to fulfilment.
+
+So "a couple variations" was NOT the gap. Personalization was, and it was
+missing at five independent points:
+1. `services/etsy.ts` never sent `is_personalizable` / `personalization_*`, so
+   Etsy buyers got no text box at all.
+2. ProductPage had no text input and `CartItem` had no field to hold one.
+3. `snapshotCartItems` / `replaceOrderItems` (routes/stripe.ts) carried size,
+   colour, print location, tier and add-ons — nothing free-form.
+4. **`extractVariant` (worker/etsy-receipt-ingest.ts) matched only `/^size/`
+   and `/colou?r/`.** Etsy delivers personalization as another entry in that
+   same `variations` array, so the buyer's text was read and thrown away — we
+   would have sold a personalized shirt and never learned what to print.
+5. Nothing turned the buyer's words into a print file at order time.
+
+### Why the renderer is deterministic and NOT the new lettering path
+`step-flow/letter-phrase.ts` letters words into art with an image EDIT. That is
+right for design time (David picks a take, can reject a bad one) and wrong for
+order time: it costs money per sale, takes ~60s, and image models do not
+reliably spell an arbitrary surname. Personalization renders with sharp + SVG
+text into declared zones — exact spelling, instant, free, identical every run.
+
+### Etsy only has ONE personalization box
+Etsy's API exposes a single free-text field, not three. So the three fields are
+composed into one instructed box on the way out (`formatPersonalizationForEtsy`)
+and parsed back into team/name/number on the way in (`parseEtsyPersonalization`),
+which always keeps the raw text so a buyer who ignores the format is never lost.
+
+### File shortlist (approved scope — 2026-09-09 personalization)
+- `backend/shared/personalization.ts` (new) + `.test.ts` (new) — the ONE
+  definition: field config, validation, cart signature, Etsy format/parse.
+- `backend/services/personalization-render.ts` (new) + `.test.ts` (new) — sharp
+  + SVG zone compositing onto the print file.
+- `backend/services/etsy.ts` — personalization flags on create + update.
+- `backend/worker/etsy-receipt-ingest.ts` — capture + parse personalization.
+- `backend/routes/stripe.ts` — carry it through the snapshot and order_items,
+  re-validated server-side.
+- `src/types/index.ts` — `CartItem.personalization`.
+- `src/context/CartContext.tsx` — carry it + include it in the dedupe key.
+- `src/pages/ProductPage.tsx` — the three fields + validation.
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-09 - Built personalized listings end to end. Size x Color variations
+  already worked on BOTH rails and were left alone; the real gap was
+  personalization, missing at five independent points. Added
+  backend/shared/personalization.ts as the one definition (config resolve,
+  validation, cart dedupe signature, Etsy one-box format/parse, untrusted-payload
+  sanitizer) and a deterministic sharp + SVG renderer rather than reusing the AI
+  lettering path, which cannot reliably spell an arbitrary surname. Wired the
+  Etsy create AND update bodies, the receipt poller (which was silently
+  discarding the buyer text), the checkout snapshot + order_items metadata,
+  CartItem, the cart dedupe key, and three fields on ProductPage.
+  Verified: backend 76 files / 1321 tests green, frontend 20 files / 333 tests
+  green, frontend tsc clean, eslint 0 errors on every touched file.
+
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it

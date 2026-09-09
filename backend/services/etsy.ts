@@ -24,6 +24,7 @@ import {
   YOUTH_SIZE_DISCOUNT_DOLLARS,
   PLUS_SIZE_UPCHARGE_DOLLARS
 } from '../shared/catalog-capability.js'
+import { etsyPersonalizationFields, resolvePersonalization } from '../shared/personalization.js'
 import {
   type EtsyTier,
   TRANSFER_SHEET_SIZES,
@@ -709,6 +710,10 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
             return_policy_id: returnPolicyId,
             readiness_state_id: readinessStateId
           }),
+        // Buyer personalization (Team / Name / Number). Physical listings only:
+        // Etsy rejects these fields on type=download, and a download has nothing
+        // to print a name onto. Sent explicitly as false for ordinary products.
+        ...(isDigital ? {} : etsyPersonalizationFields(resolvePersonalization(product))),
         tags: tags.length ? tags.join(',') : undefined
       }
     })
@@ -1023,7 +1028,11 @@ export async function updateEtsyListing(
       const form: Record<string, string | number | boolean | undefined> = {
         title: copy.title,
         description: copy.description,
-        tags: copy.tags.length ? copy.tags.join(',') : undefined
+        tags: copy.tags.length ? copy.tags.join(',') : undefined,
+        // Kept in step with the create path on purpose: a product that becomes
+        // personalizable — or stops being — is corrected on its next update
+        // instead of keeping whatever the listing was first published with.
+        ...(isDigital ? {} : etsyPersonalizationFields(resolvePersonalization(product)))
       }
       // Only a listing with NO variation axis takes its price from the listing
       // itself; otherwise the offerings carry it (see the header note).

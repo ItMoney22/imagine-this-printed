@@ -16,6 +16,7 @@ import {
 } from '../utils/email.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
+import { sanitizePersonalizationInput } from '../shared/personalization.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
 // margins → merch ledger) lives in this service so the hourly payment
@@ -215,6 +216,11 @@ function snapshotCartItems(items: any[] | undefined | null) {
     // Garment quality tier (Gildan classic vs Softstyle vs Bella+Canvas vs
     // Comfort Colors) — fulfillment must pull the right blank.
     tier: i.selectedTier ?? null,
+    // Buyer-typed Team / Name / Number. Sanitized rather than trusted: this is
+    // a client payload, and the value ends up in an SVG text node on the print
+    // file. The per-listing rules (required, maxLength, digits) are enforced on
+    // the storefront by validatePersonalization.
+    personalization: sanitizePersonalizationInput(i.personalization) ?? null,
     // Blank garment sold as-is: nothing to print, just relabel + ship.
     blank: isBlankGarmentMeta(i.product?.metadata) || null,
     // 3D-print attributes the floor needs — these previously died here and the
@@ -258,6 +264,7 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
         // Garment quality tier for apparel; 3D print attributes for toys —
         // the print bridge and worker emails read these (see print-bridge.ts).
         tier: item.selectedTier ?? null,
+        personalization: sanitizePersonalizationInput(item.personalization) ?? null,
         // Blank garment sold as-is (metadata.garment.blank): nothing to print.
         blank: isBlankGarmentMeta(item.product?.metadata) || null,
         color_mode: item.product?.metadata?.color_mode ?? item.product?.metadata?.print3d?.color_mode ?? null,

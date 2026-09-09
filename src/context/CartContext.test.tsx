@@ -318,3 +318,94 @@ describe('CartContext', () => {
     })
   })
 })
+
+// --- personalization -------------------------------------------------------
+// A parent buying jerseys for two kids picks the SAME product, size and colour
+// and changes only the name and number. If personalization is not part of the
+// dedupe key those two shirts collapse into one line at quantity 2 and the
+// floor prints the same jersey twice.
+describe('CartContext — personalized lines', () => {
+  // Sibling describe: it does not inherit the outer block's localStorage reset,
+  // and CartProvider rehydrates from storage, so without this the carts from
+  // earlier tests leak in and every count is wrong.
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-28T12:00:00.000Z'))
+    window.localStorage.clear()
+  })
+  afterEach(() => {
+    cleanup()
+    vi.useRealTimers()
+  })
+
+  const jersey = (name: string, number: string) => ({ team: 'Wildcats', name, number })
+
+  it('keeps two players on the same team as two separate lines', () => {
+    const { result } = renderHook(() => useCart(), { wrapper })
+    act(() => {
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '12'))
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Jones', '7'))
+    })
+    expect(result.current.state.items).toHaveLength(2)
+    expect(result.current.state.items.map(i => i.personalization?.name).sort()).toEqual(['Jones', 'Smith'])
+  })
+
+  it('gives those two lines distinct ids so removing one keeps the other', () => {
+    const { result } = renderHook(() => useCart(), { wrapper })
+    act(() => {
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '12'))
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Jones', '7'))
+    })
+    act(() => {
+      result.current.removeFromCart(result.current.state.items[0].id)
+    })
+    expect(result.current.state.items).toHaveLength(1)
+    expect(result.current.state.items[0].personalization?.name).toBe('Jones')
+  })
+
+  it('DOES stack two identical jerseys as quantity 2 — same shirt, printed twice', () => {
+    const { result } = renderHook(() => useCart(), { wrapper })
+    act(() => {
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '12'))
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '12'))
+    })
+    expect(result.current.state.items).toHaveLength(1)
+    expect(result.current.state.items[0].quantity).toBe(2)
+  })
+
+  it('separates lines when only the jersey number differs', () => {
+    const { result } = renderHook(() => useCart(), { wrapper })
+    act(() => {
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '12'))
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '13'))
+    })
+    expect(result.current.state.items).toHaveLength(2)
+  })
+
+  it('stores what the buyer typed on the line item', () => {
+    const { result } = renderHook(() => useCart(), { wrapper })
+    act(() => {
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '12'))
+    })
+    expect(result.current.state.items[0].personalization).toEqual({ team: 'Wildcats', name: 'Smith', number: '12' })
+  })
+
+  it('still merges two ordinary un-personalized lines', () => {
+    const { result } = renderHook(() => useCart(), { wrapper })
+    act(() => {
+      result.current.addToCart(baseProduct, 1, 'M', 'Black')
+      result.current.addToCart(baseProduct, 1, 'M', 'Black')
+    })
+    expect(result.current.state.items).toHaveLength(1)
+    expect(result.current.state.items[0].quantity).toBe(2)
+  })
+
+  it('does not merge a personalized line into an identical un-personalized one', () => {
+    const { result } = renderHook(() => useCart(), { wrapper })
+    act(() => {
+      result.current.addToCart(baseProduct, 1, 'M', 'Black')
+      result.current.addToCart(baseProduct, 1, 'M', 'Black', undefined, undefined, undefined, undefined, undefined, undefined, jersey('Smith', '12'))
+    })
+    expect(result.current.state.items).toHaveLength(2)
+  })
+})
