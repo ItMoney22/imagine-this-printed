@@ -29,6 +29,7 @@
 // (fire-and-forget, same pattern as processImageJobInline); a deploy mid-batch
 // kills the loop but every completed design is already durable in products.
 
+import sharp from 'sharp'
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { runOpenAIImage } from './image-flow/providers/openai-image.js'
@@ -378,6 +379,62 @@ async function createProduct(
   return { productId: product.id, slug: product.slug, sourceAssetId: asset.id as string }
 }
 
+/**
+ * Minimum share of a design that must be genuinely transparent before we treat
+ * it as already keyed. The witch design that started this measured 39% clear;
+ * the floor only has to be above the stray anti-aliased edge a flattened image
+ * can show.
+ */
+const CUTOUT_MIN_TRANSPARENT = 0.02
+
+/**
+ * True when design art already carries a real cut-out, so the Replicate rembg
+ * pass would be pure waste.
+ *
+ * GPT Image 2.5 honours `background: 'transparent'` and returns real alpha
+ * (verified live against the key 2026-09-09), and `dtfPrompt` has always asked
+ * for isolated artwork -- so the keyer this gates was re-deriving a cut-out we
+ * already had. Proven on product 92dd5bb9: its `source` and `nobg` assets were
+ * BYTE-IDENTICAL (md5 2caa2534...), a paid round-trip plus up to a 4-minute
+ * wait to produce a copy of the input.
+ *
+ * Two things this deliberately does NOT do:
+ *  - It does not trust `hasAlpha`. A PNG can carry a fully-opaque alpha
+ *    channel, and that design still has a background to strip.
+ *  - It does not assume the model always obliges. The provider walks a chain
+ *    (2.5-flare -> 2 -> 1), so a design can still arrive opaque; that one pays
+ *    for the keyer exactly as before.
+ *
+ * Every failure path returns false, because the two mistakes are not equal: a
+ * needless keyer costs what we were already spending, while a wrong "already
+ * cut out" prints a background onto a shirt.
+ */
+export async function isAlreadyCutOut(png: Buffer): Promise<boolean> {
+  try {
+    const img = sharp(png)
+    const meta = await img.metadata()
+    if (!meta.hasAlpha) return false
+    const alpha = await img.extractChannel('alpha').raw().toBuffer()
+    if (!alpha.length) return false
+    let clear = 0
+    for (const v of alpha) if (v < 8) clear++
+    return clear / alpha.length >= CUTOUT_MIN_TRANSPARENT
+  } catch {
+    return false
+  }
+}
+
+/** `isAlreadyCutOut` for a hosted design; a fetch that fails runs the keyer. */
+async function designIsAlreadyCutOut(url: string): Promise<boolean> {
+  try {
+    const res = await fetch(url)
+    if (!res.ok) return false
+    return await isAlreadyCutOut(Buffer.from(await res.arrayBuffer()))
+  } catch {
+    return false
+  }
+}
+
 /** Queue the rembg stage and wait for the nobg asset (garments only). */
 async function removeBackground(productId: string, sourceAssetId: string): Promise<{ url: string; assetId: string } | null> {
   const { data: job, error } = await supabase
@@ -572,13 +629,18 @@ async function buildOneDesign(brief: DesignBrief, batchId: string, note: (m: str
 
     let printUrl = designUrl
     let printAssetId = refs.sourceAssetId
-    if (!isMetal) {
+    // The design is generated with background:'transparent' just above, and
+    // GPT Image 2.5 actually honours it — so the keyer only runs for the one
+    // that comes back opaque anyway (see isAlreadyCutOut).
+    if (!isMetal && !(await designIsAlreadyCutOut(designUrl))) {
       await note(`${brief.key}: rembg transparency pass`)
       const nobg = await removeBackground(refs.productId, refs.sourceAssetId)
       if (nobg) {
         printUrl = nobg.url
         printAssetId = nobg.assetId
       }
+    } else if (!isMetal) {
+      await note(`${brief.key}: design already transparent — skipping the rembg pass`)
     }
 
     await note(`${brief.key}: mockups rendering on the worker`)

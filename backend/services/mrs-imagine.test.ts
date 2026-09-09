@@ -14,7 +14,8 @@ import { describe, it, expect, vi } from 'vitest'
 // design-qa-gate.test.ts / product-files.test.ts.
 vi.mock('../lib/supabase.js', () => ({ supabase: { from: () => ({}), rpc: async () => ({ data: 1 }) } }))
 
-import { parseBriefsResponse, dtfPrompt, metalPrompt, type DesignBrief } from './mrs-imagine.js'
+import { parseBriefsResponse, dtfPrompt, metalPrompt, isAlreadyCutOut, type DesignBrief } from './mrs-imagine.js'
+import sharp from 'sharp'
 
 // Real prompt text is 60-120 words; the filter in parseBriefsResponse drops
 // anything under 40 characters, so test prompts stay comfortably above that.
@@ -134,5 +135,64 @@ describe('dtfPrompt', () => {
     expect(p).toContain('full-bleed edge-to-edge')
     expect(p).not.toContain('transparent background')
     expect(p).not.toContain('contained subject')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The rembg pass is redundant when the design is already keyed (David 2026-09-09)
+// ---------------------------------------------------------------------------
+// GPT Image 2.5 honours background:'transparent' and returns real alpha, so
+// every garment design was paying a Replicate round-trip (and up to a 4-minute
+// wait) to reproduce a file it already had — proven on product 92dd5bb9, whose
+// `source` and `nobg` assets were byte-identical. This gate is what skips it.
+//
+// It must bias toward RUNNING the keyer: a false "already cut out" ships a
+// backgrounded design to print, while a false "needs keying" only costs what
+// we were paying anyway.
+
+const solid = (w = 64, h = 64, alpha = 1) =>
+  sharp({ create: { width: w, height: h, channels: 4, background: { r: 200, g: 30, b: 30, alpha } } }).png().toBuffer()
+
+/** A cut-out: an opaque blob on a transparent field, `coverPct` of the frame. */
+async function cutOut(coverPct: number): Promise<Buffer> {
+  const size = 100
+  const side = Math.round(size * Math.sqrt(coverPct / 100))
+  const blob = await sharp({ create: { width: side, height: side, channels: 4, background: { r: 0, g: 120, b: 0, alpha: 1 } } }).png().toBuffer()
+  return sharp({ create: { width: size, height: size, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+    .composite([{ input: blob, left: 0, top: 0 }])
+    .png()
+    .toBuffer()
+}
+
+describe('isAlreadyCutOut', () => {
+  it('says NO for a flattened image with no alpha channel at all', async () => {
+    const opaque = await sharp({ create: { width: 64, height: 64, channels: 3, background: '#ffffff' } }).png().toBuffer()
+    expect(await isAlreadyCutOut(opaque)).toBe(false)
+  })
+
+  it('says NO for an alpha channel that is fully OPAQUE', async () => {
+    // The trap: hasAlpha === true proves nothing. A PNG can carry a completely
+    // opaque alpha channel, and that design still has a background to strip.
+    expect(await isAlreadyCutOut(await solid(64, 64, 1))).toBe(false)
+  })
+
+  it('says YES for a real cut-out with a transparent surround', async () => {
+    // ~36% opaque / 64% clear — the shape of a genuine DTF design.
+    expect(await isAlreadyCutOut(await cutOut(36))).toBe(true)
+  })
+
+  it('says YES for a near-full-bleed design that still clears its edges', async () => {
+    // David's witch measured 39% transparent; a denser design must still pass.
+    expect(await isAlreadyCutOut(await cutOut(90))).toBe(true)
+  })
+
+  it('says NO when transparency is only a sliver, so the keyer still runs', async () => {
+    // Under the floor: treat as effectively opaque and pay for the keyer.
+    expect(await isAlreadyCutOut(await cutOut(99.5))).toBe(false)
+  })
+
+  it('says NO on unreadable bytes rather than throwing', async () => {
+    // Fails toward running the keyer — never toward printing a background.
+    expect(await isAlreadyCutOut(Buffer.from('not an image'))).toBe(false)
   })
 })
