@@ -3362,3 +3362,98 @@ CLAUDE_TASK.md/TASK_NOTES.md bookkeeping and a `.claude/settings.local.json`
 tweak (unrelated to this feature, just sitting in the same dirty tree) —
 committed and pushed straight to `main` (5d47316) since those are docs/config,
 not app code.
+
+## Current request (2026-09-09) — "the on person isnt generating" + GPT Image 2.5
+
+David, local session: the Designs page and "pick up where you left off" had
+vanished, then an on-person shot sat spinning forever. Second ask in the same
+session: "openai has updated the image model ... research its capibilities
+i think its image 2.5 and implemnet it".
+
+### File shortlist (approved scope — 2026-09-09 stalled shots + image 2.5)
+Scope added mid-session per CLAUDE.md's rule (the standing `CLAUDE_TASK.md` is
+the finished Sept-3 Etsy review and covers none of this):
+- `backend/worker/step-flow-stall-sweep.ts` (new) + `.test.ts` (new)
+- `backend/worker/index.ts` (start the sweep)
+- `backend/services/step-flow/shots.ts` (`failStalledShot`) + `shots.test.ts`
+- `backend/services/image-flow/providers/openai-image.ts` (model chain) + `.test.ts` (new)
+- `backend/services/image-flow/models.ts` (registry entry tells the truth)
+- `backend/services/image-flow/worker-helpers.ts` (accept the 2.5 quality tiers)
+- One-off recovery of the stranded shot on `92dd5bb9` — live data.
+- `TASK_NOTES.md`
+
+### Root cause: a Step Flow shot dies with the API process
+`queueModelShot` inserts its `ai_jobs` row ALREADY pre-claimed as `running`,
+tags it `input.stepKey`, and renders it inline via a fire-and-forget
+`void runModelShot(...)`. The process holding that render is therefore the only
+thing that will ever write a terminal state. Kill it mid-render — a Render
+deploy, a crash, or (here) a local restart to pick up merged code — and:
+- the worker's stuck-job sweep SKIPS the row on purpose (`ai-jobs-worker.ts:95`
+  filters out `input.stepKey`, because its recovery is "reset to queued", which
+  for a step-flow row means either unclaimed forever or a second paid render
+  racing the inline one), and
+- `MockupStep.tsx` renders no Redo and no Skip on a `running` shot, while
+  `areMockupsResolved` blocks Continue until every shot is approved or skipped.
+One spinning card wedges that product's whole flow, unrecoverable from the UI.
+
+Proven, not inferred: job `d62fdca1` on "Crazy Witch Halloween Graphic"
+(`92dd5bb9`) created 02:08:33Z with `updated_at == created_at`, still `running`
+11 minutes later; API stack #1's last log line 02:10:00Z, stack #2 booted
+02:10:18Z. Every sibling shot on the product was `done`.
+
+### Fix
+`worker/step-flow-stall-sweep.ts`, modelled on the 30-minute 3D-Tripo ceiling
+already in `ai-jobs-worker.ts`: past 15 minutes (~3.5x the slowest real run —
+observed 111-256s, the long ones being a QA retry), a stepKey job is marked
+FAILED, never requeued, and the SHOT STATE is written first. That ordering is
+the point: the UI reads `metadata.step_flow.shots[key].status` and the sweep's
+query only finds `running` jobs, so failing the job first and dying would strand
+the card with nothing left to select. `failStalledShot` is guarded to in-flight
+shots so a render landing mid-sweep is never overwritten with a red card.
+
+### GPT Image 2.5 — researched, implemented, NOT yet reachable on this key
+Real models are `gpt-image-2.5-flare` (fast default) and
+`gpt-image-2.5-sunburst` (precision, slower). New vs GPT Image 2: `xhigh`/`max`
+quality tiers, arbitrary `WIDTHxHEIGHT` sizes (multiples of 16, 1:3-3:1),
+streaming `partial_images`. `input_fidelity` is documented for gpt-image-1 only,
+so it was deliberately NOT wired in on a guess.
+
+`GET /v1/models` on the live key (free, no spend) returns gpt-image-1,
+gpt-image-1-mini, gpt-image-1.5, gpt-image-2, gpt-image-2-2026-04-21,
+chatgpt-image-latest — **no 2.5**. So the provider now walks an ordered chain
+(`gpt-image-2.5-flare -> gpt-image-2 -> gpt-image-1`, `OPENAI_IMAGE_MODELS`
+overrides) instead of hardcoding one model: it leads with 2.5 and degrades to
+what the key can actually see, and starts using 2.5 the moment access lands with
+no deploy. Two supporting details that stop the chain being a downgrade:
+- the unavailable-model note is cached for 6h so leading with an inaccessible
+  model does NOT add a 404 round-trip to every render (a pinned model always
+  bypasses the cache, so the cache can be challenged), and
+- `paramsForModel` downgrades `xhigh`/`max` to `high` and snaps a free-form size
+  to the nearest same-orientation standard frame when an older model runs, so a
+  fallback degrades instead of 400-ing.
+Also fixed while in there: the old fallback predicate matched the literal string
+`gpt-image-2` anywhere in the error message, so a moderation block quoting the
+model name was read as "model missing" and the rejected prompt was re-sent (and
+re-paid for) down the chain. It now keys on the 404 / `model_not_found`.
+
+### Verification
+`npx tsc --noEmit` (backend) clean; `eslint` 0 errors on the touched files
+(42 warnings, all the house `no-explicit-any` style); repo suite 98 files /
+1584 tests green (`npm test` also sweeps four stale `.claude/worktrees/*` copies
+with their own node_modules and duplicate React — 12 pre-existing failures there,
+untouched by this change).
+
+### Work log (append-only)
+- 2026-09-09 — Merged PR #11 (`earth/zero-nine/studio-flow-lanes`, 36 files)
+  into local `main` as `659a75a` after David found the design-library adopt
+  button and the Step Flow resume panel missing: they were never on main, only
+  the work-log commit about them was. NOT pushed.
+- 2026-09-09 — Diagnosed the spinning on-person shot to a process death, not a
+  generator fault (the shot for `e8c4751a` succeeded in 238s in parallel).
+  Recovered `92dd5bb9`'s stranded shot by hand so Redo/Who?/Skip came back.
+- 2026-09-09 — Shipped `step-flow-stall-sweep` (10 tests) + `failStalledShot`
+  (6 tests) so the next deploy-during-a-render recovers itself instead of
+  wedging a product.
+- 2026-09-09 — Replaced the hardcoded OpenAI image model with a fallback chain
+  led by `gpt-image-2.5-flare` (29 tests). Confirmed against the live key that
+  2.5 is not granted to this org yet — the code is ready, the access is not.

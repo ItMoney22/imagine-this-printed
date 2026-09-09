@@ -569,6 +569,33 @@ async function patchShotState(productId: string, key: ShotKey, patch: Partial<Sh
   })
 }
 
+/**
+ * Mark one shot failed because the render that owned it never finished —
+ * called by the stalled-shot sweep (worker/step-flow-stall-sweep.ts) after a
+ * process death stranded it. Returns whether anything actually changed.
+ *
+ * GUARDED, and that guard is the point: every shot here runs INLINE in the API
+ * process, so the render can land in the window between the sweep's query and
+ * this write. Flipping a shot that just finished would replace a real photo
+ * with a red error card and hide an asset we already paid for. Only a shot
+ * still in flight is touched; anything terminal is left exactly as it is.
+ */
+export async function failStalledShot(productId: string, key: ShotKey, message: string): Promise<boolean> {
+  return withStepFlowLock(productId, async () => {
+    let changed = false
+    await mergeStepFlow(productId, (stepFlow) => {
+      const existing = stepFlow.shots[key]
+      if (!existing || (existing.status !== 'running' && existing.status !== 'queued')) return stepFlow
+      changed = true
+      return {
+        ...stepFlow,
+        shots: { ...stepFlow.shots, [key]: { ...existing, status: 'failed', error: message } },
+      }
+    })
+    return changed
+  })
+}
+
 async function runModelShot(
   productId: string,
   userId: string,

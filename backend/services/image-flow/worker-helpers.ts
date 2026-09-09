@@ -29,7 +29,10 @@ export async function runImageFlowGenerate(opts: RunGenerateOpts): Promise<{ url
 // --- Provider dispatch -------------------------------------------------------
 // House quality/size for OpenAI-direct generation (David 2026-08-20: pay for
 // quality on the stuff we sell). Replicate-routed models ignore these.
-const OPENAI_QUALITIES = ['low', 'medium', 'high', 'auto'] as const
+// 'xhigh'/'max' are GPT Image 2.5 tiers. Safe to pass on an older model: the
+// provider downgrades them to 'high' for whichever model actually runs
+// (providers/openai-image.ts, paramsForModel).
+const OPENAI_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max', 'auto'] as const
 const OPENAI_SIZES = ['1024x1024', '1536x1024', '1024x1536', 'auto'] as const
 type OpenAIQuality = (typeof OPENAI_QUALITIES)[number]
 type OpenAISize = (typeof OPENAI_SIZES)[number]

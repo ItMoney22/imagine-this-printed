@@ -169,6 +169,7 @@ const {
   roleForShotKey,
   buildApprovedGallery,
   getStepFlow,
+  failStalledShot,
   StepFlowValidationError,
 } = await import('./shots.js')
 
@@ -1319,5 +1320,84 @@ describe('buildApprovedGallery — metal prints lead with the artwork', () => {
       { id: 'a1', asset_role: 'mockup_ghost_mannequin', url: 'ghost.png', created_at: '2026-01-01' },
     ]
     expect(buildApprovedGallery(sf, assets).images).toEqual(['ghost.png', 'wm.png'])
+  })
+})
+
+describe('failStalledShot', () => {
+  // The recovery half of worker/step-flow-stall-sweep.ts. These renders run
+  // inline in the API process, so the sweep is always racing a render that may
+  // still be alive — every case below is about not lying to the admin.
+  const withModel = (model: Record<string, any>) => ({
+    metadata: {
+      step_flow: {
+        version: 1,
+        idea: '',
+        brief: null,
+        garment: 'tshirt',
+        colors: { primary: 'black', extras: [] },
+        shots: { model, hanger: { approved: false, status: 'done', url: 'https://cdn/h.png' } },
+        approvals: {},
+      },
+    },
+  })
+
+  it('fails a shot still stuck in flight, with a message the admin can act on', async () => {
+    seedProduct(withModel({ approved: false, status: 'running', jobId: 'j1' }))
+
+    const changed = await failStalledShot('p1', 'model', 'interrupted — hit Redo')
+
+    expect(changed).toBe(true)
+    const shots = getStepFlow(db.products[0]).shots
+    expect(shots.model.status).toBe('failed')
+    expect(shots.model.error).toBe('interrupted — hit Redo')
+    // The job id survives so the card can still be traced back to its render.
+    expect(shots.model.jobId).toBe('j1')
+  })
+
+  it('recovers a shot that never got past queued', async () => {
+    seedProduct(withModel({ approved: false, status: 'queued' }))
+    expect(await failStalledShot('p1', 'model', 'interrupted')).toBe(true)
+    expect(getStepFlow(db.products[0]).shots.model.status).toBe('failed')
+  })
+
+  it('does NOT clobber a shot that landed while the sweep was deciding', async () => {
+    // The whole reason this is guarded: the inline render can finish between
+    // the sweep's query and this write. Overwriting 'done' would replace a
+    // photo we already paid for with a red error card.
+    seedProduct(withModel({ approved: false, status: 'done', url: 'https://cdn/m.png', assetId: 'a9' }))
+
+    const changed = await failStalledShot('p1', 'model', 'interrupted')
+
+    expect(changed).toBe(false)
+    const shot = getStepFlow(db.products[0]).shots.model
+    expect(shot.status).toBe('done')
+    expect(shot.url).toBe('https://cdn/m.png')
+    expect(shot.error).toBeUndefined()
+  })
+
+  it('leaves an already-failed shot and its original reason alone', async () => {
+    // A shot that failed design-fidelity QA carries the reason the admin needs
+    // in order to decide what to redo. A stall message would erase it.
+    seedProduct(withModel({ approved: false, status: 'failed', error: 'design QA: text is wrong' }))
+
+    expect(await failStalledShot('p1', 'model', 'interrupted')).toBe(false)
+    expect(getStepFlow(db.products[0]).shots.model.error).toBe('design QA: text is wrong')
+  })
+
+  it('touches only the stalled slot, never its siblings', async () => {
+    seedProduct(withModel({ approved: false, status: 'running' }))
+
+    await failStalledShot('p1', 'model', 'interrupted')
+
+    expect(getStepFlow(db.products[0]).shots.hanger).toEqual({
+      approved: false,
+      status: 'done',
+      url: 'https://cdn/h.png',
+    })
+  })
+
+  it('is a no-op for a slot that does not exist', async () => {
+    seedProduct(withModel({ approved: false, status: 'running' }))
+    expect(await failStalledShot('p1', 'model:7', 'interrupted')).toBe(false)
   })
 })

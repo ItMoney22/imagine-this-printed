@@ -4,6 +4,7 @@ import { startWorker } from './ai-jobs-worker.js'
 import { startEtsyWorker } from './etsy-jobs-worker.js'
 import { startTryOnRetentionSweep } from './tryon-retention-sweep.js'
 import { startMrsImagineDaily } from './mrs-imagine-daily.js'
+import { startStepFlowStallSweep } from './step-flow-stall-sweep.js'
 
 // Process-level crash handlers. Node 20 defaults to
 // --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
@@ -45,5 +46,10 @@ startTryOnRetentionSweep()
 // to re-arm the old end-to-end clock; startMrsImagineDaily() logs which mode
 // it started in.
 startMrsImagineDaily()
+// Step Flow shots render INLINE in the API process, so an API restart mid-render
+// strands them at 'running' forever — no Redo, no Skip, and Continue blocked for
+// that product. This fails them so the admin gets the buttons back. See
+// backend/worker/step-flow-stall-sweep.ts.
+startStepFlowStallSweep()
 
 console.log('Worker is running. Press Ctrl+C to stop.')
