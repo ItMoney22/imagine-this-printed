@@ -1,6 +1,8 @@
 import { supabase } from '../lib/supabase.js'
 import { generateMockup, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, type MockupTemplate } from '../services/image-flow/worker-helpers.js'
+import { renderPrintTrueMockup, supportsPrintTrue } from '../services/print-true-mockup.js'
+import { COLORS, getGarment, normalizeGarment } from '../shared/catalog-capability.js'
 import { verifyWithOneRetry, type MockupCheck } from '../services/mockup-qa.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { removeBackgroundToBuffer } from '../services/background-removal.js'
@@ -605,7 +607,7 @@ export async function processMockupJob(job: any): Promise<void> {
   await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup with Replicate AI...`, 1, 3)
   console.log('[worker] 🎭 Starting Replicate mockup generation for template:', template)
 
-  let mockupImageUrl: string
+  let mockupImageUrl: string | undefined
   // Placeholder only — overwritten below by the model the pipeline actually
   // used (mockupResult.modelId). Kept in sync with image-flow's mockup default.
   let mockupModelId: string = 'google/nano-banana-2-lite'
@@ -646,6 +648,45 @@ export async function processMockupJob(job: any): Promise<void> {
     console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana 2 Lite for flat_lay/ghost_mannequin, Nano Banana 2 Lite for mr_imagine)')
     await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
 
+    // PRINT-TRUE FIRST. Generate the garment EMPTY and composite the real print
+    // file onto it, so nothing regenerates the artwork (see
+    // services/print-true-mockup.ts for the five renders that proved generative
+    // mockups re-letter the design). Returns null on any problem, which falls
+    // straight through to the generative render below — worst case is exactly
+    // today's behaviour.
+    if (supportsPrintTrue(template) && garmentImageUrl) {
+      const garmentId = normalizeGarment(productType) ?? 'tshirt'
+      const colorLabel = String(shirtColor || 'black').toLowerCase()
+      const colorHex = Object.values(COLORS).find(
+        (c) => c.id === colorLabel || c.label.toLowerCase() === colorLabel
+      )?.hex
+      try {
+        const res = await fetch(garmentImageUrl)
+        if (!res.ok) throw new Error(`design fetch ${res.status}`)
+        const printTrue = await renderPrintTrueMockup({
+          design: Buffer.from(await res.arrayBuffer()),
+          garmentNoun: getGarment(garmentId)?.noun ?? 'crew neck t-shirt',
+          colorLabel,
+          colorHex,
+          template,
+          garment: garmentId,
+        })
+        if (printTrue) {
+          const up = await uploadImageFromBuffer(
+            printTrue.buffer,
+            `mockups/print-true-${job.product_id}-${template}-${Date.now()}.png`,
+            'image/png'
+          )
+          mockupImageUrl = up.publicUrl
+          mockupModelId = printTrue.modelId
+          console.log('[worker] ✅', template, 'PRINT-TRUE via', printTrue.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
+        }
+      } catch (err: any) {
+        console.warn('[worker] print-true mockup failed, using the generative render:', err?.message || err)
+      }
+    }
+
+    if (!mockupImageUrl) {
     const mockupResult = await runImageFlowMockup({
       template: template as MockupTemplate,
       designImageUrl: garmentImageUrl!,
@@ -668,6 +709,7 @@ export async function processMockupJob(job: any): Promise<void> {
     mockupImageUrl = mockupResult.url
     mockupModelId = mockupResult.modelId
     console.log('[worker] ✅', template, 'generated via', mockupResult.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
+    }
   } catch (mockupError: any) {
     console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
     await supabase
