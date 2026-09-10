@@ -72,14 +72,23 @@ export function buildBlankGarmentPrompt(
   )
 }
 
+/**
+ * Note the absence of a garment-colour hex.
+ *
+ * `compositeMockup`'s tint exists to colour a blank PHOTOGRAPHED WHITE (see
+ * scripts/composite-mockups.ts, whose bases are white cut-outs). The blank here
+ * is GENERATED in `colorLabel` already, so tinting it a second time multiplies
+ * over the print as well and crushes the ink — measured on a black tee, the
+ * print's mean peak brightness fell from 64.1 to 41.5 and its brightest pixel
+ * from 248 to 217. The garment colour comes from the brief, not from a filter.
+ */
 export interface PrintTrueOpts {
   /** The print file — the transparent artwork that will actually be printed. */
   design: Buffer
   garmentNoun: string
   /** Human colour label for the prompt, e.g. "black". */
   colorLabel: string
-  /** Fabric hex, so the composite tints the blank to the real garment colour. */
-  colorHex?: string
+  /** Which staging to shoot: ghost_mannequin, flat_lay or hanger. */
   template: string
   /** Garment id for the print placement table (tee vs hoodie sit differently). */
   garment?: string
@@ -115,7 +124,6 @@ export async function renderPrintTrueMockup(opts: PrintTrueOpts): Promise<{ buff
     const composed = await compositeMockup({
       base: blank,
       design: opts.design,
-      colorHex: opts.colorHex,
       size: opts.size ?? 1024,
       ...placementFor(opts.garment),
     })

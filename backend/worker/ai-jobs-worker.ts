@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase.js'
 import { generateMockup, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, type MockupTemplate } from '../services/image-flow/worker-helpers.js'
 import { renderPrintTrueMockup, supportsPrintTrue } from '../services/print-true-mockup.js'
-import { COLORS, getGarment, normalizeGarment } from '../shared/catalog-capability.js'
+import { getGarment, normalizeGarment } from '../shared/catalog-capability.js'
 import { verifyWithOneRetry, type MockupCheck } from '../services/mockup-qa.js'
 import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { removeBackgroundToBuffer } from '../services/background-removal.js'
@@ -657,9 +657,6 @@ export async function processMockupJob(job: any): Promise<void> {
     if (supportsPrintTrue(template) && garmentImageUrl) {
       const garmentId = normalizeGarment(productType) ?? 'tshirt'
       const colorLabel = String(shirtColor || 'black').toLowerCase()
-      const colorHex = Object.values(COLORS).find(
-        (c) => c.id === colorLabel || c.label.toLowerCase() === colorLabel
-      )?.hex
       try {
         const res = await fetch(garmentImageUrl)
         if (!res.ok) throw new Error(`design fetch ${res.status}`)
@@ -667,7 +664,6 @@ export async function processMockupJob(job: any): Promise<void> {
           design: Buffer.from(await res.arrayBuffer()),
           garmentNoun: getGarment(garmentId)?.noun ?? 'crew neck t-shirt',
           colorLabel,
-          colorHex,
           template,
           garment: garmentId,
         })
