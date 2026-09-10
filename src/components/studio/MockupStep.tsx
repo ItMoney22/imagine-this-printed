@@ -2,7 +2,7 @@
 // extra color. Every card needs its own approve before Listing unlocks;
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, Check, Cpu, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
 import { type ShotSubject } from '../../lib/api'
 import { useStudioLane } from './lane'
 import { COLORS } from '../../../backend/shared/catalog-capability'
@@ -201,6 +201,24 @@ export const CastingNote: React.FC<{
       )}
     </div>
   )
+}
+
+/**
+ * Short, readable name for the engine that produced a card.
+ *
+ * The full id stays in the tooltip because that is the auditable value; the
+ * label is only there so the row is scannable. "real print" is called out
+ * because print-true is the one path where the artwork is COMPOSITED rather
+ * than redrawn - the difference between a mockup whose lettering is guaranteed
+ * and one whose lettering a model invented.
+ */
+export function engineLabel(engine?: string): string | null {
+  if (!engine) return null
+  const composited = engine.startsWith('print-true/')
+  const base = composited ? engine.slice('print-true/'.length).replace('+composite', '') : engine
+  const short = (base.split('/').pop() || base).trim()
+  if (!short) return null
+  return composited ? `${short} + real print` : short
 }
 
 const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => {
@@ -498,6 +516,16 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                       <UserRound className="w-2.5 h-2.5 inline -mt-0.5 mr-0.5" />
                       {shot.casting.label}
                       {shot.casting.audience === 'youth' && ' (kid)'}
+                    </p>
+                  )}
+                  {/* What actually rendered this card, read off the finished asset. */}
+                  {engineLabel((shot as { engine?: string }).engine) && (
+                    <p
+                      className="text-[10px] text-muted truncate"
+                      title={`Rendered by ${(shot as { engine?: string }).engine}`}
+                    >
+                      <Cpu className="w-2.5 h-2.5 inline -mt-0.5 mr-0.5" />
+                      {engineLabel((shot as { engine?: string }).engine)}
                     </p>
                   )}
                   {shot.status === 'failed' && shot.error && <p className="text-[10px] text-red-400 truncate" title={shot.error}>{shot.error}</p>}

@@ -83,6 +83,18 @@ export interface ShotState {
    */
   note?: string
   /**
+   * The model that actually produced this card, e.g.
+   * `print-true/openai/gpt-image-2.5-flare+composite`,
+   * `black-forest-labs/flux-2-pro`, `google/nano-banana-2-lite`.
+   *
+   * DERIVED from the finished asset's own `metadata.model_id` in
+   * `resolveStepFlow`, never from what a caller believes it queued - the point
+   * is that the panel shows what ran, not what was intended (David 2026-09-10:
+   * "i need to know what is running what"). Absent when the asset recorded no
+   * model, which is honest: better a blank label than a guessed one.
+   */
+  engine?: string
+  /**
    * 'details' only: the `product` shot's assetId this card was rendered
    * from. Lets a redo of the product shot be detected (assetId changed) so
    * the details card can be re-rendered instead of silently going stale.
@@ -657,7 +669,7 @@ async function runModelShot(
       })
     )
 
-    const { url, check } = await shootOneModelShot(productId, userId, {
+    const { url, check, modelId } = await shootOneModelShot(productId, userId, {
       shirtColor,
       garment,
       nonce,
@@ -681,6 +693,10 @@ async function runModelShot(
     const asset = await mirrorUrlToProductAsset(productId, roleForShotKey(key), url, 4 + modelSlot(key), {
       template: 'step_flow_model_shot',
       generated_with: 'etsy-model-shots',
+      // Which engine drew it. On-person shots recorded nothing here, so the
+      // only trace of whether a card came from nano-banana or gpt-image was a
+      // log line (David 2026-09-10: "i need to know what is running what").
+      ...(modelId ? { model_id: modelId } : {}),
     })
     await supabase.from('ai_jobs').update({ status: 'succeeded', output: { url }, updated_at: new Date().toISOString() }).eq('id', jobId)
     // `check.degraded` means the shot came back as something other than what
@@ -1289,6 +1305,27 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         await patchShotState(product.id, key, { status: job.status })
         touched = true
       }
+    }
+  }
+
+  // Stamp each finished card with the engine that produced it, read off the
+  // asset itself. Runs after the loop above so it sees the assetIds that loop
+  // just resolved.
+  // Matched by asset_role, NOT by state.assetId: the loop above patches
+  // assetId straight to the database, so the in-memory snapshot here is stale
+  // and matching on it silently found nothing (measured — only one card of five
+  // resolved). Newest asset in the slot wins, same rule that loop uses.
+  for (const key of Object.keys(stepFlow.shots) as ShotKey[]) {
+    const state = stepFlow.shots[key]
+    if (!state) continue
+    const role = roleForShotKey(key, garment)
+    const newest = assets
+      .filter((a) => a.asset_role === role && a.url)
+      .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
+    const engine = newest?.metadata?.model_id
+    if (typeof engine === 'string' && engine && state.engine !== engine) {
+      await patchShotState(product.id, key, { engine })
+      touched = true
     }
   }
 

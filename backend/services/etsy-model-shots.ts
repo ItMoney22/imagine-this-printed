@@ -1089,7 +1089,12 @@ async function generateOneShot(
   placement: string = 'front-center',
   sizeInches: number = 11,
   garmentNoun: string = 'crew neck t-shirt'
-): Promise<{ url: string; degraded?: string }> {
+): Promise<{ url: string; degraded?: string; modelId?: string }> {
+  // Which engine actually produced this take, reported back so the asset - and
+  // therefore the card in the Step Flow - can say so. David 2026-09-10: "i need
+  // to know what is running what". Before this, on-person shots recorded no
+  // model at all and the only record was a log line.
+  let usedModel = ''
   const viaGptImage = async (): Promise<string> => {
     const { url, modelId } = await editOpenAIImage({
       sourceUrl: designUrl,
@@ -1100,6 +1105,7 @@ async function generateOneShot(
       objectPath: `users/${userId}/mockups/etsy_shot_${productId}_${plan.key}_${Date.now()}.png`
     })
     console.log(`[etsy-shots] ${productId} ${plan.key} (${plan.label}) via ${modelId} → ${url}`)
+    usedModel = modelId
     return url
   }
 
@@ -1131,16 +1137,17 @@ async function generateOneShot(
       metadata: { productId, shot: plan.key, persona: plan.label, purpose: 'etsy-listing' }
     })
     console.log(`[etsy-shots] ${productId} ${plan.key} (${plan.label}) via nano-banana → ${upload.publicUrl}`)
+    usedModel = NANO_BANANA
     return upload.publicUrl
   }
 
   const [primary, fallback] = SHOTS_ENGINE === 'gpt-image' ? [viaGptImage, viaNanoBanana] : [viaNanoBanana, viaGptImage]
   try {
-    return { url: await primary() }
+    return { url: await primary(), modelId: usedModel }
   } catch (primaryErr: any) {
     console.warn(`[etsy-shots] ${productId} ${plan.key} primary engine failed (${primaryErr?.message}) — trying fallback`)
     try {
-      return { url: await fallback() }
+      return { url: await fallback(), modelId: usedModel }
     } catch (fallbackErr: any) {
       // A youth shot that BOTH engines refused. Image providers apply extra
       // safety scrutiny to child subjects and either may decline; when that
@@ -1153,11 +1160,12 @@ async function generateOneShot(
         `(${fallbackErr?.message}) — falling back to an empty-garment shot`
       )
       const noModelPlan: ShotPlan = { ...plan, noModel: true, variant: slateId(), retryNote: undefined }
-      const url = await generateOneShot(
+      const noModel = await generateOneShot(
         noModelPlan, designUrl, shirtColor, productId, userId, placement, sizeInches, garmentNoun
-      ).then(r => r.url)
+      )
       return {
-        url,
+        url: noModel.url,
+        modelId: noModel.modelId || usedModel,
         degraded:
           'The image engine declined to render a child model, so this is the youth shirt photographed on its ' +
           'own. Redo the shot to try again, or keep it as a flat-lay listing photo.',
@@ -1474,17 +1482,17 @@ async function verifyShot(designUrl: string, shotUrl: string, shirtColor: string
   return visual
 }
 
-async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotContext): Promise<{ url: string; check: ShotCheck }> {
-  const { url, degraded } = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
+async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotContext): Promise<{ url: string; check: ShotCheck; modelId?: string }> {
+  const { url, degraded, modelId } = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const verdict = await verifyShot(ctx.designUrl, url, shirtColor)
-  if (!verdict || verdict.ok) return { url, check: { ok: true, degraded } }
+  if (!verdict || verdict.ok) return { url, check: { ok: true, degraded }, modelId }
 
   // The inspector asking for a background that the cut-out source never had is
   // a hallucination, not a defect — retrying on it PAINTS one (see
   // asksForAMissingBackground). Keep the first render, which was correct.
   if (asksForAMissingBackground(verdict.reason)) {
     console.warn(`[etsy-shots] ${ctx.productId} ${plan.key} fidelity QA asked for a background the cut-out source has none of (${verdict.reason}) — keeping the first render`)
-    return { url, check: { ok: true, degraded } }
+    return { url, check: { ok: true, degraded }, modelId }
   }
 
   console.warn(`[etsy-shots] ${ctx.productId} ${plan.key} failed fidelity QA: ${verdict.reason} — one retry`)
@@ -1493,12 +1501,12 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
   // Fresh slate id so the retry is a genuinely different roll, plus the note
   // telling the model what to fix.
   const retryPlan: ShotPlan = { ...plan, variant: slateId(), retryNote: verdict.reason }
-  const { url: retryUrl, degraded: retryDegraded } = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
+  const { url: retryUrl, degraded: retryDegraded, modelId: retryModelId } = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
   const retryVerdict = await verifyShot(ctx.designUrl, retryUrl, shirtColor)
-  if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true, degraded: retryDegraded } }
+  if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true, degraded: retryDegraded }, modelId: retryModelId }
 
   console.warn(`[etsy-shots] ${ctx.productId} ${plan.key} still failing after retry: ${retryVerdict.reason}`)
-  return { url: retryUrl, check: { ok: false, reason: retryVerdict.reason, retried: true, degraded: retryDegraded } }
+  return { url: retryUrl, check: { ok: false, reason: retryVerdict.reason, retried: true, degraded: retryDegraded }, modelId: retryModelId }
 }
 
 // Normalize Replicate output (string | array | async iterator, URL or raw
@@ -1937,7 +1945,7 @@ export async function shootOneModelShot(
     mirror?: boolean
     replaceUrl?: string
   } = {}
-): Promise<{ url: string; check: ShotCheck }> {
+): Promise<{ url: string; check: ShotCheck; modelId?: string }> {
   if (!process.env.OPENAI_API_KEY && !replicate) {
     throw new Error('Neither OPENAI_API_KEY nor REPLICATE_API_TOKEN is configured — no shot engine available')
   }
@@ -1972,7 +1980,7 @@ export async function shootOneModelShot(
   const shirtColor = opts.shirtColor ? (COLORS[opts.shirtColor]?.label.toLowerCase() ?? opts.shirtColor) : colorFor(0)
 
   console.log(`[etsy-shots] ${productId} ${plan.key} (step-flow single shot) cast: ${plan.signature} [slate ${plan.variant}]`)
-  const { url, check } = await renderVerifiedShot(plan, shirtColor, shotCtx)
+  const { url, check, modelId } = await renderVerifiedShot(plan, shirtColor, shotCtx)
 
   // Re-read at write time (same pattern as reshootOne/saveShotsState).
   const { data: fresh } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
@@ -2035,7 +2043,7 @@ export async function shootOneModelShot(
   // also writes its own mockup_model_1 row (the step flow does, per redo)
   // would end up with the same shot under two roles. The caller owns the row.
   if (opts.mirror) await mirrorShotsToProductAssets(productId, images, checks)
-  return { url, check }
+  return { url, check, modelId }
 }
 
 /** The garment audience recorded on a product row — the boundary on who may be cast in its photos. */

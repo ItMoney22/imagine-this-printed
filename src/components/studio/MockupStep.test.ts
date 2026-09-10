@@ -3,7 +3,7 @@
 // exercise the presentational/computation logic without the component's
 // network effects. Design doc §14 (metal prints lane).
 import { describe, it, expect } from 'vitest'
-import { expectedShotKeys, shotLabel } from './MockupStep'
+import { expectedShotKeys, shotLabel, engineLabel } from './MockupStep'
 import type { StepFlowMeta } from './types'
 
 function stepFlowMeta(over: Partial<StepFlowMeta> = {}): StepFlowMeta {
@@ -55,5 +55,34 @@ describe('shotLabel', () => {
     expect(shotLabel('hanger')).toBe('On a hanger')
     expect(shotLabel('model')).toBe('On a person')
     expect(shotLabel('color:heather-grey')).toBe('Extra color — Heather Grey')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Every card says which engine actually rendered it (David 2026-09-10)
+// ---------------------------------------------------------------------------
+// "i need to know what is running what". The value shown is DERIVED from the
+// finished asset's own metadata.model_id, so the label reports what ran rather
+// than what anyone believed was queued. A card whose asset recorded no model
+// shows nothing at all — a blank is honest, a guess is not.
+
+describe('engineLabel', () => {
+  it('marks the composited path, because that is the one with guaranteed lettering', () => {
+    expect(engineLabel('print-true/openai/gpt-image-2.5-flare+composite')).toBe('gpt-image-2.5-flare + real print')
+  })
+
+  it('names a plain generative engine without dressing it up', () => {
+    expect(engineLabel('google/nano-banana-2-lite')).toBe('nano-banana-2-lite')
+    expect(engineLabel('black-forest-labs/flux-2-pro')).toBe('flux-2-pro')
+    expect(engineLabel('openai/gpt-image-2.5-flare')).toBe('gpt-image-2.5-flare')
+  })
+
+  it('shows nothing when the asset recorded no model', () => {
+    expect(engineLabel(undefined)).toBeNull()
+    expect(engineLabel('')).toBeNull()
+  })
+
+  it('handles a bare model id with no vendor prefix', () => {
+    expect(engineLabel('gpt-image-2')).toBe('gpt-image-2')
   })
 })
