@@ -1265,10 +1265,57 @@ export const mrsImagine = {
     }
     return response.json()
   },
-  run: async (counts?: { garments?: number; metal?: number }) =>
-    mrsImagine.request('/run', { method: 'POST', body: JSON.stringify(counts ?? {}) }),
+  // NOTE: there is no `run` here any more. Mrs. Imagine's autonomous batch was
+  // retired on 2026-09-09 (David: "mrs imagine is a scout") and the route it
+  // called is gone from backend/routes/admin/mrs-imagine.ts — she scouts, David
+  // builds. `runs` still reads the OLD batches, read-only, for the record.
+  scout: async (): Promise<{ run: ScoutRun | null }> => mrsImagine.request('/scout'),
+  runScout: async (): Promise<{ run: ScoutRun }> =>
+    mrsImagine.request('/scout/run', { method: 'POST' }),
+  scoutHistory: async (): Promise<{ runs: ScoutRun[] }> => mrsImagine.request('/scout/history'),
   runs: async () => mrsImagine.request('/runs'),
   research: async () => mrsImagine.request('/research'),
+}
+
+/** One theme Mrs. Imagine is pitching, with the sales evidence behind it.
+ *  Mirrors backend/services/mrs-imagine-scout.ts's ScoutPick. */
+export interface ScoutPick {
+  id: string
+  theme: string
+  /** Seeds Step 1 when David clicks Build. */
+  idea: string
+  kind: 'tshirt' | 'hoodie' | 'youth-tshirt' | 'metal'
+  angle: string
+  /** Verified buyer reviews in the window — a FLOOR on sales, never the
+   *  ceiling (roughly one buyer in three reviews). Labelled that way
+   *  everywhere it is shown. */
+  verifiedSales: number
+  medianPriceUsd: number
+  evidence: Array<{
+    title: string
+    url: string
+    verifiedSales: number
+    priceUsd: number
+    shopName?: string
+    shopSoldCount?: number
+  }>
+  gate: { pass: boolean; reasons: string[] }
+}
+
+export interface ScoutRun {
+  id: string
+  status: 'running' | 'succeeded' | 'failed'
+  error?: string | null
+  created_at: string
+  updated_at: string
+  output?: {
+    picks: ScoutPick[]
+    sampled: number
+    verified: number
+    proven: number
+    windowDays: number
+    fetchedAt: string
+  }
 }
 
 // Image Flow API — generic gen/edit/bg-remove via gpt-image-2 etc.

@@ -70,6 +70,34 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId])
 
+  // Seed from one of Mrs. Imagine's scout picks (AdminMrsImagine.tsx links
+  // here with ?idea=&kind=). Runs once, and only for a flow that has no
+  // product yet: resuming a draft must never have its idea overwritten by a
+  // stale link someone re-opened from history. The params are dropped straight
+  // after so a refresh mid-flow doesn't re-seed on top of real work.
+  //
+  // Seeding fills the box; it does not press anything. David still writes the
+  // brief, picks the design and approves every step — the click only saves him
+  // retyping what she pitched.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || productId || stateRef.current.productId) return
+    const idea = searchParams.get('idea')
+    if (!idea?.trim()) return
+    seeded.current = true
+    const kind = searchParams.get('kind')
+    dispatch({
+      type: 'SEED',
+      idea: idea.trim(),
+      productKind: kind === 'metal' ? 'metal' : 'garment',
+      garment: kind === 'hoodie' || kind === 'youth-tshirt' || kind === 'tshirt' ? kind : null,
+    })
+    const next = new URLSearchParams(searchParams)
+    next.delete('idea')
+    next.delete('kind')
+    setSearchParams(next, { replace: true })
+  }, [productId, searchParams, setSearchParams])
+
   // Keep `?productId=` (and `?mode=steps`) in sync with whatever draft is
   // actually loaded, so a refresh mid-flow resumes instead of losing the
   // draft. Fires after PRODUCT_CREATED (first generate) and again after a

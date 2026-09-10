@@ -122,10 +122,24 @@ router.post('/queue/:productId', async (req: Request, res: Response) => {
   }
 })
 
-// Etsy flow v2 (2026-07-25): opt-in per shirt. Every ACTIVE storefront product
-// with no live ledger row is a candidate; the panel composes an Etsy-native
-// pack, David reviews/edits, then queues. Gate + taxonomy checks run here too
-// so problems show up in the review queue, not as worker errors later.
+// Etsy flow v2 (2026-07-25): opt-in per shirt. The panel composes an
+// Etsy-native pack, David reviews/edits, then queues. Gate + taxonomy checks
+// run here too so problems show up in the review queue, not as worker errors
+// later.
+//
+// SCOPE NARROWED 2026-09-09 (David: "plz clear the backlog"). This used to
+// list every ACTIVE product with an open ledger row — 121 of them, nearly all
+// pre-Step-Flow legacy rows nobody intends to post, which made the queue
+// unreadable and hid the handful of designs actually waiting. It now lists
+// only products the Step Flow owns (`metadata.step_flow` exists), so the queue
+// answers one question: what have I built that has not gone out yet.
+//
+// This is a FILTER, not a delete — David picked "empty the list, keep Step
+// Flow only" over posting them or purging them. Nothing was written, no
+// product was touched, and a legacy design still reaches Etsy the same way it
+// reaches everything else now: adopt it into the flow
+// (POST /api/admin/products/ai/:id/step/adopt), which stamps the metadata this
+// filter reads and puts the design in front of the same gates.
 router.get('/candidates', async (_req: Request, res: Response) => {
   try {
     const { data: products, error } = await supabase
@@ -133,6 +147,7 @@ router.get('/candidates', async (_req: Request, res: Response) => {
       .select('id, name, description, price, images, category, meta_title, meta_description, search_keywords, metadata, created_at')
       .eq('status', 'active')
       .eq('is_active', true)
+      .not('metadata->step_flow', 'is', null)
       .order('created_at', { ascending: false })
       .limit(200)
     if (error) throw new Error(error.message)

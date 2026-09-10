@@ -42,6 +42,7 @@ import type {
   ShotKey,
   ShotState,
   StepFlowAsset,
+  StepFlowGarmentId,
   StepFlowGetResponse,
   StepFlowJob,
   StepFlowMeta,
@@ -111,6 +112,12 @@ export interface StepFlowState {
    *  'garment' — every product created before this field existed reads the
    *  same as it always has. */
   productKind: StepFlowProductKind
+  /** Garment the flow was SEEDED with, when it started from one of Mrs.
+   *  Imagine's scout picks (`?kind=` on the builder URL). The Idea step's
+   *  chip row is local UI state, so without this a pick for a hoodie would
+   *  open on the tee chip and quietly become a tee. Null for a flow David
+   *  started himself — the chip then defaults the way it always has. */
+  seedGarment: StepFlowGarmentId | null
   /** The stops THIS lane runs, in order (types.ts: ADMIN_STEP_ORDER /
    *  CUSTOMER_STEP_ORDER). Reachability and "how far can we jump" are
    *  answered against this, not against a module-level constant — otherwise
@@ -133,6 +140,7 @@ export const initialStepFlowState: StepFlowState = {
   phrase: null,
   inspiration: null,
   productKind: 'garment',
+  seedGarment: null,
   steps: STEP_ORDER,
   loading: false,
   error: null,
@@ -147,6 +155,12 @@ export type StepFlowAction =
   | { type: 'SET_PHRASE'; phrase: SelectedPhrase | null }
   | { type: 'SET_INSPIRATION'; inspiration: SelectedInspiration | null }
   | { type: 'SET_PRODUCT_KIND'; productKind: StepFlowProductKind }
+  /** Open the flow on a Mrs. Imagine scout pick: her idea text, and the
+   *  product she pitched it for. Never touches a loaded product — seeding
+   *  only makes sense before anything exists (StepFlowBuilder guards on
+   *  productId), so this is a pre-brief convenience, not a state change the
+   *  server ever sees. */
+  | { type: 'SEED'; idea: string; productKind: StepFlowProductKind; garment?: StepFlowGarmentId | null }
   | { type: 'PRODUCT_CREATED'; productId: string }
   /** advance:true jumps the visible step to the furthest one now reachable
    *  (an initial resume load, or right after the admin's own write/approve).
@@ -358,6 +372,14 @@ export function stepFlowReducer(state: StepFlowState, action: StepFlowAction): S
 
     case 'SET_PRODUCT_KIND':
       return { ...state, productKind: action.productKind }
+
+    case 'SEED':
+      return {
+        ...state,
+        idea: action.idea,
+        productKind: action.productKind,
+        seedGarment: action.garment ?? null,
+      }
 
     case 'PRODUCT_CREATED': {
       const next = { ...state, productId: action.productId, loading: false, error: null }

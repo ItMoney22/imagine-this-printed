@@ -659,8 +659,9 @@ export default function AdminEtsyPanel() {
               </h4>
             </div>
             <p className="text-xs text-slate-500 mb-3">
-              New active shirts land here automatically. Compose writes Etsy-native copy for review; Queue posts
-              invisible drafts. Each design can go out as up to three separate Etsy listings — tick the ones you want
+              Designs you built in the Step Flow land here automatically (David 2026-09-09: legacy products no
+              longer pile up in this queue — adopt one into the Step Flow to post it). Compose writes Etsy-native
+              copy for review; Queue posts invisible drafts. Each design can go out as up to three separate Etsy listings — tick the ones you want
               before queueing: <span className="font-medium text-slate-600">Shirt</span> (the tee),{' '}
               <span className="font-medium text-slate-600">Transfer</span> (printed DTF film you mail), and{' '}
               <span className="font-medium text-slate-600">Download</span> (the design file, delivered instantly by
@@ -669,7 +670,9 @@ export default function AdminEtsyPanel() {
             </p>
 
             {candidates.length === 0 ? (
-              <div className="text-xs text-slate-400">Nothing waiting — create a new shirt and it shows up here.</div>
+              <div className="text-xs text-slate-400">
+                Nothing waiting — build a design in the Step Flow and it shows up here.
+              </div>
             ) : (
               <ul className="space-y-2">
                 {candidates.map(c => {

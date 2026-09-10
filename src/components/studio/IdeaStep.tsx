@@ -115,9 +115,14 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   // actually flips `state.productKind` via SET_PRODUCT_KIND. Seeded from a
   // resumed draft's brief so re-opening the Idea step to review shows the
   // choice that was actually made.
-  const [kindChoice, setKindChoice] = useState<KindChoice>(() =>
-    state.productKind === 'metal' ? 'metal' : (state.stepFlow?.brief?.garmentHint ?? 'tshirt')
-  )
+  const [kindChoice, setKindChoice] = useState<KindChoice>(() => {
+    if (state.productKind === 'metal') return 'metal'
+    // A flow opened from one of Mrs. Imagine's scout picks carries the product
+    // she pitched it for (stepFlowReducer's SEED). Without this the chip would
+    // fall back to the tee and a proven hoodie theme would quietly become a
+    // tee — the one thing the pick was specific about.
+    return state.seedGarment ?? state.stepFlow?.brief?.garmentHint ?? 'tshirt'
+  })
 
   const {
     supported: voiceSupported,

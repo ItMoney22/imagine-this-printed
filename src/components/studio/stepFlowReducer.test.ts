@@ -292,6 +292,32 @@ describe('stepFlowReducer', () => {
     expect(next.step).toBe('idea')
   })
 
+  it('SEED carries the garment Mrs. Imagine pitched, not just the idea text', () => {
+    // A scout pick for a hoodie must open on the hoodie chip. Without
+    // seedGarment the Idea step falls back to the tee and the proven theme
+    // quietly becomes a different product.
+    const next = stepFlowReducer(initialStepFlowState, {
+      type: 'SEED',
+      idea: 'An original overstimulated-mom design',
+      productKind: 'garment',
+      garment: 'hoodie',
+    })
+    expect(next.idea).toBe('An original overstimulated-mom design')
+    expect(next.productKind).toBe('garment')
+    expect(next.seedGarment).toBe('hoodie')
+    expect(next.step).toBe('idea')
+  })
+
+  it('SEED for a metal pick flips productKind and leaves no garment behind', () => {
+    const next = stepFlowReducer(initialStepFlowState, {
+      type: 'SEED',
+      idea: 'An original garage metal sign',
+      productKind: 'metal',
+    })
+    expect(next.productKind).toBe('metal')
+    expect(next.seedGarment).toBeNull()
+  })
+
   it('PRODUCT_CREATED advances straight to design (no approval needed for that edge)', () => {
     const next = stepFlowReducer(initialStepFlowState, { type: 'PRODUCT_CREATED', productId: 'p1' })
     expect(next.productId).toBe('p1')

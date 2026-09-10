@@ -3612,3 +3612,52 @@ tests use the VERBATIM production QA reasons from the logs above.
   and found the real cause: the fidelity gate fails a correct render for a
   hallucinated background and the retry preamble turns that into an instruction
   to paint one. Fixed the prompt, added the retry guard, reverted the flattening.
+
+---
+
+## Current request (2026-09-09) — Mrs. Imagine becomes a SCOUT, and the Etsy backlog is cleared
+
+David: "mrs imagine is a scout she finds great designs that are selling she
+needs to verify they are selling she drops a list of her top 10 everyday and i
+just have to click on it it goes to step flow ... they have to be ones that are
+SELLING and plz clear the backlog."
+
+### What was wrong
+1. The admin card's "Run a batch" was the last live door into the self-build
+   path David killed on 2026-09-02 (the daily clock already defaults OFF). The
+   screenshot he sent is that door being used: 12 designs attempted, OpenAI
+   wallet drained to a 429, nothing shipped.
+2. `etsy-market-research.ts` ranks on `num_favorers` — favourites, a wish, not
+   money. Nothing in the repo has ever verified that a design SELLS.
+3. "Ready for Etsy" listed every active product (121), most of them pre-Step-
+   Flow legacy rows nobody intends to post.
+
+### Verified against the live Etsy OpenAPI spec (2026-09-09)
+`www.etsy.com/openapi/generated/oas/3.0.0.json`, global security `api_key`:
+- `GET /v3/application/listings/{id}/reviews` — api-key only, takes
+  `min_created`/`max_created`, returns `count` + `created_timestamp` per review.
+  Etsy only lets a BUYER review, so this is verified purchases in a window.
+- `GET /v3/application/shops/{id}` — api-key only, carries
+  `transaction_sold_count`, `review_average`, `listing_active_count`.
+- `ShopListing` carries NO sales field (only `num_favorers`) — confirmed, so
+  reviews are the only per-listing sales proof that exists publicly.
+Review rate is ~1 in 3 buyers, so a review count is a conservative FLOOR on
+sales, never an over-claim.
+
+### Decision (David, 2026-09-09)
+"Clear the backlog" = **empty the list, keep Step Flow only** — a filter, not a
+delete: `/candidates` now lists only products carrying `metadata.step_flow`.
+Legacy designs still reach Etsy through `POST /:id/step/adopt`.
+
+### File shortlist (approved scope — 2026-09-09 scout)
+- `backend/services/etsy-market-research.ts` (sales verification: reviews +
+  shop stats; `shop_id` on ActiveListing)
+- `backend/services/mrs-imagine-scout.ts` (new) + `.test.ts` (new)
+- `backend/routes/admin/mrs-imagine.ts` (batch POST removed; scout routes)
+- `backend/routes/admin/etsy.ts` (`/candidates` → Step-Flow-owned only)
+- `backend/worker/mrs-imagine-daily.ts` (clock now runs the scout)
+- `src/components/AdminMrsImagine.tsx` (scout board, click → Step Flow)
+- `src/components/AdminEtsyPanel.tsx` (queue copy)
+- `src/components/studio/StepFlowBuilder.tsx` (`?idea=`/`?kind=` seed)
+- `src/lib/api.ts` (scout client)
+- `TASK_NOTES.md`
