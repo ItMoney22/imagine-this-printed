@@ -14,7 +14,7 @@ vi.mock('../lib/supabase.js', () => ({ supabase: { from: () => ({}), rpc: async 
 
 import sharp from 'sharp'
 
-import { buildGptPrompt, buildNanoPrompt, ensureListingResolution, resolveCast, composeSubject, listShotSubjects, ShotCastError, asksForAMissingBackground, DESIGN_FIDELITY_QA_PROMPT, type ShotPlan } from './etsy-model-shots.js'
+import { buildGptPrompt, buildNanoPrompt, ensureListingResolution, resolveCast, composeSubject, listShotSubjects, ShotCastError, asksForAMissingBackground, comparePrintedText, DESIGN_FIDELITY_QA_PROMPT, type ShotPlan } from './etsy-model-shots.js'
 
 function plan(over: Partial<ShotPlan> = {}): ShotPlan {
   return {
@@ -361,5 +361,65 @@ describe('DESIGN_FIDELITY_QA_PROMPT', () => {
     expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/misspelled/i)
     expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/restyled, redrawn/i)
     expect(DESIGN_FIDELITY_QA_PROMPT).toMatch(/"matches": true\|false/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Text fidelity is checked by TRANSCRIBING, not by asking for a verdict
+// ---------------------------------------------------------------------------
+// David 2026-09-09, on a family shot that printed "FURRY FINNANCE" where the
+// design says "TREE TRIMMING": the holistic gate passed it twice. Asked
+// "does this match?", the inspector says yes; asked "read the words", it reads
+// them correctly. So we do the perception with the model and the judgement in
+// code. Every fixture below is VERBATIM transcription output from the real
+// images (product 5a846616).
+
+const DESIGN_WORDS = ['TIDINGS', 'of', 'TREE', 'TRIMMING', 'Make', 'It', 'a', 'WILDERNESS', 'HOLIDAY']
+
+describe('comparePrintedText', () => {
+  it('passes the composite, which reproduced every word', () => {
+    expect(comparePrintedText(DESIGN_WORDS, [...DESIGN_WORDS]).ok).toBe(true)
+  })
+
+  it('fails the family shot that invented "FURRY FINNANCE"', () => {
+    const shot = ['Make', 'It', 'a', 'FURRY', 'FINNANCE', 'Make', 'It', 'a', 'WILDERNESS', 'SEASON']
+    const v = comparePrintedText(DESIGN_WORDS, shot)
+    expect(v.ok).toBe(false)
+    expect(v.reason).toMatch(/TIDINGS|TREE|TRIMMING|HOLIDAY/i)
+  })
+
+  it('fails the solo shot that swapped TIDINGS->TRADITIONS and WILDERNESS->WONDERFUL', () => {
+    const shot = ['TRADITIONS', 'of', 'TREE', 'TRIMMING', 'Make', 'It', 'A', 'WONDERFUL', 'HOLIDAY']
+    expect(comparePrintedText(DESIGN_WORDS, shot).ok).toBe(false)
+  })
+
+  it('is case- and punctuation-insensitive, so styling is not a defect', () => {
+    const shot = ['tidings', 'OF', 'Tree', 'trimming!', 'make', 'it', 'a', '"WILDERNESS"', 'holiday.']
+    expect(comparePrintedText(DESIGN_WORDS, shot).ok).toBe(true)
+  })
+
+  it('fails when the print is not legible enough to read', () => {
+    const shot = ['TIDINGS', '<UNREADABLE>', 'TREE', '<UNREADABLE>']
+    const v = comparePrintedText(DESIGN_WORDS, shot)
+    expect(v.ok).toBe(false)
+    expect(v.reason).toMatch(/legib|read/i)
+  })
+
+  it('passes a design with NO text at all, whatever the shot reads', () => {
+    // The witch design carries no words; a stray sign in the scene must not
+    // fail the shot.
+    expect(comparePrintedText([], ['OPEN']).ok).toBe(true)
+  })
+
+  it('ignores extra words the photo picks up outside the print', () => {
+    // The transcription is asked for artwork words only, but a street sign or
+    // a hoodie label can still slip in. Missing words are the defect; extra
+    // ones are not.
+    expect(comparePrintedText(DESIGN_WORDS, [...DESIGN_WORDS, 'GILDAN']).ok).toBe(true)
+  })
+
+  it('tolerates one dropped short filler word but not a dropped headline word', () => {
+    expect(comparePrintedText(DESIGN_WORDS, DESIGN_WORDS.filter((w) => w !== 'a')).ok).toBe(true)
+    expect(comparePrintedText(DESIGN_WORDS, DESIGN_WORDS.filter((w) => w !== 'TRIMMING')).ok).toBe(false)
   })
 })

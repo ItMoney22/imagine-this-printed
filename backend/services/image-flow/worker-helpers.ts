@@ -23,7 +23,13 @@ export async function runImageFlowGenerate(opts: RunGenerateOpts): Promise<{ url
   if (!model) throw new Error(`unknown image-flow model: ${modelId}`)
 
   const r = await runRegisteredModel(model, { prompt: opts.prompt, extra: opts.extra })
-  return { url: r.url, modelId: model.id }
+  // The RESOLVED model, not the registry key. `openai/gpt-image-2` is a stored
+  // id that products and ai_jobs rows have recorded for months, but the OpenAI
+  // provider walks a chain behind it (2.5-flare -> 2 -> 1), so reporting the key
+  // told every audit trail "gpt-image-2" no matter what actually drew the image.
+  // David 2026-09-09, on being unable to tell what made a design: "the design
+  // must first come from flare not reg".
+  return { url: r.url, modelId: r.modelId }
 }
 
 // --- Provider dispatch -------------------------------------------------------
@@ -61,14 +67,14 @@ function houseOpenAISize(extra?: Record<string, unknown>): OpenAISize {
 async function runRegisteredModel(
   model: ImageModel,
   req: { prompt: string; inputImages?: string[]; extra?: Record<string, unknown>; timeoutMs?: number; transparent?: boolean }
-): Promise<{ url: string }> {
+): Promise<{ url: string; modelId: string }> {
   if (model.provider === 'openai') {
     const quality = houseOpenAIQuality(req.extra)
     const size = houseOpenAISize(req.extra)
     if (req.inputImages?.length) {
       const [sourceUrl, ...refUrls] = req.inputImages
       const r = await editOpenAIImage({ sourceUrl, refUrls, prompt: req.prompt, quality, size, moderation: 'low' })
-      return { url: r.url }
+      return { url: r.url, modelId: r.modelId }
     }
     const r = await runOpenAIImage({
       prompt: req.prompt, quality, size, moderation: 'low',
@@ -76,11 +82,11 @@ async function runRegisteredModel(
       // at the isGarment branch below.
       background: req.transparent ? 'transparent' : undefined,
     })
-    return { url: r.url }
+    return { url: r.url, modelId: r.modelId }
   }
   const input = buildInput(model, { prompt: req.prompt, inputImages: req.inputImages, extra: req.extra })
   const r = await runReplicate({ modelId: model.id, input, timeoutMs: req.timeoutMs })
-  return { url: r.imageUrls[0] }
+  return { url: r.imageUrls[0], modelId: model.id }
 }
 
 export interface MultiGenerateResult {
@@ -241,7 +247,7 @@ export async function runImageFlowMultiGenerate(opts: {
       const r = await runRegisteredModel(model, {
         prompt: finalPrompts[i], extra: opts.extra, timeoutMs: 150_000, transparent: Boolean(isGarment),
       })
-      return { id: model.id, label: model.label, url: r.url }
+      return { id: model.id, label: model.label, url: r.url, resolvedModelId: r.modelId }
     })
   )
 
@@ -832,5 +838,6 @@ export async function runImageFlowEdit(opts: RunEditOpts): Promise<{ url: string
 
   const inputImages = [opts.sourceImageUrl, ...(opts.refImageUrls ?? [])]
   const r = await runRegisteredModel(model, { prompt: opts.prompt, inputImages, extra: opts.extra })
-  return { url: r.url, modelId: model.id }
+  // Resolved model, not the registry key — see runImageFlowGenerate.
+  return { url: r.url, modelId: r.modelId }
 }

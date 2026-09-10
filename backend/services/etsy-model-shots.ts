@@ -1213,6 +1213,10 @@ export const DESIGN_FIDELITY_QA_PROMPT =
   'FAIL the photo if any of these are true:\n' +
   '- Any text differs: misspelled, different wording, re-drawn in a different typeface, different ' +
   'line breaks, or letters that are garbled/illegible.\n' +
+  '- The source artwork contains TEXT and that text is not reproduced exactly on the product: any different ' +
+  'word, invented word, dropped line, or lettering too blurred or too small for you to actually READ. If you ' +
+  'cannot read the words on the product well enough to confirm they match the source word for word, that is a ' +
+  'FAIL - you cannot certify a match you cannot read.\n' +
   '- The artwork was restyled, redrawn, or re-illustrated rather than reproduced.\n' +
   '- Colors are clearly different from the source.\n' +
   '- Elements were added that are not in the source (extra text, logos, watermarks, icons).\n' +
@@ -1227,7 +1231,8 @@ export const DESIGN_FIDELITY_QA_PROMPT =
   'PASS the photo if the artwork is faithfully reproduced. Do NOT fail it for fabric folds ' +
   'distorting the print, lighting, shadow across the print, perspective, the model, or the scene ' +
   'behind the model (the room, street, studio, props and backdrop of the PHOTOGRAPH), or the print ' +
-  'being small in frame. Those are photography; the rule above is about the printed artwork itself.\n\n' +
+  'being small in frame - EXCEPT that a print too small to read is still a FAIL when the source carries text. ' +
+  'Those exceptions are photography; the rules above are about the printed artwork itself.\n\n' +
   'Respond in JSON: {"matches": true|false, "issue": "one short sentence naming the single worst ' +
   'defect, or empty string when it passes"}'
 
@@ -1290,6 +1295,55 @@ interface ShotContext {
  * Render one shot, verify the design survived, and buy one corrective retry if
  * it didn't. Returns whichever render we're keeping plus its verdict.
  */
+/** Words too short to be worth failing a print over when one goes missing. */
+const FILLER_WORDS = new Set(['A', 'AN', 'THE', 'OF', 'IT', 'IS', 'TO', 'MY', 'IN', 'ON', 'AND', '&'])
+
+const normalizeWord = (w: string): string =>
+  String(w || '')
+    .toUpperCase()
+    .replace(/[\u2018\u2019\u201C\u201D]/g, "'")
+    .replace(/[^A-Z0-9']/g, '')
+
+/**
+ * Compare the words a design carries against the words that came back printed
+ * on the product.
+ *
+ * The holistic gate could not do this. Asked "does IMAGE 2 match IMAGE 1?" the
+ * inspector answered yes for a family shot printing "FURRY FINNANCE" where the
+ * design says "TREE TRIMMING", and yes again for a solo shot reading
+ * "TRADITIONS ... WONDERFUL HOLIDAY" (David 2026-09-09, both verified against
+ * the live gate, and adding rules to the prompt did not move it). Asked instead
+ * to READ the words, the same model transcribes every one of them correctly. So
+ * the model does the perception and this does the judgement.
+ *
+ * MISSING design words are the defect. Extra words are not: the transcription
+ * asks for artwork words only, but a garment label or a sign in the scene can
+ * still slip in, and failing a correct print over a blurry neck tag would be
+ * the old false-failure problem wearing a new hat. One dropped filler word
+ * ("a", "of") is tolerated for the same reason; a dropped headline word is not.
+ */
+export function comparePrintedText(
+  designWords: string[],
+  shotWords: string[]
+): { ok: boolean; reason?: string } {
+  const wanted = (designWords || []).map(normalizeWord).filter(Boolean)
+  if (!wanted.length) return { ok: true }
+
+  if ((shotWords || []).some((w) => String(w).toUpperCase().includes('UNREADABLE'))) {
+    return { ok: false, reason: 'the printed text is not legible enough to confirm it matches the design' }
+  }
+
+  const got = new Set((shotWords || []).map(normalizeWord).filter(Boolean))
+  const missing = [...new Set(wanted)].filter((w) => !got.has(w))
+  if (!missing.length) return { ok: true }
+
+  const significant = missing.filter((w) => !FILLER_WORDS.has(w) && w.length > 2)
+  if (!significant.length && missing.length <= 1) return { ok: true }
+
+  const named = (significant.length ? significant : missing).slice(0, 4).join(', ')
+  return { ok: false, reason: `the print does not carry the design's wording (missing: ${named})` }
+}
+
 /**
  * A QA complaint that asks for a background to be ADDED to the print, which the
  * retry must never be handed.
@@ -1310,9 +1364,119 @@ export function asksForAMissingBackground(reason: string | undefined): boolean {
   return /missing|absent|not (?:present|shown|reproduced|there)|removed|lost|lacks|without|should (?:have|include)|left out|replaced by (?:the )?(?:white|shirt|garment)/.test(r)
 }
 
+/**
+ * Ask the vision model to READ an image rather than judge it.
+ *
+ * `<UNREADABLE>` is deliberately part of the contract: a print too small or too
+ * blurred to read is the exact case the holistic gate waved through on a family
+ * shot, so the transcription has to be able to say "I cannot read this" instead
+ * of guessing a plausible word.
+ */
+const TRANSCRIBE_PROMPT =
+  'Transcribe EVERY word printed in this image, in reading order, exactly as spelled. ' +
+  'Only words that are part of the printed artwork or graphic - ignore anything else in the photo, ' +
+  'such as garment labels, signs, or props. ' +
+  'If a word is too blurred or too small to read with confidence, output <UNREADABLE> in its place. ' +
+  'Respond in JSON: {"words": ["WORD", ...]}'
+
+/** Design transcriptions are stable per design, and a shoot reads the same one for every take. */
+const designWordsCache = new Map<string, string[]>()
+
+async function transcribeWords(imageUrl: string): Promise<string[] | null> {
+  if (!openai) return null
+  try {
+    const response = await openai.chat.completions.create({
+      model: OPENAI_VISION_MODEL,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: TRANSCRIBE_PROMPT },
+            { type: 'image_url', image_url: { url: imageUrl, detail: 'high' } },
+          ],
+        },
+      ],
+      ...(isReasoningModel(OPENAI_VISION_MODEL)
+        ? { max_completion_tokens: 900 }
+        : { max_tokens: 400, temperature: 0 }),
+      response_format: { type: 'json_object' },
+    } as any)
+    const content = response.choices[0]?.message?.content
+    if (!content) return null
+    const parsed = JSON.parse(content)
+    return Array.isArray(parsed?.words) ? parsed.words.map((w: unknown) => String(w)) : null
+  } catch (err: any) {
+    // Our QA problem, not the shot's - same policy as verifyDesignFidelity.
+    console.warn(`[etsy-shots] transcription unavailable (${err?.message || err})`)
+    return null
+  }
+}
+
+/**
+ * The design's own words, read from the art FLATTENED onto the garment colour.
+ *
+ * Reading the raw cut-out is unreliable for the same reason the fidelity gate
+ * hallucinated a background out of it: a vision model has to render the alpha
+ * to something, and it reads the result. The same design transcribed as
+ * "'TIS THE SEASON" from the transparent PNG and correctly as "TIDINGS" once it
+ * sat on the shirt colour (measured 2026-09-09), so this composites first.
+ */
+async function designPrintedWords(designUrl: string, shirtColor: string): Promise<string[] | null> {
+  const key = `${designUrl}::${shirtColor}`
+  const cached = designWordsCache.get(key)
+  if (cached) return cached
+  try {
+    const res = await fetch(designUrl)
+    if (!res.ok) return null
+    const hex = Object.values(COLORS).find(
+      (c) => c.id === shirtColor.toLowerCase() || c.label.toLowerCase() === shirtColor.toLowerCase()
+    )?.hex
+    const flat = await sharp(Buffer.from(await res.arrayBuffer()))
+      .flatten({ background: hex || '#ffffff' })
+      .png()
+      .toBuffer()
+    const words = await transcribeWords(`data:image/png;base64,${flat.toString('base64')}`)
+    if (words) designWordsCache.set(key, words)
+    return words
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Text fidelity: null when there is nothing to check or the check is
+ * unavailable, otherwise a verdict. Runs ONLY when the design carries words.
+ */
+async function checkPrintedText(
+  designUrl: string,
+  shotUrl: string,
+  shirtColor: string
+): Promise<{ ok: boolean; reason?: string } | null> {
+  const designWords = await designPrintedWords(designUrl, shirtColor)
+  if (!designWords || !designWords.length) return null
+  const shotWords = await transcribeWords(shotUrl)
+  if (!shotWords) return null
+  return comparePrintedText(designWords, shotWords)
+}
+
+/**
+ * The full fidelity verdict for one take: the holistic look, then the words.
+ *
+ * Both are needed. The holistic pass catches a redrawn illustration, a crop, a
+ * covered print; it provably cannot catch wrong lettering (David 2026-09-09).
+ * The text pass catches exactly that and nothing else.
+ */
+async function verifyShot(designUrl: string, shotUrl: string, shirtColor: string): Promise<ShotCheck | null> {
+  const visual = await verifyDesignFidelity(designUrl, shotUrl)
+  if (visual && !visual.ok) return visual
+  const text = await checkPrintedText(designUrl, shotUrl, shirtColor)
+  if (text && !text.ok) return { ok: false, reason: text.reason || 'the printed wording does not match the design' }
+  return visual
+}
+
 async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotContext): Promise<{ url: string; check: ShotCheck }> {
   const { url, degraded } = await generateOneShot(plan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
-  const verdict = await verifyDesignFidelity(ctx.designUrl, url)
+  const verdict = await verifyShot(ctx.designUrl, url, shirtColor)
   if (!verdict || verdict.ok) return { url, check: { ok: true, degraded } }
 
   // The inspector asking for a background that the cut-out source never had is
@@ -1330,7 +1494,7 @@ async function renderVerifiedShot(plan: ShotPlan, shirtColor: string, ctx: ShotC
   // telling the model what to fix.
   const retryPlan: ShotPlan = { ...plan, variant: slateId(), retryNote: verdict.reason }
   const { url: retryUrl, degraded: retryDegraded } = await generateOneShot(retryPlan, ctx.designUrl, shirtColor, ctx.productId, ctx.userId, ctx.placement, ctx.sizeInches, ctx.garmentNoun)
-  const retryVerdict = await verifyDesignFidelity(ctx.designUrl, retryUrl)
+  const retryVerdict = await verifyShot(ctx.designUrl, retryUrl, shirtColor)
   if (!retryVerdict || retryVerdict.ok) return { url: retryUrl, check: { ok: true, retried: true, degraded: retryDegraded } }
 
   console.warn(`[etsy-shots] ${ctx.productId} ${plan.key} still failing after retry: ${retryVerdict.reason}`)
