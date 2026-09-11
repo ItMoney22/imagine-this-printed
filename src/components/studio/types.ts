@@ -101,6 +101,11 @@ export interface DesignCandidate {
   assetId: string
   url: string
   label?: string
+  /** Which model actually drew this take, from the asset's own
+   *  `metadata.model_id`. Undefined when the asset recorded nothing, and the
+   *  card then shows no engine line - see EngineLine in shared.tsx for why a
+   *  blank beats a guess. */
+  engine?: string
 }
 
 /** Editable listing draft the Listing step composes and the admin can hand-edit. */

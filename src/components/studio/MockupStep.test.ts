@@ -3,7 +3,8 @@
 // exercise the presentational/computation logic without the component's
 // network effects. Design doc §14 (metal prints lane).
 import { describe, it, expect } from 'vitest'
-import { expectedShotKeys, shotLabel, engineLabel } from './MockupStep'
+import { expectedShotKeys, shotLabel } from './MockupStep'
+import { engineLabel } from './shared'
 import type { StepFlowMeta } from './types'
 
 function stepFlowMeta(over: Partial<StepFlowMeta> = {}): StepFlowMeta {
@@ -84,5 +85,11 @@ describe('engineLabel', () => {
 
   it('handles a bare model id with no vendor prefix', () => {
     expect(engineLabel('gpt-image-2')).toBe('gpt-image-2')
+  })
+
+  // The details card is composed with sharp, so "no model" is the answer —
+  // not the absence of one. A blank there read as "unknown".
+  it('says a locally composed card had no model instead of naming one', () => {
+    expect(engineLabel('local/details-card')).toBe('composed here, no AI model')
   })
 })

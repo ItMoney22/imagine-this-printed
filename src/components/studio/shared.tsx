@@ -3,7 +3,7 @@
 // AdminAIProductBuilder.tsx, not an import of it (that file's BuildState is a
 // different state machine entirely; Track C does not depend on it).
 import React from 'react'
-import { Check } from 'lucide-react'
+import { Check, Cpu, Sparkles } from 'lucide-react'
 import type { StepId } from './types'
 import { STEP_LABELS, STEP_ORDER } from './types'
 
@@ -61,6 +61,22 @@ export const SecondaryButton: React.FC<{
   </button>
 )
 
+/** The way out of a finished flow. Every terminal screen (Etsy queued, Etsy
+ *  skipped, customer submitted) ends with this one button so "keep going"
+ *  means the same thing and reads the same everywhere. Wired by
+ *  StepFlowBuilder, which resets the reducer AND drops ?productId= — a plain
+ *  link back to the page would leave the finished draft in the URL. */
+export const StartAnotherButton: React.FC<{ onClick: () => void; label?: string }> = ({ onClick, label }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-bold text-sm shadow-glow hover:scale-[1.02] active:scale-[0.99] transition-all"
+  >
+    <Sparkles className="w-4 h-4" />
+    {label ?? 'Make another'}
+  </button>
+)
+
 /** CSS checkerboard so a transparent PNG's alpha is obviously visible. */
 export const Checkerboard: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
   <div
@@ -113,6 +129,49 @@ export const WarnPanel: React.FC<{
     {children}
   </div>
 )
+
+/**
+ * Short, readable name for the engine that produced an asset.
+ *
+ * The full id stays in the tooltip because that is the auditable value; the
+ * label is only there so a card is scannable. "real print" is called out
+ * because print-true is the one path where the artwork is COMPOSITED rather
+ * than redrawn - the difference between a mockup whose lettering is
+ * guaranteed and one whose lettering a model invented.
+ */
+export function engineLabel(engine?: string | null): string | null {
+  if (!engine) return null
+  // `local/*` means no model was involved at all — the details card is
+  // composed here with sharp. Saying so beats a blank, which reads as "we
+  // don't know", and beats printing "details-card" as if it were a model.
+  if (engine.startsWith('local/')) return 'composed here, no AI model'
+  const composited = engine.startsWith('print-true/')
+  const base = composited ? engine.slice('print-true/'.length).replace('+composite', '') : engine
+  const short = (base.split('/').pop() || base).trim()
+  if (!short) return null
+  return composited ? `${short} + real print` : short
+}
+
+/**
+ * "What actually made this" caption, for a design take or a mockup card.
+ *
+ * Renders NOTHING when the asset recorded no engine. That blank is the
+ * point: the value is read off the finished asset, so a card we cannot
+ * attribute says nothing rather than repeating whichever model the code
+ * happened to ask for (David 2026-09-10: "you tend to not be truthful at
+ * times"). A missing label is a prompt to go fix the recording, not a place
+ * to put a plausible guess.
+ */
+export const EngineLine: React.FC<{ engine?: string | null; className?: string }> = ({ engine, className }) => {
+  const short = engineLabel(engine)
+  if (!short) return null
+  return (
+    <p className={`text-[10px] text-muted truncate ${className ?? ''}`} title={`Rendered by ${engine}`}>
+      <Cpu className="w-2.5 h-2.5 inline -mt-0.5 mr-0.5" />
+      {short}
+    </p>
+  )
+}
 
 export const InlineError: React.FC<{ message: string | null }> = ({ message }) =>
   message ? (

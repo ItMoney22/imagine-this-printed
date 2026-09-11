@@ -943,6 +943,70 @@ describe('resolveStepFlow', () => {
     expect(sf.shots.hanger).toMatchObject({ status: 'done', assetId: 'asset-1', url: 'https://cdn/hanger.png' })
   })
 
+  it('reports the engine from the asset that landed, not from what was queued', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: { hanger: { jobId: 'job-1', approved: false, status: 'queued' as const } }, approvals: {},
+    } } }
+    db.products.push(product)
+    const jobs = [{ id: 'job-1', status: 'succeeded' }]
+    const assets = [{ id: 'asset-1', asset_role: 'mockup_hanger', url: 'https://cdn/hanger.png', created_at: '2026-01-01',
+      metadata: { model_id: 'black-forest-labs/flux-2-pro' } }]
+
+    const sf = await resolveStepFlow(product as any, assets, jobs)
+    expect(sf.shots.hanger?.engine).toBe('black-forest-labs/flux-2-pro')
+  })
+
+  // The regression David hit: a build whose cards were all already 'done'
+  // gets no further poll, so a stamp-only implementation left every label
+  // blank forever. The engine has to come out of the assets in hand.
+  it('reports the engine on a settled build that was never stamped', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: { hanger: { jobId: 'job-1', approved: true, status: 'done' as const, assetId: 'asset-1', url: 'https://cdn/hanger.png' } },
+      approvals: {},
+    } } }
+    db.products.push(product)
+    const jobs = [{ id: 'job-1', status: 'succeeded' }]
+    const assets = [{ id: 'asset-1', asset_role: 'mockup_hanger', url: 'https://cdn/hanger.png', created_at: '2026-01-01',
+      metadata: { model_id: 'print-true/openai/gpt-image-2.5-flare+composite' } }]
+
+    const sf = await resolveStepFlow(product as any, assets, jobs)
+    expect(sf.shots.hanger?.engine).toBe('print-true/openai/gpt-image-2.5-flare+composite')
+  })
+
+  it('leaves the engine unset when the asset recorded no model', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: { hanger: { jobId: 'job-1', approved: false, status: 'queued' as const } }, approvals: {},
+    } } }
+    db.products.push(product)
+    const jobs = [{ id: 'job-1', status: 'succeeded' }]
+    const assets = [{ id: 'asset-1', asset_role: 'mockup_hanger', url: 'https://cdn/hanger.png', created_at: '2026-01-01' }]
+
+    const sf = await resolveStepFlow(product as any, assets, jobs)
+    expect(sf.shots.hanger?.engine).toBeUndefined()
+  })
+
+  it('calls a details card composed rather than leaving it blank', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: {
+        product: { approved: true, status: 'done' as const, assetId: 'asset-p', url: 'https://cdn/p.png' },
+        details: { approved: true, status: 'done' as const, assetId: 'asset-d', url: 'https://cdn/d.png', sourceAssetId: 'asset-p' },
+      },
+      approvals: {},
+    } } }
+    db.products.push(product)
+    const assets = [
+      { id: 'asset-p', asset_role: 'mockup_ghost_mannequin', url: 'https://cdn/p.png', created_at: '2026-01-01' },
+      { id: 'asset-d', asset_role: 'mockup_details', url: 'https://cdn/d.png', created_at: '2026-01-01' },
+    ]
+
+    const sf = await resolveStepFlow(product as any, assets, [])
+    expect(sf.shots.details?.engine).toBe('local/details-card')
+  })
+
   it('marks a shot failed when its job failed', async () => {
     const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
       version: 1, idea: '', brief: null, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },

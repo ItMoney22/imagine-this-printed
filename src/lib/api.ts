@@ -773,6 +773,12 @@ export interface ShotState {
   /** On-person shots only: who is in THIS photo and why. Per-slot, because a
    *  listing can carry several people; `step_flow.casting` describes the first. */
   casting?: CastingDecision
+  /** Which engine actually rendered this card, as the finished asset itself
+   *  records it (`product_assets.metadata.model_id`) - NEVER what a caller
+   *  believed it queued. Absent when the asset recorded nothing, and the UI
+   *  then shows no label at all: a blank is honest, a guess is not.
+   *  (David 2026-09-10: "i need to know what is running what".) */
+  engine?: string
   /** A shot that SUCCEEDED but not as cast, in plain English — today only the
    *  youth no-model fallback (both image engines declined a child subject, so
    *  the shirt was photographed empty). Shown next to the thumbnail; distinct

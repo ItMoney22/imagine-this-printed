@@ -624,6 +624,34 @@ describe('getDesignCandidates', () => {
     })
     expect(getDesignCandidates(state).map((c) => c.assetId)).toEqual(['a', 'b'])
   })
+
+  // The Design step had no provenance at all because this read model_name,
+  // which only a couple of writers set, while EVERY writer sets model_id.
+  it('reports the engine from metadata.model_id, which every generator writes', () => {
+    const state = stateWith({
+      assets: [
+        asset({
+          id: 'a',
+          kind: 'source',
+          asset_role: 'design',
+          url: 'a.png',
+          metadata: { model_id: 'openai/gpt-image-2.5-flare' },
+        }),
+      ],
+    })
+    expect(getDesignCandidates(state)[0].engine).toBe('openai/gpt-image-2.5-flare')
+  })
+
+  it('leaves the engine undefined when the asset recorded none, rather than guessing', () => {
+    const state = stateWith({
+      assets: [
+        asset({ id: 'a', kind: 'source', asset_role: 'design', url: 'a.png', metadata: { model_name: 'GPT Image 2' } }),
+      ],
+    })
+    const [take] = getDesignCandidates(state)
+    expect(take.engine).toBeUndefined()
+    expect(take.label).toBe('GPT Image 2')
+  })
 })
 
 describe('areMockupsResolved / hasNonTerminalWork', () => {

@@ -191,7 +191,16 @@ export function getDesignCandidates(state: Pick<StepFlowState, 'assets'>): Desig
   return state.assets
     .filter((a) => a.kind === 'source' && a.asset_role === 'design' && a.url)
     .sort((a, b) => (a.created_at ?? '').localeCompare(b.created_at ?? ''))
-    .map((a) => ({ assetId: a.id, url: a.url as string, label: a.metadata?.model_name }))
+    .map((a) => ({
+      assetId: a.id,
+      url: a.url as string,
+      label: a.metadata?.model_name,
+      // model_id, NOT model_name: every generator writes model_id, only some
+      // write model_name, so reading the friendly name alone left the Design
+      // step with no provenance at all for most takes (David 2026-09-11: "i
+      // have no clue what generated the main designs").
+      engine: typeof a.metadata?.model_id === 'string' ? a.metadata.model_id : undefined,
+    }))
 }
 
 function jobStatusToShotStatus(status: StepFlowJob['status']): ShotState['status'] | null {

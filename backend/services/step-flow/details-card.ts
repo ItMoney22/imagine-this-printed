@@ -418,6 +418,10 @@ export async function renderDetailsCard(opts: RenderDetailsCardOpts): Promise<Re
       display_order: 6,
       metadata: {
         template: 'step_flow_details_card',
+        // No model drew this - it is composed here with sharp from the
+        // product shot. Recorded so the card can SAY that instead of showing
+        // the blank that means "we don't know" (David 2026-09-11).
+        model_id: 'local/details-card',
         garment: opts.garment,
         color: opts.color,
         generated_at: new Date().toISOString(),
@@ -647,6 +651,8 @@ export async function renderMetalDetailsCard(opts: RenderMetalDetailsCardOpts): 
       display_order: 6,
       metadata: {
         template: 'step_flow_metal_details_card',
+        // Composed, not generated — same as the garment card above.
+        model_id: 'local/details-card',
         sizes: opts.sizes,
         generated_at: new Date().toISOString(),
       },

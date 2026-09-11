@@ -1315,6 +1315,7 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
   // assetId straight to the database, so the in-memory snapshot here is stale
   // and matching on it silently found nothing (measured — only one card of five
   // resolved). Newest asset in the slot wins, same rule that loop uses.
+  const engines = new Map<ShotKey, string>()
   for (const key of Object.keys(stepFlow.shots) as ShotKey[]) {
     const state = stepFlow.shots[key]
     if (!state) continue
@@ -1322,19 +1323,46 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
     const newest = assets
       .filter((a) => a.asset_role === role && a.url)
       .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
-    const engine = newest?.metadata?.model_id
-    if (typeof engine === 'string' && engine && state.engine !== engine) {
+    // A details card that recorded nothing is still knowable: renderDetailsCard
+    // / renderMetalDetailsCard are the ONLY producers of mockup_details and
+    // neither one calls a model, so "composed here" is derived from the code
+    // path, not guessed. Cards made before that stamp existed get it too.
+    const recorded = newest?.metadata?.model_id
+    const engine = typeof recorded === 'string' && recorded
+      ? recorded
+      : key === 'details' && newest
+        ? 'local/details-card'
+        : undefined
+    if (!engine) continue
+    engines.set(key, engine)
+    if (state.engine !== engine) {
       await patchShotState(product.id, key, { engine })
       touched = true
     }
   }
 
-  if (!touched) return stepFlow
-  // Every mutation above already landed through the lock — re-read once at
-  // the end to hand the caller the fully up-to-date row instead of
-  // reconstructing it from whatever order the patches happened to apply in.
-  const fresh = await loadProductRow(product.id)
-  return getStepFlow(fresh)
+  const base = touched
+    // Every mutation above already landed through the lock — re-read once at
+    // the end to hand the caller the fully up-to-date row instead of
+    // reconstructing it from whatever order the patches happened to apply in.
+    ? getStepFlow(await loadProductRow(product.id))
+    : stepFlow
+
+  // Apply the DERIVED engines to the response, not just the persisted stamp.
+  // The stamp is a cache; the assets in hand are the truth. Without this, a
+  // build whose cards all landed BEFORE provenance existed showed blank
+  // labels forever: the frontend stops polling once every shot is done, so
+  // the poll that would have written the stamp never comes (David 2026-09-11:
+  // "i just did it and i have no clue what generated ... the mock ups"). This
+  // makes the label a function of the assets, so it is right on the first
+  // read of any build, old or new, deployed stamp or not.
+  if (engines.size === 0) return base
+  const shots = { ...base.shots }
+  for (const [key, engine] of engines) {
+    const shot = shots[key]
+    if (shot && shot.engine !== engine) shots[key] = { ...shot, engine }
+  }
+  return { ...base, shots }
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import React, { useMemo, useState } from 'react'
 import { Check, RefreshCw, Wand2 } from 'lucide-react'
 import { useStudioLane } from './lane'
 import { getDesignCandidates, getNobgAsset, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
-import { ApproveButton, BusyDot, Checkerboard, InlineError, SecondaryButton, StepCard } from './shared'
+import { ApproveButton, BusyDot, Checkerboard, EngineLine, engineLabel, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
 import PrintPrepPanel from './PrintPrepPanel'
 
@@ -54,6 +54,13 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
     .filter((j) => (j.type === 'replicate_image' || j.type === 'replicate_image_v2') && (j.status === 'queued' || j.status === 'running'))
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
   const isGenerating = !!designJob
+  // Name the model the job was actually dispatched with instead of the
+  // hardcoded "GPT Image 2" this used to claim - that line kept saying
+  // gpt-image-2 no matter which engine the router had picked, which is
+  // exactly the kind of confident-and-wrong caption David called out.
+  const designEngine = engineLabel(
+    typeof designJob?.input?.modelId === 'string' ? designJob.input.modelId : undefined
+  )
   const rembgJob = [...state.jobs]
     .filter((j) => j.type === 'replicate_rembg')
     .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
@@ -138,7 +145,10 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
         <div className="py-8 px-2 sm:px-8">
           <ProgressBar
             size="lg"
-            label={designJob?.output?.message || 'Painting your design with GPT Image 2'}
+            label={
+              designJob?.output?.message ||
+              (designEngine ? `Painting your design with ${designEngine}` : 'Painting your design')
+            }
             startedAt={designJob?.created_at ? new Date(designJob.created_at).getTime() : Date.now()}
             expectedMs={DESIGN_EXPECTED_MS}
             step={designJob?.output?.step}
@@ -160,7 +170,9 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
                 <div className={`${isMetal ? 'aspect-[3/4]' : 'aspect-square'} bg-card-elevated`}>
                   <img src={c.url} alt={c.label ?? 'Design take'} className="w-full h-full object-contain" />
                 </div>
-                <div className="p-2">
+                <div className="p-2 space-y-1.5">
+                  {/* Which model drew THIS take, read off the asset itself. */}
+                  <EngineLine engine={c.engine} />
                   <button
                     type="button"
                     onClick={() => handleUseThis(c.assetId)}
