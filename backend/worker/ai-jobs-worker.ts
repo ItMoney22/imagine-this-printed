@@ -648,21 +648,25 @@ export async function processMockupJob(job: any): Promise<void> {
     console.log('[worker] 🎭 Generating', template, 'via image-flow (Imagen 4 Fast + Nano Banana 2 Lite for flat_lay/ghost_mannequin, Nano Banana 2 Lite for mr_imagine)')
     await updateJobProgress(job.id, `🎭 Generating ${templateName} mockup...`, 1, 3)
 
-    // PRINT-TRUE FIRST. Generate the garment EMPTY and composite the real print
-    // file onto it, so nothing regenerates the artwork (see
-    // services/print-true-mockup.ts for the five renders that proved generative
-    // mockups re-letter the design). Returns null on any problem, which falls
-    // straight through to the generative render below — worst case is exactly
-    // today's behaviour.
-    // "Retry with Flare" (David 2026-09-11): the admin asked for THIS engine,
-    // so a failure has to surface as a failure. Without the flag, print-true
-    // is best-effort and a miss falls through to the generative render — which
-    // is fine as a default and useless as an answer to "do it with Flare".
+    // PRINT-TRUE ON REQUEST ONLY. Generating the garment EMPTY with Flare and
+    // compositing the real print is the higher-fidelity path (nothing redraws
+    // the artwork), but it is an OpenAI image at 'high' — roughly $0.17 a card
+    // against ~$0.03 for the flux render, on the product, the hanger and EVERY
+    // colour. It used to run first on every garment mockup.
+    //
+    // David 2026-09-11, twice, the second time after the bill: "i said the
+    // mockups on flux 2 pro are okay ... this way that you are doing things is
+    // costing me so much money". So flux is the default and Flare is the
+    // button ("Retry with Flare"), which is exactly what he asked for.
+    //
+    // When it IS asked for, a failure surfaces as a failure — see the throws
+    // below. Best-effort is right for a default and useless as an answer to
+    // "do it with Flare".
     const forcedPrintTrue = job.input?.engine === 'print-true'
     if (forcedPrintTrue && !supportsPrintTrue(template)) {
       throw new Error(`Flare can't render the "${template}" shot — it only re-renders a plain garment`)
     }
-    if (supportsPrintTrue(template) && garmentImageUrl) {
+    if (forcedPrintTrue && supportsPrintTrue(template) && garmentImageUrl) {
       const garmentId = normalizeGarment(productType) ?? 'tshirt'
       const colorLabel = String(shirtColor || 'black').toLowerCase()
       try {
