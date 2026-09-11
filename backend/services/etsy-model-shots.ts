@@ -1330,19 +1330,42 @@ const normalizeWord = (w: string): string =>
  * the old false-failure problem wearing a new hat. One dropped filler word
  * ("a", "of") is tolerated for the same reason; a dropped headline word is not.
  */
+/**
+ * Does one transcribed word stand for another?
+ *
+ * Transcription does not agree with itself about where a stylised word ends.
+ * The live failure: a graffiti-lettered crest reading HOLY HANDY FATHER
+ * transcribed as HANDY off the photo and HAND off the flattened design, so an
+ * exact-set comparison called a perfect shot a missing word and killed the
+ * listing's only on-person photo (David 2026-09-11: "the on person is
+ * failing"). A dropped or added final letter is a transcription artefact, not
+ * a print defect.
+ *
+ * Prefix/suffix only, never arbitrary substring: STREET contains TREE, and
+ * treating that as a match would wave through the wrong-lettering renders this
+ * gate exists to catch. Four characters minimum for the same reason.
+ */
+function readsAsSameWord(wanted: string, printed: string[]): boolean {
+  return printed.some((g) => {
+    if (Math.min(g.length, wanted.length) < 4) return false
+    return g.startsWith(wanted) || wanted.startsWith(g) || g.endsWith(wanted) || wanted.endsWith(g)
+  })
+}
+
 export function comparePrintedText(
   designWords: string[],
   shotWords: string[]
 ): { ok: boolean; reason?: string } {
-  const wanted = (designWords || []).map(normalizeWord).filter(Boolean)
+  const wanted = [...new Set((designWords || []).map(normalizeWord).filter(Boolean))]
   if (!wanted.length) return { ok: true }
 
   if ((shotWords || []).some((w) => String(w).toUpperCase().includes('UNREADABLE'))) {
     return { ok: false, reason: 'the printed text is not legible enough to confirm it matches the design' }
   }
 
-  const got = new Set((shotWords || []).map(normalizeWord).filter(Boolean))
-  const missing = [...new Set(wanted)].filter((w) => !got.has(w))
+  const got = (shotWords || []).map(normalizeWord).filter(Boolean)
+  const gotSet = new Set(got)
+  const missing = wanted.filter((w) => !gotSet.has(w) && !readsAsSameWord(w, got))
   if (!missing.length) return { ok: true }
 
   const significant = missing.filter((w) => !FILLER_WORDS.has(w) && w.length > 2)

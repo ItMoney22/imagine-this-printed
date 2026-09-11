@@ -381,6 +381,28 @@ describe('comparePrintedText', () => {
     expect(comparePrintedText(DESIGN_WORDS, [...DESIGN_WORDS]).ok).toBe(true)
   })
 
+  // The live regression (David 2026-09-11, "the on person is failing"): a
+  // graffiti-lettered crest reading HOLY HANDY FATHER transcribed as HAND off
+  // the flattened design and HANDY off the photo, and exact-token matching
+  // killed the listing's only on-person shot over it. The photo was correct.
+  it('handles the design transcribing as one run-on token', () => {
+    expect(comparePrintedText(['HOLYHANDYFATHER'], ['HOLY', 'HANDY', 'FATHER']).ok).toBe(true)
+  })
+
+  // Prefix/suffix, never arbitrary substring — STREET contains TREE, and
+  // accepting that would wave through exactly what this gate exists to catch.
+  it('does not let STREET stand in for TREE', () => {
+    expect(comparePrintedText(['TREE', 'TRIMMING'], ['STREET', 'SIGNS']).ok).toBe(false)
+  })
+
+  it('needs four characters before a partial word counts, so AND is not HANDY', () => {
+    expect(comparePrintedText(['AND', 'DAD', 'LIFE'], ['HANDY', 'DADS', 'LIFE']).ok).toBe(false)
+  })
+
+  it('does not fail a correct print over a dropped final letter', () => {
+    expect(comparePrintedText(['HOLY', 'HAND', 'FATHER'], ['HOLY', 'HANDY', 'FATHER']).ok).toBe(true)
+  })
+
   it('fails the family shot that invented "FURRY FINNANCE"', () => {
     const shot = ['Make', 'It', 'a', 'FURRY', 'FINNANCE', 'Make', 'It', 'a', 'WILDERNESS', 'SEASON']
     const v = comparePrintedText(DESIGN_WORDS, shot)
