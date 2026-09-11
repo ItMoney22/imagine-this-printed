@@ -208,7 +208,7 @@ describe('taxonomyIdForCategory', () => {
 
   it('falls back to the shop-wide default for a category with no preset', () => {
     process.env.ETSY_DEFAULT_TAXONOMY_ID = '482'
-    expect(taxonomyIdForCategory('shirts')).toBe(482)
+    expect(taxonomyIdForCategory('stickers')).toBe(482)
   })
 
   it('prefers a preset over the shop-wide default so toys never land in the tee category', () => {
@@ -217,7 +217,7 @@ describe('taxonomyIdForCategory', () => {
   })
 
   it('returns null — not a wrong category — when nothing resolves', () => {
-    expect(taxonomyIdForCategory('shirts')).toBeNull()
+    expect(taxonomyIdForCategory('stickers')).toBeNull()
     expect(taxonomyIdForCategory(null)).toBeNull()
     expect(taxonomyIdForCategory('')).toBeNull()
   })
@@ -226,6 +226,37 @@ describe('taxonomyIdForCategory', () => {
     process.env.ETSY_TAXONOMY_MAP = 'not json {'
     process.env.ETSY_DEFAULT_TAXONOMY_ID = '482'
     expect(taxonomyIdForCategory('3d-prints')).toBe(1799)
+    expect(taxonomyIdForCategory('stickers')).toBe(482)
+  })
+
+  // The 2026-09-11 outage: prod's ETSY_TAXONOMY_MAP had drifted to cover only
+  // some slugs, so "no taxonomy for hoodies"/"for t-shirts" blocked the primary
+  // tier on the whole Ready-for-Etsy queue. Every slug a product can actually
+  // carry now resolves from code alone; env stays an override, never a
+  // prerequisite.
+  it.each([
+    ['shirts', 482],
+    ['t-shirts', 482],
+    ['hoodies', 1853],
+    ['tumblers', 1071],
+    ['dtf-transfers', 6617],
+    ['metal-art', 119],
+    ['3d-prints', 1799]
+  ])('resolves %s with no env at all', (slug, id) => {
+    expect(taxonomyIdForCategory(slug as string)).toBe(id)
+  })
+
+  it('covers every slug the product wizard can assign, so no category can be unlistable', () => {
+    // PRODUCT_CATEGORY_SLUGS in services/ai-product.ts, plus the two live slugs
+    // it does not emit: 't-shirts' (legacy rows) and '3d-prints' (toy lane).
+    for (const slug of ['shirts', 'hoodies', 'tumblers', 'dtf-transfers', 'metal-art', 't-shirts', '3d-prints']) {
+      expect(taxonomyIdForCategory(slug), `${slug} must resolve without env`).not.toBeNull()
+    }
+  })
+
+  it('still lets an env override beat a built-in apparel default', () => {
+    process.env.ETSY_TAXONOMY_MAP = '{"hoodies":469}'
+    expect(taxonomyIdForCategory('hoodies')).toBe(469)
     expect(taxonomyIdForCategory('shirts')).toBe(482)
   })
 

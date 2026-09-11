@@ -123,8 +123,11 @@ export function sanitizePhraseText(raw: unknown, maxLen = 60): string {
     .slice(0, maxLen)
 }
 
-/** Coerces a loosely-typed `{ text, placement?, style? }` body into a clean StepBriefPhrase, or undefined when there's nothing usable. */
-function coercePhraseInput(input: unknown): StepBriefPhrase | undefined {
+/** Coerces a loosely-typed `{ text, placement?, style? }` body into a clean StepBriefPhrase, or undefined when there's nothing usable.
+ *  Exported so the lettering pass (./letter-phrase.ts) validates an incoming
+ *  phrase through the SAME funnel the brief does — one definition of what a
+ *  usable phrase is, whether it is rendered up front or lettered in later. */
+export function coercePhraseInput(input: unknown): StepBriefPhrase | undefined {
   if (!input || typeof input !== 'object') return undefined
   const text = sanitizePhraseText((input as any).text)
   if (!text) return undefined
@@ -136,8 +139,11 @@ function coercePhraseInput(input: unknown): StepBriefPhrase | undefined {
   return { text, placement, style }
 }
 
-/** The "in <style>" clause of the exact-text instruction (design doc §16). 'auto' lets the model pick a style that suits the artwork. */
-function letteringStyleClause(style: LetteringStyleId | 'auto' | undefined): string {
+/** The "in <style>" clause of the exact-text instruction (design doc §16). 'auto' lets the model pick a style that suits the artwork.
+ *  Exported for ./letter-phrase.ts: lettering words INTO a finished design and
+ *  rendering them with it must describe the same style the same way, or the
+ *  two paths drift into producing different-looking type for one style id. */
+export function letteringStyleClause(style: LetteringStyleId | 'auto' | undefined): string {
   if (style === 'auto') return 'in a lettering style that matches the artwork'
   const resolved = getLetteringStyle(style) ?? getLetteringStyle(DEFAULT_LETTERING_STYLE)!
   return `in ${resolved.prompt}`

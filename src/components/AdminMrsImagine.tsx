@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowRight, ExternalLink, RefreshCw, ShieldAlert } from 'lucide-react'
-import { mrsImagine, type ScoutPick, type ScoutRun } from '../lib/api'
+import { mrsImagine, scoutProgress, scoutResult, type ScoutPick, type ScoutRun } from '../lib/api'
+import ProgressBar from './studio/ProgressBar'
 
 // Mrs. Imagine's card — her daily SCOUT board (David 2026-09-09: "mrs imagine
 // is a scout she finds great designs that are selling she needs to verify they
@@ -19,6 +20,15 @@ import { mrsImagine, type ScoutPick, type ScoutRun } from '../lib/api'
 // real purchases. About one buyer in three leaves one, so it reads as a floor —
 // "at least this many" — and the copy here never rounds that up into a claim
 // the data can't carry.
+
+/** How often the card re-reads a sweep in flight. */
+const POLL_MS = 2000
+/** No progress write for this long while 'running' means the run is dead. */
+const STALL_AFTER_MS = 45_000
+/** Roughly how long a full sweep takes, for the bar's time-based easing
+ *  between real progress writes. Measured at 64s on 2026-09-11 (749 listings
+ *  sampled, 140 verified) once the Etsy calls were paced under the 10/s limit. */
+const EXPECTED_SWEEP_MS = 70_000
 
 const KIND_LABEL: Record<ScoutPick['kind'], string> = {
   tshirt: 'T-Shirt',
@@ -131,15 +141,30 @@ export default function AdminMrsImagine() {
     void load()
   }, [load])
 
+  // A sweep is minutes long (140 listings x 2 Etsy calls), so the card polls
+  // the run row while one is in flight and drives a real progress bar off it.
+  // Polling is keyed on the RUN, not on this tab's button: a sweep started by
+  // the daily clock — or by David in another tab — shows the same live bar.
+  const running = busy || run?.status === 'running'
+  useEffect(() => {
+    if (!running) return
+    const id = window.setInterval(() => { void load() }, POLL_MS)
+    return () => window.clearInterval(id)
+  }, [running, load])
+
   const sweep = async () => {
     setBusy(true)
     setMessage(null)
+    void load() // paint the bar immediately rather than after the first poll
     try {
       const { run } = await mrsImagine.runScout()
       setRun(run)
       if (run.status === 'failed') setMessage(run.error || 'Scout failed')
     } catch (e: any) {
-      setMessage(e.message)
+      // 409 means she is already out — that is not an error worth shouting
+      // about, it just means the bar below belongs to a sweep already running.
+      if (/already/i.test(e?.message ?? '')) void load()
+      else setMessage(e.message)
     } finally {
       setBusy(false)
     }
@@ -152,8 +177,15 @@ export default function AdminMrsImagine() {
     navigate(`/admin/ai/products/create?${params.toString()}`)
   }
 
-  const picks = run?.output?.picks ?? []
-  const output = run?.output
+  const output = scoutResult(run)
+  const picks = output?.picks ?? []
+  const progress = scoutProgress(run)
+  // The backend rewrites progress every ~1.5s, so that timestamp is a
+  // heartbeat: if it stops advancing the run is dead (a dev-server restart
+  // kills an in-flight sweep — it runs in the API process, not the worker) and
+  // saying so beats a bar that creeps toward 92% forever.
+  const heartbeatMs = progress ? Date.now() - Date.parse(progress.updated_at) : 0
+  const stalled = !!progress && heartbeatMs > STALL_AFTER_MS
 
   return (
     <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
@@ -186,6 +218,36 @@ export default function AdminMrsImagine() {
       </div>
 
       {message && <p className="mt-3 text-sm text-red-600">{message}</p>}
+
+      {/* Live work, not a spinner: stage text, real step counts off the job
+          row, and elapsed time. Shown for any sweep in flight — including one
+          this tab did not start. */}
+      {running && (
+        <div className="mt-4">
+          <ProgressBar
+            label={
+              stalled
+                ? 'She stopped responding — the API restarted mid-sweep'
+                : (progress?.message ?? 'Waking Mrs. Imagine up')
+            }
+            startedAt={run ? Date.parse(run.created_at) : Date.now()}
+            expectedMs={EXPECTED_SWEEP_MS}
+            step={progress?.step}
+            totalSteps={progress?.total_steps}
+            failed={stalled}
+            errorText={
+              stalled
+                ? 'Nothing has moved for 45 seconds. Hit Scout now to start a fresh sweep.'
+                : undefined
+            }
+            size="lg"
+          />
+          <p className="text-[11px] text-slate-400 mt-2">
+            She reads Etsy twice per listing to prove a real sale, so a full sweep runs a few
+            minutes. Read-only — no designs, no spend.
+          </p>
+        </div>
+      )}
 
       {run && (
         <div className="flex items-center gap-2 text-xs mt-4">

@@ -30,7 +30,7 @@
 //     deploy) is marked failed so it can't wedge the clock.
 
 import { supabase } from '../lib/supabase.js'
-import { runAndRecordScout, SCOUT_JOB_TYPE } from '../services/mrs-imagine-scout.js'
+import { runAndRecordScout, SCOUT_JOB_TYPE, type ScoutResult } from '../services/mrs-imagine-scout.js'
 
 const CHECK_INTERVAL_MS = 10 * 60 * 1000
 const RUN_WINDOW_HOURS = 20
@@ -93,7 +93,10 @@ async function tick(): Promise<void> {
     console.error('[mrs-imagine-scout] daily sweep failed:', run.error)
     return
   }
-  console.log(`[mrs-imagine-scout] 🌅 daily sweep done — ${run.output?.picks.length ?? 0} picks from ${run.output?.proven ?? 0} proven sellers`)
+  // `output` is ScoutProgress while a run is in flight and ScoutResult once it
+  // succeeds; we are past the status check, so this is the result.
+  const result = run.status === 'succeeded' ? (run.output as ScoutResult | undefined) : undefined
+  console.log(`[mrs-imagine-scout] 🌅 daily sweep done — ${result?.picks.length ?? 0} picks from ${result?.proven ?? 0} proven sellers`)
 }
 
 export function startMrsImagineDaily(): void {

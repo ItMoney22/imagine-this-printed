@@ -122,6 +122,21 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
     return () => clearInterval(interval)
   }, [state.productId, pollActive, refresh])
 
+  // "after this step there should be make another button so i can keep
+  // going" (David, 2026-09-09). Both lanes dead-ended on their success
+  // screen: the flow was finished, but the only way to start the next one was
+  // to edit the URL or reload the page. Resetting state is only half of it —
+  // `?productId=` has to go too, or a refresh (and the resume effect above)
+  // would drag the finished draft straight back in.
+  const startAnother = useCallback(() => {
+    dispatch({ type: 'RESET' })
+    const next = new URLSearchParams(searchParams)
+    next.delete('productId')
+    next.set('mode', 'steps')
+    setSearchParams(next, { replace: true })
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [searchParams, setSearchParams])
+
   const canReach = useCallback((step: StepId) => canReachStep(state, step), [state])
   const goTo = useCallback((step: StepId) => dispatch({ type: 'GO_TO_STEP', step }), [])
   const isMetal = state.productKind === 'metal'
@@ -153,11 +168,13 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
           <GarmentStep state={state} dispatch={dispatch} refresh={refresh} />
         ))}
       {state.step === 'mockups' && <MockupStep state={state} dispatch={dispatch} refresh={refresh} />}
-      {state.step === 'listing' && <ListingStep state={state} dispatch={dispatch} refresh={refresh} />}
+      {state.step === 'listing' && (
+        <ListingStep state={state} dispatch={dispatch} refresh={refresh} onStartAnother={startAnother} />
+      )}
       {/* The customer lane has no Etsy stop at all — not in `lane.steps`, not
           reachable in the reducer, and no route behind it on the server. */}
       {state.step === 'etsy' && lane.steps.includes('etsy') && (
-        <EtsyStep state={state} dispatch={dispatch} refresh={refresh} />
+        <EtsyStep state={state} dispatch={dispatch} refresh={refresh} onStartAnother={startAnother} />
       )}
     </div>
   )

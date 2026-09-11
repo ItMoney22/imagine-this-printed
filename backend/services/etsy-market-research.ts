@@ -81,16 +81,59 @@ const SEED_QUERIES: Record<ResearchCategory, string[]> = {
   'metal-art': ['metal wall art', 'metal sign home decor', 'man cave metal sign', 'garden metal art'],
 }
 
+/** Per-call ceiling. Node's fetch has NO default timeout, so one stalled Etsy
+ *  socket used to wedge a verifySalesBatch worker permanently — with
+ *  concurrency 4, four such stalls hang the whole sweep with the job row stuck
+ *  on 'running' and nothing in the log. A slow call is better dropped: the
+ *  caller already treats a failed lookup as "unverified, don't pitch it". */
+const ETSY_CALL_TIMEOUT_MS = 20_000
+
+// Etsy enforces 10 requests/second on the public API and answers a burst with
+// 429 "Exceeded per second rate limit". Concurrency alone never held that line:
+// verifySalesBatch runs 4 workers and verifyListingSales fires its 2 calls in
+// parallel, so 8 requests left at once with no pacing between iterations. On
+// the first real sweep (2026-09-11) that 429'd 122 of 140 lookups and failed
+// the whole run at the "more than half failed" guard.
+//
+// So every public call now goes through one process-wide pacer. Slots are
+// claimed synchronously — JS runs this to completion before any other caller
+// can interleave — which is what makes a shared counter safe here.
+const ETSY_MIN_INTERVAL_MS = 130 // ~7.7 req/s, comfortably under the 10/s ceiling
+const ETSY_MAX_ATTEMPTS = 4
+let nextSlotMs = 0
+
+async function takeRateLimitSlot(): Promise<void> {
+  const now = Date.now()
+  const slot = Math.max(now, nextSlotMs)
+  nextSlotMs = slot + ETSY_MIN_INTERVAL_MS
+  const wait = slot - now
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait))
+}
+
 async function etsyPublicFetch(path: string, params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString()
-  const res = await fetch(`${ETSY_API_BASE}${path}?${qs}`, {
-    headers: { 'x-api-key': researchApiKey() },
-  })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Etsy public API ${res.status} on ${path}: ${body.slice(0, 300)}`)
+  let lastBody = ''
+  for (let attempt = 1; attempt <= ETSY_MAX_ATTEMPTS; attempt++) {
+    await takeRateLimitSlot()
+    const res = await fetch(`${ETSY_API_BASE}${path}?${qs}`, {
+      headers: { 'x-api-key': researchApiKey() },
+      signal: AbortSignal.timeout(ETSY_CALL_TIMEOUT_MS),
+    })
+    if (res.ok) return res.json()
+
+    lastBody = await res.text().catch(() => '')
+    // 429 is the limiter talking, not a bad request: back off and try again.
+    // Anything else (404, 403, a dead key) will not improve with a retry.
+    if (res.status !== 429 || attempt === ETSY_MAX_ATTEMPTS) {
+      throw new Error(`Etsy public API ${res.status} on ${path}: ${lastBody.slice(0, 300)}`)
+    }
+    // Push every other in-flight caller back too — a 429 means the whole
+    // process is over the line, not just this one request.
+    const backoff = 400 * 2 ** (attempt - 1) + Math.floor(Math.random() * 200)
+    nextSlotMs = Math.max(nextSlotMs, Date.now() + backoff)
+    await new Promise((r) => setTimeout(r, backoff))
   }
-  return res.json()
+  throw new Error(`Etsy public API 429 on ${path} after ${ETSY_MAX_ATTEMPTS} attempts: ${lastBody.slice(0, 300)}`)
 }
 
 /** One page of public marketplace search, relevancy-sorted. */
@@ -295,13 +338,22 @@ export interface SalesBatchResult {
  *  an unproven listing must not reach a list whose whole promise is proof. */
 export async function verifySalesBatch(
   listingIds: number[],
-  opts: { windowDays?: number; concurrency?: number } = {}
+  opts: {
+    windowDays?: number
+    concurrency?: number
+    /** Called after every listing settles (success OR failure) so a caller can
+     *  drive a progress bar. This phase is ~90% of a scout run's wall clock,
+     *  and without it the only honest UI is a spinner. */
+    onSettled?: (done: number, total: number) => void
+  } = {}
 ): Promise<SalesBatchResult> {
   const windowDays = opts.windowDays ?? 90
   const concurrency = Math.max(1, Math.min(5, opts.concurrency ?? 4))
   const proofs = new Map<number, SalesProof>()
   let failed = 0
   let firstError: string | null = null
+  let settled = 0
+  const total = listingIds.length
   const queue = [...listingIds]
   const workers = Array.from({ length: concurrency }, async () => {
     for (;;) {
@@ -314,6 +366,8 @@ export async function verifySalesBatch(
         if (!firstError) firstError = e?.message ?? 'unknown error'
         console.warn(`[etsy-research] sales lookup failed for ${id}: ${e?.message}`)
       }
+      settled += 1
+      opts.onSettled?.(settled, total)
     }
   })
   await Promise.all(workers)

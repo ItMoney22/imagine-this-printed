@@ -15,6 +15,7 @@
 // deterministic fallback so the phrase step always has something to show.
 
 import OpenAI from 'openai'
+import sharp from 'sharp'
 import { runCopyrightGate } from '../etsy-copyright-gate.js'
 import { isLetteringStyleId, type LetteringStyleId } from '../../shared/lettering-styles.js'
 import type { StepBrief, PhrasePlacement } from './brief.js'
@@ -270,6 +271,218 @@ export async function pitchPhrases(idea: string, brief?: StepBrief, count?: numb
   return {
     persona: 'mrs-imagine',
     intro: MRS_IMAGINE_INTRO,
+    phrases: candidates.slice(0, wantCount),
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Vision-grounded pitch (David 2026-09-09): "the phrases or ask mrs imagine to
+// come up with a phrase she is going off the prompt and it really doesnt match
+// the design of the image so it sucks".
+//
+// He was right, and it was worse than he thought. `pitchPhrases` above sees a
+// design idea and — when the caller bothers to send one — an art-direction
+// prompt. It has never seen a picture, because in the original flow no picture
+// exists yet: phrase -> prompt -> render, in that order. Every pitch was a
+// guess at art nobody had drawn.
+//
+// This half runs at the OTHER end: the design is on screen, and Mrs. Imagine
+// LOOKS at it before she writes a word. She also reports what she sees
+// (`saw`) and any words already drawn into the art (`existingText`) — the
+// first so David can tell at a glance that she actually looked, the second
+// because lettering a second line onto art that already carries one is how a
+// shirt ends up with two competing slogans on it.
+//
+// Same cost-first brain order as inspiration.ts: OpenRouter gemini-2.5-flash
+// (vision-capable) first, OPENAI_VISION_MODEL second. Never throws — a dead
+// call falls back to the deterministic idea-derived set, exactly as the
+// text-only pitch does, with `saw: null` so the caller can say so.
+// ---------------------------------------------------------------------------
+
+/** What Mrs. Imagine pitched after actually looking at the finished artwork. */
+export interface DesignPhrasesResult extends PhrasesResult {
+  /** One sentence on what she can see in the design. Null when the vision call failed and these are blind fallbacks. */
+  saw: string | null
+  /** Words already drawn INTO the artwork, spelled as seen, or null when it carries none. */
+  existingText: string | null
+}
+
+const openrouterVisionClient = USE_OPENROUTER
+  ? new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY,
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': 'https://imaginethisprinted.com',
+        'X-Title': 'Imagine Studio - Step Flow Phrases (vision)',
+      },
+    })
+  : null
+const openaiVisionClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+
+const OPENROUTER_VISION_MODEL = 'google/gemini-2.5-flash'
+const OPENAI_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
+const isVisionReasoningModel = (m: string) => /^(o[1-9]|gpt-5)/.test(m)
+
+/** Her line above the chips once she has actually seen the art — deliberately different from MRS_IMAGINE_INTRO so the two pitches are told apart on sight. */
+export const MRS_IMAGINE_DESIGN_INTRO = 'I looked at your design. These are the lines that fit what is actually on it.'
+
+const VISION_SYSTEM_PROMPT = `You are Mrs. Imagine, Imagine This Printed's in-house designer. You are being shown a FINISHED piece of artwork that is about to be printed on a shirt. Your job is to pitch short phrases to letter onto THIS artwork.
+
+Look at the image first. Every phrase must fit what is actually drawn — the subject, its expression, the action, the setting, the mood, the palette. A phrase that would fit any design at all is a wasted pitch.
+
+HARD RULES for every phrase:
+1. 2-6 words.
+2. Print-friendly: no emoji, no hashtags, no quotation marks, at most one punctuation mark.
+3. NEVER a trademark, brand name, song lyric, celebrity name, or sports team.
+4. Spread the set across a mix of vibes: funny, hype, wholesome, minimal, pun.
+5. Every "reason" must name something you can SEE in the image — the actual thing on the canvas, not the theme in general.
+
+Respond with STRICT JSON and nothing else, in exactly this shape:
+{"saw": string, "existingText": string|null, "phrases": [{"text": string, "vibe": "funny"|"hype"|"wholesome"|"minimal"|"pun", "placement": "below"|"above"|"integrated", "reason": string, "suggestedStyle": "graffiti"|"varsity"|"brush-script"|"chrome-3d"|"retro-70s"|"distressed"|"heavy-sans"|"blackletter"|"bubble-comic"|"neon-tube"|"western"}]}
+
+- "saw": ONE sentence describing what is actually in this artwork.
+- "existingText": any words already drawn into the artwork, spelled exactly as they appear, or null if the artwork carries no text at all.
+- "text": the phrase itself, 2-6 words, spelled exactly as it should print.
+- "vibe": one of funny, hype, wholesome, minimal, pun.
+- "placement": where this phrase reads best on THIS artwork, given where the subject sits and where the empty space is.
+- "reason": one short sentence naming what in the image makes this line fit.
+- "suggestedStyle": the ONE lettering style (from the list above) that suits both this phrase and the art style you can see.`
+
+/** One vision call. Throws on transport failure so the caller can fall through to the next brain. */
+async function callPhraseVisionModel(client: OpenAI, model: string, imageUrl: string, userText: string): Promise<any> {
+  const completion = await client.chat.completions.create({
+    model,
+    ...(isVisionReasoningModel(model) ? { max_completion_tokens: 900 } : { max_tokens: 900, temperature: 0.9 }),
+    messages: [
+      { role: 'system', content: VISION_SYSTEM_PROMPT },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: userText },
+          { type: 'image_url', image_url: { url: imageUrl } },
+        ],
+      },
+    ],
+  })
+  return parseJsonLoose(completion.choices[0]?.message?.content || '')
+}
+
+/** OpenRouter first, OpenAI second, null when both are unreachable. Never throws. */
+async function requestDesignPhrasesFromBrain(imageUrl: string, userText: string): Promise<any> {
+  if (openrouterVisionClient) {
+    try {
+      const parsed = await callPhraseVisionModel(openrouterVisionClient, OPENROUTER_VISION_MODEL, imageUrl, userText)
+      if (parsed) return parsed
+    } catch (err: any) {
+      console.warn('[step-flow/phrases] OpenRouter vision pitch failed, falling back to OpenAI:', err?.message || err)
+    }
+  }
+  try {
+    return await callPhraseVisionModel(openaiVisionClient, OPENAI_VISION_MODEL, imageUrl, userText)
+  } catch (err: any) {
+    console.warn('[step-flow/phrases] OpenAI vision pitch failed:', err?.message || err)
+    return null
+  }
+}
+
+// Longest edge handed to the vision model. A design is drawn at 1024 anyway;
+// this only clamps the occasional larger print file. Mirrors
+// inspiration.ts's ANALYSIS_MAX_DIM.
+const ANALYSIS_MAX_DIM = 1024
+
+/**
+ * Fetches the design and inlines it as a data URL.
+ *
+ * PROVEN NECESSARY 2026-09-09, against real products. Handing the model a
+ * plain URL works for a design sitting on GCS and FAILS for one adopted from
+ * the design library: those serve through `api.imaginethisprinted.com/api/
+ * media/...`, which answers 302 to a signed GCS link. curl follows it and gets
+ * a 315KB PNG; the model's own fetcher does not, so the pitch came back blind
+ * for every library design — the exact population the /step/adopt route just
+ * started pushing through this flow.
+ *
+ * Inlining removes the model's fetcher from the path entirely, which also
+ * covers signed URLs that expire and buckets that are not world-readable.
+ * Returns the original URL on any failure: a direct-URL attempt that might
+ * work beats refusing to pitch at all.
+ */
+async function toAnalysisDataUrl(url: string): Promise<string> {
+  try {
+    // Node's fetch follows redirects by default — that is the whole point here.
+    const resp = await fetch(url)
+    if (!resp.ok) throw new Error(`design fetch ${resp.status}`)
+    const buffer = Buffer.from(await resp.arrayBuffer())
+    const png = await sharp(buffer)
+      .resize(ANALYSIS_MAX_DIM, ANALYSIS_MAX_DIM, { fit: 'inside', withoutEnlargement: true })
+      .png()
+      .toBuffer()
+    return `data:image/png;base64,${png.toString('base64')}`
+  } catch (err: any) {
+    console.warn('[step-flow/phrases] could not inline the design, passing the URL through:', err?.message || err)
+    return url
+  }
+}
+
+/** A sentence of model prose, cleaned like a phrase but allowed to be longer. */
+function cleanSentence(raw: unknown, maxLen = 200): string | null {
+  if (typeof raw !== 'string') return null
+  const text = stripEmoji(stripControlChars(raw)).replace(/\s+/g, ' ').trim().slice(0, maxLen)
+  return text || null
+}
+
+/**
+ * Mrs. Imagine looks at a finished design and pitches phrases that match it.
+ *
+ * `idea` rides along as context only — the IMAGE is the subject of the call,
+ * so a pitch still lands for a design that arrived with no idea text at all
+ * (the design library's /step/adopt brings in exactly those). Never throws: an
+ * unreachable or unusable vision call resolves to the same deterministic
+ * fallback set the text-only pitch uses, with `saw: null` so the caller can
+ * tell David she never actually got to look.
+ */
+export async function pitchPhrasesForDesign(
+  designImageUrl: string,
+  opts?: { idea?: string; count?: number }
+): Promise<DesignPhrasesResult> {
+  const url = (designImageUrl || '').trim()
+  if (!url) throw new Error('designImageUrl is required')
+  const idea = (opts?.idea || '').trim()
+  const wantCount = clampCount(opts?.count)
+
+  const userText = idea
+    ? `Pitch ${wantCount} phrases for this artwork. For context the idea behind it was: "${idea}". Judge every phrase against the picture, not the idea.`
+    : `Pitch ${wantCount} phrases for this artwork.`
+
+  const image = await toAnalysisDataUrl(url)
+
+  let raw = await requestDesignPhrasesFromBrain(image, userText)
+  let candidates = filterClean(dedupe(coercePhrases(raw)))
+
+  if (candidates.length < MIN_SURVIVORS_BEFORE_RETRY) {
+    const retryRaw = await requestDesignPhrasesFromBrain(image, userText)
+    const merged = filterClean(dedupe([...candidates, ...coercePhrases(retryRaw)]))
+    if (merged.length > candidates.length) candidates = merged
+    // Keep whichever reply actually described the art — a first call that
+    // produced junk phrases but a good `saw` line should not blank it, and a
+    // retry that finally saw something should fill it.
+    if (!cleanSentence(raw?.saw) && cleanSentence(retryRaw?.saw)) raw = retryRaw
+  }
+
+  if (candidates.length === 0) {
+    return {
+      persona: 'mrs-imagine',
+      intro: MRS_IMAGINE_DESIGN_INTRO,
+      saw: null,
+      existingText: null,
+      phrases: fallbackPhrases(idea || 'this design', wantCount),
+    }
+  }
+
+  return {
+    persona: 'mrs-imagine',
+    intro: MRS_IMAGINE_DESIGN_INTRO,
+    saw: cleanSentence(raw?.saw),
+    existingText: cleanSentence(raw?.existingText, 120),
     phrases: candidates.slice(0, wantCount),
   }
 }

@@ -20,7 +20,12 @@ import { assertOffered, COLORS, photographableAudiences, sizesForGarment, type C
 import { composeEtsyPack } from '../../services/etsy-seo-composer.js'
 import { listShotSubjects } from '../../services/etsy-model-shots.js'
 import { writeStepBrief } from '../../services/step-flow/brief.js'
-import { pitchPhrases } from '../../services/step-flow/phrases.js'
+import { pitchPhrases, pitchPhrasesForDesign } from '../../services/step-flow/phrases.js'
+import {
+  letterPhraseIntoDesign,
+  LetterPhraseNotFoundError,
+  LetterPhraseValidationError,
+} from '../../services/step-flow/letter-phrase.js'
 import { analyzeInspirationImage, InspirationValidationError } from '../../services/step-flow/inspiration.js'
 import { adviseColors, adviseColorsForMetal } from '../../services/step-flow/color-advice.js'
 import { computePrintAdvice, buildPrintFile } from '../../services/step-flow/print-prep.js'
@@ -481,6 +486,99 @@ router.post('/:id/step/select-design', requireAuth, requireStudioAccess, async (
     if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
     req.log?.error({ err: err?.message }, '[step-flow] select-design error')
     res.status(500).json({ error: err?.message || 'Failed to select design' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Words on a design that already exists (David 2026-09-09): "the phrases or
+// ask mrs imagine to come up with a phrase she is going off the prompt and it
+// really doesnt match the design of the image so it sucks can we fix that in
+// the flow".
+//
+// The two routes below are the fix, and they only make sense as a pair: the
+// first lets Mrs. Imagine LOOK at the finished take before she writes a line,
+// the second letters the chosen line onto that exact take. Both live at the
+// Design step, because that is the first moment in the flow where a picture
+// exists to match. The blind pitch that used to front the Idea step is gone.
+// ---------------------------------------------------------------------------
+
+/** The take a phrase pass should act on when the caller names none: the selected design, else the newest generated take. */
+async function resolveDesignTake(productId: string, assetId?: unknown): Promise<any> {
+  if (typeof assetId === 'string' && assetId) {
+    const { data, error } = await supabase
+      .from('product_assets')
+      .select('*')
+      .eq('id', assetId)
+      .eq('product_id', productId)
+      .single()
+    if (error || !data) throw new StepFlowNotFoundError('Asset not found on this product')
+    return data
+  }
+  const { data: takes } = await supabase
+    .from('product_assets')
+    .select('*')
+    .eq('product_id', productId)
+    .eq('kind', 'source')
+    .eq('asset_role', 'design')
+    .order('created_at', { ascending: false })
+  const list = takes ?? []
+  const take = list.find((a: any) => a.is_primary) ?? list[0]
+  if (!take) throw new StepFlowNotFoundError('This build has no design yet')
+  return take
+}
+
+// POST /:id/step/phrases-for-design — { assetId?, count? } ->
+// { persona, intro, saw, existingText, phrases }.
+//
+// Mrs. Imagine with her eyes open. Unmetered on both lanes for the same reason
+// /step/phrases is: this is one cheap vision call and it produces nothing but
+// suggestions — the customer is charged when a phrase is actually lettered in
+// (the route below), not for asking what would fit.
+router.post('/:id/step/phrases-for-design', requireAuth, requireStudioAccess, rateLimitAI(20), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { assetId, count } = req.body || {}
+    const take = await resolveDesignTake(id, assetId)
+    if (!take.url) return res.status(400).json({ error: 'That take has no image to look at yet' })
+
+    const product = await loadProductRow(id)
+    const stepFlow = getStepFlow(product)
+    const result = await pitchPhrasesForDesign(take.url, {
+      idea: typeof stepFlow.idea === 'string' ? stepFlow.idea : undefined,
+      count: typeof count === 'number' ? count : undefined,
+    })
+    res.json({ ...result, assetId: take.id })
+  } catch (err: any) {
+    if (err instanceof StepFlowNotFoundError) return res.status(404).json({ error: err.message })
+    req.log?.error({ err: err?.message }, '[step-flow] phrases-for-design error')
+    res.status(500).json({ error: err?.message || 'Failed to pitch phrases for this design' })
+  }
+})
+
+// POST /:id/step/letter-phrase — { assetId, phrase: { text, placement?, style? } }
+// -> { ok, asset, phrase }.
+//
+// Adds the words to the take by EDITING it, so the artwork David picked
+// survives and only the lettering is new (services/step-flow/letter-phrase.ts
+// explains why this is not a re-render). The result is saved as another take,
+// so nothing downstream changes: it appears in the same grid and is chosen
+// with the same "Use this" button.
+router.post('/:id/step/letter-phrase', requireAuth, requireStudioAccess, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { id } = req.params
+    const { assetId, phrase } = req.body || {}
+    if (typeof assetId !== 'string' || !assetId) {
+      return res.status(400).json({ error: 'assetId is required' })
+    }
+    const { asset, phrase: applied } = await letterPhraseIntoDesign(id, assetId, phrase, {
+      userId: (req as any).studioOwnerId || req.user?.sub,
+    })
+    res.json({ ok: true, asset, phrase: applied })
+  } catch (err: any) {
+    if (err instanceof LetterPhraseNotFoundError) return res.status(404).json({ error: err.message })
+    if (err instanceof LetterPhraseValidationError) return res.status(400).json({ error: err.message })
+    req.log?.error({ err: err?.message }, '[step-flow] letter-phrase error')
+    res.status(500).json({ error: err?.message || 'Failed to add those words to the design' })
   }
 })
 

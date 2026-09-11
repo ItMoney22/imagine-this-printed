@@ -140,6 +140,32 @@ export interface ScoutResult {
   fetchedAt: string
 }
 
+/**
+ * Live progress for a run in flight. Written onto the running ai_jobs row's
+ * `output` and read by the admin card, which is why the field names match
+ * what src/components/studio/ProgressBar.tsx already consumes
+ * (`message` / `step` / `total_steps`) — David, 2026-09-02: "i dont like
+ * spinning loading things i like like a dope progress bar."
+ *
+ * A run's wall clock is dominated by the sales-verification phase (2 Etsy
+ * calls per listing), so the step budget below is deliberately weighted:
+ * search and the writing pass are a handful of steps, verification is
+ * VERIFY_BUDGET of them. That keeps the bar moving at a roughly even pace
+ * instead of jumping 0 -> 90 at the end.
+ */
+export interface ScoutProgress {
+  message: string
+  step: number
+  total_steps: number
+  updated_at: string
+}
+
+export type ScoutProgressFn = (progress: ScoutProgress) => void
+
+/** Search queries + verification budget + shop stats + the writing pass. */
+const SHOP_STATS_STEPS = 1
+const WRITING_STEPS = 1
+
 // --- Pure ranking (unit-tested, no network) ----------------------------------
 
 /**
@@ -399,9 +425,15 @@ function parseJsonLoose(raw: string | null | undefined): any {
 
 // --- The run -----------------------------------------------------------------
 
+/** Total number of seed searches across every category — the first slice of
+ *  the progress budget, and needed before the sweep starts so the bar can show
+ *  a real denominator from step 1. */
+const SEARCH_STEPS = SEEDS.reduce((n, seed) => n + seed.queries.length, 0)
+
 /** Sweep the seed searches, deduped by listing id. */
-async function gatherCandidates(): Promise<ActiveListing[]> {
+async function gatherCandidates(onSearch?: (done: number, total: number) => void): Promise<ActiveListing[]> {
   const byId = new Map<number, ActiveListing & { kind: ScoutKind }>()
+  let done = 0
   for (const seed of SEEDS) {
     for (const q of seed.queries) {
       try {
@@ -412,6 +444,8 @@ async function gatherCandidates(): Promise<ActiveListing[]> {
       } catch (e: any) {
         console.warn(`[mrs-imagine-scout] seed "${q}" failed: ${e?.message}`)
       }
+      done += 1
+      onSearch?.(done, SEARCH_STEPS)
       await new Promise((r) => setTimeout(r, 120))
     }
   }
@@ -442,12 +476,23 @@ function toCandidate(l: ActiveListing & { kind?: ScoutKind }, nowMs: number) {
  * spend. Throws only when it cannot produce a proven list at all — a caller
  * showing a stale list is better than showing an unproven one.
  */
-export async function runScout(): Promise<ScoutResult> {
+export async function runScout(onProgress?: ScoutProgressFn): Promise<ScoutResult> {
   if (!isEtsyResearchConfigured()) {
     throw new Error('ETSY_KEYSTRING is not set — the scout reads the public Etsy API')
   }
+  // Total is fixed up front so the bar never rescales under David mid-run.
+  // Verification is capped at VERIFY_BUDGET but can come in under it when the
+  // searches return fewer candidates; the phase reports its own real total and
+  // the bar tops out early rather than lying about the denominator.
+  const totalSteps = SEARCH_STEPS + VERIFY_BUDGET + SHOP_STATS_STEPS + WRITING_STEPS
+  const report = (message: string, step: number) =>
+    onProgress?.({ message, step, total_steps: totalSteps, updated_at: new Date().toISOString() })
+
+  report('Sweeping Etsy for candidates', 0)
   const nowMs = Date.now()
-  const listings = await gatherCandidates()
+  const listings = await gatherCandidates((done, total) =>
+    report(`Sweeping Etsy for candidates (search ${done} of ${total})`, done)
+  )
   if (listings.length === 0) {
     throw new Error('Etsy search returned nothing — check ETSY_KEYSTRING/ETSY_SHARED_SECRET')
   }
@@ -460,9 +505,14 @@ export async function runScout(): Promise<ScoutResult> {
     .sort((a, b) => b.favorers / b.ageDays - a.favorers / a.ageDays)
     .slice(0, VERIFY_BUDGET)
 
+  report(`Checking which of ${candidates.length} listings actually sold`, SEARCH_STEPS)
   const { proofs, failed, firstError } = await verifySalesBatch(
     candidates.map((c) => c.listingId),
-    { windowDays: SALES_WINDOW_DAYS }
+    {
+      windowDays: SALES_WINDOW_DAYS,
+      onSettled: (done, total) =>
+        report(`Checking which listings actually sold (${done} of ${total})`, SEARCH_STEPS + done),
+    }
   )
   // "Nothing sold" and "we could not ask Etsy" look identical downstream — an
   // empty proofs map either way — and reporting the first as the second would
@@ -485,6 +535,7 @@ export async function runScout(): Promise<ScoutResult> {
   // that has otherwise never sold anything.
   const shortlist = proven.slice(0, 40)
   const shopIds = [...new Set(shortlist.map((l) => l.shopId).filter(Boolean))].slice(0, 25)
+  report(`Pulling track records for ${shopIds.length} shops`, SEARCH_STEPS + VERIFY_BUDGET)
   const shops = new Map<number, ShopStats>()
   await Promise.all(
     shopIds.map(async (id) => {
@@ -497,6 +548,7 @@ export async function runScout(): Promise<ScoutResult> {
   )
   for (const l of shortlist) l.shop = shops.get(l.shopId)
 
+  report(`Writing her ${PICK_COUNT} pitches`, SEARCH_STEPS + VERIFY_BUDGET + SHOP_STATS_STEPS)
   let picks: ScoutPick[] = []
   try {
     const completion = await brain().chat.completions.create({
@@ -531,10 +583,16 @@ export async function runScout(): Promise<ScoutResult> {
 
 export const SCOUT_JOB_TYPE = 'mrs_imagine_scout'
 
+/** Floor between progress writes for a run in flight. */
+const PROGRESS_WRITE_INTERVAL_MS = 1500
+
 export interface ScoutRun {
   id: string
   status: 'running' | 'succeeded' | 'failed'
-  output?: ScoutResult
+  /** While `status` is 'running' this carries ScoutProgress; on 'succeeded' it
+   *  is replaced wholesale by the ScoutResult. Discriminate on `status`, never
+   *  by sniffing fields. */
+  output?: ScoutResult | ScoutProgress
   error?: string | null
   input?: { requestedBy?: string | null }
   created_at: string
@@ -576,8 +634,29 @@ export async function runAndRecordScout(opts: { requestedBy?: string | null } = 
     .single()
   if (error) throw new Error(`Could not start a scout run: ${error.message}`)
 
+  // Live progress onto the running row, throttled: the verification phase
+  // settles ~140 listings, and one UPDATE per listing would be 140 writes for
+  // a bar that only redraws a few times a second anyway. Writes are
+  // fire-and-forget — a dropped progress write must never fail the run, and
+  // the next one supersedes it. This doubles as the heartbeat scoutIsRunning()
+  // reads: a row whose progress stops advancing IS a dead run.
+  let lastWriteMs = 0
+  let inFlight = false
+  const persistProgress = (progress: ScoutProgress, force = false) => {
+    const now = Date.now()
+    if (!force && (inFlight || now - lastWriteMs < PROGRESS_WRITE_INTERVAL_MS)) return
+    lastWriteMs = now
+    inFlight = true
+    void supabase
+      .from('ai_jobs')
+      .update({ output: progress, updated_at: new Date().toISOString() })
+      .eq('id', created.id)
+      .eq('status', 'running') // never clobber a terminal row
+      .then(() => { inFlight = false }, () => { inFlight = false })
+  }
+
   try {
-    const result = await runScout()
+    const result = await runScout((progress) => persistProgress(progress))
     const { data } = await supabase
       .from('ai_jobs')
       .update({ status: 'succeeded', output: result, updated_at: new Date().toISOString() })

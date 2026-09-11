@@ -367,8 +367,11 @@ export function furthestReachableStep(
 
 export function stepFlowReducer(state: StepFlowState, action: StepFlowAction): StepFlowState {
   switch (action.type) {
+    // Keeps the lane's step list. Losing it here would silently hand a
+    // customer the staff flow (Etsy hex and all) the moment they started a
+    // second build without reloading the page.
     case 'RESET':
-      return initialStepFlowState
+      return { ...initialStepFlowState, steps: state.steps }
 
     case 'SET_IDEA':
       return { ...state, idea: action.idea }

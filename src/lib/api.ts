@@ -739,6 +739,22 @@ export interface Phrase {
   suggestedStyle?: LetteringStyleId
 }
 
+/** What comes back from `POST /:id/step/phrases-for-design` — Mrs. Imagine's
+ *  pitch after she has actually LOOKED at the rendered take (David 2026-09-09:
+ *  the old pitch ran before any picture existed and "really doesnt match the
+ *  design"). `saw` is null when the vision call failed and these are blind
+ *  fallbacks; `existingText` names words already drawn into the art, so the UI
+ *  can warn before a second slogan is lettered on top of the first. */
+export interface DesignPhrases {
+  persona: 'mrs-imagine'
+  intro?: string
+  saw: string | null
+  existingText: string | null
+  phrases: Phrase[]
+  /** The take she actually looked at — echoed back so the caller letters onto the same one. */
+  assetId: string
+}
+
 export type ShotKey =
   | 'product'
   | 'hanger'
@@ -1060,6 +1076,34 @@ export function createStepFlowApi(base: string, subjectsPath = `${base}/step/sho
         body: JSON.stringify({ idea, ...(brief ? { brief } : {}), ...(count ? { count } : {}) }),
       }),
 
+    /** POST <lane>/:id/step/phrases-for-design — the same pitch, except she
+     *  LOOKS at the rendered take first. Free on both lanes: one cheap vision
+     *  call that only produces suggestions. `assetId` defaults server-side to
+     *  the selected take, else the newest one. */
+    phrasesForDesign: (
+      productId: string,
+      assetId?: string,
+      count?: number
+    ): Promise<DesignPhrases> =>
+      stepFlowRequest(`${base}/${productId}/step/phrases-for-design`, {
+        method: 'POST',
+        body: JSON.stringify({ ...(assetId ? { assetId } : {}), ...(count ? { count } : {}) }),
+      }),
+
+    /** POST <lane>/:id/step/letter-phrase — letters the phrase INTO that take
+     *  with an image edit (the artwork survives; only the words are new) and
+     *  saves the result as another take. Costs one render — metered on the
+     *  customer lane (routes/studio-flow.ts). */
+    letterPhrase: (
+      productId: string,
+      assetId: string,
+      phrase: { text: string; placement?: 'below' | 'above' | 'integrated'; style?: LetteringStyleId | 'auto' }
+    ): Promise<{ ok: boolean; asset: StepFlowAsset; phrase: { text: string; placement: 'below' | 'above' | 'integrated'; style: LetteringStyleId | 'auto' } }> =>
+      stepFlowRequest(`${base}/${productId}/step/letter-phrase`, {
+        method: 'POST',
+        body: JSON.stringify({ assetId, phrase }),
+      }),
+
     /** GET <lane>/:id/step — resume: product + step_flow + assets + jobs, merged. */
     get: (productId: string): Promise<StepFlowGetResponse> =>
       stepFlowRequest(`${base}/${productId}/step`),
@@ -1130,7 +1174,7 @@ export function createStepFlowApi(base: string, subjectsPath = `${base}/step/sho
     /** Re-queues one shot with a fresh nonce; the old asset stays (unapproved)
      *  until the redo lands. `subjectId` (model shot only, David 2026-09-08)
      *  picks exactly who models it instead of letting Mrs. Imagine re-cast.
-     *  `engine: 'print-true'` is "Retry with Flare" (David 2026-09-11) - the
+     *  `engine: 'print-true'` is "Retry with Flare" (David 2026-09-11) — the
      *  garment is generated empty by Flare and the real print file composited
      *  on, and it FAILS rather than falling back to the generative render. */
     redoShot: (
@@ -1316,21 +1360,46 @@ export interface ScoutPick {
   gate: { pass: boolean; reasons: string[] }
 }
 
+/** What a finished sweep produced. */
+export interface ScoutResultOutput {
+  picks: ScoutPick[]
+  sampled: number
+  verified: number
+  proven: number
+  windowDays: number
+  fetchedAt: string
+}
+
+/** Live progress for a sweep still in flight. Field names match ProgressBar's
+ *  props on purpose — the backend writes this onto the running job row every
+ *  ~1.5s. Mirrors ScoutProgress in backend/services/mrs-imagine-scout.ts. */
+export interface ScoutProgressOutput {
+  message: string
+  step: number
+  total_steps: number
+  updated_at: string
+}
+
 export interface ScoutRun {
   id: string
   status: 'running' | 'succeeded' | 'failed'
   error?: string | null
   created_at: string
   updated_at: string
-  output?: {
-    picks: ScoutPick[]
-    sampled: number
-    verified: number
-    proven: number
-    windowDays: number
-    fetchedAt: string
-  }
+  /** ScoutProgressOutput while running, ScoutResultOutput once succeeded.
+   *  Discriminate on `status` — see scoutResult()/scoutProgress() below. */
+  output?: ScoutResultOutput | ScoutProgressOutput
 }
+
+/** The finished picks, or undefined while a sweep is still running/failed. */
+export const scoutResult = (run: ScoutRun | null): ScoutResultOutput | undefined =>
+  run?.status === 'succeeded' ? (run.output as ScoutResultOutput | undefined) : undefined
+
+/** Live progress, or undefined unless a sweep is in flight and has reported. */
+export const scoutProgress = (run: ScoutRun | null): ScoutProgressOutput | undefined =>
+  run?.status === 'running' && run.output && 'total_steps' in run.output
+    ? (run.output as ScoutProgressOutput)
+    : undefined
 
 // Image Flow API — generic gen/edit/bg-remove via gpt-image-2 etc.
 export const imageFlow = {

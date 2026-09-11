@@ -41,7 +41,8 @@ const gate422 = (code: string, error: string) =>
     body: { error, qa_gate: { code }, next_step: 'POST /api/admin/design-qa/submit/p-123' },
   })
 
-const renderStep = () => render(<EtsyStep state={state} dispatch={vi.fn()} refresh={vi.fn()} />)
+const renderStep = (onStartAnother?: () => void) =>
+  render(<EtsyStep state={state} dispatch={vi.fn()} refresh={vi.fn()} onStartAnother={onStartAnother} />)
 const clickQueue = () => fireEvent.click(screen.getByRole('button', { name: /Queue draft/i }))
 
 /** A repair report. Defaults to "she tried and could not help", which is the
@@ -416,5 +417,33 @@ describe('EtsyStep — Mrs. Imagine steps in', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: /Post it anyway/i })).toBeTruthy())
     expect(screen.getByText(/Filled the tags out to 13 of 13\./)).toBeTruthy()
     expect(screen.getByText(/PAINTED checkerboard background/)).toBeTruthy()
+  })
+})
+
+// David, 2026-09-09: "after this step there should be make another button so i
+// can keep going". Queuing the draft was the end of the road — the success
+// panel had a link into the Etsy admin and nothing else, so the only way to
+// build a second product was to reload the page by hand.
+describe('EtsyStep — the way on to the next product', () => {
+  it('offers Make another once the draft is queued', async () => {
+    vi.mocked(etsy.queue).mockResolvedValue({ queued: ['primary'], skipped: [] })
+    const startAnother = vi.fn()
+
+    renderStep(startAnother)
+    clickQueue()
+
+    await waitFor(() => expect(screen.getByText(/Draft queued: primary/)).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: /Make another/i }))
+    expect(startAnother).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves the button out when the builder gives it nothing to call', async () => {
+    vi.mocked(etsy.queue).mockResolvedValue({ queued: ['primary'], skipped: [] })
+
+    renderStep()
+    clickQueue()
+
+    await waitFor(() => expect(screen.getByText(/Draft queued: primary/)).toBeTruthy())
+    expect(screen.queryByRole('button', { name: /Make another/i })).toBeNull()
   })
 })

@@ -255,6 +255,11 @@ async function meterShotsOnce(req: Request, res: Response, next: NextFunction): 
 router.post('/:id/step/shots', rateLimit(6), meterShotsOnce)
 router.post('/:id/step/shots/model', rateLimit(6), meterITC('studio_flow_model_shot', 1))
 router.post('/:id/step/shots/:key/redo', rateLimit(10), meterITC('studio_flow_redo_shot', 1))
+// Lettering a phrase into a take is one image EDIT — one render's worth of
+// spend, priced like a redo. The vision pitch that precedes it
+// (/step/phrases-for-design) stays free: suggesting words costs a cheap text
+// call, and nobody should pay to find out what would fit.
+router.post('/:id/step/letter-phrase', rateLimit(10), meterITC('studio_flow_letter_phrase', 1))
 
 // Everything else — brief, phrases, inspiration, select-design, colour advice,
 // garments, sizes, the shot approvals, the listing copy, the finish — is the

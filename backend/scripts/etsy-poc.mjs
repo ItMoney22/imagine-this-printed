@@ -16,6 +16,7 @@
 //   node etsy-poc.mjs auth                  # PoC #1 — OAuth PKCE flow, saves tokens
 //   node etsy-poc.mjs whoami                # verify auth: user id + shop
 //   node etsy-poc.mjs taxonomy --q shirt    # find a taxonomy_id
+//   node etsy-poc.mjs properties --ids 482,1853   # does a node support variations?
 //   node etsy-poc.mjs create-listing \
 //     --title "Custom DTF Tee" --description "Printed in GA" --price 24.99 \
 //     --taxonomy 1234 --image ./tee.jpg [--quantity 4] [--shipping-profile 111] [--publish]
@@ -200,6 +201,22 @@ async function cmdTaxonomy() {
   console.log(`(${hits.length} matches)`)
 }
 
+// Does a node actually support variations? A taxonomy id that resolves but
+// exposes no Size/Color property yields a listing that cannot carry an
+// apparel axis, so every id wired into CATEGORY_TAXONOMY_DEFAULTS is checked
+// here before it ships (backend/shared/etsy-tiers.ts).
+//   node etsy-poc.mjs properties --ids 482,1853,1071
+async function cmdProperties() {
+  const ids = String(arg('ids') || '').split(',').map(s => s.trim()).filter(Boolean)
+  if (!ids.length) { console.error('Required: --ids 482,1853'); process.exit(1) }
+  for (const id of ids) {
+    const res = await api(`/application/seller-taxonomy/nodes/${id}/properties`)
+    const varies = (res.results || []).filter(p => p.supports_variations)
+    const names = varies.map(p => `${p.display_name || p.name}${p.scales?.length ? ' [scaled]' : ''}`)
+    console.log(`${String(id).padStart(6)}  variation props: ${names.join(', ') || '(NONE)'}`)
+  }
+}
+
 // PoC deliverable #2: create one listing (title/description/price + 1 image).
 async function cmdCreateListing() {
   const title = arg('title')
@@ -265,7 +282,7 @@ async function cmdCreateListing() {
 }
 
 const cmd = process.argv[2]
-const commands = { auth: cmdAuth, whoami: cmdWhoami, taxonomy: cmdTaxonomy, 'create-listing': cmdCreateListing }
+const commands = { auth: cmdAuth, whoami: cmdWhoami, taxonomy: cmdTaxonomy, properties: cmdProperties, 'create-listing': cmdCreateListing }
 if (!commands[cmd]) {
   console.error(`Usage: node etsy-poc.mjs <${Object.keys(commands).join('|')}> [options] — see header comment`)
   process.exit(1)

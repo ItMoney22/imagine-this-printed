@@ -27,7 +27,7 @@ import { designQa, etsy, stepFlow, type EtsyTier, type QaAutofix, type QaReview 
 import { tiersForCategory } from '../../../backend/shared/etsy-tiers'
 import { METAL_ART_PRICES, STUDIO_SIZE_KEYS } from '../../../backend/shared/metal-art'
 import type { ShotKey, StepFlowAction, StepFlowState } from './stepFlowReducer'
-import { InlineError, SecondaryButton, StepCard, WarnPanel, WARN_HEADING, WARN_TEXT } from './shared'
+import { InlineError, SecondaryButton, StartAnotherButton, StepCard, WarnPanel, WARN_HEADING, WARN_TEXT } from './shared'
 import ProgressBar from './ProgressBar'
 
 // No live job to watch here — it's a synchronous write-a-draft call.
@@ -61,6 +61,9 @@ interface EtsyStepProps {
   /** Re-hydrates the builder from the server. Used after a re-shoot so the
    *  Mockups step shows the new photo instead of the one just replaced. */
   refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
+  /** Clears the flow and the URL so David can start the next product without
+   *  reloading. Optional so the step's own tests can render it bare. */
+  onStartAnother?: () => void
 }
 
 // The anchors the composer stamps on a pack (etsy-seo-composer.ts:
@@ -112,7 +115,7 @@ interface QueueResult {
 const shotWord = (key: string): string =>
   key === 'model' ? 'the on-person photo' : key === 'product' ? 'the product photo' : key === 'hanger' ? 'the hanger photo' : `the ${key} photo`
 
-const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh }) => {
+const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh, onStartAnother }) => {
   const category: string | null = (state.product as { category?: string } | null)?.category ?? null
   const isMetal = category === 'metal-art'
   const tierOrder: EtsyTier[] = tiersForCategory(category)
@@ -433,7 +436,7 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh }) => {
           <p className="text-sm font-semibold text-text mb-1">Done — published without Etsy.</p>
           <p className="text-sm text-muted mb-3">The product is live on the storefront. You can queue it to Etsy later from the Etsy panel or by reopening this flow.</p>
           <div className="flex flex-wrap gap-3">
-            <a href={`/admin/ai/products/create?mode=steps`} className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white text-sm font-bold">Start another</a>
+            {onStartAnother && <StartAnotherButton onClick={onStartAnother} />}
             <SecondaryButton onClick={() => setSkipped(false)}>Back to Etsy</SecondaryButton>
           </div>
         </div>
@@ -472,6 +475,15 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh }) => {
           >
             View in the Etsy panel <ExternalLink className="w-3 h-3" />
           </a>
+          {/* The end of the flow, and until now a dead end: the draft was
+              queued and there was no way on to the next product but reloading
+              the page. */}
+          {onStartAnother && (
+            <div className="mt-4 pt-3 border-t border-emerald-500/20">
+              <StartAnotherButton onClick={onStartAnother} />
+              <p className="text-xs text-muted mt-2">Clears this build and opens a fresh Idea step. The queued draft stays in Etsy.</p>
+            </div>
+          )}
         </div>
       ) : (
         <>

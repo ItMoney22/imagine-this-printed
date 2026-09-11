@@ -541,6 +541,23 @@ describe('stepFlowReducer', () => {
     const dirty = stateWith({ productId: 'p1', step: 'etsy', idea: 'whatever' })
     expect(stepFlowReducer(dirty, { type: 'RESET' })).toEqual(initialStepFlowState)
   })
+
+  // RESET now runs on every "Make another", not just at mount, so the lane's
+  // step list has to survive it — otherwise a customer clicking it after their
+  // first build would silently inherit the staff flow, Etsy hex and all.
+  it('RESET keeps the lane it was reset inside', () => {
+    const dirty = stateWith({
+      productId: 'p1',
+      step: 'listing',
+      idea: 'whatever',
+      steps: ['idea', 'design', 'garments', 'mockups', 'listing'],
+    })
+    const next = stepFlowReducer(dirty, { type: 'RESET' })
+    expect(next.steps).toEqual(['idea', 'design', 'garments', 'mockups', 'listing'])
+    expect(next.step).toBe('idea')
+    expect(next.productId).toBeNull()
+    expect(next.idea).toBe('')
+  })
 })
 
 // ---------------------------------------------------------------------------

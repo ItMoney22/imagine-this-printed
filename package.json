@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:all": "concurrently --names \"web,api,worker\" --prefix-colors \"cyan,blue,magenta\" --kill-others-on-fail \"vite\" \"npm --prefix backend run dev:once\" \"npm --prefix backend run worker\"",
+    "dev:all": "concurrently --raw --names \"web,api,worker\" --prefix-colors \"cyan,blue,magenta\" --kill-others-on-fail \"vite\" \"npm --prefix backend run watch\" \"npm --prefix backend run worker\"",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",

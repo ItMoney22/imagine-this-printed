@@ -76,7 +76,39 @@ export function tiersForCategory(category: string | null): EtsyTier[] {
 // here: the download tier's source resolver still returns a 300dpi PNG and its
 // copy sells "sublimation / HTV", so 3d-prints stays primary-only until that
 // tier learns about meshes.
+//
+// 2026-09-11 — the same failure, second outbreak. `3d-prints` was given a
+// default but every OTHER slug was left leaning on Render's ETSY_TAXONOMY_MAP,
+// and that map drifted: the live Ready-for-Etsy queue came up "no taxonomy for
+// hoodies" / "no taxonomy for t-shirts", which greys out the primary tier on
+// every apparel design in the queue. A category that cannot list without an
+// env var someone has to remember is a category that eventually stops listing,
+// so every slug a product can actually carry now resolves from code. Env stays
+// the OVERRIDE, never the prerequisite.
+//
+// Ids resolved against the LIVE taxonomy 2026-09-11 and each one checked for
+// variation support with `node backend/scripts/etsy-poc.mjs properties --ids …`
+// — a node that resolves but exposes no Size/Color cannot carry the apparel
+// axis, which would have traded a loud error for a silently size-less listing:
+//    482  Clothing > Gender-Neutral Adult Clothing > Tops & Tees > T-shirts
+//         Primary color + Size. Already live on the 4 active tees. Both the
+//         canonical `shirts` slug and the legacy `t-shirts` rows point here.
+//   1853  Clothing > Gender-Neutral Adult Clothing > Hoodies & Sweatshirts >
+//         Hoodies. Primary color + Size, same axis as the tee. The leaf, not
+//         the 469 parent, because ITP sells hoodies and not sweatshirts.
+//   1071  Home & Living > Kitchen & Dining > Drink & Barware > Drinkware >
+//         Tumblers & Water Glasses. (Not 6729 "Tumblers", which is Craft
+//         Supplies polishing equipment — a rock tumbler, not a drink tumbler.)
+//   6617  Image Transfers — the transfer PRODUCT sold as itself, the same node
+//         the transfer tier uses.
+//    119  Art & Collectibles > Prints — metal panels, live since 2026-07-26.
 export const CATEGORY_TAXONOMY_DEFAULTS: Record<string, number> = {
+  'shirts': 482,
+  't-shirts': 482,
+  'hoodies': 1853,
+  'tumblers': 1071,
+  'dtf-transfers': 6617,
+  'metal-art': 119,
   '3d-prints': 1799
 }
 

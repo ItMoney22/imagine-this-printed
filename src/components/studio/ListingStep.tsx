@@ -5,7 +5,7 @@ import { Check, RefreshCw } from 'lucide-react'
 import { useStudioLane } from './lane'
 import { getShots, type ShotKey, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
 import { listingDraftFromPack, type EtsyComposePack, type ListingDraft } from './types'
-import { ApproveButton, BusyDot, InlineError, SecondaryButton, StepCard } from './shared'
+import { ApproveButton, BusyDot, InlineError, SecondaryButton, StartAnotherButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
 import PromoPicker from './PromoPicker'
 import { METAL_ART_PRICES, STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../../backend/shared/metal-art'
@@ -18,6 +18,9 @@ interface ListingStepProps {
   state: StepFlowState
   dispatch: React.Dispatch<StepFlowAction>
   refresh: (opts?: { productId?: string; advance?: boolean }) => Promise<void>
+  /** Clears the flow and the URL for the next build. The customer lane ends on
+   *  this step, so without it their flow has no way forward at all. */
+  onStartAnother?: () => void
 }
 
 // Reading order for the preview gallery — mirrors product-gallery.ts's
@@ -31,7 +34,7 @@ const PREVIEW_ORDER: (key: ShotKey) => number = (key) => {
   return 4 // color:<id> shots, in whatever order they come back
 }
 
-const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
+const ListingStep: React.FC<ListingStepProps> = ({ state, refresh, onStartAnother }) => {
   const lane = useStudioLane()
 
   const [draft, setDraft] = useState<ListingDraft | null>(null)
@@ -257,6 +260,15 @@ const ListingStep: React.FC<ListingStepProps> = ({ state, refresh }) => {
             {lane.finishedTitle}
           </p>
           <p className="text-sm text-muted mt-1">{lane.finishedBody}</p>
+          {/* On the customer lane this is the last screen in the whole flow,
+              so it has to carry the way onward itself. On the staff lane the
+              Etsy hex takes over and this only shows on the way past. */}
+          {onStartAnother && (
+            <div className="mt-4 pt-3 border-t border-primary/20">
+              <StartAnotherButton onClick={onStartAnother} />
+              <p className="text-xs text-muted mt-2">Starts a fresh design. This one is saved and keeps going without you.</p>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mt-6">

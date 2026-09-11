@@ -6,6 +6,7 @@ import { getDesignCandidates, getNobgAsset, type StepFlowAction, type StepFlowSt
 import { ApproveButton, BusyDot, Checkerboard, EngineLine, engineLabel, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
 import PrintPrepPanel from './PrintPrepPanel'
+import AddWordsPanel from './AddWordsPanel'
 
 // gpt-image-2 takes ~2-3 minutes; rembg is a quick Replicate call once the
 // design is picked. Both are real timed waits David complained about.
@@ -217,6 +218,20 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
         <p className="text-[11px] text-muted mt-1.5">
           Tweak isn't available for a draft opened outside the Idea step — there's no prompt to edit.
         </p>
+      )}
+
+      {/* Words go on HERE, not on the Idea step, because this is the first
+          moment in the flow where there is a picture for them to match
+          (David 2026-09-09). Offered while the design is still open: once a
+          take is approved and the background is stripped, lettering it would
+          mean redoing that work. Unlike Tweak, it needs no brief — a design
+          adopted from the library can be lettered too. */}
+      {candidates.length > 0 && !designLocked && state.productId && (
+        <AddWordsPanel
+          productId={state.productId}
+          assetId={selectedAssetId ?? candidates[candidates.length - 1]?.assetId ?? null}
+          refresh={refresh}
+        />
       )}
 
       {tweakOpen && (
