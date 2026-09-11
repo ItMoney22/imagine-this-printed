@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
 import { buildOrderStatusUrl } from '../utils/order-status-token.js'
 import { buildAccountClaimUrl } from '../utils/account-claim-token.js'
+import { couponBlockHtml, type EmailCoupon } from '../utils/email-blocks.js'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -51,6 +52,8 @@ interface EmailContext {
   total?: number
   trackingNumber?: string
   carrier?: string
+  /** Thank-you coupon rendered verbatim under the AI copy (delivered orders). */
+  coupon?: EmailCoupon | null
   productName?: string
   productId?: string
   ticketId?: string
@@ -134,6 +137,7 @@ ${context.orderNumber ? `Order: ${context.orderNumber}` : ''}
 ${context.items ? `Items: ${context.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}` : ''}
 ${context.productName ? `Product: ${context.productName}` : ''}
 ${context.itcAmount ? `ITC Purchased: ${context.itcAmount}` : ''}
+${context.coupon ? `A ${context.coupon.percent}% off coupon card is automatically printed below your text. Warmly mention that a thank-you discount is waiting below, but NEVER write out a code yourself — the real one is added for you.` : ''}
 
 Make it personal, creative, and memorable. This should feel like it came from a friend, not a robot.`
 
@@ -168,6 +172,7 @@ Make it personal, creative, and memorable. This should feel like it came from a 
       carrier: context.carrier,
       ctaText: getCtaText(context.templateKey),
       ctaUrl: getCtaUrl(context.templateKey, context),
+      coupon: context.coupon || null,
       // Only the confirmation invites an account — repeating the ask on every
       // later email would read as nagging a customer who already said no.
       claimUrl: context.templateKey === 'order_confirmation' ? buildAccountClaimUrl(context.orderId) : null
@@ -227,6 +232,7 @@ function buildMrImagineEmail(options: {
   carrier?: string
   ctaText?: string
   ctaUrl?: string
+  coupon?: EmailCoupon | null
   claimUrl?: string | null
 }): string {
   const itemsHtml = options.items ? `
@@ -312,6 +318,7 @@ function buildMrImagineEmail(options: {
 
           ${itemsHtml}
           ${trackingHtml}
+          ${couponBlockHtml(options.coupon)}
 
           ${options.ctaUrl ? `
             <div style="text-align: center; margin: 30px 0;">
@@ -471,6 +478,7 @@ function generateFallbackEmail(context: EmailContext): GeneratedEmail {
     carrier: context.carrier,
     ctaText: getCtaText(context.templateKey),
     ctaUrl: getCtaUrl(context.templateKey, context),
+    coupon: context.coupon || null,
     // Only the confirmation invites an account — repeating the ask on every
     // later email would read as nagging a customer who already said no.
     claimUrl: context.templateKey === 'order_confirmation' ? buildAccountClaimUrl(context.orderId) : null

@@ -18,6 +18,13 @@ export interface CarrierInfo {
   trackingUrl: string
   /** false when we couldn't identify the carrier and fell back to a search link */
   resolved: boolean
+  /**
+   * Shippo's carrier token for this carrier (`ups`, `usps`, `fedex`,
+   * `dhl_express`, …), or null when we can't identify the carrier. Shippo's
+   * tracking API is addressed as /tracks/{carrier}/{number}, so without this
+   * there is no live status to fetch — only the deep link above.
+   */
+  shippoCarrier: string | null
 }
 
 type UrlBuilder = (tracking: string) => string
@@ -51,6 +58,20 @@ const CARRIERS: Record<string, { name: string; url: UrlBuilder }> = {
     name: 'Canada Post',
     url: t => `https://www.canadapost-postescanada.ca/track-reperage/en#/resultList?searchFor=${encodeURIComponent(t)}`,
   },
+}
+
+// Shippo addresses its tracking API as /tracks/{carrier}/{number} using its own
+// carrier tokens, which are NOT always our key (DHL is `dhl_express`, Canada
+// Post is `canada_post`). Anything missing here has no live-tracking support and
+// falls back to the deep link.
+const SHIPPO_CARRIER_TOKENS: Record<string, string> = {
+  ups: 'ups',
+  usps: 'usps',
+  fedex: 'fedex',
+  dhl: 'dhl_express',
+  ontrac: 'ontrac',
+  lasership: 'lasership',
+  canadapost: 'canada_post',
 }
 
 // The carrier column is free text — admins type "UPS Ground", Shippo sends
@@ -99,21 +120,34 @@ export function inferCarrierFromTracking(tracking: string): string | null {
  */
 export function resolveCarrier(tracking: string, carrier?: string | null): CarrierInfo {
   const t = cleanTracking(tracking)
-
-  const key =
-    (carrier ? matchCarrierName(carrier) : null) ||
-    inferCarrierFromTracking(t) ||
-    undefined
+  const key = resolveCarrierKey(t, carrier)
 
   if (key && CARRIERS[key]) {
-    return { name: CARRIERS[key].name, trackingUrl: CARRIERS[key].url(t), resolved: true }
+    return {
+      name: CARRIERS[key].name,
+      trackingUrl: CARRIERS[key].url(t),
+      resolved: true,
+      shippoCarrier: SHIPPO_CARRIER_TOKENS[key] || null,
+    }
   }
 
   return {
     name: (carrier || '').trim() || 'Standard Shipping',
     trackingUrl: `https://www.google.com/search?q=${encodeURIComponent(`track package ${t}`)}`,
     resolved: false,
+    shippoCarrier: null,
   }
+}
+
+/**
+ * The internal carrier key ('ups' | 'usps' | …) for a shipment, or null when
+ * neither the carrier text nor the tracking-number shape identifies one.
+ */
+export function resolveCarrierKey(tracking: string, carrier?: string | null): string | null {
+  return (
+    (carrier ? matchCarrierName(carrier) : null) ||
+    inferCarrierFromTracking(cleanTracking(tracking))
+  )
 }
 
 /** Convenience wrapper when only the URL is needed. */

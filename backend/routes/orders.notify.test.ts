@@ -194,6 +194,30 @@ describe('shipping notifications', () => {
     expect(res.body.customerNotified).toBe('delivered')
     expect(sendOrderDeliveredEmail).toHaveBeenCalledTimes(1)
     expect(sendOrderShippedEmail).not.toHaveBeenCalled()
+    // Delivery also stamps delivered_at, which the customer-facing status page
+    // and every "was this actually delivered?" query read.
+    expect(res.body.order.delivered_at).toBeTruthy()
+  })
+
+  // David: "a nice email to the cust maybe giving them a 10% coupon on next order".
+  it('mints a real 10% code and hands it to the delivered email', async () => {
+    orderRow.status = 'shipped'
+
+    await patchOrder({ status: 'delivered' })
+
+    const options = sendOrderDeliveredEmail.mock.calls[0][2]
+    expect(options.coupon.percent).toBe(10)
+    expect(options.coupon.code).toMatch(/^THANKS10-[A-Z0-9]{6}$/)
+    expect(options.coupon.expiresAt).toBeTruthy()
+  })
+
+  it('reuses the code already on the order rather than minting a second one', async () => {
+    orderRow.status = 'shipped'
+    orderRow.delivery_coupon_code = 'THANKS10-OLD123'
+
+    await patchOrder({ status: 'delivered' })
+
+    expect(sendOrderDeliveredEmail.mock.calls[0][2].coupon.code).toBe('THANKS10-OLD123')
   })
 
   it('still saves the tracking on a guest order with no email on file', async () => {

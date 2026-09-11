@@ -7,8 +7,18 @@ import { processReferralFirstPurchase } from '../services/referral-service.js'
 import { attachProductFiles } from '../services/product-files.js'
 import { verifyOrderStatusToken } from '../utils/order-status-token.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
-import { sendOrderShippedEmail, sendOrderDeliveredEmail } from '../utils/email.js'
+import { sendOrderShippedEmail } from '../utils/email.js'
 import { WAREHOUSE_ADDRESS_FROM } from './shipping.js'
+import { syncOrderTracking } from '../services/order-tracking-sync.js'
+import {
+  makeTrackingSyncDeps,
+  issueCouponForOrder,
+  sendDeliveredWithCoupon,
+  isMissingColumnError,
+  TRACKING_ORDER_COLUMNS,
+  LEGACY_ORDER_COLUMNS
+} from '../services/order-tracking-deps.js'
+import { STATUS_LABELS, type ShipmentStatus } from '../services/shipment-tracking.js'
 
 const router = Router()
 
@@ -28,16 +38,25 @@ router.get('/status/:orderId', async (req: Request, res: Response): Promise<any>
       return res.status(404).json({ error: 'Order not found' })
     }
 
-    const { data: order, error } = await supabase
-      .from('orders')
-      .select(`
+    const BASE_COLUMNS = `
         id, order_number, status, payment_status, fulfillment_status,
         subtotal, tax_amount, shipping_amount, discount_amount, total, currency,
         customer_name, customer_email, tracking_number, tracking_company,
-        estimated_delivery, shipped_at, delivered_at, created_at, metadata
-      `)
-      .eq('id', orderId)
-      .single()
+        estimated_delivery, shipped_at, delivered_at, created_at, metadata`
+
+    const loadOrder = (columns: string) =>
+      supabase.from('orders').select(columns).eq('id', orderId).single()
+
+    // The live-scan columns land with 20260911000000_order_live_tracking.sql;
+    // before that they simply aren't shown. A guest checking their order must
+    // never 404 because a migration is pending.
+    let { data: order, error } = await loadOrder(
+      `${BASE_COLUMNS}, tracking_status, tracking_status_detail, tracking_status_at, tracking_location, tracking_eta`
+    ) as any
+
+    if (error && isMissingColumnError(error)) {
+      ({ data: order, error } = await loadOrder(BASE_COLUMNS) as any)
+    }
 
     if (error || !order) {
       return res.status(404).json({ error: 'Order not found' })
@@ -104,6 +123,15 @@ router.get('/status/:orderId', async (req: Request, res: Response): Promise<any>
         tracking_number: order.tracking_number,
         carrier: tracking?.name || order.tracking_company || null,
         tracking_url: tracking?.trackingUrl || null,
+        // Live carrier scan, as of the last poll — the same data the admin sees.
+        tracking_status: order.tracking_status || null,
+        tracking_status_label: order.tracking_status
+          ? STATUS_LABELS[order.tracking_status as ShipmentStatus] || null
+          : null,
+        tracking_status_detail: order.tracking_status_detail || null,
+        tracking_status_at: order.tracking_status_at || null,
+        tracking_location: order.tracking_location || null,
+        tracking_eta: order.tracking_eta || null,
         estimated_delivery: order.estimated_delivery,
         shipped_at: order.shipped_at,
         delivered_at: order.delivered_at,
@@ -445,6 +473,8 @@ type NotifiableOrder = {
   customer_email?: string | null
   customer_name?: string | null
   shipping_address?: any
+  /** Set once a thank-you coupon has been minted — makes re-delivery idempotent. */
+  delivery_coupon_code?: string | null
 }
 
 const buyerName = (order: NotifiableOrder): string | undefined =>
@@ -475,14 +505,19 @@ const notifyShipped = async (
   }
 }
 
+// A delivered order earns its buyer a one-time thank-you coupon, whether it was
+// the carrier (the tracking sweep) or an admin clicking "Delivered" that got
+// there first. Both routes go through the same two calls so the customer
+// experience can't differ, and `delivery_coupon_code` on the order keeps a
+// re-click from minting a second code.
 const notifyDelivered = async (order: NotifiableOrder): Promise<boolean> => {
   if (!order.customer_email) return false
   try {
-    await sendOrderDeliveredEmail(order.customer_email, order.order_number || order.id, {
-      orderId: order.id,
-      customerName: buyerName(order)
+    const coupon = await issueCouponForOrder(order as any).catch(err => {
+      console.error('[orders] Delivery coupon failed (sending email without it):', err)
+      return null
     })
-    return true
+    return await sendDeliveredWithCoupon(order as any, coupon)
   } catch (error) {
     console.error('[orders] Delivered email failed:', error)
     return false
@@ -537,11 +572,21 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
       return res.status(400).json({ error: 'estimated_delivery must be a string or null' })
     }
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .select('id, status, order_number, customer_email, customer_name, shipping_address, tracking_number, tracking_company')
-      .eq('id', orderId)
-      .single()
+    const loadOrder = (columns: string) =>
+      supabase.from('orders').select(columns).eq('id', orderId).single()
+
+    let { data: order, error: orderError } = await loadOrder(
+      'id, status, order_number, customer_email, customer_name, shipping_address, tracking_number, tracking_company, delivery_coupon_code'
+    ) as any
+
+    // delivery_coupon_code arrives with 20260911000000_order_live_tracking.sql.
+    // Until that is applied, asking for it would 404 every order update — the
+    // whole admin status/notes/tracking panel — so fall back to the old shape.
+    if (orderError && isMissingColumnError(orderError)) {
+      ({ data: order, error: orderError } = await loadOrder(
+        'id, status, order_number, customer_email, customer_name, shipping_address, tracking_number, tracking_company'
+      ) as any)
+    }
 
     if (orderError || !order) {
       return res.status(404).json({ error: 'Order not found' })
@@ -565,7 +610,10 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
           updateData.fulfillment_status = 'fulfilled'
           updateData.shipped_at = new Date().toISOString()
         }
-        if (status === 'delivered') updateData.fulfillment_status = 'delivered'
+        if (status === 'delivered') {
+          updateData.fulfillment_status = 'delivered'
+          updateData.delivered_at = new Date().toISOString()
+        }
       }
     }
 
@@ -643,6 +691,128 @@ router.patch('/:orderId', requireAuth, requireRole(['admin', 'manager', 'founder
     return res.json({ ok: true, order: updated, customerNotified })
   } catch (error: any) {
     console.error('[orders] PATCH error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// GET /api/orders/:orderId/tracking - live carrier status for one order
+//
+// Backs the "Shipping & Tracking" panel in Order Management. Until this
+// existed, a tracking number on an order was a string nobody could see behind:
+// the admin pasted it, and the only way to learn what the parcel did next was
+// to open the carrier's website by hand.
+//
+// The poll is cached on the order row (tracking_checked_at), so opening the
+// same order repeatedly costs one Shippo call every TRACKING_CACHE_MINUTES.
+// `?refresh=1` forces a fresh read for the "Check now" button.
+//
+// Delivery is a side effect of reading: if the carrier says DELIVERED, this
+// call is also what moves the order, mints the thank-you coupon and mails the
+// customer — exactly the same path the background sweep takes.
+// ---------------------------------------------------------------------------
+const TRACKING_CACHE_MINUTES = Number(process.env.TRACKING_CACHE_MINUTES) > 0
+  ? Number(process.env.TRACKING_CACHE_MINUTES)
+  : 15
+
+const TERMINAL_TRACKING_STATUSES = new Set(['delivered', 'returned', 'failure'])
+
+/** The snapshot already stored on the order, shaped like a live read. */
+const cachedTrackingPayload = (order: any) => {
+  const info = order.tracking_number ? resolveCarrier(order.tracking_number, order.tracking_company) : null
+  const status = (order.tracking_status || null) as ShipmentStatus | null
+  return {
+    trackingNumber: order.tracking_number,
+    carrier: info?.name || order.tracking_company || null,
+    trackingUrl: info?.trackingUrl || null,
+    status,
+    statusLabel: status ? STATUS_LABELS[status] || null : null,
+    statusDetail: order.tracking_status_detail || null,
+    statusAt: order.tracking_status_at || null,
+    location: order.tracking_location || null,
+    eta: order.tracking_eta || order.estimated_delivery || null,
+    events: Array.isArray(order.tracking_events) ? order.tracking_events : [],
+    checkedAt: order.tracking_checked_at || null,
+    error: order.tracking_error || null
+  }
+}
+
+router.get('/:orderId/tracking', requireAuth, requireRole(['admin', 'manager', 'founder']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+    const force = req.query.refresh === '1' || req.query.refresh === 'true'
+
+    const loadOrder = (columns: string) =>
+      supabase.from('orders').select(columns).eq('id', orderId).single()
+
+    let { data: order, error } = await loadOrder(TRACKING_ORDER_COLUMNS) as any
+    // Pre-migration API + post-migration frontend is a real deploy state here
+    // (Render and Vercel ship independently) — serve live data without the cache
+    // rather than 500 the panel.
+    let hasTrackingColumns = true
+    if (error && isMissingColumnError(error)) {
+      hasTrackingColumns = false
+      ;({ data: order, error } = await loadOrder(LEGACY_ORDER_COLUMNS) as any)
+    }
+
+    if (error || !order) {
+      return res.status(404).json({ error: 'Order not found' })
+    }
+
+    if (!order.tracking_number) {
+      return res.json({ tracking: null, reason: 'no_tracking', cached: false })
+    }
+
+    const checkedAt = order.tracking_checked_at ? new Date(order.tracking_checked_at).getTime() : 0
+    const ageMinutes = checkedAt ? (Date.now() - checkedAt) / 60000 : Infinity
+    const settled = TERMINAL_TRACKING_STATUSES.has(String(order.tracking_status || ''))
+    // A delivered parcel never changes again — don't spend a carrier call on it.
+    const serveCache = hasTrackingColumns && !force && checkedAt > 0 && (settled || ageMinutes < TRACKING_CACHE_MINUTES)
+
+    if (serveCache) {
+      return res.json({ tracking: cachedTrackingPayload(order), cached: true })
+    }
+
+    const outcome = await syncOrderTracking(order, makeTrackingSyncDeps())
+
+    if (outcome.skipped) {
+      // No token / unknown carrier: the deep link is all we have, and saying so
+      // plainly beats an empty panel the admin can't interpret.
+      return res.json({
+        tracking: cachedTrackingPayload(order),
+        cached: hasTrackingColumns && checkedAt > 0,
+        reason: outcome.skipped,
+        message: outcome.error
+      })
+    }
+
+    const live = outcome.tracking
+    return res.json({
+      cached: false,
+      deliveredNow: outcome.deliveredNow,
+      customerEmailed: outcome.emailed,
+      couponCode: outcome.couponCode,
+      error: outcome.error,
+      tracking: live
+        ? {
+            trackingNumber: live.trackingNumber,
+            carrier: live.carrier,
+            trackingUrl: live.trackingUrl,
+            status: live.status,
+            statusLabel: STATUS_LABELS[live.status],
+            statusDetail: live.statusDetail,
+            statusAt: live.statusAt,
+            location: live.location,
+            eta: live.eta,
+            service: live.service,
+            events: live.events,
+            checkedAt: new Date().toISOString(),
+            error: null
+          }
+        : cachedTrackingPayload(order)
+    })
+  } catch (error: any) {
+    console.error('[orders/:orderId/tracking] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

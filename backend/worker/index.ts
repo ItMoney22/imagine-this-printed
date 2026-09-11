@@ -5,6 +5,7 @@ import { startEtsyWorker } from './etsy-jobs-worker.js'
 import { startTryOnRetentionSweep } from './tryon-retention-sweep.js'
 import { startMrsImagineDaily } from './mrs-imagine-daily.js'
 import { startStepFlowStallSweep } from './step-flow-stall-sweep.js'
+import { startDeliveryTrackingSweep } from './delivery-tracking-sweep.js'
 
 // Process-level crash handlers. Node 20 defaults to
 // --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
@@ -33,6 +34,7 @@ console.log('- SUPABASE_URL:', process.env.SUPABASE_URL ? 'Set' : 'MISSING')
 console.log('- SUPABASE_SERVICE_ROLE_KEY:', process.env.SUPABASE_SERVICE_ROLE_KEY ? 'Set' : 'MISSING')
 console.log('- REPLICATE_API_TOKEN:', process.env.REPLICATE_API_TOKEN ? 'Set' : 'MISSING')
 console.log('- OPENAI_API_KEY:', process.env.OPENAI_API_KEY ? 'Set' : 'MISSING')
+console.log('- SHIPPO_API_TOKEN:', process.env.SHIPPO_API_TOKEN ? 'Set' : 'MISSING (live delivery tracking off)')
 console.log('=================================')
 
 startWorker()
@@ -51,5 +53,10 @@ startMrsImagineDaily()
 // that product. This fails them so the admin gets the buttons back. See
 // backend/worker/step-flow-stall-sweep.ts.
 startStepFlowStallSweep()
+// Polls the carrier for every shipped order, moves delivered ones to
+// 'delivered' and mails the buyer their thank-you coupon. Needs
+// SHIPPO_API_TOKEN; logs and stays dark without it. See
+// backend/worker/delivery-tracking-sweep.ts.
+startDeliveryTrackingSweep()
 
 console.log('Worker is running. Press Ctrl+C to stop.')

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { apiFetch } from '../lib/api'
+import LiveTrackingPanel from '../components/orders/LiveTrackingPanel'
 import type { Order } from '../types'
 
 // Database order interface
@@ -1368,6 +1369,27 @@ const OrderManagement: React.FC = () => {
                     : 'No tracking on this order yet - the customer has not been told it shipped.'}
                   {!selectedOrder.shippingAddress?.email && ' No email on file for this order, so nothing can be sent.'}
                 </p>
+
+                {/* What the carrier actually says, not just what we typed. A
+                    poll that comes back DELIVERED also moves the order and
+                    mails the customer, so reflect that here immediately. */}
+                <LiveTrackingPanel
+                  orderId={dbId(selectedOrder, selectedOrder.id)}
+                  trackingNumber={selectedOrder.trackingNumber}
+                  onDelivered={({ emailed, couponCode }) => {
+                    setOrders(prev => prev.map(o =>
+                      o.id === selectedOrder.id ? { ...o, status: 'delivered' as Order['status'] } : o))
+                    setSelectedOrder(prev => prev && prev.id === selectedOrder.id
+                      ? { ...prev, status: 'delivered' as Order['status'] }
+                      : prev)
+                    toast.success(
+                      'Carrier says delivered',
+                      emailed
+                        ? `Order marked delivered and the customer was emailed${couponCode ? ` a ${couponCode} thank-you code` : ''}.`
+                        : 'Order marked delivered. No email went out - check the customer email on this order.'
+                    )
+                  }}
+                />
               </div>
 
               <div className="mb-6">

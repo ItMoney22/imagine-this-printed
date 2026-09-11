@@ -35,6 +35,14 @@ interface OrderStatusPayload {
   tracking_number: string | null
   carrier: string | null
   tracking_url: string | null
+  // Live carrier scan as of the last poll (backend/worker/delivery-tracking-sweep.ts).
+  // Absent on older API builds, so every read below is optional.
+  tracking_status?: string | null
+  tracking_status_label?: string | null
+  tracking_status_detail?: string | null
+  tracking_status_at?: string | null
+  tracking_location?: string | null
+  tracking_eta?: string | null
   estimated_delivery: string | null
   shipped_at: string | null
   delivered_at: string | null
@@ -82,6 +90,9 @@ const STEPS = ['confirmed', 'processing', 'shipped', 'delivered'] as const
 
 const fmtDate = (iso?: string | null) =>
   iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : null
+
+const fmtDateTime = (iso?: string | null) =>
+  iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : null
 
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`
 
@@ -234,6 +245,25 @@ const OrderStatus: React.FC = () => {
                 </a>
               )}
             </div>
+            {/* What the carrier last said. Written by the delivery sweep, so it
+                is here without the buyer having to click through to UPS. */}
+            {order.tracking_status_label && (
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                <p className="text-sm font-semibold text-text">{order.tracking_status_label}</p>
+                {order.tracking_status_detail && (
+                  <p className="text-sm text-muted mt-0.5">{order.tracking_status_detail}</p>
+                )}
+                <p className="text-xs text-muted mt-1">
+                  {[
+                    order.tracking_location,
+                    fmtDateTime(order.tracking_status_at),
+                    order.tracking_eta && order.tracking_status !== 'delivered'
+                      ? `Arriving ${fmtDate(order.tracking_eta)}`
+                      : null
+                  ].filter(Boolean).join(' · ')}
+                </p>
+              </div>
+            )}
             {order.shipped_at && (
               <p className="text-xs text-muted mt-3 flex items-center gap-1">
                 <MapPin className="w-3 h-3" /> Shipped {fmtDate(order.shipped_at)}

@@ -13,6 +13,7 @@ import { getSuppression } from '../services/email-suppression.js'
 import { resolveCarrier } from './carrier-tracking.js'
 import { buildOrderStatusUrl } from './order-status-token.js'
 import { buildAccountClaimUrl } from './account-claim-token.js'
+import { couponBlockHtml, type EmailCoupon } from './email-blocks.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -866,6 +867,13 @@ interface OrderItem {
 export interface OrderEmailOptions {
   orderId?: string
   customerName?: string
+  /**
+   * Thank-you coupon earned by a delivered order (see
+   * backend/services/delivery-coupon.ts). Rendered as an exact, copyable code —
+   * never paraphrased by the AI writer, which would hand the customer a code
+   * that doesn't exist.
+   */
+  coupon?: EmailCoupon | null
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -1188,7 +1196,10 @@ export const sendOrderDeliveredEmail = async (
         templateKey: 'order_delivered',
         customerEmail: email,
         customerName: name,
-        orderNumber: orderRef
+        orderNumber: orderRef,
+        // The AI writes the words; the coupon card is appended verbatim by the
+        // layout so the code can never be invented or reworded.
+        coupon: options.coupon || null
       })
 
       return sendEmail({
@@ -1220,6 +1231,8 @@ export const sendOrderDeliveredEmail = async (
           <p style="color: #047857; font-size: 24px; font-weight: bold; margin: 0;">${esc(orderRef)}</p>
           <p style="color: #065f46; font-size: 16px; margin: 15px 0 0 0;">Your order has been delivered!</p>
         </div>
+
+        ${couponBlockHtml(options.coupon)}
 
         <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px; text-align: center;">
           <h3 style="color: #374151; margin-top: 0;">Love your new prints?</h3>
