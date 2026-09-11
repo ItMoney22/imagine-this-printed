@@ -23,6 +23,7 @@ import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot, designReferenceForProduct } from '../etsy-model-shots.js'
 import { castForDesign, manualCast, type CastingDecision } from './casting.js'
 import { renderDetailsCard, renderMetalDetailsCard } from './details-card.js'
+import { supportsPrintTrue } from '../print-true-mockup.js'
 import { buildProductGallery, METAL_ROLE_ORDER, ROLE_ORDER, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief, StepFlowInspiration } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
@@ -331,6 +332,17 @@ function pickTemplate(garment: GarmentId): 'ghost_mannequin' | 'flat_lay' {
  * only ever see metal keys (no `garment` set on the step flow) can pass it
  * through as `undefined`.
  */
+/**
+ * An engine the admin asked for by hand, overriding what the shot would have
+ * picked on its own. Only one today: 'print-true' is the Flare render of an
+ * EMPTY garment with the real print file composited on — the path whose
+ * lettering is guaranteed because nothing redraws the artwork.
+ *
+ * David 2026-09-11: "the mockups can still come from flux 2 pro it does good
+ * enough if it doesnt i should have a button that says retry with flare".
+ */
+export type ForcedShotEngine = 'print-true'
+
 export function roleForShotKey(key: ShotKey, garment?: GarmentId): string {
   if (key.startsWith('scene:')) return `mockup_metal_${key.slice('scene:'.length)}`
   if (key === 'hanger') return 'mockup_hanger'
@@ -396,7 +408,13 @@ async function queueMockupJob(
   product: ProductRow,
   garment: GarmentId,
   colors: { primary: ColorId; extras: ColorId[] },
-  key: ShotKey
+  key: ShotKey,
+  /** 'print-true' forces the Flare-and-composite path and FAILS instead of
+   *  quietly falling back to the generative render. That silent fallback is
+   *  why a card could read flux-2-pro with no explanation; when the admin
+   *  presses "Retry with Flare" they are asking for that specific engine, so
+   *  not getting it has to be an answer, not a shrug. */
+  engine?: ForcedShotEngine
 ): Promise<{ jobId: string; status: ShotState['status'] }> {
   const meta = product.metadata || {}
   const printPlacement = meta.print_placement || 'front-center'
@@ -443,6 +461,7 @@ async function queueMockupJob(
         template,
         ...(mockupRole ? { mockupRole } : {}),
         stepKey: key,
+        ...(engine ? { engine } : {}),
         nonce: randomNonce(),
       },
     })
@@ -862,7 +881,9 @@ async function buildShotJob(
   userId: string,
   mode: 'queue' | 'redo',
   /** The admin's explicit model pick — only meaningful for `key === 'model'`. */
-  subjectOverride?: string
+  subjectOverride?: string,
+  /** The admin's explicit engine pick — only meaningful for a garment mockup. */
+  engine?: ForcedShotEngine
 ): Promise<{ jobId: string | null; status: ShotState['status'] }> {
   if (isMetalStepFlow(stepFlow)) {
     const sizes = stepFlow.sizes || []
@@ -912,7 +933,7 @@ async function buildShotJob(
     return { jobId: null, status: patch.status as ShotState['status'] }
   }
 
-  return queueMockupJob(product, garment, colors, key)
+  return queueMockupJob(product, garment, colors, key, engine)
 }
 
 // ---------------------------------------------------------------------------
@@ -986,7 +1007,14 @@ export async function redoShot(
   /** The admin's explicit model pick for a `key === 'model'` redo (David
    *  2026-09-08) — ignored (rejected below) on every other key, which has no
    *  human subject to pick. */
-  subjectOverride?: string
+  subjectOverride?: string,
+  /** "Retry with Flare" (David 2026-09-11). Only a garment mockup can honour
+   *  it: print-true generates an EMPTY garment and composites the real print,
+   *  which is meaningless for an on-person shot, a composed details card, or a
+   *  full-bleed metal panel. Asking for it elsewhere is refused rather than
+   *  silently ignored — a button that looks like it worked and did nothing is
+   *  the same lie as a mislabelled card. */
+  engine?: ForcedShotEngine
 ): Promise<{ job: { id: string | null; key: ShotKey; status: ShotState['status'] } }> {
   const product = await loadProductRow(productId)
   const stepFlow = getStepFlow(product)
@@ -1016,12 +1044,32 @@ export async function redoShot(
     throw new StepFlowValidationError('A model can only be picked for an on-person shot')
   }
 
+  if (engine && !supportsForcedEngine(stepFlow, key)) {
+    throw new StepFlowValidationError(
+      'Flare can only re-render a garment mockup — the product, hanger and colour shots'
+    )
+  }
+
   // Old asset stays visible until the redo lands — every builder's internal
   // patchShotState merges onto the existing state, so assetId/url survive
   // for product/hanger/color/model keys; details replaces immediately since
   // its render is synchronous.
-  const { jobId, status } = await buildShotJob(product, stepFlow, key, userId, 'redo', subjectOverride)
+  const { jobId, status } = await buildShotJob(product, stepFlow, key, userId, 'redo', subjectOverride, engine)
   return { job: { id: jobId, key, status } }
+}
+
+/**
+ * Which cards "Retry with Flare" can actually act on: the garment mockups that
+ * go through the print-true path (product, hanger, colour). Mirrors
+ * services/print-true-mockup.ts's PRINT_TRUE_TEMPLATES rather than restating
+ * it, so the button and the renderer can never disagree about what is possible.
+ */
+export function supportsForcedEngine(stepFlow: StepFlowMeta, key: ShotKey): boolean {
+  if (isMetalStepFlow(stepFlow)) return false
+  if (!stepFlow.garment) return false
+  if (isModelKey(key) || key === 'details' || key.startsWith('scene:')) return false
+  if (key !== 'product' && key !== 'hanger' && !key.startsWith('color:')) return false
+  return supportsPrintTrue(key === 'hanger' ? 'hanger' : pickTemplate(stepFlow.garment))
 }
 
 /** Every on-person slot this product has, in gallery order. */

@@ -3,7 +3,7 @@
 // exercise the presentational/computation logic without the component's
 // network effects. Design doc §14 (metal prints lane).
 import { describe, it, expect } from 'vitest'
-import { expectedShotKeys, shotLabel } from './MockupStep'
+import { canRetryWithFlare, expectedShotKeys, shotLabel } from './MockupStep'
 import { engineLabel } from './shared'
 import type { StepFlowMeta } from './types'
 
@@ -91,5 +91,32 @@ describe('engineLabel', () => {
   // not the absence of one. A blank there read as "unknown".
   it('says a locally composed card had no model instead of naming one', () => {
     expect(engineLabel('local/details-card')).toBe('composed here, no AI model')
+  })
+})
+
+describe('canRetryWithFlare', () => {
+  it('offers the retry on the garment mockups print-true can actually render', () => {
+    expect(canRetryWithFlare('product', 'garment')).toBe(true)
+    expect(canRetryWithFlare('hanger', 'garment')).toBe(true)
+    expect(canRetryWithFlare('color:white', 'garment')).toBe(true)
+  })
+
+  // Each of these is a different shape of problem than "a garment with a print
+  // box on the chest", and the server refuses them — so the button must not
+  // appear and then fail.
+  it('stays off where print-true cannot apply', () => {
+    expect(canRetryWithFlare('model', 'garment')).toBe(false)
+    expect(canRetryWithFlare('model:2', 'garment')).toBe(false)
+    expect(canRetryWithFlare('details', 'garment')).toBe(false)
+    expect(canRetryWithFlare('scene:8x10', 'metal')).toBe(false)
+    expect(canRetryWithFlare('product', 'metal')).toBe(false)
+  })
+
+  it('stays off on a card Flare already rendered — there is nothing to escape', () => {
+    expect(canRetryWithFlare('product', 'garment', 'print-true/openai/gpt-image-2.5-flare+composite')).toBe(false)
+  })
+
+  it('offers it on a flux card, which is the whole point', () => {
+    expect(canRetryWithFlare('product', 'garment', 'black-forest-labs/flux-2-pro')).toBe(true)
   })
 })

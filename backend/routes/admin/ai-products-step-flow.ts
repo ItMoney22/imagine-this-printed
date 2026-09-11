@@ -934,7 +934,13 @@ router.post('/:id/step/shots/:key/redo', requireAuth, requireStudioAccess, rateL
   try {
     const { id, key } = req.params
     const subjectId = typeof req.body?.subjectId === 'string' && req.body.subjectId.trim() ? req.body.subjectId.trim() : undefined
-    const result = await redoShot(id, actorId(req), key as ShotKey, subjectId)
+    // Whitelisted, not passed through: `engine` selects a render path that
+    // costs real money, so an unknown value is refused rather than forwarded.
+    const engine = req.body?.engine === 'print-true' ? 'print-true' as const : undefined
+    if (req.body?.engine !== undefined && !engine) {
+      return res.status(400).json({ error: `Unknown engine "${String(req.body.engine)}"` })
+    }
+    const result = await redoShot(id, actorId(req), key as ShotKey, subjectId, engine)
     res.json(result)
   } catch (err: any) {
     if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })

@@ -2,7 +2,7 @@
 // extra color. Every card needs its own approve before Listing unlocks;
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, Check, Plus, RefreshCw, Sparkles, Trash2, UserRound, X } from 'lucide-react'
 import { type ShotSubject } from '../../lib/api'
 import { useStudioLane } from './lane'
 import { COLORS } from '../../../backend/shared/catalog-capability'
@@ -85,6 +85,32 @@ export const shotLabel = (key: ShotKey): string => {
     return SCENE_LABEL[size] ?? `Scene — ${size}`
   }
   return key
+}
+
+/**
+ * Can "Retry with Flare" act on this card?
+ *
+ * Mirrors the server's supportsForcedEngine (services/step-flow/shots.ts): only
+ * a garment mockup goes through the print-true path, because that path stages
+ * an EMPTY garment and composites the real print onto it. An on-person shot, a
+ * composed details card and a full-bleed metal panel are all a different shape
+ * of problem, so the button stays off rather than offering a retry the server
+ * would refuse.
+ *
+ * Hidden once a card already came from Flare — the point of the button is to
+ * escape a flux render the admin does not like, not to re-buy the same one
+ * (David 2026-09-11: "the mockups can still come from flux 2 pro it does good
+ * enough if it doesnt i should have a button that says retry with flare").
+ */
+export function canRetryWithFlare(
+  key: ShotKey,
+  productKind: 'garment' | 'metal',
+  engine?: string
+): boolean {
+  if (productKind !== 'garment') return false
+  if (isModelShot(key) || key === 'details' || key.startsWith('scene:')) return false
+  if (key !== 'product' && key !== 'hanger' && !key.startsWith('color:')) return false
+  return !engine?.startsWith('print-true/')
 }
 
 /** 'model' and every added `model:<n>` — all the on-person slots. */
@@ -337,12 +363,12 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
 
   /** `subjectId` (model shot only) picks exactly who's in the photo instead
    *  of leaving it to Mrs. Imagine's automatic re-cast. */
-  const handleRedo = async (key: ShotKey, subjectId?: string) => {
+  const handleRedo = async (key: ShotKey, subjectId?: string, engine?: 'print-true') => {
     if (!state.productId) return
     setBusyKey(key)
     setError(null)
     try {
-      await lane.api.redoShot(state.productId, key, subjectId)
+      await lane.api.redoShot(state.productId, key, subjectId, engine)
       await refresh()
     } catch (err: any) {
       setError(err?.message || `Failed to redo ${shotLabel(key)}`)
@@ -532,6 +558,22 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         {busy ? <BusyDot className="w-1.5 h-1.5" /> : <RefreshCw className="w-3 h-3" />} Redo
                       </button>
                     )}
+                    {/* Escape hatch from a flux render the admin doesn't like.
+                        Plain "Redo" re-rolls the same engine; this one names the
+                        engine it wants and gets an error back if it can't have
+                        it, rather than another flux shot wearing a Flare label. */}
+                    {(shot.status === 'done' || shot.status === 'failed') &&
+                      canRetryWithFlare(key, state.productKind, (shot as { engine?: string }).engine) && (
+                        <button
+                          type="button"
+                          onClick={() => handleRedo(key, undefined, 'print-true')}
+                          disabled={busy}
+                          title="Re-render this shot with Flare: the garment is generated empty and your real print file is composited on, so the artwork is never redrawn."
+                          className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 rounded-lg bg-card border border-border-subtle text-text hover:bg-card-elevated disabled:opacity-50"
+                        >
+                          {busy ? <BusyDot className="w-1.5 h-1.5" /> : <Sparkles className="w-3 h-3" />} Retry with Flare
+                        </button>
+                      )}
                     {isModelShot(key) && subjects.length > 0 && (shot.status === 'done' || shot.status === 'failed') && (
                       <button
                         type="button"

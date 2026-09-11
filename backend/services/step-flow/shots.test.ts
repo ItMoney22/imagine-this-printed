@@ -638,6 +638,57 @@ describe('redoShot', () => {
     expect(sf.shots.hanger?.jobId).toBe(job.id)
   })
 
+  // "Retry with Flare" (David 2026-09-11). The engine rides on the job so the
+  // renderer knows the admin asked for it BY NAME and must not quietly hand
+  // back a flux render instead.
+  it('stamps the forced engine on the job for a garment mockup', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+          shots: { hanger: { jobId: 'old-job', assetId: 'a', url: 'https://cdn/h.png', approved: true, status: 'done' } },
+          approvals: {},
+        },
+      },
+    })
+
+    const { job } = await redoShot('p1', 'user-1', 'hanger', undefined, 'print-true')
+    expect(db.ai_jobs.find((j: any) => j.id === job.id)?.input?.engine).toBe('print-true')
+  })
+
+  it('leaves the engine off a normal redo, so the default path is untouched', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+          shots: { hanger: { jobId: 'old-job', assetId: 'a', url: 'https://cdn/h.png', approved: true, status: 'done' } },
+          approvals: {},
+        },
+      },
+    })
+
+    const { job } = await redoShot('p1', 'user-1', 'hanger')
+    expect(db.ai_jobs.find((j: any) => j.id === job.id)?.input?.engine).toBeUndefined()
+  })
+
+  // A button that looks like it worked and did nothing is the same lie as a
+  // mislabelled card, so the server refuses instead of silently ignoring it.
+  it('refuses Flare on a card print-true cannot render', async () => {
+    seedProduct({
+      metadata: {
+        step_flow: {
+          version: 1, idea: '', brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+          shots: { model: { jobId: 'old-job', assetId: 'a', url: 'https://cdn/m.png', approved: true, status: 'done' } },
+          approvals: {},
+        },
+      },
+    })
+
+    await expect(redoShot('p1', 'user-1', 'model', undefined, 'print-true')).rejects.toBeInstanceOf(
+      StepFlowValidationError
+    )
+  })
+
   it('renders details synchronously when the product shot is done', async () => {
     // MUST-FIX #8: renderDetailsShot reads the mockup URL straight off
     // step_flow.shots.product (not a separate product_assets-by-role query)

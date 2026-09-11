@@ -1129,11 +1129,19 @@ export function createStepFlowApi(base: string, subjectsPath = `${base}/step/sho
 
     /** Re-queues one shot with a fresh nonce; the old asset stays (unapproved)
      *  until the redo lands. `subjectId` (model shot only, David 2026-09-08)
-     *  picks exactly who models it instead of letting Mrs. Imagine re-cast. */
-    redoShot: (productId: string, key: ShotKey, subjectId?: string): Promise<{ job: StepFlowJob }> =>
+     *  picks exactly who models it instead of letting Mrs. Imagine re-cast.
+     *  `engine: 'print-true'` is "Retry with Flare" (David 2026-09-11) - the
+     *  garment is generated empty by Flare and the real print file composited
+     *  on, and it FAILS rather than falling back to the generative render. */
+    redoShot: (
+      productId: string,
+      key: ShotKey,
+      subjectId?: string,
+      engine?: 'print-true'
+    ): Promise<{ job: StepFlowJob }> =>
       stepFlowRequest(`${base}/${productId}/step/shots/${encodeURIComponent(key)}/redo`, {
         method: 'POST',
-        body: JSON.stringify(subjectId ? { subjectId } : {}),
+        body: JSON.stringify({ ...(subjectId ? { subjectId } : {}), ...(engine ? { engine } : {}) }),
       }),
 
     /** Adds ANOTHER on-person shot, keeping every one already taken. Omit

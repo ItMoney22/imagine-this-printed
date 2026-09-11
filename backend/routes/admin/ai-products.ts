@@ -159,8 +159,12 @@ export async function processImageJobInline(job: any): Promise<void> {
           is_primary: false,
           display_order: 99,
           metadata: {
-            model_id: r.modelId,
+            // The model that actually answered, not the registry key it was
+            // asked through — `openai/gpt-image-2` is a chain, so the key alone
+            // cannot tell Flare from a fallback.
+            model_id: r.resolvedModelId ?? r.modelId,
             model_name: dupes ? `${r.modelLabel} · Take ${take}` : r.modelLabel,
+            model_key: r.modelId,
             provider: r.modelId.startsWith('openai/') ? 'openai' : 'replicate',
             original_prompt: promptInput,
             tailored_prompt: r.tailoredPrompt ?? null,

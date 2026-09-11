@@ -654,6 +654,14 @@ export async function processMockupJob(job: any): Promise<void> {
     // mockups re-letter the design). Returns null on any problem, which falls
     // straight through to the generative render below — worst case is exactly
     // today's behaviour.
+    // "Retry with Flare" (David 2026-09-11): the admin asked for THIS engine,
+    // so a failure has to surface as a failure. Without the flag, print-true
+    // is best-effort and a miss falls through to the generative render — which
+    // is fine as a default and useless as an answer to "do it with Flare".
+    const forcedPrintTrue = job.input?.engine === 'print-true'
+    if (forcedPrintTrue && !supportsPrintTrue(template)) {
+      throw new Error(`Flare can't render the "${template}" shot — it only re-renders a plain garment`)
+    }
     if (supportsPrintTrue(template) && garmentImageUrl) {
       const garmentId = normalizeGarment(productType) ?? 'tshirt'
       const colorLabel = String(shirtColor || 'black').toLowerCase()
@@ -678,8 +686,16 @@ export async function processMockupJob(job: any): Promise<void> {
           console.log('[worker] ✅', template, 'PRINT-TRUE via', printTrue.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
         }
       } catch (err: any) {
+        if (forcedPrintTrue) throw new Error(`Flare couldn't render this shot: ${err?.message || err}`)
         console.warn('[worker] print-true mockup failed, using the generative render:', err?.message || err)
       }
+    }
+
+    if (!mockupImageUrl && forcedPrintTrue) {
+      // renderPrintTrueMockup returns null (rather than throwing) when it
+      // declines the job — an unusable design cutout, most often. Same rule:
+      // say so instead of handing back a flux render the admin did not ask for.
+      throw new Error("Flare couldn't render this shot — the print file wasn't usable as a cutout")
     }
 
     if (!mockupImageUrl) {
@@ -1099,8 +1115,12 @@ async function startJob(job: any) {
             is_primary: false,
             display_order: 99,
             metadata: {
-              model_id: r.modelId,
+              // The model that actually answered. `openai/gpt-image-2` is a
+              // chain (2.5-flare -> 2 -> 1), so recording the key told the
+              // Step Flow "gpt-image-2" no matter which model drew the design.
+              model_id: r.resolvedModelId ?? r.modelId,
               model_name: r.modelLabel,
+              model_key: r.modelId,
               provider: 'replicate',
               original_prompt: promptInput,
               multi_model: true,

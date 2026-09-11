@@ -90,7 +90,14 @@ async function runRegisteredModel(
 }
 
 export interface MultiGenerateResult {
+  /** The REGISTRY key (e.g. `openai/gpt-image-2`). Stays a registry key
+   *  because callers look models up by it; it is not what drew the image. */
   modelId: string
+  /** The model that ACTUALLY answered (e.g. `openai/gpt-image-2.5-flare`).
+   *  `openai/gpt-image-2` is a chain - 2.5-flare, then 2, then 1 - so the key
+   *  above names the door, not who opened it. Callers writing an audit trail
+   *  want THIS. Undefined on a failed take. */
+  resolvedModelId?: string
   modelLabel: string
   status: 'succeeded' | 'failed'
   url?: string
@@ -255,7 +262,18 @@ export async function runImageFlowMultiGenerate(opts: {
     const id = ids[i]
     const label = getModel(id)?.label ?? id
     if (r.status === 'fulfilled') {
-      return { modelId: r.value.id, modelLabel: r.value.label, status: 'succeeded', url: r.value.url, tailoredPrompt: tailored[i] }
+      // resolvedModelId was already being captured here and then dropped on the
+      // floor, so every design asset recorded the registry key and the Step
+      // Flow could not tell Flare from a fallback (David 2026-09-11: "design
+      // needs to be flare").
+      return {
+        modelId: r.value.id,
+        resolvedModelId: r.value.resolvedModelId,
+        modelLabel: r.value.label,
+        status: 'succeeded',
+        url: r.value.url,
+        tailoredPrompt: tailored[i],
+      }
     }
     const err = r.reason instanceof Error ? r.reason.message : String(r.reason)
     return { modelId: id, modelLabel: label, status: 'failed', error: err, tailoredPrompt: tailored[i] }
