@@ -105,8 +105,14 @@ export const shotLabel = (key: ShotKey): string => {
 export function canRetryWithFlare(
   key: ShotKey,
   productKind: 'garment' | 'metal',
-  engine?: string
+  engine?: string,
+  /** Team lanes only. The customer router delegates to this same redo, so the
+   *  button WOULD work there - and would bill a customer the flat one-ITC redo
+   *  price for a materially pricier engine. What a customer pays for Flare is
+   *  David's pricing call, not a side effect of adding a button. */
+  showTeamTools: boolean = true
 ): boolean {
+  if (!showTeamTools) return false
   if (productKind !== 'garment') return false
   if (isModelShot(key) || key === 'details' || key.startsWith('scene:')) return false
   if (key !== 'product' && key !== 'hanger' && !key.startsWith('color:')) return false
@@ -563,7 +569,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         engine it wants and gets an error back if it can't have
                         it, rather than another flux shot wearing a Flare label. */}
                     {(shot.status === 'done' || shot.status === 'failed') &&
-                      canRetryWithFlare(key, state.productKind, (shot as { engine?: string }).engine) && (
+                      canRetryWithFlare(key, state.productKind, shot.engine, lane.showTeamTools) && (
                         <button
                           type="button"
                           onClick={() => handleRedo(key, undefined, 'print-true')}

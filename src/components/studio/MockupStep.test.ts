@@ -119,4 +119,10 @@ describe('canRetryWithFlare', () => {
   it('offers it on a flux card, which is the whole point', () => {
     expect(canRetryWithFlare('product', 'garment', 'black-forest-labs/flux-2-pro')).toBe(true)
   })
+
+  // The customer router delegates to this same redo, so the button would work
+  // there and bill the flat redo price for a pricier engine.
+  it('stays off in a customer lane, where the price of Flare is not settled', () => {
+    expect(canRetryWithFlare('product', 'garment', 'black-forest-labs/flux-2-pro', false)).toBe(false)
+  })
 })
