@@ -324,6 +324,7 @@ necessarily fail to send, but lands in spam far more often.
 | Variable | Description | Example | Required |
 |----------|-------------|---------|----------|
 | `SHIPPO_API_TOKEN` | Shippo API token (⚠️ KEEP SECRET) | `shippo_live_...` or `shippo_test_...` | No |
+| `SHIPPO_LABEL_FORMAT` | Label file type Shippo returns. Unset = `PDF_4x6` | `PDF_4x6`, `ZPLII`, `PDF` | No |
 | `GOOGLE_MAPS_API_KEY` | Distance Matrix key for local-delivery tiers (⚠️ KEEP SECRET) | `AIza...` | No |
 
 **Where to find the Shippo token:**
@@ -340,6 +341,14 @@ necessarily fail to send, but lands in spam far more often.
 - `POST /api/orders/:orderId/shipping-label` — admin/manager label purchase from
   Order Management. When unset, the endpoint returns a clearly-flagged demo
   label and deliberately leaves the order untouched.
+- `GET /api/orders/:orderId/shipping-label/file` — streams a purchased label
+  back through our own origin so the Shipping Station can print it directly,
+  refreshing the signed URL from Shippo when the stored one has expired.
+
+**Label format:** `SHIPPO_LABEL_FORMAT` defaults to `PDF_4x6` — a PDF whose
+page *is* the 4x6 label, which is what the thermal printer at the shipping
+station needs. Plain `PDF` is a US-Letter sheet with the label in one corner
+and cannot be printed on a label printer. See `docs/SHIPPING_STATION_SETUP.md`.
 
 ⚠️ **Backend only.** This must never be exposed as `VITE_SHIPPO_API_TOKEN`; a
 `VITE_`-prefixed value is inlined into the public browser bundle.

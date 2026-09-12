@@ -27,7 +27,8 @@ import {
   MessageSquare,
   CreditCard,
   Menu,
-  X
+  X,
+  Printer
 } from 'lucide-react'
 export function Header() {
   const { user, signOut } = useAuth()
@@ -339,6 +340,14 @@ export function Header() {
                           >
                             <ClipboardList className="w-4 h-4 text-purple-500" />
                             Order Management
+                          </Link>
+                          <Link
+                            to="/shipping-station"
+                            className="flex items-center gap-3 px-4 py-2.5 text-sm text-text hover:bg-purple-50 transition-colors"
+                            onClick={() => setShowUserMenu(false)}
+                          >
+                            <Printer className="w-4 h-4 text-purple-500" />
+                            Shipping Station
                           </Link>
                           <Link
                             to="/admin/crm"

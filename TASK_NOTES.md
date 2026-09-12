@@ -4073,3 +4073,22 @@ fallback path against prod and still returned David's order as due for a poll.
   always contains Size. Fix would be to fall back to a variation-capable Custom
   Property for the size axis; needs David's call since it changes live listing
   shape.
+
+- 2026-09-12 — **Shipping Station + 4x6 labels.** Traced the label David could
+  not find in Shippo: real purchase, `test: false`, bought from Order
+  Management by an admin — the Shippo account that owns every transaction back
+  to 2025 is `admin@nextlevelgrades.com`, and the carrier is Shippo's own UPS
+  account, so it bills there and not as a separate charge. Two other recent UPS
+  labels were bought by hand in Shippo (no audit row; one matches no order at
+  all). Then found the real defect for a label printer: labels were bought as
+  `label_file_type: PDF`, and the one printed 2026-09-12 measures 8.27in x
+  10.98in — a sheet with the label in a corner. Now `PDF_4x6` (override:
+  `SHIPPO_LABEL_FORMAT`). Added `GET /api/orders/:id/shipping-label/file`, which
+  streams the label through our origin (a cross-origin carrier URL cannot be
+  scripted, so the page could never fire print() on it) and refreshes an expired
+  signed URL from Shippo. New `/shipping-station` page (admin/manager): paid
+  unshipped queue, weight, one Buy-label-and-print button, reprint list.
+  Verified live against the local API on prod data: label file 200 +
+  application/pdf, no-label 404, unauthenticated 401, non-admin 403.
+  `docs/SHIPPING_STATION_SETUP.md` covers the Omarchy/CUPS/Rollo side.
+  NOT verified: `PDF_4x6` itself, because proving it means buying a real label.

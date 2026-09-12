@@ -29,6 +29,32 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   return ct.includes("application/json") ? res.json() : res.text();
 }
 
+/**
+ * Same as apiFetch, but hands back the raw bytes.
+ *
+ * Needed wherever the browser has to DO something with a file rather than
+ * show a link to it — the shipping station prints a label by holding it as a
+ * blob and firing the print dialog, which it cannot do with a cross-origin
+ * carrier URL. The bearer token rides along the same way, so the file still
+ * comes from an authenticated admin request.
+ */
+export async function apiFetchBlob(path: string, init: RequestInit = {}): Promise<Blob> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+
+  const headers = new Headers(init.headers || {});
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    let message = text;
+    try { message = JSON.parse(text)?.error || text; } catch { /* not json */ }
+    throw new Error(message || `HTTP ${res.status}: ${res.statusText}`);
+  }
+  return res.blob();
+}
+
 // Axios-compatible API client for components expecting axios interface
 const api = {
   get: async (url: string, config?: { params?: Record<string, any> }) => {

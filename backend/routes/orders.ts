@@ -953,6 +953,24 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
 
 const SHIPPO_BASE_URL = 'https://api.goshippo.com'
 
+// Label file type. The default used to be plain 'PDF', which Shippo renders as
+// a US-Letter page with the label sitting in one corner — useless on the 4x6
+// thermal printer at the shipping station, which has no way to crop or scale.
+// 'PDF_4x6' returns a PDF whose PAGE is 4x6, so it prints edge to edge on a
+// Rollo/Zebra/DYMO with no "fit to page" guesswork. Override with
+// SHIPPO_LABEL_FORMAT for a raw-ZPL printer ('ZPLII') or a sheet printer ('PDF').
+const SHIPPO_LABEL_FORMATS = ['PDF', 'PDF_4x6', 'PDF_A4', 'PDF_A6', 'PNG', 'ZPLII'] as const
+function shippoLabelFormat(): string {
+  const configured = (process.env.SHIPPO_LABEL_FORMAT || '').trim()
+  if (!configured) return 'PDF_4x6'
+  const match = SHIPPO_LABEL_FORMATS.find(f => f.toLowerCase() === configured.toLowerCase())
+  if (!match) {
+    console.warn('[orders/shipping-label] SHIPPO_LABEL_FORMAT="' + configured + '" is not one of ' + SHIPPO_LABEL_FORMATS.join(', ') + ' — using PDF_4x6')
+    return 'PDF_4x6'
+  }
+  return match
+}
+
 // Same USPS/UPS filter the checkout quote uses (backend/routes/shipping.ts) so
 // admins buy a label from the set of carriers the customer was quoted.
 function isQuotableRate(rate: any): boolean {
@@ -1122,11 +1140,12 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
       return res.status(400).json({ error: 'Requested rate is not available for this shipment' })
     }
 
-    // 2. Buy the label.
+    // 2. Buy the label, in the format the station's printer can actually use.
+    const labelFileType = shippoLabelFormat()
     const txRes = await fetch(`${SHIPPO_BASE_URL}/transactions/`, {
       method: 'POST',
       headers: { 'Authorization': `ShippoToken ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rate: chosen.object_id, label_file_type: 'PDF', async: false })
+      body: JSON.stringify({ rate: chosen.object_id, label_file_type: labelFileType, async: false })
     })
 
     const transaction = await txRes.json().catch(() => ({})) as any
@@ -1150,6 +1169,7 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
       cost: parseFloat(chosen.amount) || 0,
       estimatedDelivery: transaction.eta || null,
       weightLb: Math.round(weight * 100) / 100,
+      fileType: labelFileType,
       createdAt: new Date().toISOString()
     }
 
@@ -1174,6 +1194,7 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
           service: label.service,
           cost: label.cost,
           weight_lb: label.weightLb,
+          label_file_type: labelFileType,
           purchased_at: now,
           purchased_by: req.user?.sub || null
         }
@@ -1231,6 +1252,101 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
     return res.json({ ok: true, mock: false, persisted, persistError, customerNotified, label })
   } catch (error: any) {
     console.error('[orders/shipping-label] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+/**
+ * GET /api/orders/:orderId/shipping-label/file
+ *
+ * Streams a purchased label back through our own origin.
+ *
+ * The shipping station needs this. Shippo returns a signed URL on
+ * deliver.goshippo.com, and a browser will not let a page script a
+ * cross-origin document — so a label opened straight from that URL can only
+ * be printed by hand: new tab, find the print button, pick the printer. Served
+ * from here the page can hold the bytes as a blob and fire the print dialog
+ * itself, which is the whole difference between a packing table and a desk.
+ *
+ * It also outlives the signed URL. Those links expire; when one does, this
+ * re-reads the transaction from Shippo and follows the fresh link, so an old
+ * order can still be reprinted a year later.
+ */
+router.get('/:orderId/shipping-label/file', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { orderId } = req.params
+
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('id, order_number, tracking_number, shipping_label_url, metadata')
+      .eq('id', orderId)
+      .single()
+
+    if (orderError || !order) return res.status(404).json({ error: 'Order not found' })
+
+    const stored = order.metadata?.shipping_label || {}
+    const transactionId: string | null = stored.transaction_id || null
+    let labelUrl: string | null = order.shipping_label_url || stored.label_url || null
+
+    if (!labelUrl && !transactionId) {
+      return res.status(404).json({ error: 'This order has no purchased label to print.' })
+    }
+
+    const token = process.env.SHIPPO_API_TOKEN
+
+    // Ask Shippo for the current link when the stored one is gone or dead.
+    const refreshFromShippo = async (): Promise<string | null> => {
+      if (!token || !transactionId) return null
+      const tx = await fetch(SHIPPO_BASE_URL + '/transactions/' + transactionId, {
+        headers: { 'Authorization': 'ShippoToken ' + token }
+      })
+      if (!tx.ok) return null
+      const body = await tx.json().catch(() => ({})) as any
+      return body?.label_url || null
+    }
+
+    if (!labelUrl) labelUrl = await refreshFromShippo()
+    if (!labelUrl) return res.status(404).json({ error: 'This order has no purchased label to print.' })
+
+    let upstream = await fetch(labelUrl)
+
+    if (!upstream.ok) {
+      const fresh = await refreshFromShippo()
+      if (fresh && fresh !== labelUrl) {
+        labelUrl = fresh
+        upstream = await fetch(fresh)
+        // Keep the order pointed at the working link so the next print is direct.
+        if (upstream.ok) {
+          await supabase.from('orders').update({
+            shipping_label_url: fresh,
+            metadata: {
+              ...(order.metadata && typeof order.metadata === 'object' ? order.metadata : {}),
+              shipping_label: { ...stored, label_url: fresh }
+            }
+          }).eq('id', orderId)
+        }
+      }
+    }
+
+    if (!upstream.ok) {
+      console.error('[orders/shipping-label/file] Could not fetch label for', orderId, upstream.status)
+      return res.status(502).json({ error: 'The carrier could not return this label (' + upstream.status + '). Open it in Shippo instead.' })
+    }
+
+    const contentType = upstream.headers.get('content-type') || 'application/pdf'
+    const buffer = Buffer.from(await upstream.arrayBuffer())
+    const extension = contentType.includes('png') ? 'png' : contentType.includes('text') ? 'zpl' : 'pdf'
+    const name = 'label-' + (order.order_number || order.id.slice(0, 8)) + '.' + extension
+
+    res.setHeader('Content-Type', contentType)
+    res.setHeader('Content-Length', String(buffer.length))
+    // inline: the station renders it in a hidden frame and prints it. A
+    // download would drop a file on the packing-table machine every order.
+    res.setHeader('Content-Disposition', 'inline; filename="' + name + '"')
+    res.setHeader('Cache-Control', 'private, max-age=300')
+    return res.send(buffer)
+  } catch (error: any) {
+    console.error('[orders/shipping-label/file] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

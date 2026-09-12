@@ -58,6 +58,7 @@ const ToyCreator = lazy(() => import('./pages/ToyCreator'))
 const MetalArtStudio = lazy(() => import('./pages/MetalArtStudio'))
 const MarketingTools = lazy(() => import('./pages/MarketingTools'))
 const OrderManagement = lazy(() => import('./pages/OrderManagement'))
+const ShippingStation = lazy(() => import('./pages/ShippingStation'))
 const ProfileEdit = lazy(() => import('./pages/ProfileEdit'))
 const CustomerMessages = lazy(() => import('./pages/CustomerMessages'))
 const VendorMessages = lazy(() => import('./pages/VendorMessages'))
@@ -90,7 +91,7 @@ const CreatorStudio = lazy(() => import('./pages/CreatorStudio'))
 const CreatorStudioVoice = lazy(() => import('./pages/CreatorStudioVoice'))
 
 // Routes that should hide the sidebar for full-screen experience
-const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk', '/ar/']
+const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk', '/ar/', '/shipping-station']
 
 // Scroll to top on route change
 function ScrollToTop() {
@@ -193,6 +194,8 @@ function App() {
                   <Route path="/admin" element={<RoleRoute allowedRoles={['admin']}><AdminDashboard /></RoleRoute>} />
                   <Route path="/marketing" element={<RoleRoute allowedRoles={['admin', 'manager']}><MarketingTools /></RoleRoute>} />
                   <Route path="/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><OrderManagement /></RoleRoute>} />
+                  {/* The packing table's own screen: queue, one button, 4x6 out of the thermal printer. */}
+                  <Route path="/shipping-station" element={<RoleRoute allowedRoles={['admin', 'manager']}><ShippingStation /></RoleRoute>} />
                   <Route path="/referrals" element={<Referrals />} />
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
