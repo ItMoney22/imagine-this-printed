@@ -1,8 +1,20 @@
 import { Router } from 'express'
+import { PARCEL_PRESETS } from '../services/parcel-presets.js'
 import type { Request, Response } from 'express'
 import { signShippingQuote } from '../services/shipping-quote.js'
 
 const router = Router()
+
+/**
+ * GET /api/shipping/boxes
+ *
+ * The boxes the shipping station can pick from. Served rather than hardcoded
+ * in the page so the list the operator sees and the list the label API will
+ * accept are the same list.
+ */
+router.get('/boxes', (_req: Request, res: Response) => {
+  res.json({ boxes: PARCEL_PRESETS })
+})
 
 // Warehouse location for distance calculation
 const WAREHOUSE_LOCATION = {

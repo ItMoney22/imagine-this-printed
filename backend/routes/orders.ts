@@ -1,6 +1,9 @@
 import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
+import { resolveParcel, lengthPlusGirthIn, type ResolvedParcel } from '../services/parcel-presets.js'
+import { newPrintJob, defaultStation, stationEnabled } from '../services/print-station.js'
+import { fetchOrderLabelFile, isLabelFileError } from '../services/shipping-label-file.js'
 import { checkOrderTransition } from '../lib/order-status.js'
 import { processOrderCompletion, retryFailedRewards, scheduleRewardProcessing } from '../services/order-reward-service.js'
 import { processReferralFirstPurchase } from '../services/referral-service.js'
@@ -1032,7 +1035,8 @@ function parcelWeightLb(items: any[]): number {
 router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
   try {
     const { orderId } = req.params
-    const { rateId, weightLb: weightOverride } = req.body || {}
+    const { rateId, weightLb: weightOverride, parcel: parcelInput } = req.body || {}
+
 
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -1058,6 +1062,17 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
         }
       })
     }
+
+    // The box is not optional and is not guessed. Carriers price on
+    // dimensional weight too, and a wrong declaration comes back as an
+    // adjustment on the invoice weeks after the parcel has shipped. Checked
+    // here rather than at the top so an order that already HAS a label still
+    // reports that, instead of demanding a box for a purchase it will not make.
+    const parcelResult = resolveParcel(parcelInput)
+    if ('error' in parcelResult) {
+      return res.status(400).json({ error: parcelResult.error })
+    }
+    const parcel: ResolvedParcel = parcelResult.parcel
 
     const addressTo = toShippoAddress(order)
     const missing = (['street1', 'city', 'state', 'zip'] as const).filter(field => !addressTo[field])
@@ -1108,7 +1123,10 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
         address_from: WAREHOUSE_ADDRESS_FROM,
         address_to: addressTo,
         parcels: [{
-          length: '10', width: '8', height: '4', distance_unit: 'in',
+          length: String(parcel.lengthIn),
+          width: String(parcel.widthIn),
+          height: String(parcel.heightIn),
+          distance_unit: 'in',
           weight: weight.toFixed(2), mass_unit: 'lb'
         }],
         async: false
@@ -1169,11 +1187,16 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
       cost: parseFloat(chosen.amount) || 0,
       estimatedDelivery: transaction.eta || null,
       weightLb: Math.round(weight * 100) / 100,
+      parcel,
       fileType: labelFileType,
       createdAt: new Date().toISOString()
     }
 
     // 3. Persist on the order with the service-role client (bypasses RLS).
+    const requestedStation = typeof req.body?.station === 'string' && req.body.station.trim()
+      ? String(req.body.station).trim().toLowerCase()
+      : defaultStation()
+    const printJob = stationEnabled() ? newPrintJob(requestedStation) : null
     const now = new Date().toISOString()
     const orderUpdate: Record<string, any> = {
       tracking_number: label.trackingNumber,
@@ -1194,10 +1217,22 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
           service: label.service,
           cost: label.cost,
           weight_lb: label.weightLb,
+          parcel: {
+            preset_id: parcel.presetId,
+            preset_name: parcel.presetName,
+            length_in: parcel.lengthIn,
+            width_in: parcel.widthIn,
+            height_in: parcel.heightIn,
+            length_plus_girth_in: lengthPlusGirthIn(parcel)
+          },
           label_file_type: labelFileType,
           purchased_at: now,
           purchased_by: req.user?.sub || null
-        }
+        },
+        // Hand the label straight to the station that owns the printer. With
+        // no agent configured this is left off entirely and the station
+        // screen prints through the browser instead.
+        ...(printJob ? { print_station: printJob } : {})
       }
     }
 
@@ -1249,7 +1284,7 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
       created_at: now
     })
 
-    return res.json({ ok: true, mock: false, persisted, persistError, customerNotified, label })
+    return res.json({ ok: true, mock: false, persisted, persistError, customerNotified, label, printJob })
   } catch (error: any) {
     console.error('[orders/shipping-label] Error:', error)
     return res.status(500).json({ error: error.message })
@@ -1274,77 +1309,16 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
  */
 router.get('/:orderId/shipping-label/file', requireAuth, requireRole(['admin', 'manager']), async (req: Request, res: Response): Promise<any> => {
   try {
-    const { orderId } = req.params
+    const result = await fetchOrderLabelFile(req.params.orderId)
+    if (isLabelFileError(result)) return res.status(result.status).json({ error: result.error })
 
-    const { data: order, error: orderError } = await supabase
-      .from('orders')
-      .select('id, order_number, tracking_number, shipping_label_url, metadata')
-      .eq('id', orderId)
-      .single()
-
-    if (orderError || !order) return res.status(404).json({ error: 'Order not found' })
-
-    const stored = order.metadata?.shipping_label || {}
-    const transactionId: string | null = stored.transaction_id || null
-    let labelUrl: string | null = order.shipping_label_url || stored.label_url || null
-
-    if (!labelUrl && !transactionId) {
-      return res.status(404).json({ error: 'This order has no purchased label to print.' })
-    }
-
-    const token = process.env.SHIPPO_API_TOKEN
-
-    // Ask Shippo for the current link when the stored one is gone or dead.
-    const refreshFromShippo = async (): Promise<string | null> => {
-      if (!token || !transactionId) return null
-      const tx = await fetch(SHIPPO_BASE_URL + '/transactions/' + transactionId, {
-        headers: { 'Authorization': 'ShippoToken ' + token }
-      })
-      if (!tx.ok) return null
-      const body = await tx.json().catch(() => ({})) as any
-      return body?.label_url || null
-    }
-
-    if (!labelUrl) labelUrl = await refreshFromShippo()
-    if (!labelUrl) return res.status(404).json({ error: 'This order has no purchased label to print.' })
-
-    let upstream = await fetch(labelUrl)
-
-    if (!upstream.ok) {
-      const fresh = await refreshFromShippo()
-      if (fresh && fresh !== labelUrl) {
-        labelUrl = fresh
-        upstream = await fetch(fresh)
-        // Keep the order pointed at the working link so the next print is direct.
-        if (upstream.ok) {
-          await supabase.from('orders').update({
-            shipping_label_url: fresh,
-            metadata: {
-              ...(order.metadata && typeof order.metadata === 'object' ? order.metadata : {}),
-              shipping_label: { ...stored, label_url: fresh }
-            }
-          }).eq('id', orderId)
-        }
-      }
-    }
-
-    if (!upstream.ok) {
-      console.error('[orders/shipping-label/file] Could not fetch label for', orderId, upstream.status)
-      return res.status(502).json({ error: 'The carrier could not return this label (' + upstream.status + '). Open it in Shippo instead.' })
-    }
-
-    const contentType = upstream.headers.get('content-type') || 'application/pdf'
-    const buffer = Buffer.from(await upstream.arrayBuffer())
-    const extension = contentType.includes('png') ? 'png' : contentType.includes('text') ? 'zpl' : 'pdf'
-    const name = 'label-' + (order.order_number || order.id.slice(0, 8)) + '.' + extension
-
-    res.setHeader('Content-Type', contentType)
-    res.setHeader('Content-Length', String(buffer.length))
+    res.setHeader('Content-Type', result.contentType)
+    res.setHeader('Content-Length', String(result.buffer.length))
     // inline: the station renders it in a hidden frame and prints it. A
     // download would drop a file on the packing-table machine every order.
-    res.setHeader('Content-Disposition', 'inline; filename="' + name + '"')
+    res.setHeader('Content-Disposition', `inline; filename="${result.filename}"`)
     res.setHeader('Cache-Control', 'private, max-age=300')
-    return res.send(buffer)
+    return res.send(result.buffer)
   } catch (error: any) {
     console.error('[orders/shipping-label/file] Error:', error)
     return res.status(500).json({ error: error.message })

@@ -4092,3 +4092,31 @@ fallback path against prod and still returned David's order as due for a poll.
   application/pdf, no-label 404, unauthenticated 401, non-admin 403.
   `docs/SHIPPING_STATION_SETUP.md` covers the Omarchy/CUPS/Rollo side.
   NOT verified: `PDF_4x6` itself, because proving it means buying a real label.
+
+- 2026-09-12 — **The box was never asked for, and Pluto now prints.** David
+  noticed the label bought without anyone being asked the box size or weight.
+  He was right and it was worse than it looked: BOTH the checkout quote
+  (`routes/shipping.ts`) and the label purchase (`routes/orders.ts`) hardcoded
+  a 10x8x4 parcel for every shipment. Carriers price on dimensional weight, so
+  any box bigger than that shipped on an underpaid label and comes back as a
+  carrier adjustment weeks later. The label path now REQUIRES a box:
+  `services/parcel-presets.ts` is the one list, served at GET
+  /api/shipping/boxes so the screen and the validator cannot drift, and the
+  purchase 400s rather than guessing. Recorded on the order at
+  `metadata.shipping_label.parcel`. The checkout QUOTE still hardcodes 10x8x4 —
+  deliberately untouched, it changes customer-facing prices and is its own
+  decision.
+  Printing now leaves the browser: `routes/print-station.ts` + 
+  `services/print-station.ts` give the Pluto workstation agent a pull-based
+  queue (claim / download / report, bearer PRINT_STATION_TOKEN), with the job
+  living in `orders.metadata.print_station` so it needed no migration — same
+  call print-bridge.ts made. Agent pulls because Render is not on the tailnet.
+  Verified end to end against the live API on prod data: parcel validation 400s
+  (4 shapes), already-purchased still answers without a box, agent auth 401s
+  for no/bad/admin-JWT tokens, empty queue 204, claim flips to printing, a
+  second poll gets 204 (no double print), label downloads as a real PDF, printed
+  and failed both persist, bad status 400s, requeue refuses an unlabelled order.
+  The test job was stripped off the live order afterwards and the metadata keys
+  verified byte-identical to before.
+  NOT verified: PDF_4x6, and the Pluto agent itself, which does not exist yet —
+  its build brief was emailed to David for the Claude session on that box.

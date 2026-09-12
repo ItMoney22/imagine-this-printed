@@ -325,6 +325,8 @@ necessarily fail to send, but lands in spam far more often.
 |----------|-------------|---------|----------|
 | `SHIPPO_API_TOKEN` | Shippo API token (⚠️ KEEP SECRET) | `shippo_live_...` or `shippo_test_...` | No |
 | `SHIPPO_LABEL_FORMAT` | Label file type Shippo returns. Unset = `PDF_4x6` | `PDF_4x6`, `ZPLII`, `PDF` | No |
+| `PRINT_STATION_TOKEN` | Bearer token the workstation print agent authenticates with (⚠️ KEEP SECRET) | long random string | No |
+| `PRINT_STATION_DEFAULT` | Which workstation labels are queued to. Unset = `pluto` | `pluto` | No |
 | `GOOGLE_MAPS_API_KEY` | Distance Matrix key for local-delivery tiers (⚠️ KEEP SECRET) | `AIza...` | No |
 
 **Where to find the Shippo token:**

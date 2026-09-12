@@ -144,16 +144,80 @@ kiosk printing there is no dialog left to catch a wrong paper size.
 
 ---
 
+## 4b. Pluto: printing without a print dialog
+
+Everything above prints from the browser, which means somebody is looking at a
+print dialog. The station agent removes that step.
+
+**Pluto** is the packing-table workstation (planets, as always). A small agent
+runs there, polls the API for work, and prints it to the Rollo. Buying a label
+on the station screen queues a job; the label comes out of the printer a few
+seconds later and the screen goes green on its own.
+
+The agent **pulls**. It polls `api.imaginethisprinted.com` over the public
+internet with a shared bearer token — the API never dials into the tailnet.
+Render is not on the tailnet and does not need to be; Tailscale is how David
+reaches Pluto, not how Pluto gets its work. Pulling also means Pluto can be
+asleep, rebooted or unplugged without losing anything: the label is already
+bought, and the job waits.
+
+### Turning it on
+
+1. Generate one long random secret. Set it as `PRINT_STATION_TOKEN` on the
+   Render API service **and** in the agent's config on Pluto. Also set
+   `PRINT_STATION_DEFAULT=pluto`.
+2. Run the agent on Pluto (systemd service, restart on failure).
+3. The station screen's header shows **pluto online** with a green dot once the
+   agent has polled within the last 90 seconds.
+
+With `PRINT_STATION_TOKEN` unset there is no station at all, and the screen
+prints through the browser exactly as before. That is the fallback, and it is
+also what the "Print it in this browser instead" button uses when Pluto is
+asleep or the printer jams.
+
+### The contract the agent implements
+
+Auth on all four: `Authorization: Bearer <PRINT_STATION_TOKEN>`.
+
+| Call | Meaning |
+|---|---|
+| `GET /api/print-station/jobs/next?station=pluto&printer=Rollo&agent=1.0.0` | Claim the oldest queued job. `204` = nothing to do (the usual answer). `200` returns `{ job: { jobId, orderNumber, copies, fileUrl, trackingNumber } }` and the job is now `printing`. |
+| `GET /api/print-station/jobs/:jobId/file` | The label bytes — a 4×6 PDF. Re-signs an expired carrier URL, so it works on old orders too. |
+| `POST /api/print-station/jobs/:jobId/status` | `{ "status": "printed" }` or `{ "status": "failed", "error": "..." }`. |
+| `POST /api/print-station/heartbeat` | `{ "station": "pluto" }` — only needed if the agent stops polling; polling already counts as a heartbeat. |
+
+A failed job stays failed. It is not retried automatically, because a jam or an
+empty roll does not fix itself and a retry loop prints a stack of duplicates the
+moment someone reloads the labels. Reprint from the screen when it is fixed.
+
+Claiming is guarded server-side, so two agents polling at once cannot both take
+the same label.
+
+### Admin view
+
+`GET /api/print-station/stations/pluto` (admin/manager) answers "is Pluto
+alive and what is stuck": `online`, `lastSeenAt`, and the queued / printing /
+failed counts. That is what the header dot reads. It turns "nothing came out of
+the printer" into "Pluto has not called home in twenty minutes".
+
+---
+
 ## 5. The daily flow
 
 1. Open the station. The queue is every **paid** order with no label yet, oldest
    first. Unpaid checkout drafts never appear — payment status is the gate.
 2. Pick the order. Check the address and what is in the box.
-3. Weigh the box, type the weight. Default is ½ lb per item, the same number the
-   customer was quoted at checkout.
-4. **Buy label & print.** That buys the cheapest usable USPS/UPS rate, marks the
-   order shipped, emails the customer their tracking, and prints.
-5. If the print jams or the roll was bad: **Reprint** in the "Already labelled"
+3. **Pick the box it is going in.** This is not optional and nothing is
+   pre-selected beyond whatever was used last. Carriers price on dimensional
+   weight as well as scale weight — a 16×12×10 box declared as a poly mailer is
+   an underpaid label and an adjustment on the invoice weeks later.
+4. Weigh the packed box, type the weight. Default is ½ lb per item, the same
+   number the customer was quoted at checkout.
+5. **Buy label & print.** That buys the cheapest usable USPS/UPS rate for that
+   box and weight, marks the order shipped, emails the customer their tracking,
+   and sends the label to Pluto (or prints through the browser if no station is
+   configured).
+6. If the print jams or the roll was bad: **Reprint** in the "Already labelled"
    list. The label lives on the order — a reprint is not a second purchase.
 
 Buying is limited to **admin** and **manager** accounts. A founder can see the
@@ -193,6 +257,10 @@ first time a label was bought from the site.
 | "No carrier rates available for this address" | Address is bad, or the USPS/UPS carrier accounts in Shippo are disconnected. |
 | "Order shipping address is incomplete" | Missing street, city, state or ZIP. Fix it in Order Management first. |
 | Order is not in the queue | It is not `paid`, or it already has a label or a tracking number. |
+| "Pick a box size before buying the label" | Nothing was selected. Deliberate — a guessed box is an underpaid label. |
+| Header says **pluto offline** | The agent is not running or cannot reach the API. Print from the browser meanwhile; the label is still bought. |
+| "pluto has not picked this up" | Job queued, agent silent. Use "Print it in this browser instead", then fix the agent. |
+| Carrier bills an adjustment after the fact | The declared box was smaller than what shipped. Check `metadata.shipping_label.parcel` on the order against what actually went out. |
 | Filter errors in CUPS | Rollo's `rastertolabel` filter is a closed-source binary. Their published one is x86_64 (and a 32-bit ARM build) — it will not run on arm64. |
 
 ---

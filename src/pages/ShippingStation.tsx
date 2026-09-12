@@ -4,19 +4,23 @@
 // Order Management is a management screen: tabs, notes, refunds, a modal to
 // confirm a label. That is the wrong shape for someone standing at a table with
 // a box in one hand. This screen does one job — the next unshipped paid order,
-// its address, its weight, one button that buys the label and throws it at the
-// printer — and it does that job in as few movements as possible.
+// the box it is going in, what it weighs, one button — and then the label comes
+// out of the printer. No print dialog, no file to find.
 //
-// Two things make the printing part work:
-//   * The label is bought as PDF_4x6 (backend/routes/orders.ts), so the PDF's
-//     page IS the label. A plain 'PDF' is a US-Letter sheet with the label in
-//     one corner, which a thermal printer cannot crop.
-//   * The bytes come back through our own origin
-//     (GET /api/orders/:id/shipping-label/file), so the page can hold them as a
-//     blob and call print() itself. A carrier's own URL is cross-origin and the
-//     browser will not let a script touch it — that is the difference between
-//     one keystroke and "new tab, scroll, hunt for the print button".
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+// Three things make that work:
+//   * The box is asked for, not assumed. Every Shippo call used to declare
+//     10x8x4 no matter what shipped, and carriers price on dimensional weight,
+//     so a bigger box meant an underpaid label and an adjustment on the invoice
+//     weeks later.
+//   * The label is bought as PDF_4x6, so the PDF's page IS the label. Plain
+//     'PDF' is a US-Letter sheet with the label in one corner, which a thermal
+//     printer cannot crop.
+//   * When a station agent is configured, the label is queued to that station
+//     (Pluto) and its agent prints it. With no agent, the page falls back to
+//     printing through the browser — the bytes come through our own origin, so
+//     it can fire the print dialog itself rather than opening a carrier URL it
+//     is not allowed to script.
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { apiFetch, apiFetchBlob } from '../lib/api'
@@ -35,6 +39,12 @@ interface StationOrderItem {
   } | null
 }
 
+interface PrintJobState {
+  station: string
+  status: 'queued' | 'printing' | 'printed' | 'failed'
+  error?: string | null
+}
+
 interface StationOrder {
   id: string
   order_number: string | null
@@ -51,6 +61,31 @@ interface StationOrder {
   order_items?: StationOrderItem[]
   metadata?: Record<string, any> | null
 }
+
+interface BoxPreset {
+  id: string
+  name: string
+  lengthIn: number
+  widthIn: number
+  heightIn: number
+  note?: string
+}
+
+interface StationConfig {
+  enabled: boolean
+  defaultStation: string
+}
+
+interface StationHealth {
+  online: boolean
+  lastSeenAt: string | null
+  queued: number
+  printing: number
+  failed: number
+}
+
+const LAST_BOX_KEY = 'itp-shipping-station-last-box'
+const CUSTOM_BOX_ID = '__custom__'
 
 /** The address in the one shape the label needs, from any checkout generation. */
 function readAddress(order: StationOrder) {
@@ -108,16 +143,9 @@ function errorText(err: unknown, fallback: string): string {
   }
 }
 
-type BuyStage = 'idle' | 'rates' | 'buying' | 'printing' | 'done' | 'failed'
+const sleep = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms))
 
-const STAGE_LABEL: Record<BuyStage, string> = {
-  idle: '',
-  rates: 'Getting live USPS and UPS rates for this address…',
-  buying: 'Buying the cheapest label…',
-  printing: 'Sending the 4×6 to the printer…',
-  done: 'Label printed',
-  failed: 'Label failed'
-}
+type BuyStage = 'idle' | 'rates' | 'buying' | 'sent' | 'printing' | 'done' | 'failed'
 
 export default function ShippingStation() {
   const { user } = useAuth()
@@ -127,26 +155,39 @@ export default function ShippingStation() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+
+  const [boxes, setBoxes] = useState<BoxPreset[]>([])
+  const [boxId, setBoxId] = useState<string>('')
+  const [customDims, setCustomDims] = useState({ lengthIn: '', widthIn: '', heightIn: '' })
   const [weightInput, setWeightInput] = useState<string>('')
+
+  const [stationConfig, setStationConfig] = useState<StationConfig | null>(null)
+  const [stationHealth, setStationHealth] = useState<StationHealth | null>(null)
 
   const [stage, setStage] = useState<BuyStage>('idle')
   const [stageStartedAt, setStageStartedAt] = useState<number>(0)
   const [stageError, setStageError] = useState<string | null>(null)
+  const [lastLabelOrderId, setLastLabelOrderId] = useState<string | null>(null)
   const [lastLabelUrl, setLastLabelUrl] = useState<string | null>(null)
 
   const printFrameRef = useRef<HTMLIFrameElement | null>(null)
   const blobUrlRef = useRef<string | null>(null)
 
   const canBuy = user?.role === 'admin' || user?.role === 'manager'
+  const stationName = stationConfig?.defaultStation || 'the station'
+  const stationOn = Boolean(stationConfig?.enabled)
 
-  useEffect(() => {
-    void loadOrders()
-    return () => {
-      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
-    }
-  }, [])
+  const stageLabel: Record<BuyStage, string> = {
+    idle: '',
+    rates: 'Getting live USPS and UPS rates for this box…',
+    buying: 'Buying the cheapest label…',
+    sent: `Sent to ${stationName} — waiting for the printer…`,
+    printing: 'Sending the 4×6 to the printer…',
+    done: 'Label printed',
+    failed: 'Label failed'
+  }
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
@@ -157,7 +198,66 @@ export default function ShippingStation() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    void loadOrders()
+
+    // The box list is served rather than hardcoded so the options on screen and
+    // the ones the label API will accept cannot drift apart.
+    void (async () => {
+      try {
+        const result = await apiFetch('/api/shipping/boxes')
+        const list = (result?.boxes || []) as BoxPreset[]
+        setBoxes(list)
+        let remembered = ''
+        try {
+          remembered = window.localStorage.getItem(LAST_BOX_KEY) || ''
+        } catch {
+          // Private window or blocked storage — just start unselected.
+        }
+        if (remembered && (remembered === CUSTOM_BOX_ID || list.some(b => b.id === remembered))) {
+          setBoxId(remembered)
+        }
+      } catch {
+        // Falls through to "no boxes loaded", which blocks buying rather than
+        // guessing a size — guessing is the bug this replaced.
+      }
+    })()
+
+    void (async () => {
+      try {
+        setStationConfig(await apiFetch('/api/print-station/config'))
+      } catch {
+        setStationConfig({ enabled: false, defaultStation: 'pluto' })
+      }
+    })()
+
+    return () => {
+      if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
+    }
+  }, [loadOrders])
+
+  // Is the station awake? Polled so "nothing came out of the printer" can be
+  // answered on screen instead of by walking over to it.
+  useEffect(() => {
+    if (!stationConfig?.enabled) return
+    let cancelled = false
+    const check = async () => {
+      try {
+        const health = await apiFetch(`/api/print-station/stations/${stationConfig.defaultStation}`)
+        if (!cancelled) setStationHealth(health)
+      } catch {
+        if (!cancelled) setStationHealth(null)
+      }
+    }
+    void check()
+    const id = window.setInterval(check, 20000)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [stationConfig])
 
   // The queue is strictly PAID work with no label yet. Payment status is the
   // gate, not order status: unpaid checkout drafts used to surface as things to
@@ -194,12 +294,31 @@ export default function ShippingStation() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId])
 
+  const chosenBox = useMemo(() => boxes.find(b => b.id === boxId) || null, [boxes, boxId])
+  const isCustomBox = boxId === CUSTOM_BOX_ID
+
+  const customDimsValid = useMemo(() => {
+    const values = [customDims.lengthIn, customDims.widthIn, customDims.heightIn].map(Number)
+    return values.every(v => Number.isFinite(v) && v >= 0.25 && v <= 108)
+  }, [customDims])
+
+  const boxIsChosen = Boolean(chosenBox) || (isCustomBox && customDimsValid)
+
+  const selectBox = (id: string) => {
+    setBoxId(id)
+    try {
+      window.localStorage.setItem(LAST_BOX_KEY, id)
+    } catch {
+      // Storage blocked — the pick still works for this session.
+    }
+  }
+
   /**
    * Pull the label through our own origin and open the print dialog on it.
-   * Returns the blob URL so the caller can offer a manual fallback if the
-   * browser refuses to script the print (some PDF viewers do).
+   * The browser fallback, used when no station agent is configured or when the
+   * station could not print it.
    */
-  const printLabel = async (orderId: string): Promise<string> => {
+  const printInBrowser = async (orderId: string): Promise<string> => {
     const blob = await apiFetchBlob('/api/orders/' + orderId + '/shipping-label/file')
     if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current)
     const url = URL.createObjectURL(blob)
@@ -231,22 +350,77 @@ export default function ShippingStation() {
     return url
   }
 
+  /**
+   * Watch a queued job until the agent reports back.
+   *
+   * Polls the order rather than the station, because the order is where the job
+   * actually lives — the station endpoint only lists work still outstanding, so
+   * a finished job would just vanish from it with no way to tell success from
+   * an agent that never woke up.
+   */
+  const waitForStation = async (orderId: string): Promise<PrintJobState | null> => {
+    const deadline = Date.now() + 90_000
+    while (Date.now() < deadline) {
+      await sleep(2000)
+      try {
+        const result = await apiFetch('/api/orders/' + orderId)
+        const job = result?.order?.metadata?.print_station as PrintJobState | undefined
+        if (job && (job.status === 'printed' || job.status === 'failed')) return job
+      } catch {
+        // A blip in polling is not a print failure — keep waiting.
+      }
+    }
+    return null
+  }
+
+  const finishAtStation = async (orderId: string) => {
+    setStage('sent')
+    const job = await waitForStation(orderId)
+
+    if (job?.status === 'printed') {
+      setStage('done')
+      return
+    }
+
+    if (job?.status === 'failed') {
+      setStage('failed')
+      setStageError(`${stationName} could not print it: ${job.error || 'no reason given'}. The label is bought — print it here instead.`)
+      return
+    }
+
+    setStage('failed')
+    setStageError(`${stationName} has not picked this up. It may be asleep or the agent is not running. The label is bought — print it here instead.`)
+  }
+
   const buyAndPrint = async (order: StationOrder) => {
     if (!canBuy) return
     if (!addressIsComplete(order)) {
       toast.error('Address incomplete', 'This order is missing a street, city, state or ZIP — fix it in Order Management first.')
       return
     }
+    if (!boxIsChosen) {
+      toast.error('Pick the box', 'The carrier prices on size as well as weight — choose the box this is going in.')
+      return
+    }
 
     const weight = Number(weightInput)
     if (!Number.isFinite(weight) || weight <= 0) {
-      toast.error('Check the weight', 'Enter the parcel weight in pounds before buying.')
+      toast.error('Check the weight', 'Weigh the packed box and enter it in pounds.')
       return
     }
+
+    const parcel = isCustomBox
+      ? {
+          lengthIn: Number(customDims.lengthIn),
+          widthIn: Number(customDims.widthIn),
+          heightIn: Number(customDims.heightIn)
+        }
+      : { presetId: boxId }
 
     setStageError(null)
     setStageStartedAt(Date.now())
     setStage('rates')
+    setLastLabelOrderId(order.id)
     try {
       // One call does rates + purchase server-side; the stage flip is the
       // honest midpoint of that call, not an invented step.
@@ -254,7 +428,7 @@ export default function ShippingStation() {
 
       const result = await apiFetch('/api/orders/' + order.id + '/shipping-label', {
         method: 'POST',
-        body: JSON.stringify({ weightLb: weight })
+        body: JSON.stringify({ weightLb: weight, parcel })
       })
 
       if (result?.mock) {
@@ -271,9 +445,13 @@ export default function ShippingStation() {
           .filter(Boolean).join(' · ')
       )
 
-      setStage('printing')
-      await printLabel(order.id)
-      setStage('done')
+      if (result?.printJob) {
+        await finishAtStation(order.id)
+      } else {
+        setStage('printing')
+        await printInBrowser(order.id)
+        setStage('done')
+      }
 
       // Refresh so the order leaves the queue and joins the reprint list.
       await loadOrders()
@@ -288,19 +466,38 @@ export default function ShippingStation() {
   const reprint = async (order: StationOrder) => {
     setStageError(null)
     setStageStartedAt(Date.now())
-    setStage('printing')
+    setLastLabelOrderId(order.id)
     try {
-      await printLabel(order.id)
-      setStage('done')
+      if (stationOn) {
+        await apiFetch(`/api/print-station/jobs/${order.id}/requeue`, { method: 'POST', body: JSON.stringify({}) })
+        await finishAtStation(order.id)
+      } else {
+        setStage('printing')
+        await printInBrowser(order.id)
+        setStage('done')
+      }
     } catch (err) {
       setStage('failed')
-      const message = errorText(err, 'Could not fetch that label to reprint.')
+      const message = errorText(err, 'Could not send that label to the printer.')
       setStageError(message)
       toast.error('Reprint failed', message)
     }
   }
 
-  const busy = stage === 'rates' || stage === 'buying' || stage === 'printing'
+  const printHereInstead = async () => {
+    if (!lastLabelOrderId) return
+    setStage('printing')
+    setStageError(null)
+    try {
+      await printInBrowser(lastLabelOrderId)
+      setStage('done')
+    } catch (err) {
+      setStage('failed')
+      setStageError(errorText(err, 'Could not fetch that label.'))
+    }
+  }
+
+  const busy = stage === 'rates' || stage === 'buying' || stage === 'sent' || stage === 'printing'
   const address = selected ? readAddress(selected) : null
 
   return (
@@ -316,8 +513,23 @@ export default function ShippingStation() {
               {loading ? 'loading…' : queue.length + ' paid ' + (queue.length === 1 ? 'order' : 'orders') + ' waiting'}
             </span>
           </div>
-          <div className="flex items-center gap-3">
-            <span className="hidden md:inline text-xs text-muted">4×6 thermal · prints straight from this screen</span>
+          <div className="flex items-center gap-4">
+            {stationOn ? (
+              <span className="flex items-center gap-2 text-xs">
+                <span
+                  className={'inline-block w-2.5 h-2.5 rounded-full ' + (stationHealth?.online ? 'bg-green-400' : 'bg-red-400')}
+                  aria-hidden="true"
+                />
+                <span className={stationHealth?.online ? 'text-green-300' : 'text-red-300'}>
+                  {stationName} {stationHealth?.online ? 'online' : 'offline'}
+                </span>
+                {stationHealth && stationHealth.queued > 0 && (
+                  <span className="text-muted">· {stationHealth.queued} queued</span>
+                )}
+              </span>
+            ) : (
+              <span className="hidden md:inline text-xs text-muted">printing through this browser</span>
+            )}
             <button
               onClick={() => void loadOrders()}
               disabled={loading || busy}
@@ -445,10 +657,82 @@ export default function ShippingStation() {
                 </ul>
               </section>
 
+              {/* Box size. Not optional: the carrier prices on dimensions too,
+                  and a wrong declaration comes back as an invoice adjustment. */}
+              <section className="rounded-xl border border-white/10 bg-card p-6">
+                <p className="text-xs uppercase tracking-widest text-muted mb-3">What is it going in?</p>
+                <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
+                  {boxes.map(box => {
+                    const active = box.id === boxId
+                    return (
+                      <button
+                        key={box.id}
+                        onClick={() => selectBox(box.id)}
+                        disabled={busy}
+                        className={'text-left rounded-xl border p-4 transition-colors disabled:opacity-50 ' + (
+                          active
+                            ? 'border-primary bg-primary/10 shadow-glowSm'
+                            : 'border-white/10 bg-bg hover:border-primary/40'
+                        )}
+                      >
+                        <p className="font-semibold">{box.name}</p>
+                        <p className="text-sm text-muted tabular-nums mt-0.5">
+                          {box.lengthIn} × {box.widthIn} × {box.heightIn} in
+                        </p>
+                        {box.note && <p className="text-xs text-muted mt-1">{box.note}</p>}
+                      </button>
+                    )
+                  })}
+                  <button
+                    onClick={() => selectBox(CUSTOM_BOX_ID)}
+                    disabled={busy}
+                    className={'text-left rounded-xl border p-4 transition-colors disabled:opacity-50 ' + (
+                      isCustomBox
+                        ? 'border-primary bg-primary/10 shadow-glowSm'
+                        : 'border-white/10 bg-bg hover:border-primary/40'
+                    )}
+                  >
+                    <p className="font-semibold">Custom size</p>
+                    <p className="text-sm text-muted mt-0.5">Measure it</p>
+                  </button>
+                </div>
+
+                {isCustomBox && (
+                  <div className="mt-4 flex flex-wrap items-end gap-3">
+                    {(['lengthIn', 'widthIn', 'heightIn'] as const).map((dim, i) => (
+                      <label key={dim} className="block">
+                        <span className="text-xs uppercase tracking-widest text-muted">
+                          {['Length', 'Width', 'Height'][i]} (in)
+                        </span>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0.25"
+                          max="108"
+                          value={customDims[dim]}
+                          onChange={e => setCustomDims(d => ({ ...d, [dim]: e.target.value }))}
+                          disabled={busy}
+                          className="mt-2 w-28 rounded-lg bg-bg border border-white/15 px-3 py-2.5 text-xl tabular-nums focus:border-primary focus:outline-none disabled:opacity-50"
+                        />
+                      </label>
+                    ))}
+                    {!customDimsValid && (
+                      <p className="text-xs text-muted pb-3">All three sides, 0.25in to 108in.</p>
+                    )}
+                  </div>
+                )}
+
+                {boxes.length === 0 && (
+                  <p className="text-sm text-red-300 mt-3">
+                    Could not load the box list from the server, so a label cannot be bought — it would have to guess a size.
+                  </p>
+                )}
+              </section>
+
               <section className="rounded-xl border border-white/10 bg-card p-6">
                 <div className="flex flex-wrap items-end gap-6">
                   <label className="block">
-                    <span className="text-xs uppercase tracking-widest text-muted">Parcel weight (lb)</span>
+                    <span className="text-xs uppercase tracking-widest text-muted">Packed weight (lb)</span>
                     <input
                       type="number"
                       step="0.1"
@@ -458,32 +742,44 @@ export default function ShippingStation() {
                       disabled={busy}
                       className="mt-2 w-40 rounded-lg bg-bg border border-white/15 px-4 py-3 text-2xl tabular-nums focus:border-primary focus:outline-none disabled:opacity-50"
                     />
-                    <span className="block text-xs text-muted mt-1">Weigh the box; default is ½ lb per item.</span>
+                    <span className="block text-xs text-muted mt-1">Box and all. Default is ½ lb per item.</span>
                   </label>
 
                   <button
                     onClick={() => void buyAndPrint(selected)}
-                    disabled={!canBuy || busy || !addressIsComplete(selected)}
+                    disabled={!canBuy || busy || !addressIsComplete(selected) || !boxIsChosen}
                     className="flex-1 min-w-[16rem] rounded-xl bg-gradient-to-r from-primary to-secondary px-8 py-5 text-xl font-bold text-white shadow-glow disabled:opacity-40 disabled:shadow-none transition-transform active:scale-[0.99]"
                   >
-                    {busy ? 'Working…' : 'Buy label & print'}
+                    {busy ? 'Working…' : stationOn ? `Buy label & print on ${stationName}` : 'Buy label & print'}
                   </button>
                 </div>
+
+                {!boxIsChosen && boxes.length > 0 && (
+                  <p className="text-sm text-muted mt-3">Pick a box above to enable the button.</p>
+                )}
 
                 {busy && (
                   <div className="mt-5">
                     <ProgressBar
-                      label={STAGE_LABEL[stage]}
+                      label={stageLabel[stage]}
                       startedAt={stageStartedAt}
-                      expectedMs={9000}
+                      expectedMs={stage === 'sent' ? 20000 : 9000}
                       size="lg"
                     />
                   </div>
                 )}
 
                 {stage === 'failed' && stageError && (
-                  <div className="mt-5 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-                    {stageError}
+                  <div className="mt-5 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3">
+                    <p className="text-sm text-red-300">{stageError}</p>
+                    {lastLabelOrderId && (
+                      <button
+                        onClick={() => void printHereInstead()}
+                        className="mt-2 text-sm underline text-red-200 hover:text-white"
+                      >
+                        Print it in this browser instead
+                      </button>
+                    )}
                   </div>
                 )}
 

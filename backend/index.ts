@@ -61,6 +61,7 @@ import adminControlPanelRouter from './routes/admin/control-panel.js'
 import adminEmailTemplatesRouter from './routes/admin/email-templates.js'
 import threeDModelsRouter from './routes/3d-models.js'
 import printBridgeRouter from './routes/print-bridge.js'
+import printStationRouter from './routes/print-station.js'
 import vendorAnalyticsRouter from './routes/vendor-analytics.js'
 import storefrontRouter from './routes/storefront.js'
 import emailRouter from './routes/email.js'
@@ -305,6 +306,7 @@ app.use('/api/admin/control-panel', adminControlPanelRouter)
 app.use('/api/admin/email-templates', adminEmailTemplatesRouter)
 app.use('/api/3d-models', threeDModelsRouter)
 app.use('/api/print-bridge', printBridgeRouter) // Watchtower print factory bridge (queue + status)
+app.use('/api/print-station', printStationRouter) // Workstation print agents (Pluto: 4x6 label printer)
 app.use('/api/storefront', storefrontRouter) // headless checkout for external storefronts (earth019)
 app.use('/api/vendor', vendorAnalyticsRouter) // real vendor sales analytics (replaces dashboard mock)
 app.use('/api/email', emailRouter) // in-app email system (Resend send/receive, per-employee inboxes)
