@@ -3,6 +3,7 @@ import { Bell, X, Check, AlertTriangle, MessageSquare, User } from 'lucide-react
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import type { AdminNotification } from '../types'
+import { usePolling } from '../hooks/usePolling'
 
 const API_BASE = import.meta.env.VITE_API_BASE || ''
 
@@ -104,16 +105,17 @@ export default function AdminNotificationBell({
     }
   }
 
-  // Poll for new notifications
+  // Fetch once on mount / when access is granted.
   useEffect(() => {
     if (!hasAccess) return
-
-    fetchNotifications()
-
-    const interval = setInterval(fetchNotifications, 30000) // Poll every 30 seconds
-
-    return () => clearInterval(interval)
+    void fetchNotifications()
   }, [hasAccess, accessToken])
+
+  // Then poll every 30s, but ONLY while the tab is actually visible. This used
+  // to be a bare setInterval, which kept hitting the API forever in a
+  // backgrounded admin tab (~2,880 requests/day per open tab) and was a
+  // standing contributor to the egress cap that took the project offline.
+  usePolling(fetchNotifications, hasAccess ? 30_000 : null)
 
   // Click outside to close
   useEffect(() => {

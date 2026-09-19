@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Store, RefreshCw, ExternalLink, Sparkles, Send, Eraser, Camera, X, AlertTriangle, Check } from 'lucide-react'
 import api from '../lib/api'
+import { usePolling } from '../hooks/usePolling'
 
 interface EtsyStatus {
   enabled: boolean
@@ -254,7 +255,6 @@ export default function AdminEtsyPanel() {
   const [reshootCast, setReshootCast] = useState<CastDraft>({ ids: [], custom: '' })
   // Which tiers the admin has ticked per product. Absent = the default below.
   const [tierPicks, setTierPicks] = useState<Record<string, EtsyTier[]>>({})
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Default selection for a design: every eligible tier that isn't already
   // posted and can actually be fulfilled. David said "SOME i want to offer the
@@ -280,22 +280,12 @@ export default function AdminEtsyPanel() {
   }
 
   // While any candidate is generating model shots, poll every 5s so stage text
-  // and thumbnails move without the admin mashing refresh.
-  useEffect(() => {
-    const generating = candidates.some(c => c.etsy_shots?.status === 'generating')
-    if (generating && !pollRef.current) {
-      pollRef.current = setInterval(refreshCandidates, 5_000)
-    } else if (!generating && pollRef.current) {
-      clearInterval(pollRef.current)
-      pollRef.current = null
-    }
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current)
-        pollRef.current = null
-      }
-    }
-  }, [candidates])
+  // and thumbnails move without the admin mashing refresh. usePolling also
+  // pauses the tick whenever the tab is hidden — a shot run is minutes long
+  // and David routinely switches away mid-run, which used to keep firing a
+  // request every 5s at a panel nobody was watching.
+  const generating = candidates.some(c => c.etsy_shots?.status === 'generating')
+  usePolling(refreshCandidates, generating ? 5_000 : null)
 
   const fetchAll = async () => {
     try {

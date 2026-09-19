@@ -4073,3 +4073,103 @@ fallback path against prod and still returned David's order as due for a poll.
   always contains Size. Fix would be to fall back to a variation-capable Custom
   Property for the size axis; needs David's call since it changes live listing
   shape.
+
+## Current request (2026-09-18) — the store went dark; then "fix the polling and unbounded queries"
+
+David: "okay my products are gone but i think its supabase" → then, after the
+store was restored, "fix the polling and unbounded queries".
+
+### What actually happened (verified live, not inferred)
+Every Supabase REST read returned `HTTP 402`:
+
+    Service for this project is restricted due to the following violations:
+    exceed_egress_quota.
+
+**Egress, not storage, and not data loss.** All 2,602 products were intact the
+whole time. The two free-tier caps get confused constantly, so for the record:
+- Storage (files at rest, 1 GB) — irrelevant here. This project stores NOTHING
+  in Supabase Storage: there is no `storage.from(...)` anywhere in `src` or
+  `backend/src`. Image bytes already serve from GCS.
+- **Egress (bytes leaving Supabase, 5 GB/mo) — this is what tripped.**
+
+So "move it to R2" cannot help: the 5 GB is JSON rows leaving PostgREST, not
+files. Object storage cannot serve the `products` table. Confirmed there are no
+blobs inflating rows either — no BYTEA, no base64 data-URLs; `products.images`
+is `TEXT[]` of URLs.
+
+**Fix applied by David:** transferred the project into the existing **WatchTower
+Pro** org. Supabase bills per ORGANIZATION, so adding a project to an org
+already on Pro costs that project's compute (+$10/mo) rather than a second $25
+subscription. Project ref stayed `czzyrmizvjqlifcivrhn`, so URL + anon +
+service-role keys were unchanged — no Render/Vercel env edits, no redeploy.
+Verified back up: products 402 → 206 (2,602 rows, 127 active), auth 200,
+api.imaginethisprinted.com 200.
+
+### Where the egress actually went (corrected — my first read was wrong)
+I initially called out "15+ unbounded product queries" and an always-on 5s Etsy
+poll. Both were overstated, and the correction matters because it changes what
+is worth touching:
+- Most of those `from('products')` call sites are UPDATE/DELETE or
+  `{ count: 'exact', head: true }` — head counts return no rows and cost ~nothing.
+- The public storefront is ALREADY bounded: `Home` uses `.limit(12)`/`.limit(8)`,
+  `ProductCatalog` uses `.range(from, to)`. Visitor traffic was never the leak.
+- `AdminEtsyPanel`'s 5s poll and `AdminMrsImagine`'s 2s poll were already gated
+  on a job being in flight.
+
+The real, verified contributors:
+1. **Polls that never stop in a hidden tab.** `AdminNotificationBell` polled every
+   30s for as long as the tab existed (~2,880 requests/day per open tab). The
+   gated job polls also kept firing while David switched away mid-run — a shot
+   run or a Mrs. Imagine sweep is minutes long and he routinely tabs away.
+2. **`loadProducts()` re-fetching the whole filtered catalog after every
+   mutation.** ~224 rows carrying `description` + `metadata` (JSONB) + `images`,
+   plus a chunked `product_assets` fetch, fired from **14 call sites**.
+
+### Fix
+- **New `src/hooks/usePolling.ts`** — an interval that does not tick while
+  `document.hidden`, and fires one catch-up refresh when the tab becomes visible
+  again (so the panel is current by the time anyone looks). `intervalMs: null`
+  means "not polling", which keeps the hook call unconditional.
+- Applied to `AdminNotificationBell` (the always-on one), `AdminOpsMonitor`,
+  `AdminEtsyPanel`, `AdminMrsImagine`.
+- **`loadProducts()` coalescing** in `AdminDashboard`: concurrent callers share
+  one in-flight fetch, and a call arriving mid-flight schedules exactly ONE
+  trailing refresh. No call sites changed, so the last writer still sees its own
+  change — N rapid writers no longer cause N full catalog fetches.
+
+Deliberately NOT done: trimming `description`/`metadata` off `PRODUCT_COLUMNS`.
+Both are load-bearing — `description` renders in the table, and `metadata` drives
+the collection and step-flow-approval filters plus `hero_video_url`/`etsy_shots`.
+
+### File shortlist (approved scope — 2026-09-18 egress)
+- `src/hooks/usePolling.ts` (new)
+- `src/hooks/usePolling.test.tsx` (new)
+- `src/components/AdminNotificationBell.tsx`
+- `src/components/AdminOpsMonitor.tsx`
+- `src/components/AdminEtsyPanel.tsx`
+- `src/components/AdminMrsImagine.tsx`
+- `src/pages/AdminDashboard.tsx`
+- `TASK_NOTES.md`
+
+Rationale for scope beyond the previous shortlist: the prior entry was the
+2026-09-02 background-removal work and `CLAUDE_TASK.md` is a stale Etsy review;
+neither covers this. David asked for this work directly in-session.
+
+### Work log (append-only)
+- Diagnosed the outage live: `HTTP 402 exceed_egress_quota` on every REST read,
+  then confirmed restoration after David's org transfer (402 → 206, 2,602
+  products, 127 active, auth 200, API 200).
+- Added `usePolling` + 8 unit tests covering: ticking while visible, **zero
+  requests across a full minute hidden**, one catch-up on re-show, `refreshOnFocus:
+  false`, `null` never polling, flipping number↔null, latest-callback-without-
+  restart, and cleanup on unmount. 8/8 pass.
+- Converted the four admin polls to `usePolling`; removed the now-dead `pollRef`
+  and its `useRef` import from `AdminEtsyPanel`.
+- Wrapped `loadProducts` as `loadProductsNow` + a coalescing `loadProducts`.
+- Verified: `tsc -b --noEmit` clean; eslint 0 errors on all six touched files
+  (warnings are pre-existing `any`s); **full suite 109/109 files, 1756/1756
+  tests**; `npm run build` succeeds.
+- Note for future sessions: a fresh worktree has no `node_modules`. Junction BOTH
+  the root and `backend/` ones from the shared checkout and copy `.env.local`
+  (gitignored), or 41 test files fail on `sharp` and 7 on missing Supabase env —
+  neither of which is a real regression.

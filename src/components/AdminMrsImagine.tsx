@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowRight, ExternalLink, RefreshCw, ShieldAlert } from 'lucide-react'
 import { mrsImagine, scoutProgress, scoutResult, type ScoutPick, type ScoutRun } from '../lib/api'
 import ProgressBar from './studio/ProgressBar'
+import { usePolling } from '../hooks/usePolling'
 
 // Mrs. Imagine's card — her daily SCOUT board (David 2026-09-09: "mrs imagine
 // is a scout she finds great designs that are selling she needs to verify they
@@ -146,11 +147,11 @@ export default function AdminMrsImagine() {
   // Polling is keyed on the RUN, not on this tab's button: a sweep started by
   // the daily clock — or by David in another tab — shows the same live bar.
   const running = busy || run?.status === 'running'
-  useEffect(() => {
-    if (!running) return
-    const id = window.setInterval(() => { void load() }, POLL_MS)
-    return () => window.clearInterval(id)
-  }, [running, load])
+  // Paused while the tab is hidden: a sweep is minutes long, so this 2s tick
+  // was still running against a backgrounded tab for the whole sweep. It
+  // refires the moment the tab is visible again, so the bar is current by the
+  // time anyone looks at it.
+  usePolling(load, running ? POLL_MS : null)
 
   const sweep = async () => {
     setBusy(true)

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
@@ -772,7 +772,7 @@ const AdminDashboard: React.FC = () => {
   const NOT_A_LIBRARY_DRAFT =
     'metadata->>import_source.is.null,metadata->>import_source.neq.design-library,status.eq.active'
 
-  const loadProducts = async () => {
+  const loadProductsNow = async () => {
     try {
       // PAGED, because PostgREST caps an unbounded select at 1,000 rows and
       // says nothing about it. The tab was silently showing only the newest
@@ -866,6 +866,39 @@ const AdminDashboard: React.FC = () => {
     } catch (error) {
       console.error('Error loading products:', error)
     }
+  }
+
+  // Every mutation on this tab — delete, approve, publish, a finished mockup
+  // run — ends with `await loadProducts()`, and one refresh is ~224 rows of
+  // description + metadata + images plus the chunked product_assets fetch.
+  // Fired back to back (a bulk action, or two handlers racing) that pulled the
+  // same megabytes repeatedly, which is the kind of traffic that spent the
+  // 5 GB Supabase egress budget and took the project offline on 2026-09-18.
+  //
+  // Concurrent callers now share one in-flight fetch, and a call that arrives
+  // while one is running schedules exactly ONE trailing refresh — so the last
+  // writer still sees its own change, without N writers causing N full fetches.
+  const loadProductsInFlight = useRef<Promise<void> | null>(null)
+  const loadProductsQueued = useRef(false)
+
+  const loadProducts = async (): Promise<void> => {
+    if (loadProductsInFlight.current) {
+      loadProductsQueued.current = true
+      return loadProductsInFlight.current
+    }
+    const run = (async () => {
+      try {
+        await loadProductsNow()
+      } finally {
+        loadProductsInFlight.current = null
+      }
+      if (loadProductsQueued.current) {
+        loadProductsQueued.current = false
+        await loadProducts()
+      }
+    })()
+    loadProductsInFlight.current = run
+    return run
   }
 
   // ITC Pricing functions

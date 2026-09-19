@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Activity, RefreshCw } from 'lucide-react'
 import api from '../lib/api'
+import { usePolling } from '../hooks/usePolling'
 
 interface StalledOrder {
   id: string
@@ -65,10 +66,13 @@ export default function AdminOpsMonitor() {
   }
 
   useEffect(() => {
-    fetchStatus()
-    const interval = setInterval(fetchStatus, 120000) // refresh every 2 min
-    return () => clearInterval(interval)
+    void fetchStatus()
   }, [])
+
+  // Refresh every 2 min while the tab is visible; paused when it is not, so a
+  // dashboard left open in a background tab stops spending egress on a panel
+  // nobody is reading.
+  usePolling(fetchStatus, 120_000)
 
   return (
     <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
