@@ -435,7 +435,45 @@ and the Tripo key.
   Related: decimation breaks the 0.6mm union at ANY ratio (0.61 fails exactly
   like 0.04), so it is a local mesh defect, not a decimation-strength problem.
 
-## Current request (2026-09-10) — weekly Etsy shop review
+## Current request (2026-09-17) — weekly Etsy shop review
+
+- Review the live Etsy storefront against the 2026-09-10 baseline.
+- Capture the shop home, strongest featured listing, an inconsistent listing, and About/policies.
+- Email the report from Mr. Imagine with all four screenshots embedded by CID and attached as true PNG files.
+
+## Current status (2026-09-17)
+
+- Active listings increased from 10 to 14. The four additions are `Not a Drill Dad Duties`, `Merry Christmas Emblem`, `Dope Car Crew`, and `Bad Witch Vibes`.
+- Sales, reviews, and admirers remain at zero.
+- The featured assortment is now Y2K, `Not a Drill Dad Duties`, `Resting Witch Face`, and `Gnome Abduction`; `Not a Drill` replaced `Beam Me Up`.
+- Eleven cards start at `$22` and three at `$25`, with no visible sale. On both inspected `$22+` listings, youth sizes are `$22`, standard adult S–XL are `$25`, and 2XL–3XL are `$27.50`, so the adult-facing card-price ambiguity persists.
+- `Not a Drill Dad Duties` is the strongest new featured listing: clear title, adult-model hero, and five visible images. It has no color selector.
+- `Grey Alien Listen` remains the inconsistent listing: six visible images and a stronger model hero, but missing spaces around title separators, no color selector, and no clearly verified finished-product close-up.
+- Both inspected listings show `$5.00` shipping, a September 19–28 estimate, and returns within 30 days.
+- About/policies and the conflict between “drawn up in-house” and AI-assisted wording remain unchanged. The blank banner, lack of owner/process imagery, truncated card titles, keyword-heavy copy, and small/light secondary text remain visible trust/accessibility risks.
+- The first delivery used screenshot files whose `.png` names and MIME labels masked JPEG encoding. A corrected copy was re-encoded to true PNG, sent as the canonical report, and explicitly marked as superseding the earlier payload.
+- Verified the corrected message as delivered with four CID attachments in Resend, four attachments in Mr. Imagine's Sent record, and four working true-PNG downloads in the WeCare recipient record.
+- Fresh true-PNG screenshots are stored at `C:/Users/David/.codex/visualizations/2026/09/17/weekly-etsy-shop-review-2026-09-17/true-png`.
+- No live Etsy changes or repo implementation-code changes were made.
+
+## File shortlist (approved scope — 2026-09-17 weekly Etsy review)
+
+### Read first
+- `AGENTS.md`
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md`
+- `backend/routes/email.ts`
+- `backend/services/email-resend.ts`
+
+### Edit allowed
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
+- No repo implementation files.
+- External state approved for this request: the weekly report and one corrective true-PNG reissue from the existing Mr. Imagine mailbox.
+
+---
+
+## Prior request (2026-09-10) — weekly Etsy shop review
 
 - Review the live Etsy storefront against the 2026-09-03 baseline.
 - Capture the shop home, strongest featured listing, an inconsistent listing, and About/policies.
@@ -1454,6 +1492,7 @@ Note: older scope expansions below are historical context, not current edit appr
 - `src/components/imagination/RightSidebar.tsx` - Added modal launcher button and integrated MrImagineModal
 
 ## Work log (append-only)
+- 2026-09-17 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Not a Drill Dad Duties, Grey Alien Listen, and About/policies screenshots. Compared with September 10: active listings grew from 10 to 14, four products were added, Not a Drill replaced Beam Me Up in the featured row, and sales/reviews/admirers remain at zero. The `$22` youth-led card price versus `$25` standard adult variants and the lack of verified real-product proof remain the main conversion risks. After detecting JPEG-encoded browser captures behind `.png` filenames, re-encoded all four images to true PNG and sent a corrected canonical report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified delivery, four CID attachments in Resend, four attachments in Mr. Imagine's Sent record, and four working PNG-signature-verified downloads in the recipient record. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-09-10 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Resting Witch Face, Grey Alien Listen, and About/policies screenshots. Compared with September 3: active listings grew from 7 to 10, six products were added and three removed, the featured mix shifted to three new designs plus Y2K, and sales/reviews/admirers remain at zero. Flagged the `$22` youth-led card price versus `$25` standard adult variants as the main new clarity risk. Sent one illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified four inline CID attachments in Resend, four attachments in Mr. Imagine's Sent record, and four working PNG downloads in the recipient record. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-09-03 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Y2K, HIM WAS BAD, and About/policies screenshots. Compared with August 20: seven listings and the same four featured products remain, sales/reviews/admirers remain at zero, while the 30% sale ended and every listing returned from $17.50 to $25. Sent the illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified four inline CID attachments in Resend, four attachments in the canonical Mr. Imagine Sent record, and four working PNG downloads in the recipient record. Resend also accepted one verification retry during eventual-consistency checks. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 - 2026-08-16 (Codex, Watchtower task 3ba0cd22-5d2f-45f0-bee7-1290a032b8a2): Verified `a7b3393` is already merged into `origin/main`; both production health probes returned HTTP 200. Read-only live evidence confirms the newest Nano Banana 2 Lite mockup is JPEG by magic bytes and GCS `image/jpeg` metadata, and the Etsy ledger records 107 accepted image uploads across 24 listings with no recorded upload errors. Current `main` later defaults flat/ghost mockups to Flux 2 Pro, so a future post-deploy job must be evaluated by template rather than expecting Lite universally. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`.
@@ -4073,6 +4112,50 @@ fallback path against prod and still returned David's order as due for a poll.
   always contains Size. Fix would be to fall back to a variation-capable Custom
   Property for the size axis; needs David's call since it changes live listing
   shape.
+
+## 2026-09-21 — unpaid checkout drafts were posing as pending orders
+
+David, on the admin Orders board: "this pending shhhit is confusing its a cust
+who didnt complete anything so even like looking at makes it seem like a paid
+order esp that it says refund."
+
+### What was actually true (verified against prod `orders`, service role)
+`ITP-MTXGDK77-YC2O` (9/11, $30.42, no customer_email) is status `pending` /
+payment_status `pending` — an abandoned checkout. `backend/routes/stripe.ts`
+writes the `orders` row when the payment INTENT is created, so a shopper who
+reaches the payment screen and leaves behind a complete-looking order row. The
+same cart was paid a day later as `ITP-MTYGMM4V-UQ5X` (delivered). Of 7 rows in
+prod, 6 ever took money.
+
+### File shortlist (approved scope — 2026-09-21 unpaid drafts)
+- `src/lib/order-payment-truth.ts` (new — shared "did money ever land" rule)
+- `src/lib/order-payment-truth.test.ts` (new)
+- `src/pages/OrderManagement.tsx`
+- `src/pages/MyOrders.tsx`
+
+### Work log (append-only)
+- Added `src/lib/order-payment-truth.ts` mirroring backend
+  `EVER_PAID_STATUSES` (paid / refunded / partially_refunded / disputed), with
+  7 unit tests. Result: one rule for both order surfaces instead of three
+  slightly different `payment_status !== 'paid'` checks.
+- `OrderManagement.tsx`: unpaid drafts are out of Pending/Processing/Shipped/
+  On Hold and the header + card counts; they get an "Unpaid" tab and a grey
+  dashed card ($ never collected). Row shows "never paid / abandoned checkout"
+  instead of a yellow `pending` pill, total struck through with "not
+  collected", no Ship button, and no Refund button (`getRemainingRefundable`
+  now returns 0 when nothing was captured — the refund route 409s on these
+  anyway). Manage modal opens with a "no payment was ever taken" banner.
+  Result on live data: Pending 1 → 0, Total Orders 7 → 6, Unpaid 1 ($30.42).
+- `MyOrders.tsx` (found while fixing): `isDraftOrder` was
+  `payment_status !== 'paid'`, so a REFUNDED order showed the buyer a
+  "Drafts — awaiting payment" section with a **Pay Now** button. Now uses the
+  shared rule. No prod row is currently refunded, so nobody hit it.
+- FOUND, NOT FIXED: abandoned-cart recovery is half-built. The decision layer
+  (`backend/lib/abandoned-cart.ts`, 4h/24h schedule) and the
+  `abandoned_cart_reminders` table (applied to prod, 0 rows) exist, but
+  nothing queries or sends — there is no `backend/services/abandoned-cart.ts`
+  and no worker wiring. Modal copy says so rather than promising mail that
+  never goes out.
 
 ## Current request (2026-09-21) — team shirt personalization (name + number)
 
