@@ -151,7 +151,14 @@ export interface LayerField {
 export async function buildLayerSvg(
   canvas: { w: number; h: number },
   fields: LayerField[],
-  loader: (field: TeamField) => Promise<LoadedFont> = (field) => loadFont(field.font)
+  loader: (field: TeamField) => Promise<LoadedFont> = (field) => loadFont(field.font),
+  /**
+   * Output size in px. The viewBox stays in CANVAS units, so librsvg does the
+   * scaling and nothing in the geometry ever has to know what resolution it is
+   * being drawn at - which is what keeps a 900px preview and a 3600px press
+   * file the same picture. Defaults to the canvas.
+   */
+  out?: { w: number; h: number }
 ): Promise<string | null> {
   const parts: string[] = []
   for (const { field, value } of fields) {
@@ -161,8 +168,10 @@ export async function buildLayerSvg(
     if (fragment) parts.push(fragment)
   }
   if (parts.length === 0) return null
+  const width = out?.w ?? canvas.w
+  const height = out?.h ?? canvas.h
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${canvas.w}" height="${canvas.h}" ` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
     `viewBox="0 0 ${canvas.w} ${canvas.h}">${parts.join('')}</svg>`
   )
 }

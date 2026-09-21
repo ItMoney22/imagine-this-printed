@@ -201,10 +201,17 @@ describe('fitToZone with an arch', () => {
     expect(arched.scale).toBeLessThan(flat.scale)
   })
 
-  it('leaves a width-limited string alone — the arc costs height, not width', () => {
+  it('also shrinks a WIDTH-limited string, because rotation widens the ends', () => {
+    // The arc costs width as well as height: each end glyph is rotated about
+    // its own centre, which swings its corners outside the flat chord.
+    // Measured on real pixels, VANDERMEULEN at arch 18 overran its zone by
+    // 12px at press resolution before the width budget accounted for this.
     const flat = fitToZone('VANDERMEULEN', ZONE, metrics, { arch: 0 })!
     const arched = fitToZone('VANDERMEULEN', ZONE, metrics, { arch: 18 })!
-    expect(arched.scale).toBeCloseTo(flat.scale, 5)
+    expect(arched.scale).toBeLessThan(flat.scale)
+    // ...but only slightly. A big drop here would mean arched names render
+    // noticeably smaller than flat ones for no visible reason.
+    expect(arched.scale).toBeGreaterThan(flat.scale * 0.9)
   })
 
   it('keeps arched ink inside the zone on every axis, for any name length', () => {

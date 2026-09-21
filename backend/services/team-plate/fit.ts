@@ -118,11 +118,20 @@ export function fitToZone(
   // the fitted width. So it folds straight into the height budget.
   const archRisePerWidth = archRiseFactor(archDegrees)
 
-  const widthScale = zone.w / ref.width
+  // Rotating the end glyphs about their own centres swings their corners
+  // OUTSIDE the flat chord, so an arched string is wider than its unarched
+  // self as well as taller. Measured: VANDERMEULEN at arch 18 overran its zone
+  // by 12px at press resolution before this term existed. The excursion is
+  // dominated by the glyph half-height turned through half the sweep.
+  const archWidthPad = naturalHeight * Math.sin((Math.abs(archDegrees) * Math.PI) / 180 / 2)
+
+  const widthScale = zone.w / (ref.width + archWidthPad)
   const heightScale = zone.h / (naturalHeight + ref.width * archRisePerWidth)
   // The `min` is the whole point. See the header note (2).
   const scale = Math.min(widthScale, heightScale)
 
+  // The DRAWN width (what archPlacements treats as the chord) is the string
+  // itself; archWidthPad was a budget reservation, not part of the glyph run.
   const width = m.width * scale
   // `height` is the total vertical extent the caller must reserve — the glyph
   // box PLUS the arc rise, so a bounds check on it is honest for arched text.
