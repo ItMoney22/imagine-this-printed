@@ -2510,6 +2510,13 @@ const AdminDashboard: React.FC = () => {
                       <div className="font-semibold text-teal-900">Cost Override</div>
                       <div className="text-sm text-teal-600">Pricing & cost controls</div>
                     </Link>
+                    <Link
+                      to="/admin/team-templates"
+                      className="block text-left p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors border border-purple-100"
+                    >
+                      <div className="font-semibold text-purple-900">Team Templates</div>
+                      <div className="text-sm text-purple-600">Name &amp; number shirts</div>
+                    </Link>
                   </div>
                 </div>
               </div>

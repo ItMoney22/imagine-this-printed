@@ -84,6 +84,7 @@ const ClaimAccount = lazy(() => import('./pages/ClaimAccount'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationProducts'))
 const AdminTeamTemplates = lazy(() => import('./pages/AdminTeamTemplates'))
+const AdminTeamTemplatesIndex = lazy(() => import('./pages/AdminTeamTemplatesIndex'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
 const ToyAR = lazy(() => import('./pages/ToyAR'))
 const BecomeCreator = lazy(() => import('./pages/BecomeCreator'))
@@ -192,6 +193,7 @@ function App() {
                       components, so they carry the same role gate. */}
                   <Route path="/crm" element={<RoleRoute allowedRoles={['admin', 'manager']}><CRM /></RoleRoute>} />
                   <Route path="/admin" element={<RoleRoute allowedRoles={['admin']}><AdminDashboard /></RoleRoute>} />
+                  <Route path="/admin/team-templates" element={<RoleRoute allowedRoles={['admin']}><AdminTeamTemplatesIndex /></RoleRoute>} />
                   <Route path="/admin/team-templates/:productId" element={<RoleRoute allowedRoles={['admin']}><AdminTeamTemplates /></RoleRoute>} />
                   <Route path="/marketing" element={<RoleRoute allowedRoles={['admin', 'manager']}><MarketingTools /></RoleRoute>} />
                   <Route path="/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><OrderManagement /></RoleRoute>} />
