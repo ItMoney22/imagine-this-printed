@@ -359,6 +359,14 @@ export function Sidebar() {
               onClick={closeMobile}
             />
             <NavItem
+              to="/admin/team-templates"
+              icon={<Shirt className="w-5 h-5" />}
+              label="Team Templates"
+              isCollapsed={isCollapsed}
+              isActive={isActive('/admin/team-templates')}
+              onClick={closeMobile}
+            />
+            <NavItem
               to="/admin/email"
               icon={<Inbox className="w-5 h-5" />}
               label="Email Inbox"

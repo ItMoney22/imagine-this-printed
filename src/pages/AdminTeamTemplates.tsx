@@ -70,15 +70,18 @@ const AdminTeamTemplates: React.FC = () => {
     ;(async () => {
       const { data } = await supabase
         .from('products')
-        .select('id, name, images')
+        .select('id, name, images, metadata')
         .eq('id', productId)
         .maybeSingle()
       if (cancelled || !data) return
       setProductName(data.name ?? '')
-      // The back design is the last gallery image on a front-back product;
-      // the operator can paste a different URL if that guess is wrong.
+      // Prefer the image the operator TAGGED as the back print in the
+      // product modal (products.metadata.print_artwork.back_image). Falling
+      // back to 'the last gallery image' is a guess, and on a product whose
+      // gallery ends with a size chart or a lifestyle shot it is a wrong one.
       const images: string[] = Array.isArray(data.images) ? data.images : []
-      setSourceUrl(images[images.length - 1] ?? '')
+      const tagged = (data as any)?.metadata?.print_artwork?.back_image
+      setSourceUrl(tagged || images[images.length - 1] || '')
 
       const existing = await apiFetch(`/api/team-plate/${productId}/template`).catch(() => null)
       if (!cancelled && existing?.template) setTemplate(existing.template)
