@@ -42,11 +42,10 @@ startEtsyWorker()
 // Privacy: expires shopper try-on photos out of GCS on a timer. See
 // backend/worker/tryon-retention-sweep.ts and docs/VIRTUAL_TRYON.md §7.
 startTryOnRetentionSweep()
-// Mrs. Imagine's unattended daily batch (research through Etsy drafts) is OFF
-// by default as of 2026-09-02 — she now pitches phrases inside the Step Flow
-// instead of generating whole products on her own. Set MRS_IMAGINE_DAILY=true
-// to re-arm the old end-to-end clock; startMrsImagineDaily() logs which mode
-// it started in.
+// Mrs. Imagine has NO clock any more (David 2026-09-21: "i want that on my
+// push of the button only"). This call schedules nothing — it just logs the
+// retirement so the reason is visible in the worker boot log. She scouts from
+// POST /api/admin/mrs-imagine/scout/run and nowhere else.
 startMrsImagineDaily()
 // Step Flow shots render INLINE in the API process, so an API restart mid-render
 // strands them at 'running' forever — no Redo, no Skip, and Continue blocked for

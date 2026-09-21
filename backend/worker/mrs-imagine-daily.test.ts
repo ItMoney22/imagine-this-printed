@@ -1,59 +1,41 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { readFile } from 'node:fs/promises'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 // ---------------------------------------------------------------------------
 // Tests for Mrs. Imagine's daily clock (backend/worker/mrs-imagine-daily.ts).
 //
-// The clock's job changed on 2026-09-09 (David: "mrs imagine is a scout ...
-// she drops a list of her top 10 everyday"). It used to run her autonomous
-// BATCH — real image spend, real Etsy drafts — which is why that had to be
-// opt-in and stayed off. It now runs the SCOUT, which only reads the public
-// Etsy API and writes a list, so it defaults ON.
+// The clock is RETIRED as of 2026-09-21 — David: "stop mrs image from doing
+// daily scouts i want that on my push of the button only."
 //
-// Two properties under test:
-//   1. the scout arms by default and disarms only on the exact string "false",
-//   2. the batch is unreachable — MRS_IMAGINE_DAILY=true must NOT bring back
-//      unattended building, and the module must not even import the batch.
+// These tests exist to stop it coming back by accident. This clock's default
+// has already flipped three times (batch ON, batch OFF, scout ON), so "someone
+// re-arms it without noticing" is a demonstrated failure mode in this file
+// specifically, not a hypothetical one.
 //
-// setInterval/setTimeout are spied and stubbed rather than left running — this
-// suite must never leave a live timer behind that could fire a real sweep
-// after the test finishes.
+// Three properties under test:
+//   1. starting the worker schedules NOTHING — no interval, no timeout,
+//   2. that holds even with the old env flags set, because a stale value left
+//      on the Render dashboard must not resurrect the sweep,
+//   3. the module does not import the scout service at all. A timer can be
+//      re-added by mistake; an import of the thing that reads Etsy and writes
+//      rows cannot be re-added by mistake.
 // ---------------------------------------------------------------------------
 
 process.env.SUPABASE_URL ||= 'http://localhost:54321'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 
-vi.mock('../lib/supabase.js', () => ({
-  supabase: {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => ({
-            order: () => ({
-              limit: () => ({
-                maybeSingle: async () => ({ data: null, error: null }),
-              }),
-            }),
-          }),
-          gte: () => Promise.resolve({ count: 0, error: null }),
-        }),
-      }),
-    }),
-  },
-}))
+// Deliberately NOT mocked: services/mrs-imagine-scout.js and
+// services/mrs-imagine.js. If this module ever imports either again, the suite
+// fails at import time on the real module's Supabase/OpenAI construction
+// instead of silently passing.
 
-const runAndRecordScout = vi.fn().mockResolvedValue({ id: 'run-1', status: 'succeeded', output: { picks: [] } })
-vi.mock('../services/mrs-imagine-scout.js', () => ({
-  runAndRecordScout: (...args: any[]) => runAndRecordScout(...args),
-  SCOUT_JOB_TYPE: 'mrs_imagine_scout',
-}))
+const { startMrsImagineDaily, SCOUT_CLOCK_RETIRED_MESSAGE } = await import('./mrs-imagine-daily.js')
 
-// Deliberately NOT mocked: services/mrs-imagine.js. If the clock ever imports
-// the batch again, this suite fails at import time on the real module's
-// Supabase/OpenAI construction instead of silently passing.
+const MODULE_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), 'mrs-imagine-daily.ts')
 
-const { startMrsImagineDaily, SCOUT_OFF_MESSAGE, BATCH_RETIRED_MESSAGE } = await import('./mrs-imagine-daily.js')
-
-describe('startMrsImagineDaily', () => {
+describe('startMrsImagineDaily — the clock is retired', () => {
   let logSpy: ReturnType<typeof vi.spyOn>
   let intervalSpy: ReturnType<typeof vi.spyOn>
   let timeoutSpy: ReturnType<typeof vi.spyOn>
@@ -64,59 +46,48 @@ describe('startMrsImagineDaily', () => {
     logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     intervalSpy = vi.spyOn(global, 'setInterval').mockReturnValue(0 as any)
     timeoutSpy = vi.spyOn(global, 'setTimeout').mockReturnValue(0 as any)
-    runAndRecordScout.mockClear()
   })
 
   afterEach(() => {
-    vi.restoreAllMocks()
+    logSpy.mockRestore()
+    intervalSpy.mockRestore()
+    timeoutSpy.mockRestore()
     if (originalScout === undefined) delete process.env.MRS_IMAGINE_SCOUT
     else process.env.MRS_IMAGINE_SCOUT = originalScout
     if (originalDaily === undefined) delete process.env.MRS_IMAGINE_DAILY
     else process.env.MRS_IMAGINE_DAILY = originalDaily
   })
 
-  it('arms by default — David gets a list every day without setting anything', () => {
-    delete process.env.MRS_IMAGINE_SCOUT
-
+  it('schedules nothing at all', () => {
     startMrsImagineDaily()
-
-    expect(intervalSpy).toHaveBeenCalledTimes(1)
-    expect(timeoutSpy).toHaveBeenCalledTimes(1)
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('armed'))
-  })
-
-  it('disarms on the exact string "false", and logs why', () => {
-    process.env.MRS_IMAGINE_SCOUT = 'false'
-
-    startMrsImagineDaily()
-
     expect(intervalSpy).not.toHaveBeenCalled()
     expect(timeoutSpy).not.toHaveBeenCalled()
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(SCOUT_OFF_MESSAGE))
   })
 
-  it('stays armed for any value that is not exactly "false"', () => {
-    for (const value of ['0', 'no', 'FALSE', ' false', 'true']) {
-      intervalSpy.mockClear()
-      process.env.MRS_IMAGINE_SCOUT = value
-      startMrsImagineDaily()
-      expect(intervalSpy).toHaveBeenCalledTimes(1)
-    }
-  })
-
-  it('does not resurrect the autonomous batch when the retired flag is still set on Render', () => {
+  it('schedules nothing even with the old flags turned on', () => {
+    process.env.MRS_IMAGINE_SCOUT = 'true'
     process.env.MRS_IMAGINE_DAILY = 'true'
-    delete process.env.MRS_IMAGINE_SCOUT
-
     startMrsImagineDaily()
-
-    // Armed, yes — but for the scout, and it says so out loud rather than
-    // silently ignoring a flag someone thinks is still doing something.
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(BATCH_RETIRED_MESSAGE))
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining('scout sweep'))
+    expect(intervalSpy).not.toHaveBeenCalled()
+    expect(timeoutSpy).not.toHaveBeenCalled()
   })
 
-  it('the off-message names the flag that controls it', () => {
-    expect(SCOUT_OFF_MESSAGE).toContain('MRS_IMAGINE_SCOUT=false')
+  it('says so in the boot log, where someone hunting the missing list will look', () => {
+    startMrsImagineDaily()
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('RETIRED')
+    expect(logged).toContain('button')
+  })
+
+  it('names both dead env vars, so a stale flag on Render is explainable', () => {
+    expect(SCOUT_CLOCK_RETIRED_MESSAGE).toContain('MRS_IMAGINE_SCOUT')
+    expect(SCOUT_CLOCK_RETIRED_MESSAGE).toContain('MRS_IMAGINE_DAILY')
+  })
+
+  it('does not import the scout service — the structural half of the guarantee', async () => {
+    const src = await readFile(MODULE_PATH, 'utf8')
+    expect(src).not.toMatch(/^import .*mrs-imagine-scout/m)
+    expect(src).not.toMatch(/^import .*mrs-imagine\.js/m)
+    expect(src).not.toMatch(/runAndRecordScout/)
   })
 })
