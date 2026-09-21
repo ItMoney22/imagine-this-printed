@@ -4156,3 +4156,40 @@ prod, 6 ever took money.
   nothing queries or sends — there is no `backend/services/abandoned-cart.ts`
   and no worker wiring. Modal copy says so rather than promising mail that
   never goes out.
+
+---
+
+## Task: Etsy transfer listing size axis fallback for taxonomy 6617 (2026-09-21)
+Watchtower row `93ef1eb3-7041-443b-80d9-482469caab8c`.
+
+### File shortlist (approved scope)
+- `backend/services/etsy.ts` — `applyListingVariations()`
+- `backend/services/etsy-variations.test.ts` — regression tests
+- `backend/scripts/etsy-poc.mjs` — `--raw` dump flag used to verify the live shape
+
+### Work log (append-only)
+- Verified live via `node backend/scripts/etsy-poc.mjs properties --ids 6617`:
+  taxonomy 6617 (Image Transfers) exposes Primary color, Secondary color,
+  Length [scaled], Width [scaled], and three "Custom Property" slots — no
+  native Size. Full raw shape captured (property_id 513/514/516 for the
+  Custom slots, no possible_values, no scales).
+- Fixed `applyListingVariations()`: when no native Size property exists and
+  the spec actually has sizes to place, it now falls back to the first free
+  variation-capable "Custom Property" slot and relabels it "Size" (Etsy's own
+  convention for these slots is a seller-supplied property_name). Native-Size
+  taxonomies (regular apparel) are unaffected — checked first, unchanged path.
+- Added real-payload regression tests in `etsy-variations.test.ts`: the exact
+  taxonomy 6617 property shape (ids 200/52047899002/102448162080/102448163338
+  /513/514/516) now backs a suite asserting sizes map onto property_id 513
+  labeled "Size", per-size pricing carries, price_on_property turns on, no
+  scale gets attached to free-text values, and a genuinely propertyless
+  taxonomy still throws. A second suite pins the native-Size/Color regression
+  case (taxonomy 482) so the fallback path can never shadow it.
+- Ran `npx vitest run backend/services/` (64 files, 1163 tests): only 3
+  pre-existing failures in `etsy-copy-repair.test.ts`, unrelated to this
+  change (AI-copy-repair model-path assertions) — not touched, not caused by
+  this fix.
+- No live Etsy listing was written or repriced by this session — deliverable
+  4 (whether to backfill/re-sync the already-published transfer listings that
+  are missing the size axis) is handed to David as an approval, not decided
+  here.
