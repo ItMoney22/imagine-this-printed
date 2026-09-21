@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { apiFetch } from '../lib/api'
+import { wasEverPaid as paymentEverLanded } from '../lib/order-payment-truth'
 import LiveTrackingPanel from '../components/orders/LiveTrackingPanel'
 import type { Order } from '../types'
 
@@ -178,7 +179,14 @@ const renderReversalStep = (label: string, step?: { ok: boolean; skipped: boolea
 // TERMINAL_ORDER_STATUSES in backend/services/order-monitor.ts.
 const REVERSED_ORDER_STATUSES = ['cancelled', 'refunded']
 
-const ORDER_TABS = ['pending', 'processing', 'shipped', 'on_hold', 'all'] as const
+// The 'unpaid' tab exists because routes/stripe.ts writes the `orders` row
+// when the payment intent is CREATED: a customer who reaches the payment screen
+// and walks away leaves a complete-looking row behind — real name, real items,
+// real total, status 'pending' — that was never paid for. Those belong in their
+// own tab, not in the Pending work queue. Whether money ever landed is decided
+// by src/lib/order-payment-truth.ts, the same rule the customer's My Orders
+// page uses.
+const ORDER_TABS = ['pending', 'processing', 'shipped', 'on_hold', 'unpaid', 'all'] as const
 type OrderTab = typeof ORDER_TABS[number]
 
 const OrderManagement: React.FC = () => {
@@ -615,7 +623,17 @@ const OrderManagement: React.FC = () => {
     }
   }
 
+  const wasEverPaid = (order: AdminOrder) => paymentEverLanded(order.paymentStatus)
+
+  /** An abandoned checkout: an order row that never took a payment. */
+  const isUnpaidDraft = (order: AdminOrder) => !wasEverPaid(order)
+
   const getRemainingRefundable = (order: AdminOrder) => {
+    // Nothing was ever captured on a draft, so there is nothing to give back.
+    // The refund route 409s on these anyway (routes/stripe.ts) — a Refund
+    // button on an unpaid checkout is a lie that also makes the row read as a
+    // paid order at a glance.
+    if (!wasEverPaid(order)) return 0
     const total = order.total || 0
     const refunds = Array.isArray(order.metadata?.refunds) ? order.metadata.refunds : []
     const refundedCents = refunds.reduce((sum: number, r: any) => sum + (Number(r?.amount_cents) || 0), 0)
@@ -664,17 +682,31 @@ const OrderManagement: React.FC = () => {
     }
   }
 
+  // Unpaid drafts are kept OUT of every fulfilment tab — 'pending' means
+  // "paid, waiting on us", not "someone once opened a checkout". They get
+  // their own tab so an abandoned cart is still visible (and recoverable)
+  // rather than silently hidden.
   const filteredOrders = selectedTab === 'all'
     ? orders
-    : orders.filter(order => order.status === selectedTab)
+    : selectedTab === 'unpaid'
+      ? orders.filter(isUnpaidDraft)
+      : orders.filter(order => order.status === selectedTab && !isUnpaidDraft(order))
 
   // Stats (memoized to avoid filtering on every render)
-  const { pendingCount, processingCount, shippedCount, onHoldCount } = useMemo(() => ({
-    pendingCount: orders.filter(o => o.status === 'pending').length,
-    processingCount: orders.filter(o => o.status === 'processing').length,
-    shippedCount: orders.filter(o => o.status === 'shipped').length,
-    onHoldCount: orders.filter(o => o.status === 'on_hold').length
-  }), [orders])
+  const { pendingCount, processingCount, shippedCount, onHoldCount, unpaidCount, realOrderCount } = useMemo(() => {
+    const real = orders.filter(o => paymentEverLanded(o.paymentStatus))
+    return {
+      pendingCount: real.filter(o => o.status === 'pending').length,
+      processingCount: real.filter(o => o.status === 'processing').length,
+      shippedCount: real.filter(o => o.status === 'shipped').length,
+      onHoldCount: real.filter(o => o.status === 'on_hold').length,
+      unpaidCount: orders.length - real.length,
+      realOrderCount: real.length
+    }
+  }, [orders])
+  const unpaidValue = orders
+    .filter(isUnpaidDraft)
+    .reduce((sum, o) => sum + (o.total || 0), 0)
   // Same rule as the admin dashboard's Revenue Collected card: an order row is
   // written at checkout before Stripe confirms, so unpaid drafts and
   // cancelled/refunded orders are NOT revenue. Summing every row here reported
@@ -710,7 +742,7 @@ const OrderManagement: React.FC = () => {
               {/* Glass Stats in Header */}
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2 border border-white/20">
                 <p className="text-purple-100 text-xs">Total Orders</p>
-                <p className="text-white text-xl font-bold">{orders.length}</p>
+                <p className="text-white text-xl font-bold">{realOrderCount}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-2 border border-white/20">
                 <p className="text-purple-100 text-xs">Revenue collected</p>
@@ -723,7 +755,7 @@ const OrderManagement: React.FC = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-6 mb-8">
           <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-6 hover:shadow-purple-500/5 transition-shadow">
             <div className="flex items-center">
               <div className="p-3 bg-gradient-to-br from-yellow-500 to-orange-600 rounded-xl shadow-lg shadow-yellow-500/25">
@@ -789,10 +821,31 @@ const OrderManagement: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Total Orders</p>
-                <p className="text-2xl font-bold text-text">{orders.length}</p>
+                <p className="text-2xl font-bold text-text">{realOrderCount}</p>
               </div>
             </div>
           </div>
+
+          {/* Unpaid checkouts are NOT orders — deliberately grey, deliberately
+              last, and never folded into the counts above. */}
+          <button
+            type="button"
+            onClick={() => selectTab('unpaid')}
+            className="text-left bg-card rounded-xl shadow-lg border border-dashed border-gray-400/40 p-6 hover:shadow-gray-500/5 transition-shadow"
+          >
+            <div className="flex items-center">
+              <div className="p-3 bg-gradient-to-br from-gray-400 to-slate-500 rounded-xl shadow-lg shadow-slate-500/20">
+                <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3l18 18M9 5h9a2 2 0 012 2v9M5 9v10a2 2 0 002 2h10" />
+                </svg>
+              </div>
+              <div className="ml-4">
+                <p className="text-sm font-medium text-muted">Unpaid checkouts</p>
+                <p className="text-2xl font-bold text-text">{unpaidCount}</p>
+                <p className="text-xs text-muted">${unpaidValue.toFixed(2)} never collected</p>
+              </div>
+            </div>
+          </button>
         </div>
 
         {/* Pill-Style Tabs */}
@@ -803,6 +856,7 @@ const OrderManagement: React.FC = () => {
               { id: 'processing', label: 'Processing', count: processingCount },
               { id: 'shipped', label: 'Shipped', count: shippedCount },
               { id: 'on_hold', label: 'On Hold', count: onHoldCount },
+              { id: 'unpaid', label: 'Unpaid', count: unpaidCount },
               { id: 'all', label: 'All Orders', count: orders.length }
             ].map((tab) => (
               <button
@@ -845,7 +899,9 @@ const OrderManagement: React.FC = () => {
             <p className="text-muted">
               {selectedTab === 'all'
                 ? 'No orders have been placed yet.'
-                : `No ${selectedTab.replace('_', ' ')} orders at the moment.`}
+                : selectedTab === 'unpaid'
+                  ? 'No abandoned checkouts — every order here was paid for.'
+                  : `No ${selectedTab.replace('_', ' ')} orders at the moment.`}
             </p>
           </div>
         )}
@@ -911,12 +967,30 @@ const OrderManagement: React.FC = () => {
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-bold text-text">${order.total.toFixed(2)}</div>
+                        {isUnpaidDraft(order) ? (
+                          <>
+                            <div className="text-sm font-medium text-muted line-through">${order.total.toFixed(2)}</div>
+                            <div className="text-xs text-muted">not collected</div>
+                          </>
+                        ) : (
+                          <div className="text-sm font-bold text-text">${order.total.toFixed(2)}</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(order.status)}`}>
-                          {order.status.replace('_', ' ')}
-                        </span>
+                        {/* A draft's raw status is 'pending', which reads as
+                            "paid, waiting on us". Say what actually happened. */}
+                        {isUnpaidDraft(order) ? (
+                          <>
+                            <span className="px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300 border border-dashed border-gray-400/50">
+                              never paid
+                            </span>
+                            <div className="text-xs text-muted mt-1">abandoned checkout</div>
+                          </>
+                        ) : (
+                          <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${getStatusColor(order.status)}`}>
+                            {order.status.replace('_', ' ')}
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-muted">{new Date(order.createdAt).toLocaleDateString()}</div>
@@ -937,7 +1011,7 @@ const OrderManagement: React.FC = () => {
                           >
                             Manage
                           </button>
-                          {canBuyLabels && (order.status === 'printed' || order.status === 'processing') && !order.shippingLabelUrl && (
+                          {canBuyLabels && !isUnpaidDraft(order) && (order.status === 'printed' || order.status === 'processing') && !order.shippingLabelUrl && (
                             <button
                               onClick={() => {
                                 setSelectedOrder(order)
@@ -1005,6 +1079,18 @@ const OrderManagement: React.FC = () => {
             </div>
 
             <div className="p-6">
+              {isUnpaidDraft(selectedOrder) && (
+                <div className="mb-6 rounded-xl border border-dashed border-gray-400/60 bg-gray-50 dark:bg-gray-800/50 p-4">
+                  <p className="font-semibold text-text">No payment was ever taken for this checkout.</p>
+                  <p className="text-sm text-muted mt-1">
+                    The row exists because the customer reached the payment screen and left
+                    (payment status: {selectedOrder.paymentStatus || 'pending'}). Do not produce
+                    or ship it, and there is nothing to refund — the refund route rejects an
+                    order that never captured. No recovery email is sent automatically today;
+                    reach out by hand if it is worth chasing.
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
                   <h4 className="font-semibold text-text mb-3 flex items-center">
