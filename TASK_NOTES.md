@@ -4115,3 +4115,30 @@ time.
 - 2026-09-21 — Brainstormed and locked the design with David across four
   decisions (render engine, order shape, authoring UI, fonts). Wrote the design
   doc and created the worktree. Nothing implemented yet.
+
+### Work log (append-only) — 2026-09-21 build
+- Engine built TDD across six commits: template type + sanitizer, fit/arch
+  geometry, house font set, SVG stroke stack, sharp composite, plate store.
+  Rendered real 1800x2400 plates for BEAR 9 / SMITH 22 / VANDERMEULEN 7 at
+  ~120ms each as proof before touching any UI.
+- FOUR real bugs the tests caught before a customer could: (1) a lone "1"
+  printed at DOUBLE the cap height of an "88" — numbers are now sized to the
+  field's capacity, not the digits typed; (2) arching lifted the middle glyphs
+  out of the zone, silently, because sharp composites outside the frame
+  without complaining; (3) a negative arch drew the same rainbow as a positive
+  one (cos is even, the sign never reached the geometry); (4) rotation makes
+  an arched string WIDER as well as taller — VANDERMEULEN at arch 18 overran
+  by 12px at press resolution, and only rendering real pixels found it.
+- Cart merge key: SMITH 22 and LOPEZ 41 in the same size collapsed into one
+  line at qty 2. Seven tests, all seven red before the fix.
+- Checkout re-renders server-side; a planted evil.example.com print_file_url
+  is proven to appear nowhere in what gets written.
+- Customer panel feature-detects the API (Vercel deploys ahead of Render) and
+  hides itself rather than showing a form that 404s.
+- Admin authoring at /admin/team-templates/:productId; the erase-then-diff
+  seeds zones, distress mask and colours in one pass.
+- Verified: frontend tsc clean, backend tsc clean, vite build passes,
+  eslint 0 errors, 118 files / 1875 tests green.
+- NOT done: no real Spartans template authored yet (task 14 in the plan) —
+  that needs the artwork uploaded and an OPENAI_API_KEY-backed erase run
+  against live prod, which is David's call. Nothing is pushed.

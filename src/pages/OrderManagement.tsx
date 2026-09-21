@@ -56,6 +56,13 @@ interface DBOrder {
       print_files?: Record<string, string> | null
       addons?: { id?: string; name?: string; price?: number }[] | null
       addons_total?: number | null
+      // Personalized team shirt (products.metadata.team_template). Written by
+      // backend/routes/stripe.ts from the SERVER-sanitized values, never from
+      // whatever the cart claimed.
+      personalization?: Record<string, string> | null
+      personalization_flags?: { field: string; reason: string }[] | null
+      print_file_path?: string | null
+      print_file_error?: string | null
     } | null
     /**
      * Production files resolved from the PRODUCT, attached by
@@ -93,6 +100,14 @@ interface FulfilmentLine {
   size: string | null
   color: string | null
   printLocation: string | null
+  /** Personalized team shirt: what the customer typed, e.g. { name: "SMITH", number: "22" }. */
+  personalization: Record<string, string> | null
+  /** Reasons a human should look before pressing. Flags, never blocks. */
+  personalizationFlags: Array<{ field: string; reason: string }> | null
+  /** Durable GCS path of the rendered press file — signed for download on demand. */
+  printFilePath: string | null
+  /** Set when the press render failed at checkout; the order still went through. */
+  printFileError: string | null
   /** Mockup/product image — what it should look like. */
   previewUrl: string | null
   /** Press-ready artwork. `print_files` (per placement) wins over a single design. */
@@ -308,6 +323,10 @@ const OrderManagement: React.FC = () => {
                 size: m.size || null,
                 color: m.color || null,
                 printLocation: m.print_location || null,
+                personalization: m.personalization || null,
+                personalizationFlags: m.personalization_flags || null,
+                printFilePath: m.print_file_path || null,
+                printFileError: m.print_file_error || null,
                 previewUrl: m.image_url || null,
                 designUrl: m.custom_design || m.design_url || null,
                 printFiles: Object.entries(m.print_files || {})
@@ -330,6 +349,10 @@ const OrderManagement: React.FC = () => {
               size: snap?.size ?? null,
               color: snap?.color ?? null,
               printLocation: snap?.printLocation ?? null,
+              personalization: snap?.personalization ?? null,
+              personalizationFlags: null,
+              printFilePath: null,
+              printFileError: null,
               previewUrl: snap?.image ?? null,
               designUrl: snap?.customDesign ?? null,
               printFiles: [],
@@ -1221,6 +1244,11 @@ const OrderManagement: React.FC = () => {
                                 : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'}`}>
                                 Print: {line.printLocation ? line.printLocation.replace(/_/g, ' ') : 'NOT SET'}
                               </span>
+                              {line.personalization && (
+                                <span className="px-2 py-1 rounded bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200 font-semibold">
+                                  {Object.values(line.personalization).filter(Boolean).join(' · ')}
+                                </span>
+                              )}
                               {line.variant && (
                                 <span className="px-2 py-1 rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 font-medium">
                                   {line.variant}

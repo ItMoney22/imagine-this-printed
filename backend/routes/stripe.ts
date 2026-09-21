@@ -18,6 +18,7 @@ import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } f
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
 import { parseTeamTemplate, sanitizeValues } from '../shared/team-template.js'
 import { renderOrGetCached } from '../services/team-plate/plate-store.js'
+import { reviewFlags } from '../services/team-plate/review-flags.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
 // margins → merch ledger) lives in this service so the hourly payment
@@ -252,6 +253,8 @@ interface LinePersonalization {
   values: Record<string, string>
   path: string | null
   error?: string
+  /** Reasons a human should look before this is pressed. Flags, never blocks. */
+  flags?: Array<{ field: string; reason: string }>
 }
 
 async function personalizationForItems(
@@ -282,12 +285,15 @@ async function personalizationForItems(
       const template = id ? templates.get(id) : null
       if (!template) return
       const values = sanitizeValues(template, item?.personalization)
+      // Flags a human should see before pressing. It never refuses the
+      // order: a child really named Dick must not hit an error at the till.
+      const flags = reviewFlags(template, values)
       try {
         const plate = await renderOrGetCached(template, values, template.canvas.w)
-        out.set(index, { values, path: plate.path })
+        out.set(index, { values, path: plate.path, flags })
       } catch (err: any) {
         req.log?.error({ err, productId: id }, 'team-plate: press render failed at checkout')
-        out.set(index, { values, path: null, error: err?.message ?? 'render failed' })
+        out.set(index, { values, path: null, error: err?.message ?? 'render failed', flags })
       }
     })
   )
@@ -337,7 +343,10 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
         // signed URL expires long before an order stops mattering.
         personalization: personalized.get(itemIndex)?.values ?? null,
         print_file_path: personalized.get(itemIndex)?.path ?? null,
-        print_file_error: personalized.get(itemIndex)?.error ?? null
+        print_file_error: personalized.get(itemIndex)?.error ?? null,
+        personalization_flags: personalized.get(itemIndex)?.flags?.length
+          ? personalized.get(itemIndex)!.flags
+          : null
       }
     }
   })
