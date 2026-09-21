@@ -13,6 +13,7 @@ import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
+import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
@@ -59,6 +60,12 @@ const ProductPage: React.FC = () => {
   // Garment quality tier (printed apparel only) — defaults to the standard
   // blank so checkout works with zero interaction; premium tiers upcharge.
   const [selectedTier, setSelectedTier] = useState<string>(DEFAULT_GARMENT_TIER_ID)
+  // Team shirt personalization (products.metadata.team_template).
+  const [personalization, setPersonalization] = useState<Record<string, string>>({})
+  // Set when the API turns out not to serve /api/team-plate yet — Vercel
+  // deploys ahead of Render, so the panel has to be able to bow out and let
+  // the shirt sell as an ordinary product.
+  const [personalizeUnsupported, setPersonalizeUnsupported] = useState(false)
   /** Placement → the mockup rendered at that print scale (currently pocket only). */
   const [placementShots, setPlacementShots] = useState<Record<string, string>>({})
   const [selectedAddons, setSelectedAddons] = useState<CartAddon[]>([])
@@ -343,6 +350,17 @@ const ProductPage: React.FC = () => {
   const showGarmentTiers = isApparel && !isBlank
   const tierUpcharge = showGarmentTiers ? garmentTierUpcharge(selectedTier) : 0
 
+  // The template is read straight off the product row. Only `fields` and
+  // `upcharge` are used here — zones, fonts and colours never leave the
+  // server, because only the server draws anything.
+  const rawTemplate: any = (product as any)?.metadata?.team_template
+  const teamTemplate: TeamTemplateSummary | null =
+    !personalizeUnsupported && rawTemplate && Array.isArray(rawTemplate.fields) && rawTemplate.fields.length > 0
+      ? { version: rawTemplate.version, fields: rawTemplate.fields, upcharge: rawTemplate.upcharge }
+      : null
+  const personalizationComplete =
+    !teamTemplate || teamTemplate.fields.every((f: any) => (personalization[f.key] ?? '').length > 0)
+
   // Blank garment pricing — per size + colour group off the product's own
   // table (backend/shared/blank-pricing.ts). products.price is only the
   // "from" figure; the size buttons and the header show the real unit price.
@@ -475,10 +493,14 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a print placement')
       return
     }
+    if (teamTemplate && !personalizationComplete) {
+      toast.warning('Selection required', `Please enter the ${teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')}`)
+      return
+    }
     if (product) {
       // A blank has nothing to print, so it carries no placement (its seeded
       // print_locations exist only to satisfy the shirts CHECK constraint).
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined, teamTemplate ? personalization : undefined)
       trackCartForTryOn(attribution)
       toast.success('Added to cart', product.name)
     }
@@ -499,10 +521,14 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a print placement')
       return
     }
+    if (teamTemplate && !personalizationComplete) {
+      toast.warning('Selection required', `Please enter the ${teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')}`)
+      return
+    }
     if (product) {
       // A blank has nothing to print, so it carries no placement (its seeded
       // print_locations exist only to satisfy the shirts CHECK constraint).
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined)
+      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined, teamTemplate ? personalization : undefined)
       // Buy Now still puts the item in the cart, so it counts in the funnel.
       trackCartForTryOn()
       navigate('/checkout')
@@ -1079,9 +1105,19 @@ const ProductPage: React.FC = () => {
                 </>
               )}
 
+              {teamTemplate && (
+                <TeamPersonalizePanel
+                  productId={product.id}
+                  template={teamTemplate}
+                  values={personalization}
+                  onChange={setPersonalization}
+                  onUnsupported={() => setPersonalizeUnsupported(true)}
+                />
+              )}
+
               <button
                 onClick={() => handleAddToCart()}
-                disabled={!product.inStock}
+                disabled={!product.inStock || (teamTemplate ? !personalizationComplete : false)}
                 className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <ShoppingCart className="w-4 h-4" />
