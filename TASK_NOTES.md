@@ -4156,3 +4156,12 @@ prod, 6 ever took money.
   nothing queries or sends — there is no `backend/services/abandoned-cart.ts`
   and no worker wiring. Modal copy says so rather than promising mail that
   never goes out.
+
+## 2026-09-21 — Jiffy variant costs and 20% blank markup (Watchtower 767f74d4-80d5-49bb-a703-481f056f7f93)
+
+### File shortlist (approved scope — 2026-09-21 Jiffy variant pricing)
+- Read first: `backend/shared/blank-line.ts`, `backend/shared/blank-pricing.ts`, `backend/scripts/seed-blanks.ts`, `backend/services/order-pricing.ts`, `backend/routes/stripe.ts`, `src/lib/product-kind.ts`, `src/context/CartContext.tsx`, `src/pages/ProductPage.tsx`, `src/pages/Checkout.tsx`, `src/pages/AdminDashboard.tsx`, `supabase/migrations/20260706000000_blank_inventory.sql`, and `D:\Projects for MetaSphere\imagine-this-printed\DESIGN.md`.
+- Allowed edits: `supabase/migrations/20260921000000_blank_variant_costs.sql`; new `backend/services/blank-variant-pricing.ts` and test; new `backend/services/jiffy-variant-sync.ts` and test fixtures; new `backend/scripts/sync-jiffy-variant-costs.ts`; new `backend/routes/admin/blank-costs.ts` and test; `backend/routes/storefront.ts`; `backend/services/order-pricing.ts` and test; `backend/routes/stripe.ts`; `backend/index.ts`; `backend/package.json`; `src/lib/api.ts`; `src/lib/product-kind.ts` and focused tests; `src/context/CartContext.tsx` and test; `src/pages/ProductPage.tsx`; `src/pages/Cart.tsx`; `src/pages/Checkout.tsx`; new `src/components/admin/AdminBlankMargins.tsx`; `src/pages/AdminDashboard.tsx`; new `docs/JIFFY_VARIANT_COST_SYNC.md`; and `TASK_NOTES.md` for milestone logs.
+
+### Work log (append-only)
+- 2026-09-21: scouted task `767f74d4-80d5-49bb-a703-481f056f7f93` and prepared the implementation brief. Found that exact Jiffy costs are a hard-coded September 2 snapshot, blank-only prices live in product metadata at 10% markup, and printed apparel still stacks flat tier/plus-size charges; the approved plan moves costs to a protected variant table, uses 20% integer-cent pricing with preserved decoration, makes checkout authoritative, and adds an admin margin inspector plus dry-run sync documentation.
