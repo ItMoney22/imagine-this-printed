@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
-import { addonsUnitTotal, addonsSignature, lineBasePrice } from '../lib/product-kind'
+import { addonsUnitTotal, addonsSignature, personalizationSignature, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
@@ -113,7 +113,7 @@ function loadCouponFromStorage(): AppliedCoupon | null {
 
 interface CartContextType {
   state: CartState
-  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string) => void
+  addToCart: (product: Product, quantity?: number, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string, personalization?: Record<string, string>) => void
   removeFromCart: (itemId: string) => void
   updateQuantity: (itemId: string, quantity: number) => void
   clearCart: () => void
@@ -134,7 +134,7 @@ interface CartContextType {
 const CartContext = createContext<CartContextType | undefined>(undefined)
 
 type CartAction =
-  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation']; selectedTier?: string } }
+  | { type: 'ADD_TO_CART'; payload: { product: Product; quantity: number; selectedSize?: string; selectedColor?: string; customDesign?: string; designData?: CartItem['designData']; paymentMethod?: 'usd' | 'itc'; selectedAddons?: CartAddon[]; printLocation?: CartItem['printLocation']; selectedTier?: string; personalization?: Record<string, string> } }
   | { type: 'REMOVE_FROM_CART'; payload: string }
   | { type: 'UPDATE_QUANTITY'; payload: { itemId: string; quantity: number } }
   | { type: 'CLEAR_CART' }
@@ -234,7 +234,7 @@ const calculateTotal = (items: CartItem[]): number => {
 const cartReducer = (state: CartState, action: CartAction): CartState => {
   switch (action.type) {
     case 'ADD_TO_CART': {
-      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier } = action.payload
+      const { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier, personalization } = action.payload
       const existingItem = state.items.find(item =>
         item.product.id === product.id &&
         item.customDesign === customDesign &&
@@ -243,7 +243,8 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
         item.paymentMethod === paymentMethod &&
         item.printLocation === printLocation &&
         item.selectedTier === selectedTier &&
-        addonsSignature(item.selectedAddons) === addonsSignature(selectedAddons)
+        addonsSignature(item.selectedAddons) === addonsSignature(selectedAddons) &&
+        personalizationSignature(item.personalization) === personalizationSignature(personalization)
       )
 
       let newItems: CartItem[]
@@ -263,6 +264,7 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
           printLocation,
           selectedTier,
           selectedAddons,
+          personalization,
           customDesign,
           designData,
           paymentMethod
@@ -347,8 +349,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }, [appliedCoupon])
 
-  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string) => {
-    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier } })
+  const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string, personalization?: Record<string, string>) => {
+    dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier, personalization } })
   }
 
   const removeFromCart = (itemId: string) => {

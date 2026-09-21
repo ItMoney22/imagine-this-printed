@@ -16,6 +16,9 @@ import {
 } from '../utils/email.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
+import { parseTeamTemplate, sanitizeValues } from '../shared/team-template.js'
+import { renderOrGetCached } from '../services/team-plate/plate-store.js'
+import { reviewFlags } from '../services/team-plate/review-flags.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
 // margins → merch ledger) lives in this service so the hourly payment
@@ -228,9 +231,81 @@ function snapshotCartItems(items: any[] | undefined | null) {
 // Re-sync order_items rows to the current cart (replace, not append — drafts
 // are updated on every cart/total change). Failures are logged but do not
 // fail checkout: orders.metadata.items still carries the snapshot.
-async function replaceOrderItems(orderId: string, items: any[] | undefined | null, req: Request) {
+// ---------------------------------------------------------------------------
+// Personalized team shirts — the checkout trust boundary.
+//
+// The cart line carries the customer's typed values and, for display, a preview
+// URL. Neither is trusted here. The template is re-read from the DATABASE (the
+// cart's copy of product.metadata is client-supplied and could say anything),
+// the values are re-sanitized with the same server-side rules the preview used,
+// and the press file is re-rendered from those. A client-supplied file URL is
+// ignored outright — otherwise anyone could point an order's print file at an
+// image of their choosing.
+//
+// The same posture this route already takes with shipping: the client supplies
+// a display label, the server supplies every fact.
+//
+// A render failure must NEVER fail checkout — money is already moving. The
+// values are recorded either way and the line carries print_file_error, so the
+// team sees the problem instead of pressing a blank.
+// ---------------------------------------------------------------------------
+interface LinePersonalization {
+  values: Record<string, string>
+  path: string | null
+  error?: string
+  /** Reasons a human should look before this is pressed. Flags, never blocks. */
+  flags?: Array<{ field: string; reason: string }>
+}
+
+async function personalizationForItems(
+  items: any[],
+  req: Request
+): Promise<Map<number, LinePersonalization>> {
+  const out = new Map<number, LinePersonalization>()
+  const ids = Array.from(
+    new Set(
+      items
+        .map((i: any) => (i?.product?.id != null ? String(i.product.id) : null))
+        .filter((id): id is string => !!id && UUID_RE.test(id))
+    )
+  )
+  if (ids.length === 0) return out
+
+  const { data, error } = await supabase.from('products').select('id, metadata').in('id', ids)
+  if (error) {
+    req.log?.error({ err: error }, 'team-plate: product metadata lookup failed at checkout')
+    return out
+  }
+  const templates = new Map<string, ReturnType<typeof parseTeamTemplate>>()
+  for (const row of data ?? []) templates.set(String(row.id), parseTeamTemplate(row.metadata))
+
+  await Promise.all(
+    items.map(async (item: any, index: number) => {
+      const id = item?.product?.id != null ? String(item.product.id) : null
+      const template = id ? templates.get(id) : null
+      if (!template) return
+      const values = sanitizeValues(template, item?.personalization)
+      // Flags a human should see before pressing. It never refuses the
+      // order: a child really named Dick must not hit an error at the till.
+      const flags = reviewFlags(template, values)
+      try {
+        const plate = await renderOrGetCached(template, values, template.canvas.w)
+        out.set(index, { values, path: plate.path, flags })
+      } catch (err: any) {
+        req.log?.error({ err, productId: id }, 'team-plate: press render failed at checkout')
+        out.set(index, { values, path: null, error: err?.message ?? 'render failed', flags })
+      }
+    })
+  )
+  return out
+}
+
+// Exported for unit testing: this is where a client-supplied print file URL
+// has to be ignored and the press file re-rendered server-side.
+export async function replaceOrderItems(orderId: string, items: any[] | undefined | null, req: Request) {
   if (!items || items.length === 0) return
-  const rows = items.map((item: any) => {
+  const personalized = await personalizationForItems(items, req)
+  const rows = items.map((item: any, itemIndex: number) => {
     const rawId = item.product?.id != null ? String(item.product.id) : null
     const qty = item.quantity || 1
     const addonUnit = addonsUnitTotal(item)
@@ -262,7 +337,16 @@ async function replaceOrderItems(orderId: string, items: any[] | undefined | nul
         blank: isBlankGarmentMeta(item.product?.metadata) || null,
         color_mode: item.product?.metadata?.color_mode ?? item.product?.metadata?.print3d?.color_mode ?? null,
         include_paint_kit: item.product?.metadata?.include_paint_kit === true || null,
-        model_id: item.product?.metadata?.model_id ?? null
+        model_id: item.product?.metadata?.model_id ?? null,
+        // Personalized team shirt. These are the SERVER's values and the
+        // SERVER's file — print_file_path is the durable GCS path, because a
+        // signed URL expires long before an order stops mattering.
+        personalization: personalized.get(itemIndex)?.values ?? null,
+        print_file_path: personalized.get(itemIndex)?.path ?? null,
+        print_file_error: personalized.get(itemIndex)?.error ?? null,
+        personalization_flags: personalized.get(itemIndex)?.flags?.length
+          ? personalized.get(itemIndex)!.flags
+          : null
       }
     }
   })
