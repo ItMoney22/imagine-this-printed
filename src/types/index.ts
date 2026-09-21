@@ -69,6 +69,14 @@ export interface CartItem {
    *  printed apparel only. Undefined = standard blank, no upcharge. */
   selectedTier?: string
   selectedAddons?: CartAddon[]
+  /**
+   * Customer-entered values for a personalizable product
+   * (products.metadata.team_template) — e.g. { name: 'SMITH', number: '22' }.
+   *
+   * Part of the CART MERGE KEY: two players in the same size are two lines,
+   * not one line at quantity 2. See CartContext's ADD_TO_CART.
+   */
+  personalization?: Record<string, string>
   paymentMethod?: 'usd' | 'itc'
   designData?: {
     elements: any[]
