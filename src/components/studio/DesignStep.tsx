@@ -32,6 +32,11 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
   // Both selectors only read state.assets — state.assets is the exhaustive dep.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const candidates = useMemo(() => getDesignCandidates(state), [state.assets])
+  // An empty Design step used to render as a bare heading — no takes, no
+  // error, nothing to press. Whatever the cause (a product created outside
+  // the flow, a failed adopt, a generation that never ran), saying so beats
+  // a blank card.
+  const nothingToShow = candidates.length === 0 && !state.loading && !state.error
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const nobgAsset = useMemo(() => getNobgAsset(state), [state.assets])
   const selectedAssetId = state.assets.find((a) => a.is_primary && a.kind === 'source')?.id ?? null
@@ -141,6 +146,17 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
               ? `On a solid ${state.stepFlow.brief.background} background — the background is stripped once you approve.`
               : 'The background is stripped once you approve.'}
       </p>
+
+      {nothingToShow && !isGenerating && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+          <p className="font-semibold text-text mb-1">No design on this product yet</p>
+          <p className="text-muted">
+            Nothing has been drawn or brought into the flow for it. If it was made in the
+            product editor, open it in the design library and press Step Flow there — that
+            promotes its artwork into a real take. Nothing on this step will work until then.
+          </p>
+        </div>
+      )}
 
       {isGenerating && candidates.length === 0 && (
         <div className="py-8 px-2 sm:px-8">

@@ -3742,7 +3742,15 @@ const AdminDashboard: React.FC = () => {
                     {uploadedImages.length > 0 && (
                       <div className="grid grid-cols-4 gap-2 mt-3">
                         {uploadedImages.map((img, idx) => (
-                          <div key={idx} className="relative group">
+                          <div key={idx} className="group">
+                            {/* The image and its overlays get their OWN relative
+                                box. They used to share one with the Front/Back
+                                row below, so "Set as main" (absolute bottom-1)
+                                anchored to the bottom of the whole card and
+                                landed on top of the Back button — David
+                                2026-09-21: "i cant set the back because the set
+                                to main goes over back". */}
+                            <div className="relative">
                             <img src={img.url} alt={`Product ${idx + 1}`} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
                             {idx === 0 ? (
                               <span className="absolute top-1 left-1 bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded">Main</span>
@@ -3766,6 +3774,7 @@ const AdminDashboard: React.FC = () => {
                             >
                               ×
                             </button>
+                            </div>
                             {/* Which SIDE this artwork prints on. Marking one
                                 image front and another back is the whole
                                 difference between "this product has a back
