@@ -2,7 +2,7 @@
 // extra color. Every card needs its own approve before Listing unlocks;
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, Plus, RefreshCw, Sparkles, Trash2, UserRound, X } from 'lucide-react'
+import { AlertTriangle, Check, Plus, RefreshCw, Sparkles, Trash2, UserRound, X, Shirt } from 'lucide-react'
 import { type ShotSubject } from '../../lib/api'
 import { useStudioLane } from './lane'
 import { COLORS } from '../../../backend/shared/catalog-capability'
@@ -73,6 +73,7 @@ export function expectedShotKeys(stepFlow: StepFlowMeta | null, productKind: 'ga
 export const shotLabel = (key: ShotKey): string => {
   if (key === 'product') return 'Product shot'
   if (key === 'hanger') return 'On a hanger'
+  if (key === 'back') return 'Back view'
   if (key === 'model') return 'On a person'
   if (key.startsWith('model:')) return `On a person ${key.slice('model:'.length)}`
   if (key === 'details') return 'Product details card'
@@ -115,7 +116,7 @@ export function canRetryWithFlare(
   if (!showTeamTools) return false
   if (productKind !== 'garment') return false
   if (isModelShot(key) || key === 'details' || key.startsWith('scene:')) return false
-  if (key !== 'product' && key !== 'hanger' && !key.startsWith('color:')) return false
+  if (key !== 'product' && key !== 'hanger' && key !== 'back' && !key.startsWith('color:')) return false
   return !engine?.startsWith('print-true/')
 }
 
@@ -237,6 +238,14 @@ export const CastingNote: React.FC<{
 
 const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => {
   const lane = useStudioLane()
+  // A back print is the precondition for a team template — that is the plate
+  // the name and number are drawn onto.
+  const productMeta: any = (state as any).product?.metadata ?? (state as any).productMetadata ?? {}
+  const hasBackPrint =
+    !!productMeta?.print_artwork?.back_image ||
+    productMeta?.print_placement === 'front-back' ||
+    !!(state.stepFlow?.shots as any)?.back
+  const hasTeamTemplate = !!productMeta?.team_template
 
   const [firing, setFiring] = useState(false)
   const [busyKey, setBusyKey] = useState<ShotKey | null>(null)
@@ -455,6 +464,35 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
 
   return (
     <StepCard>
+      {/* Team shirt personalization. The Mockups step is where the back of
+          the garment is first decided, so it is where a name-and-number
+          template belongs — David 2026-09-21: "step flow needs to know this
+          process of the team templates". Shown only for a product that
+          actually prints on the back; a front-only tee has no plate to
+          personalize. */}
+      {hasBackPrint && state.productId && (
+        <div className="mb-4 rounded-xl border border-primary/30 bg-card p-3 flex items-center gap-3 flex-wrap">
+          <Shirt className="w-4 h-4 text-primary" />
+          <div className="flex-1 min-w-[12rem]">
+            <p className="text-sm font-semibold text-text">
+              {hasTeamTemplate ? 'Personalizable — name & number' : 'Two-sided shirt'}
+            </p>
+            <p className="text-xs text-muted">
+              {hasTeamTemplate
+                ? 'Customers can type their own name and number on the back.'
+                : 'Set up a team template and customers can put their own name and number on the back.'}
+            </p>
+          </div>
+          <a
+            href={'/admin/team-templates/' + state.productId}
+            target="_blank"
+            rel="noreferrer"
+            className="px-3 py-1.5 text-sm rounded-lg bg-primary text-white hover:opacity-90"
+          >
+            {hasTeamTemplate ? 'Edit template' : 'Set up team template'}
+          </a>
+        </div>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
         <h2 className="text-xl font-bold text-text">Mockups</h2>
         {entries.some(([, s]) => s.status === 'done' && !s.approved) && (

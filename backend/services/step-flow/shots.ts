@@ -19,6 +19,7 @@ import {
   type GarmentId,
 } from '../../shared/catalog-capability.js'
 import { STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../shared/metal-art.js'
+import { BACK_ROLE } from '../../shared/product-gallery.js'
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot, designReferenceForProduct } from '../etsy-model-shots.js'
 import { castForDesign, manualCast, type CastingDecision } from './casting.js'
@@ -49,6 +50,8 @@ export type ShotKey =
   | 'hanger'
   | 'model'
   | 'details'
+  /** Back view of a two-sided garment, printed with the BACK artwork. */
+  | 'back'
   | `model:${string}`
   | `color:${string}`
   | `scene:${string}`
@@ -291,9 +294,42 @@ async function mergeStepFlow(
 }
 
 /** The default shot set for a garment/colors pick: one full set on the primary color + one product render per extra. */
-export function defaultShotKeys(colors: { primary: ColorId; extras: ColorId[] }): ShotKey[] {
+export function defaultShotKeys(
+  colors: { primary: ColorId; extras: ColorId[] },
+  /** The product row, when the caller has it. Without it the back shot cannot
+   *  be decided, so the set stays exactly as it was — no silent behaviour
+   *  change for any caller that has not been updated. */
+  product?: { metadata?: any; print_locations?: string[] | null }
+): ShotKey[] {
   const extras = (colors.extras || []).filter((c) => c !== colors.primary)
-  return ['product', 'hanger', 'model', 'details', ...extras.map((c) => `color:${c}` as ShotKey)]
+  const base: ShotKey[] = ['product', 'hanger', 'model', 'details']
+  // A front-and-back product whose listing only ever shows the front is a
+  // listing that cannot sell the back. David 2026-09-21: "since its a front
+  // and back it should mock up a front n back".
+  if (product && productPrintsOnBack(product)) base.push('back')
+  return [...base, ...extras.map((c) => `color:${c}` as ShotKey)]
+}
+
+/**
+ * Does this product actually print something on the back?
+ *
+ * Two independent signals, because they mean different things and both are
+ * real: `print_locations` says the back IS an offered placement, and
+ * `metadata.print_artwork.back_image` says WHICH artwork goes there. Either
+ * one alone is enough to justify shooting the back — a product tagged with
+ * back artwork but missing the placement is a data slip, not a reason to omit
+ * the photo.
+ */
+export function productPrintsOnBack(product: { metadata?: any; print_locations?: string[] | null }): boolean {
+  const meta = product.metadata || {}
+  if (meta.print_artwork?.back_image) return true
+  if (Array.isArray(product.print_locations) && product.print_locations.includes('back_image')) return true
+  return meta.print_placement === 'front-back' || meta.print_placement === 'back-only'
+}
+
+/** The artwork that prints on the back, when one has been tagged. */
+export function backArtworkUrl(product: { metadata?: any }): string | null {
+  return product.metadata?.print_artwork?.back_image || null
 }
 
 /**
@@ -346,6 +382,7 @@ export type ForcedShotEngine = 'print-true'
 export function roleForShotKey(key: ShotKey, garment?: GarmentId): string {
   if (key.startsWith('scene:')) return `mockup_metal_${key.slice('scene:'.length)}`
   if (key === 'hanger') return 'mockup_hanger'
+  if (key === 'back') return BACK_ROLE
   if (isModelKey(key)) return `mockup_model_${modelSlot(key)}`
   if (key === 'details') return 'mockup_details'
   if (key.startsWith('color:')) return `mockup_color_${key.slice('color:'.length)}`
@@ -429,6 +466,12 @@ async function queueMockupJob(
     template = 'hanger'
     shirtColor = colors.primary
     mockupRole = 'mockup_hanger'
+  } else if (key === 'back') {
+    // Shot from behind, carrying the BACK artwork rather than the product's
+    // primary design — see design_url in worker/ai-jobs-worker.ts.
+    template = pickTemplate(garment)
+    shirtColor = colors.primary
+    mockupRole = BACK_ROLE
   } else if (key.startsWith('color:')) {
     const colorId = key.slice('color:'.length) as ColorId
     template = pickTemplate(garment)
@@ -460,6 +503,15 @@ async function queueMockupJob(
         printSizeInches,
         template,
         ...(mockupRole ? { mockupRole } : {}),
+        // The back shot overrides both the placement and the artwork. Without
+        // the design_url override it would render the FRONT design on the back
+        // of the garment, which looks plausible and is wrong.
+        ...(key === 'back'
+          ? {
+              printPlacement: 'back-only',
+              ...(backArtworkUrl(product) ? { design_url: backArtworkUrl(product) } : {}),
+            }
+          : {}),
         stepKey: key,
         ...(engine ? { engine } : {}),
         nonce: randomNonce(),
@@ -961,7 +1013,7 @@ export async function queueStepShots(
     }
     assertOffered(stepFlow.garment, stepFlow.colors.primary)
     for (const c of stepFlow.colors.extras || []) assertOffered(stepFlow.garment, c)
-    allKeys = defaultShotKeys(stepFlow.colors)
+    allKeys = defaultShotKeys(stepFlow.colors, product)
   }
 
   const explicit = !!(requestedKeys && requestedKeys.length)
@@ -1030,7 +1082,7 @@ export async function redoShot(
     if (!stepFlow.garment || !stepFlow.colors?.primary) {
       throw new StepFlowValidationError('Approve garments & colors before redoing shots')
     }
-    allKeys = defaultShotKeys(stepFlow.colors)
+    allKeys = defaultShotKeys(stepFlow.colors, product)
   }
 
   // An added person (`model:<n>`) is not in the default key set — it exists
@@ -1202,7 +1254,11 @@ export async function approveShotsBatch(
           ? defaultMetalShotKeys(stepFlow.sizes || [])
           : stepFlow.colors
             ? [
+                // No product row in this scope; the flow already records a
+                // back shot if one was queued, so track it from there rather
+                // than re-deriving it.
                 ...defaultShotKeys(stepFlow.colors),
+                ...((stepFlow.shots as any)?.back ? (['back'] as ShotKey[]) : []),
                 // Added people are tracked too, or an extra on-person shot
                 // nobody approved would let Listing unlock behind its back.
                 ...(Object.keys(shots) as ShotKey[]).filter((k) => isModelKey(k) && k !== 'model'),

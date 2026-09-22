@@ -760,6 +760,9 @@ export type ShotKey =
   | 'hanger'
   | 'model'
   | 'details'
+  // Back view of a two-sided garment, rendered with the BACK artwork
+  // (products.metadata.print_artwork.back_image), not the front design.
+  | 'back'
   // Extra on-person shots the admin added (David 2026-09-08: "keep the adult
   // and add a kid"). `model` is the first one and always exists; `model:2`,
   // `model:3`, … are added people, each with its own cast.
