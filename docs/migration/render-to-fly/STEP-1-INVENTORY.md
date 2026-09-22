@@ -15,7 +15,7 @@ copied from an older doc.
 
 ---
 
-## 0. Executive summary — the five things that decide this migration
+## 0. Executive summary — the six things that decide this migration
 
 | # | Finding | Why it matters |
 |---|---|---|
