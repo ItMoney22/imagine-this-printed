@@ -24,6 +24,12 @@ import { validateCouponForOrder, recordCouponUsage } from './coupons.js'
 
 const router = Router()
 
+// The (type, reference) shape POST /deduct-itc writes on every feature debit.
+// POST /refund-itc will only ever pay back a row of exactly this shape — see the
+// security note on that route — so the two must be changed together.
+const FEATURE_DEBIT_TYPE = 'usage'
+const FEATURE_DEBIT_REFERENCE = 'feature_usage'
+
 // Per-IP rate limit for the public referral-code validate endpoint. The
 // endpoint is intentionally pre-auth (signup flow validates a code before
 // the user has an account), so requireAuth would break the legitimate
@@ -738,14 +744,24 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
     }
 
     // Log the transaction (itc_transactions live schema: type/amount/balance_after/reference/metadata)
-    const { error: deductLedgerError } = await supabase.from('itc_transactions').insert({
-      user_id: userId,
-      type: 'usage',
-      amount: -amount,
-      balance_after: newBalance,
-      reference: 'feature_usage',
-      metadata: { description: reason },
-    })
+    //
+    // The row's id is returned to the caller as `transaction_id`. That id is the
+    // receipt a later POST /refund-itc has to present: without it a refund has
+    // nothing to prove it is compensating a real debit, which is exactly how the
+    // self-mint hole worked. Keep the (type='usage', reference='feature_usage')
+    // shape in step with refund_itc_for_debit()'s refundability test.
+    const { data: deductLedgerRow, error: deductLedgerError } = await supabase
+      .from('itc_transactions')
+      .insert({
+        user_id: userId,
+        type: 'usage',
+        amount: -amount,
+        balance_after: newBalance,
+        reference: FEATURE_DEBIT_REFERENCE,
+        metadata: { description: reason },
+      })
+      .select('id')
+      .single()
     if (deductLedgerError) console.error('[wallet/deduct-itc] ledger insert failed:', deductLedgerError.message)
 
     console.log('[wallet/deduct-itc] ✅ ITC deducted', usedFallback ? '(legacy fallback)' : '(atomic RPC)', '— user:', userId, 'amount:', amount, 'new balance:', newBalance)
@@ -755,6 +771,9 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
       message: `Deducted ${amount} ITC`,
       deducted: amount,
       new_balance: newBalance,
+      // null only when the ledger insert failed — in that case the debit is
+      // unprovable and therefore unrefundable, which is the safe direction.
+      transaction_id: deductLedgerRow?.id ?? null,
       reason,
     })
   } catch (error: any) {
@@ -765,26 +784,235 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
 
 /**
  * POST /api/wallet/refund-itc
- * Credit ITC back to the authenticated user's wallet. Used by client flows
- * where ITC was deducted up-front but the paid action then failed (e.g. the
- * Replicate mockup endpoint errored after we already debited the user). The
- * refund only ever lands in `req.user.sub`'s own wallet so there's no transfer-
- * to-other-user vector here. Logged as a 'refund' row in itc_transactions.
+ *
+ * Credit ITC back to the authenticated user's wallet after a paid action failed
+ * (e.g. the mockup endpoint errored after /deduct-itc already debited them).
+ *
+ * SECURITY — this route used to be a mint. It ran on the service-role client,
+ * so the wallet RLS lockdown never applied to it, and it credited whatever
+ * `amount` the body carried without checking that anything had been debited.
+ * Any logged-in user could POST themselves unlimited ITC and cash it out
+ * through Stripe Connect. Watchtower task b66fb61f.
+ *
+ * Every refund is now bound to a specific prior debit row in itc_transactions:
+ *   * the debit must exist and belong to the authenticated user;
+ *   * it must be a feature-usage debit written by /deduct-itc — order payments,
+ *     conversions, cashouts and admin adjustments are NOT refundable here, or a
+ *     user could reclaim the ITC they paid with and keep the goods;
+ *   * it must not already have a refund row pointing at it;
+ *   * the credit is capped at the original debit amount.
+ * The pairing is recorded as metadata.refunded_transaction_id on the refund row
+ * and enforced by a unique index — see
+ * supabase/migrations/20260922120000_itc_refund_guard.sql.
  */
+
+/**
+ * How far back the legacy matcher will look for a debit when the caller does
+ * not send `debit_transaction_id`. Vercel and Render deploy independently, so
+ * a browser still running the old bundle will POST without the id for a while
+ * after this ships; rather than break their refund we match the debit for them.
+ * The match is still a real, unrefunded, amount-capped debit of this user's —
+ * it cannot mint, it just guesses which receipt they meant.
+ */
+const LEGACY_REFUND_MATCH_WINDOW_MS = 60 * 60 * 1000
+
+type DebitRow = { id: string; amount: number; created_at?: string }
+
+/**
+ * True when a refund row already points at this debit. Tries the jsonb filter
+ * first and falls back to scanning the user's refund rows, so a PostgREST that
+ * chokes on the `->>` selector degrades into a slower check rather than into a
+ * missing one.
+ */
+async function debitAlreadyRefunded(userId: string, debitId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('itc_transactions')
+    .select('id')
+    .eq('type', 'refund')
+    .eq('metadata->>refunded_transaction_id', debitId)
+    .limit(1)
+
+  if (!error) return (data?.length ?? 0) > 0
+
+  console.warn('[wallet/refund-itc] jsonb refund lookup failed, scanning instead:', error.message)
+  const { data: rows, error: scanError } = await supabase
+    .from('itc_transactions')
+    .select('metadata')
+    .eq('user_id', userId)
+    .eq('type', 'refund')
+    .order('created_at', { ascending: false })
+    .limit(1000)
+  if (scanError) throw new Error(`refund lookup failed: ${scanError.message}`)
+  return (rows ?? []).some((r: any) => r?.metadata?.refunded_transaction_id === debitId)
+}
+
+/** Newest unrefunded feature debit that can cover `amount`, or null. */
+async function findLegacyRefundableDebit(userId: string, amount: number): Promise<DebitRow | null> {
+  const since = new Date(Date.now() - LEGACY_REFUND_MATCH_WINDOW_MS).toISOString()
+
+  const { data: debits, error } = await supabase
+    .from('itc_transactions')
+    .select('id, amount, created_at')
+    .eq('user_id', userId)
+    .eq('type', FEATURE_DEBIT_TYPE)
+    .eq('reference', FEATURE_DEBIT_REFERENCE)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false })
+    .limit(25)
+  if (error) throw new Error(`debit lookup failed: ${error.message}`)
+
+  for (const debit of debits ?? []) {
+    if (Math.abs(Number(debit.amount)) < amount) continue
+    if (await debitAlreadyRefunded(userId, debit.id)) continue
+    return debit as DebitRow
+  }
+  return null
+}
+
 router.post('/refund-itc', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user?.sub
-    const { amount, reason, reference_type, reference_id } = req.body
+    const { amount, reason, reference_type, reference_id, debit_transaction_id } = req.body
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
-    if (!amount || amount <= 0) {
+
+    const refundAmount = Number(amount)
+    if (!Number.isFinite(refundAmount) || refundAmount <= 0) {
       return res.status(400).json({ error: 'Invalid amount - must be positive' })
     }
-    if (!reason) {
+    if (!reason || typeof reason !== 'string') {
       return res.status(400).json({ error: 'Reason is required for refund' })
     }
+    if (debit_transaction_id !== undefined && typeof debit_transaction_id !== 'string') {
+      return res.status(400).json({ error: 'debit_transaction_id must be a string' })
+    }
+
+    // ---- 1. Resolve the debit this refund claims to compensate --------------
+    let debit: DebitRow | null = null
+
+    if (debit_transaction_id) {
+      const { data, error } = await supabase
+        .from('itc_transactions')
+        .select('id, user_id, type, amount, reference, created_at')
+        .eq('id', debit_transaction_id)
+        .maybeSingle()
+
+      if (error) {
+        console.error('[wallet/refund-itc] debit lookup error:', error)
+        return res.status(500).json({ error: 'Failed to verify refund' })
+      }
+
+      // Ownership, shape and sign are all checked here so a spoofed id — another
+      // user's debit, a credit row, an order payment — never reaches the wallet.
+      // Same 422 for every miss: probing must not reveal which part failed.
+      const owned = data && data.user_id === userId
+      const refundable =
+        owned &&
+        Number(data.amount) < 0 &&
+        data.type === FEATURE_DEBIT_TYPE &&
+        data.reference === FEATURE_DEBIT_REFERENCE
+
+      if (!refundable) {
+        console.warn('[wallet/refund-itc] rejected — no refundable debit for id', debit_transaction_id, 'user', userId)
+        return res.status(422).json({
+          error: 'No refundable ITC debit matches this request',
+          code: 'debit_not_found',
+        })
+      }
+      debit = { id: data.id, amount: Number(data.amount), created_at: data.created_at }
+    } else {
+      debit = await findLegacyRefundableDebit(userId, refundAmount)
+      if (!debit) {
+        console.warn('[wallet/refund-itc] rejected — no unrefunded feature debit for user', userId, 'amount', refundAmount)
+        return res.status(422).json({
+          error: 'No refundable ITC debit matches this request',
+          code: 'debit_not_found',
+        })
+      }
+    }
+
+    const debitAmount = Math.abs(Number(debit.amount))
+    if (refundAmount > debitAmount) {
+      return res.status(422).json({
+        error: 'Refund exceeds the original debit',
+        code: 'amount_exceeds_debit',
+        debit_amount: debitAmount,
+      })
+    }
+
+    if (await debitAlreadyRefunded(userId, debit.id)) {
+      console.warn('[wallet/refund-itc] rejected — debit', debit.id, 'already refunded')
+      return res.status(409).json({
+        error: 'This ITC debit has already been refunded',
+        code: 'already_refunded',
+      })
+    }
+
+    // ---- 2. Credit, atomically where the RPC is installed -------------------
+    const description = String(reason).slice(0, 300)
+    const referenceLabel = typeof reference_type === 'string' && reference_type ? reference_type : 'feature_refund'
+
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('refund_itc_for_debit', {
+      p_user_id: userId,
+      p_debit_id: debit.id,
+      p_amount: refundAmount,
+      p_reference: referenceLabel,
+      p_description: description,
+      p_reference_id: reference_id ? String(reference_id).slice(0, 200) : null,
+    })
+
+    const rpcMissing =
+      !!rpcError &&
+      (rpcError.code === 'PGRST202' || /function .*refund_itc_for_debit.* does not exist/i.test(rpcError.message ?? ''))
+
+    if (rpcError && !rpcMissing) {
+      // A unique-violation here means a concurrent request won the race.
+      if (rpcError.code === '23505') {
+        return res.status(409).json({
+          error: 'This ITC debit has already been refunded',
+          code: 'already_refunded',
+        })
+      }
+      console.error('[wallet/refund-itc] RPC error:', rpcError)
+      return res.status(500).json({ error: 'Failed to refund ITC' })
+    }
+
+    if (!rpcMissing) {
+      const verdict = (rpcResult ?? {}) as Record<string, any>
+      if (!verdict.ok) {
+        const status =
+          verdict.code === 'already_refunded' ? 409 :
+          verdict.code === 'wallet_not_found' ? 404 :
+          verdict.code === 'invalid_amount' ? 400 : 422
+        console.warn('[wallet/refund-itc] rejected by guard:', verdict.code, 'user', userId, 'debit', debit.id)
+        return res.status(status).json({
+          error: verdict.code === 'wallet_not_found'
+            ? 'Wallet not found'
+            : 'Refund rejected',
+          code: verdict.code ?? 'refund_rejected',
+        })
+      }
+
+      console.log('[wallet/refund-itc] ✅ ITC refunded (atomic RPC):', {
+        userId, amount: refundAmount, debitId: debit.id, newBalance: verdict.new_balance,
+      })
+      return res.json({
+        ok: true,
+        refunded: refundAmount,
+        new_balance: Number(verdict.new_balance),
+        debit_transaction_id: debit.id,
+        reason,
+      })
+    }
+
+    // ---- 3. Legacy path: RPC not installed yet ------------------------------
+    // Still safe — every check above already ran against the ledger. What this
+    // path loses is atomicity: two simultaneous refunds of the same debit could
+    // both pass the read check. Applying the migration closes that window (and
+    // its unique index rejects the second insert outright).
+    console.warn('[wallet/refund-itc] refund_itc_for_debit RPC not yet installed — falling back to read-then-write')
 
     const { data: wallet, error: walletError } = await supabase
       .from('user_wallets')
@@ -796,7 +1024,7 @@ router.post('/refund-itc', requireAuth, async (req: Request, res: Response): Pro
       return res.status(404).json({ error: 'Wallet not found' })
     }
 
-    const newBalance = (wallet.itc_balance || 0) + amount
+    const newBalance = (Number(wallet.itc_balance) || 0) + refundAmount
     const { error: updateError } = await supabase
       .from('user_wallets')
       .update({ itc_balance: newBalance })
@@ -807,23 +1035,31 @@ router.post('/refund-itc', requireAuth, async (req: Request, res: Response): Pro
       return res.status(500).json({ error: 'Failed to refund ITC' })
     }
 
-    // itc_transactions live schema: type/amount/balance_after/reference/metadata
+    // itc_transactions live schema: type/amount/balance_after/reference/metadata.
+    // refunded_transaction_id is what makes this refund un-repeatable.
     const { error: refundLedgerError } = await supabase.from('itc_transactions').insert({
       user_id: userId,
       type: 'refund',
-      amount,
+      amount: refundAmount,
       balance_after: newBalance,
-      reference: reference_type || 'feature_refund',
-      metadata: { reference_id: reference_id || null, description: reason },
+      reference: referenceLabel,
+      metadata: {
+        refunded_transaction_id: debit.id,
+        reference_id: reference_id || null,
+        description,
+      },
     })
     if (refundLedgerError) console.error('[wallet/refund-itc] ledger insert failed:', refundLedgerError.message)
 
-    console.log('[wallet/refund-itc] ✅ ITC refunded:', { userId, amount, reason, newBalance })
+    console.log('[wallet/refund-itc] ✅ ITC refunded (legacy fallback):', {
+      userId, amount: refundAmount, debitId: debit.id, newBalance,
+    })
 
     return res.json({
       ok: true,
-      refunded: amount,
+      refunded: refundAmount,
       new_balance: newBalance,
+      debit_transaction_id: debit.id,
       reason,
     })
   } catch (error: any) {

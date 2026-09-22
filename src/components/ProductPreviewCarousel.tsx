@@ -181,6 +181,10 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
     // issue a compensating refund. Without this, an API error after the
     // deduct succeeded would silently burn the user's ITC.
     let deducted = false
+    // The ledger id of that debit. /api/wallet/refund-itc refuses to credit
+    // anything it can't tie back to a real debit row, so this is the receipt
+    // the refund has to present.
+    let debitTransactionId: string | null = null
 
     try {
       const { data: { session } } = await supabase.auth.getSession()
@@ -189,13 +193,17 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
       if (!token) throw new Error('Not authenticated')
 
       // Deduct ITC via API
-      await axios.post(`${API_BASE}/api/wallet/deduct-itc`, {
+      const { data: deductData } = await axios.post(`${API_BASE}/api/wallet/deduct-itc`, {
         amount: product.cost,
         reason: `Mockup generation: ${product.name}`
       }, {
         headers: { Authorization: `Bearer ${token}` }
       })
       deducted = true
+      // Absent on an API that hasn't deployed the refund-guard change yet
+      // (Vercel and Render ship independently) — the server falls back to
+      // matching the debit itself, so we just send what we have.
+      debitTransactionId = typeof deductData?.transaction_id === 'string' ? deductData.transaction_id : null
 
       // Update local wallet
       const newBalance = wallet.itc_balance - product.cost
@@ -230,6 +238,7 @@ export const ProductPreviewCarousel = ({ designImageUrl, designName, onWalletUpd
             reason: `Refund: mockup gen failed for ${product.name}`,
             reference_type: 'mockup_generation',
             reference_id: product.id || product.name,
+            ...(debitTransactionId ? { debit_transaction_id: debitTransactionId } : {}),
           }, {
             headers: { Authorization: `Bearer ${token}` }
           })

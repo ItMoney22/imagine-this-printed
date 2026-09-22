@@ -4252,3 +4252,69 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### Work log (append-only) — 2026-09-22 ITC refund self-mint (Watchtower b66fb61f)
+
+- `POST /api/wallet/refund-itc` was an ITC mint. It runs on the service-role
+  client, so the 2026-08-16 wallet RLS lockdown never reached it, and it did
+  `newBalance = wallet.itc_balance + req.body.amount` after checking only that
+  `amount > 0` and `reason` was truthy. Any logged-in user could POST themselves
+  unlimited ITC and cash it out through Stripe Connect or spend it on merch.
+- **Caller audit.** Exactly ONE thing calls the HTTP route:
+  `src/components/ProductPreviewCarousel.tsx:228` (mounted at
+  `src/pages/UserProductCreator.tsx:1093`) — the compensating refund after a
+  premium mockup unlock fails. Every other `refundITC` in the tree is
+  `pricingService.refundITC` (`backend/services/imagination-pricing.ts:198`),
+  an in-process server-side call that no client can reach: creator-studio.ts,
+  studio-flow.ts and imagination-ai.ts all go through it. So the route has one
+  legitimate shape to preserve.
+- **The fix is a binding, not a check.** A refund now has to name the
+  `itc_transactions` debit row it compensates. The route verifies the row
+  exists, belongs to the caller, is a *feature* debit (`type='usage'`,
+  `reference='feature_usage'` — the exact shape `/deduct-itc` writes), has no
+  refund pointing at it already, and that the credit is <= the original debit.
+  `/deduct-itc` now returns that row's id as `transaction_id`, and the carousel
+  sends it back as `debit_transaction_id`.
+- **Why the type/reference allowlist matters.** Restricting to "any debit row"
+  would have opened a second hole: order payments, ITC->credit conversions,
+  payout holds, Stripe Connect cashouts and admin debits all write negative
+  rows too. Refunding one of those would hand a user their ITC back while they
+  keep the goods. Only the two lines in wallet.ts that write `feature_usage`
+  are refundable here (community.ts's boost debit is `usage`/`community_boost`
+  and deliberately is not).
+- **Open question answered.** Live `itc_transactions` is
+  `(id,user_id,type,amount,balance_after,reference,metadata,created_at)` — no
+  `refunded_at`/`refund_ref_id` column, and three unmerged branches already
+  touch this money table. The refund link therefore lives in the existing
+  `metadata` jsonb as `refunded_transaction_id`, and
+  `supabase/migrations/20260922120000_itc_refund_guard.sql` gives that
+  convention real teeth: a partial UNIQUE INDEX on
+  `(metadata->>'refunded_transaction_id') WHERE type='refund'` makes a second
+  refund row for the same debit impossible, plus
+  `refund_itc_for_debit()` which does lock/verify/cap/credit/log in one
+  transaction. Partial so pre-existing refund rows and the Imagination Station
+  path (`type='credit'`, no such key) are untouched.
+- **Deploy skew is handled.** Vercel and Render ship independently, so browsers
+  will POST without `debit_transaction_id` for a while. Rather than break their
+  refund, the route matches the newest unrefunded `feature_usage` debit of that
+  user inside a 1-hour window that can cover the amount. That still cannot
+  mint — it only guesses which real receipt they meant — and the debit is
+  burned once used. The route also survives code-before-migration: if
+  `refund_itc_for_debit` isn't installed (PGRST202) it falls back to
+  read-then-write with every same check applied in JS, losing atomicity only.
+- **Not done, deliberately:** moving the charge itself server-side into
+  `POST /api/mockups/itp-enhance` (deliverable 3). It would need the mockup
+  price table to move out of the component, and during the Vercel/Render skew
+  window an old bundle + new API double-charges while a new bundle + old API
+  charges nothing — a live money path. Filed as a follow-up instead. The
+  minting hole does not depend on it: a client dictating its own *debit* only
+  destroys its own ITC.
+- 19 new tests in `backend/routes/wallet.refund-itc.test.ts`, written from the
+  attacker's side (no debit, forged id, another user's debit, an order debit, a
+  credit row, over-refund, double refund, salami-slicing) plus the legitimate
+  deduct->fail->refund flow on both the RPC and pre-migration paths. Verified
+  they are real: run against `git show HEAD:backend/routes/wallet.ts`, 15 of 19
+  fail; against the fix, 19/19 pass. Root + backend typecheck clean, eslint 0
+  errors on the touched files. `backend/services/etsy-copy-repair.test.ts`
+  fails 3 tests in this checkout — pre-existing and unrelated (it reaches a
+  live model instead of a stub); filed separately.
