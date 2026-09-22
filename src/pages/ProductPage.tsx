@@ -1112,6 +1112,7 @@ const ProductPage: React.FC = () => {
                   values={personalization}
                   onChange={setPersonalization}
                   onUnsupported={() => setPersonalizeUnsupported(true)}
+                  backImageUrl={(product as any)?.metadata?.print_artwork?.back_image || (Array.isArray(product.images) && product.images.length > 1 ? product.images[product.images.length - 1] : undefined)}
                 />
               )}
 

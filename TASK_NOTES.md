@@ -4252,3 +4252,19 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## Rebuild Team Template Admin & Personalize UI (2026-09-22) — task eda4f12e-f9fb-474f-96f2-d7428e2149ca
+
+Amelia Chan: Rebuilt both the admin authoring interface and customer personalization panel for Team Templates.
+- Replaced low-level plate engine concepts (diffing, distress masks, eyedropped colors, raw pixel drag-zones) with an intuitive 4-step wizard:
+  1. Select back artwork (from tagged back print, gallery, or URL).
+  2. Designate/point to Name and Number field targets with placement presets (Classic Jersey, Name Only, Number Only) and interactive preview clicking.
+  3. Set allowable field content and constraints (max chars, auto-uppercase, typography styles, ink colorways, and optional upcharge).
+  4. Render live preview with side-by-side verification and save to database.
+- Completely redesigned `TeamPersonalizePanel.tsx`:
+  - Instant live preview as soon as either name or number is entered (debounced); no longer blocks preview when only one field is typed.
+  - "Try Demo (SMITH 22)" one-tap button for instant testing and customer demonstration.
+  - Interactive status badges, character counters, enlarge mockup modal, and clear step-by-step guidance.
+  - Maintained full backward compatibility with schema (`products.metadata.team_template`) and backend endpoints.
+- Tests: Added `TeamPersonalizePanel.test.tsx` (7 tests) and `AdminTeamTemplates.test.tsx` (3 tests); 38 total personalization tests green; full production build clean.
+
