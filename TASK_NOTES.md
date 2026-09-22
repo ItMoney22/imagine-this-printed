@@ -1,5 +1,34 @@
 # TASK_NOTES
 
+## Current request (2026-09-22) — prevent superseded Etsy gallery photos
+
+Watchtower task `9d366962-82f0-4083-8700-4b770dcca0cf`: an Etsy draft currently uploads `metadata.etsy_shots.images` followed by the frozen `products.images` snapshot. A manual or design-QA re-shot replaces the active asset/metadata URL but can leave the old URL in that snapshot, so Etsy receives both photos.
+
+### File shortlist (approved scope)
+
+Read first:
+
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/etsy.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/step-flow/shots.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/etsy-model-shots.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/design-qa-autofix.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/routes/admin/ai-products-step-flow.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/shared/product-gallery.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/etsy-update.test.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/step-flow/shots.test.ts`
+
+Allowed edits:
+
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/etsy.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/etsy-update.test.ts`
+- `D:/watchtower-dispatch-worktrees/imagine-this-printed/jimmy-phix/prevent-superseded-photo-9d366962-much677c/backend/services/etsy-images.test.ts` only if a separate focused fixture is needed.
+
+Rationale: derive Step Flow’s Etsy gallery dynamically from the current approved `product_assets` rows via the existing `buildApprovedGallery` contract, rather than trying to synchronize the historic `products.images` snapshot after every asynchronous replacement. Preserve `products.images` only as the legacy/manual fallback where there is no usable Step Flow approval state.
+
+## Work log (append-only)
+
+- 2026-09-22 — Scouted the Etsy publish, Step Flow redo, model-shot replacement, design-QA autofix, and existing gallery tests; prepared the constrained implementation brief for task 9d366962-82f0-4083-8700-4b770dcca0cf.
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
