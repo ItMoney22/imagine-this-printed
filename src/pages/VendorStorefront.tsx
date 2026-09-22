@@ -122,7 +122,7 @@ const VendorStorefront: React.FC = () => {
         {
           id: 'wp_1',
           name: 'Premium Cotton T-Shirt',
-          description: 'Ultra-soft 100% organic cotton t-shirt, perfect for custom printing and embroidery.',
+          description: 'Ultra-soft 100% organic cotton t-shirt, perfect for custom DTF printing.',
           retailPrice: 24.99,
           wholesalePricing: [
             { tier: 'bronze', price: 18.74, minimumQuantity: 12 },
