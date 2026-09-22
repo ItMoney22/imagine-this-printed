@@ -7,6 +7,20 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-09-22 — email_logs authenticated INSERT dropped (Sifu, Watchtower `0c9f693c`)
+
+New file: **`20260922220000_drop_email_logs_authenticated_insert.sql`**. Closes
+the residual `82d4ae2e` left live on purpose. `"Service can insert email logs"`
+was `FOR INSERT TO authenticated WITH CHECK (true)` — any signed-in customer
+could forge an `email_logs` row. `service_role` has `rolbypassrls`, and no
+`src/` path writes the table, so the policy granted nothing the backend used.
+One guarded `DROP POLICY IF EXISTS` behind `to_regclass`. The admin SELECT
+policy is untouched. Grants (including `TRUNCATE`, which RLS does not gate)
+stay with Watchtower `b6d6720f`. Verifier: the name is gone from
+`KNOWN_LIVE_RESIDUALS` and listed in `CLOSED_RESIDUALS`, because the live
+wide-open scan only sees `public` / `anon` and would not notice this policy
+coming back.
+
 ## 2026-09-22 — legacy wide-open RLS policies reconciled FORWARD (Sifu, Watchtower `82d4ae2e`)
 
 New file: **`20260922210000_drop_legacy_wide_open_rls_policies.sql`**. Full
@@ -724,3 +738,4 @@ a reviewed, deliberate action, not a rubber stamp.
 
 | `20260922120000_signup_wallet_and_welcome_email.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 4d915741; ledger row inserted into `supabase_migrations.schema_migrations` in the same script, so the CLI is not drifting further on this one) | Signup hardening. (1) `public.create_user_wallet()` rewritten: production had it minting **500 ITC unconditionally** while every migration file in this repo showed zeros — `handle_new_user()`'s own zero-balance insert was losing to its `ON CONFLICT (user_id) DO NOTHING` because the profile insert had already fired the wallet trigger. Now zeros, with `SET search_path` added to a `SECURITY DEFINER` function that lacked one. (2) Adds `user_profiles.welcome_email_sent_at` and backfills every existing row, so the durable one-welcome-per-account stamp cannot re-mail the existing customer base. (3) Drops `on_auth_user_welcome_email` + `send_welcome_email_webhook()` — it POSTed to `/api/webhooks/supabase-auth` on every `auth.users` INSERT with no `x-webhook-secret`, so it has only ever been answered 401/503, and it fired before confirmation. Verified live by inserting a real `auth.users` row and reading the wallet back at 0.00, then deleting the probe. Uses production's actual column names (`points`, `usd_balance`, `total_earned`, `total_spent` — NOT `points_balance`/`lifetime_*`, which `COMPLETE_DATABASE_SETUP.sql` still wrongly describes). Full writeup: `docs/SIGNUP_BOT_PROTECTION.md`. |
 | `20260922210000_drop_legacy_wide_open_rls_policies.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 82d4ae2e; proven no-op — executed in a transaction with a full `pg_policies` snapshot either side, 0 removed / 0 added / 187 before / 187 after, then committed and the tracking row inserted into `supabase_migrations.schema_migrations`) | Forward reconciliation of the legacy wide-open RLS policies. Seven guarded `DROP POLICY IF EXISTS` statements (`points_transactions`, `itc_transactions`, `referral_transactions`, `order_items`, `vendor_payouts`, `founder_earnings`, `community_boost_earnings`) so a from-scratch replay stops recreating `TO public` write policies that production dropped by hand in August. **No historical migration edited.** Nine public `FOR SELECT USING (true)` policies deliberately retained and allow-listed by name. Idempotent and safe to re-run: every drop is `IF EXISTS` behind a `to_regclass(...) IS NOT NULL` guard (a bare `DROP POLICY IF EXISTS` still raises 42P01 when the table is missing). Verify with `node scripts/verify-rls-policy-reconciliation.mjs --live`. Full writeup: `docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md`. |
+| `20260922220000_drop_email_logs_authenticated_insert.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 0c9f693c; executed in a transaction, snapshot either side, committed only when the sole change was the removal of `"Service can insert email logs"`, then the tracking row was inserted into `supabase_migrations.schema_migrations`) | Drops the authenticated `WITH CHECK (true)` INSERT policy on `email_logs` that `82d4ae2e` retained so its own replay would not diverge. Service-role writers are unaffected (`rolbypassrls`). Admin SELECT policy untouched. Idempotent: `DROP POLICY IF EXISTS` behind `to_regclass('public.email_logs') IS NOT NULL`. |

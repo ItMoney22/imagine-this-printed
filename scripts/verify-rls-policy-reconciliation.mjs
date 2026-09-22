@@ -64,17 +64,27 @@ const ALLOWED_PUBLIC_READS = new Set([
 ])
 
 /**
- * Wide-open policies that are still LIVE in production. The job of the forward
- * migration is convergence with production, so these must survive the replay --
- * removing one is a live production change and needs its own reviewed migration.
+ * Wide-open policies that are still LIVE in production on purpose. The forward
+ * migration's job is convergence, so these must survive the replay -- removing
+ * one is a live production change and needs its own reviewed migration.
  * Each entry carries the reason so this list cannot quietly become a dumping
- * ground.
+ * ground. Empty as of task 0c9f693c: the only entry was closed, below.
  */
-const KNOWN_LIVE_RESIDUALS = new Map([
-  [
-    'email_logs||Service can insert email logs',
-    'FOR INSERT TO authenticated WITH CHECK (true). Live in production. No browser-client writer (all five writers are service-role backend paths), so it looks removable -- but removing it is a production change, tracked as its own follow-up.',
-  ],
+const KNOWN_LIVE_RESIDUALS = new Map()
+
+/**
+ * Residuals that have since been closed in production. The replay must not
+ * recreate them, and live mode must not find them.
+ *
+ * The live wide-open scan only flags roles public/anon. A `TO authenticated
+ * WITH CHECK (true)` policy is invisible to that scan, which is why removing
+ * a name from KNOWN_LIVE_RESIDUALS is not by itself proof the hole is gone.
+ * Keyed `table||policyname`.
+ */
+const CLOSED_RESIDUALS = new Set([
+  // 20260922220000_drop_email_logs_authenticated_insert.sql (task 0c9f693c).
+  // Was FOR INSERT TO authenticated WITH CHECK (true).
+  'email_logs||Service can insert email logs',
 ])
 
 const CREATE_RE =
@@ -222,6 +232,16 @@ async function main() {
   for (const [key, p] of failures) {
     console.log(`  FAIL ${key}  [${p.cmd} TO ${p.roles}] using=${p.using} check=${p.check}  <- ${p.file}`)
   }
+
+  for (const key of CLOSED_RESIDUALS) {
+    if (state.has(key)) {
+      const p = state.get(key)
+      console.log(`  FAIL closed residual still created : ${key}  <- ${p.file}`)
+      if (!failures.some(([k]) => k === key)) failures.push([key, p])
+    } else {
+      console.log(`  OK   closed residual absent from replay : ${key}`)
+    }
+  }
   console.log()
 
   if (live) {
@@ -269,7 +289,8 @@ async function main() {
     if (!onlyReplay.length && !onlyLive.length) console.log('  identical')
     console.log()
 
-    // email_logs residual: assert it is still live, otherwise the allow-list lies.
+    // A name still on the live-residual allow-list must still be live, or the
+    // allow-list is lying and the chain has drifted from production.
     for (const [key, why] of KNOWN_LIVE_RESIDUALS) {
       const present = liveKeys.has(key)
       console.log(`residual ${present ? 'STILL LIVE' : 'GONE FROM LIVE'} : ${key}`)
@@ -278,6 +299,17 @@ async function main() {
         failures.push([key, { file: 'RESIDUAL', cmd: '?', roles: '?', using: '?', check: '?' }])
       } else {
         console.log(`  -> ${why}`)
+      }
+    }
+    if (KNOWN_LIVE_RESIDUALS.size === 0) console.log('residuals on allow-list : 0')
+
+    // Closed residuals must be gone. Authenticated-only WITH CHECK (true) is
+    // not in the public/anon wide-open scan above, so this loop is the check.
+    for (const key of CLOSED_RESIDUALS) {
+      const present = liveKeys.has(key)
+      console.log(`closed residual ${present ? 'STILL LIVE' : 'absent from production'} : ${key}`)
+      if (present) {
+        failures.push([key, { file: 'CLOSED-BUT-LIVE', cmd: '?', roles: '?', using: '?', check: '?' }])
       }
     }
     console.log()

@@ -190,16 +190,30 @@ proven no-op it was committed and recorded in
 
 ---
 
-## Known residual — NOT closed here
+## Known residual — closed by the follow-up (2026-09-22)
+
+Task `0c9f693c` closed the residual this document left open.
+`supabase/migrations/20260922220000_drop_email_logs_authenticated_insert.sql`
+drops `"Service can insert email logs"`. The verifier no longer lists it in
+`KNOWN_LIVE_RESIDUALS`. It is in `CLOSED_RESIDUALS` instead, and both the
+static replay and `--live` fail if that policy comes back. The live wide-open
+scan only flags `public` / `anon`, so an authenticated-only `WITH CHECK (true)`
+would otherwise survive a name being removed from the allow-list.
+
+The paragraphs under the next heading are the state at the end of task
+`82d4ae2e`, kept so the reason it was left live is still on the page.
+
+## Known residual — state at the end of 82d4ae2e (historical)
 
 `email_logs` · `Service can insert email logs` · `FOR INSERT TO authenticated
 WITH CHECK (true)` (`20251223000000_email_templates.sql:104`).
 
-It is **live in production**. This task's contract is convergence with production,
-so dropping it here would make the replay *diverge* — the opposite of the job. No
-browser-client path writes `email_logs` (all five writers are service-role
-`backend/**`), so it looks removable, but removing it is a live production change
-and belongs in its own reviewed migration. Filed as a follow-up.
+It was **live in production** when `82d4ae2e` landed. That task's contract was
+convergence with production, so dropping it there would have made the replay
+*diverge* — the opposite of the job. No browser-client path writes
+`email_logs` (all five writers are service-role `backend/**`), so it looked
+removable, but removing it was a live production change and belonged in its
+own reviewed migration. That migration is `20260922220000`, above.
 
 ## Drift found in the other direction — production is MORE open than the chain
 
