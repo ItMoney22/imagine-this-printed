@@ -1,5 +1,49 @@
 # TASK_NOTES
 
+## Current request (2026-09-22) - garment colour is hardcoded black (task 884edc98)
+
+David (2026-09-01): "look at this design it should go on a white shirt because
+of how it looks but it was mocked on a black shirt so now it looks like this" -
+black line art rendered invisibly on a black garment.
+
+Two defects, both real:
+1. Every generation path stamps `shirtColor: 'black'` / `metadata.shirt_color =
+   'black'` without ever looking at the artwork
+   (`services/mrs-imagine.ts` L368/L298, `routes/admin/ai-products.ts` L271,
+   `routes/creator-studio.ts` L125), and `dtfPrompt()` tells the image model
+   "on a BLACK garment" - a claim nothing downstream verifies.
+2. `services/presentation-qa.ts` only judges contrast for LETTERING
+   (`hasText: false -> typographyOk: true`), so illustration-only art is never
+   checked against the garment it is about to be printed on.
+
+### File shortlist (approved scope - 2026-09-22 garment colour)
+- `backend/services/image-metrics.ts` (WCAG luminance/contrast helpers +
+  `measureArtworkLuminance` over non-transparent pixels)
+- `backend/services/garment-color.ts` (NEW - renderable palette + the pick)
+- `backend/services/garment-color.test.ts` (NEW)
+- `backend/services/presentation-qa.ts` (+ `design_contrast` criterion)
+- `backend/services/presentation-qa.test.ts`
+- `backend/services/design-qa-gate.ts` (carry the garment colour into the gate
+  and into the pass fingerprint)
+- `backend/services/mrs-imagine.ts`
+- `backend/services/mrs-imagine.test.ts`
+- `backend/services/product-build.ts` - ADDED TO SCOPE: this is the shared
+  select-image build pipeline that BOTH `routes/admin/ai-products.ts` and
+  `routes/creator-studio.ts` call, and it carries its own
+  `meta.shirt_color || 'black'` fan-out. Fixing only the two routes named in
+  the brief would leave the actual mockup jobs still black.
+- `backend/routes/admin/ai-products.ts`
+- `backend/routes/creator-studio.ts`
+- `backend/scripts/verify-garment-contrast.ts` (NEW - the evidence run)
+- `TASK_NOTES.md`
+
+### Constraint that shapes the palette
+The renderable garment set is NOT open. `services/replicate.ts`
+`MR_IMAGINE_MOCKUPS` and the worker's `mr-imagine-{type}-{color}-{side}.png`
+path only have black / white / gray bases for tshirt+tank and black / white for
+hoodie; anything else silently falls back to the black base. So the picker
+chooses from what the renderer can actually make, per product type.
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
@@ -42,6 +86,83 @@ Result: dark ghosting 71% → 18.7%, blossom quadrant 7.4% → 37.6%.
 - `TASK_NOTES.md`
 - One-off recovery of the product above (re-key its `source` asset, replace the
   `nobg` asset) — live data, David approved.
+
+### Work log (2026-09-22, task 884edc98)
+- `services/image-metrics.ts` gained the WCAG half: `relativeLuminance` /
+  `luminanceOfHex` / `contrastRatio` (a 256-entry sRGB->linear table, not three
+  `Math.pow` per pixel), `measureArtworkLuminance(FromBuffer)` over pixels with
+  alpha >= 128 only, and `vanishingFraction` / `meanContrastAgainst` which read
+  a 32-bin ink histogram so any garment can be scored later without refetching.
+  Relative luminance, NOT the greyscale byte: pure red is 0.2126 (a dark ink
+  needing a light shirt) where gamma greyscale calls it 54/255.
+- `services/garment-color.ts` (new) owns the pick. It chooses from the
+  INTERSECTION of what ITP sells and what the mockup renderer has a base image
+  for - black / white / gray, and black / white only for hoodie, because
+  `mr-imagine-hoodie-gray-back.png` does not exist and the worker builds that
+  path by interpolation. Garment luminance is derived from the capability
+  module's hexes, not its hand-entered `luma` field (0.55 for #9CA3AF is 0.2
+  out and would change the answer on mid-tone art).
+- RANKING IS ON VANISHING INK, NOT MEAN CONTRAST, and that ordering is the fix.
+  A design that is 80% bright fill and 20% black line work scores a fine
+  AVERAGE on black while every stroke disappears - which is the defect itself.
+- `presentation-qa.ts` gained a seventh criterion, `design_contrast`, evaluated
+  for every design regardless of `hasText`. Typography short-circuits on
+  `hasText: false -> typographyOk: true`, so illustration-only art was never
+  checked against the garment at all. Two independent reads, like
+  print_background: the histogram (objective, judges the source file against
+  the colour the row says it prints on) and a new vision field
+  `artworkVisible` (sees the finished garment). Weights re-sliced so the seven
+  still sum to 100, keeping `score` comparable to stored submissions.
+- A null `shirt_color` is graded as BLACK on purpose - that is what
+  `worker/ai-jobs-worker.ts` falls back to, so calling it "unknown" would hand
+  every legacy row a free pass on the exact defect it has.
+- The decision point is AFTER the artwork exists and BEFORE any mockup renders:
+  `resolveGarmentColor()` in `services/product-build.ts` (shared by the admin
+  builder, the creator studio and user-products) and `stampGarmentColor()` in
+  `mrs-imagine.ts` (after the transparency pass - measuring before it would
+  measure the background). A colour a human named is stamped
+  `shirt_color_source: 'requested'` and is never overridden.
+- `dtfPrompt()` and `buildDtfPrompt()` no longer assert a colour. They ask for
+  ONE committed value key instead, which is what makes the measurement
+  decisive. `ai-product.ts`'s normalizer prompt likewise.
+- Multi-colourway: a base with <=10% vanishing ink AND >=4.5:1 mean contrast
+  earns a second flat-lay, pinned to `mockup_color_<colour>` so the two colours
+  cannot delete each other through the worker's replace-by-role write.
+
+### Verification (all of it reproducible)
+- `backend/scripts/verify-garment-contrast.ts` - fixtures need no keys at all.
+  Black stick-figure golf line art: 100% vanishing on black, 0% on white ->
+  picks WHITE (+ heather grey colourway), and the QA criterion BLOCKS it on
+  black. The same art in pale ink picks BLACK.
+- Same script `--live`, against real production artwork:
+  - Embroidered Golf Club Polo for the Best Dad (ACTIVE, stamped black):
+    96.1% vanishing -> BLOCKS, moves to white (0.5% there).
+  - Best By Par Dad Shirt (draft, black): 62.9% -> BLOCKS, moves to white.
+  - Humorous Golf Dad Polo / Stick Figure Fail (white): passes; it would have
+    been 59.4% vanishing on black.
+- Catalogue calibration, 60 ACTIVE garment listings, 56 with readable artwork:
+  13 (23%) would BLOCK, 19 (34%) warn, 24 clean, 21 would change colour. The
+  blocking set is a list of real defects (Punctuation Perfection Tee 100%,
+  Bruh Capital Letters 94%), every one dark line work stamped black, every one
+  fixed by white. Distribution is smooth 100% -> 1.2%, no cliff; the numbers
+  are quoted at `BLOCK_VANISHING_FRACTION`.
+- Persist path proven against the LIVE schema on a throwaway product row this
+  session created and deleted (verified gone): unstamped -> measured -> white
+  + gray alternate, every pre-existing metadata key survived the
+  read-modify-write, and a pinned `requested` black was correctly left alone.
+- 121 test files / 1945 tests green. NOTE: three `etsy-copy-repair` tests fail
+  in THIS dispatch shell only, because `OPENROUTER_API_KEY` is set in the
+  environment and those tests exercise the no-model path; they pass with
+  `env -u OPENROUTER_API_KEY`. Not caused by this change.
+
+### Deliberately NOT changed
+- `routes/ai/voice-chat.ts` still defaults `shirtColor` to 'black'. It is a
+  live conversation where the customer is talking about a shirt colour, it
+  stamps nothing onto `products.metadata`, and `buildDTFPrompt`'s per-colour
+  behaviour is pinned by `dtf-optimizer-prompt.test.ts`.
+- The last-resort `|| 'black'` fallbacks inside `worker/ai-jobs-worker.ts`,
+  `services/replicate.ts` and `services/vertex-ai-mockup.ts`. A renderer must
+  render something; those now only fire when a design could not be measured.
 
 ### Site-wide pass (2026-09-02, David: "fix it site wide bro")
 Four paths stripped backgrounds, three of them wrongly:

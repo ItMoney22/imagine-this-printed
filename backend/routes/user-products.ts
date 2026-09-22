@@ -5,6 +5,8 @@ import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { requireAuth } from '../middleware/supabaseAuth.js'
 import { getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { sendEmail } from '../utils/email.js'
+import { resolveGarmentColor } from '../services/product-build.js'
+import { toRenderableColor } from '../services/garment-color.js'
 
 const router = Router()
 
@@ -28,7 +30,9 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
     const {
       prompt,
       imageStyle,
-      shirtColor = 'black',
+      // No default colour — the artwork does not exist yet, so there is nothing
+      // to decide. /:id/select-image measures it once the design is picked.
+      shirtColor = null,
       printStyle = 'dtf',
       productType = 'tshirt',
       printPlacement = 'front-center',
@@ -38,6 +42,8 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
     if (!prompt || typeof prompt !== 'string') {
       return res.status(400).json({ error: 'Prompt is required' })
     }
+
+    const requestedShirtColor = toRenderableColor(shirtColor)
 
     console.log('[user-products] 🚀 User creating product:', { userId, prompt: prompt.substring(0, 50) })
 
@@ -206,7 +212,7 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
           image_style: imageStyle,
           // DTF Print Settings
           product_type: productType,
-          shirt_color: shirtColor,
+          ...(requestedShirtColor ? { shirt_color: requestedShirtColor, shirt_color_source: 'requested' } : {}),
           print_placement: printPlacement,
           print_style: printStyle,
           model_id: modelId,
@@ -249,7 +255,7 @@ router.post('/create', requireAuth, async (req: Request, res: Response): Promise
           height: 1024,
           background: 'transparent',
           productType,
-          shirtColor,
+          shirtColor: requestedShirtColor,
           printPlacement,
           printStyle,
           imageStyle,
@@ -451,11 +457,23 @@ router.post('/:id/select-image', requireAuth, async (req: Request, res: Response
       .eq('type', 'replicate_image')
       .single()
 
+    // Garment colour measured off the artwork the user just picked — the same
+    // shared resolver the admin builder and the creator studio use, so this
+    // older lane cannot drift back to a hardcoded black.
+    const resolvedProductType = product.metadata?.product_type || imageJob?.input?.productType || 'tshirt'
+    const garmentColor = await resolveGarmentColor({
+      productId: id,
+      designUrl: selectedAsset.url,
+      productType: resolvedProductType,
+      category: product.category,
+      metadata: product.metadata as any,
+    })
+
     // Create mockup jobs (flat_lay + ghost_mannequin for garments + mr_imagine)
     const baseInput = {
       product_type: product.category || 'shirts',
-      productType: imageJob?.input?.productType || 'tshirt',
-      shirtColor: imageJob?.input?.shirtColor || 'black',
+      productType: resolvedProductType,
+      shirtColor: garmentColor.color,
       printPlacement: imageJob?.input?.printPlacement || 'front-center',
       selected_asset_id: selectedAssetId,
     }
@@ -619,7 +637,10 @@ router.post('/:id/variations', requireAuth, async (req: Request, res: Response):
         height: 1024,
         background: 'transparent',
         productType: product.metadata?.product_type || 'tshirt',
-        shirtColor: product.metadata?.shirt_color || 'black',
+        // A variation re-renders the ARTWORK; whatever colour the product
+        // settled on is carried forward, and an unstamped product stays
+        // unstamped rather than acquiring a black it never chose.
+        shirtColor: product.metadata?.shirt_color ?? null,
         printPlacement: product.metadata?.print_placement || 'front-center',
         printStyle: product.metadata?.print_style || 'dtf',
         imageStyle: product.metadata?.image_style || 'realistic',

@@ -79,7 +79,11 @@ export function fingerprintPresentation(input: PresentationInput): string {
         m: input.mockupUrls,
         a: input.designUrl,
         pl: input.placement ?? null,
-        s: input.printSizeInches ?? null
+        s: input.printSizeInches ?? null,
+        // The garment colour is part of the presentation, not a detail of it:
+        // the same artwork passes on white and fails on black. Leaving it out
+        // would let a colour change reuse a stale pass.
+        gc: input.garmentColor ?? null
       })
     )
     .digest('hex')
@@ -202,6 +206,7 @@ export async function buildPresentationInput(productId: string, channel: Channel
     mockupUrls,
     placement: metadata.print_placement ?? null,
     printSizeInches: num(metadata.print_size_inches),
+    garmentColor: metadata.shirt_color ?? null,
     title,
     description,
     tags,

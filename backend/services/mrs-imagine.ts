@@ -53,6 +53,12 @@ import {
 // embroidery" — polo goes away here too). GARMENT_IDS/getGarment replace the
 // local polo-inclusive lists this file used to carry.
 import { GARMENTS, GARMENT_IDS, getGarment, type GarmentId } from '../shared/catalog-capability.js'
+import {
+  chooseGarmentColorForDesign,
+  garmentColorMetadata,
+  GARMENT_LABEL,
+  type GarmentColorDecision,
+} from './garment-color.js'
 
 // Writing brain rides OpenRouter when available (David 2026-08-20 cost pass:
 // OpenAI is for the design ART; briefs and copy are text jobs Gemini Flash
@@ -227,9 +233,18 @@ function clampPrice(n: number, [lo, hi]: [number, number]): number {
 /**
  * The render prompt for a garment design. Everything here is a PRESS
  * constraint, not a taste preference - she is drawing a DTF transfer that gets
- * heat-pressed about 11 inches wide across the chest of a black shirt (the
- * product row this batch writes: shirt_color black, print_size_inches 11), and
- * then worn and washed.
+ * heat-pressed about 11 inches wide across the chest of a shirt, then worn and
+ * washed.
+ *
+ * IT NO LONGER NAMES A COLOUR (David 2026-09-01, holding black line art printed
+ * on a black polo: "it should go on a white shirt because of how it looks but
+ * it was mocked on a black shirt"). The old wording told the model the garment
+ * was BLACK and to keep every shape readable against black - a claim about a
+ * decision nothing had made yet, since the product row stamped 'black' by
+ * default and no code ever looked at the picture. Now the garment is chosen
+ * FROM the finished artwork (services/garment-color.ts), so the prompt asks for
+ * the one property that makes that choice possible: a single committed value
+ * key instead of a mid-grey hedge that reads as mush on every shirt.
  *
  * The old version told her the opposite of what the shop needs. It ended with
  * "The artwork fills the frame edge to edge", which flatly contradicts
@@ -246,10 +261,10 @@ export function dtfPrompt(brief: DesignBrief): string {
   return [
     brief.prompt,
     '',
-    `This is artwork for a DTF transfer, heat-pressed about 11 inches wide across the chest of a BLACK ${noun}, then worn and washed. Design it for that, not for a screen.`,
+    `This is artwork for a DTF transfer, heat-pressed about 11 inches wide across the chest of a ${noun}, then worn and washed. Design it for that, not for a screen.`,
     'A CONTAINED SUBJECT with a clear silhouette and breathing room around it - an emblem, badge, or isolated character. NOT a full-bleed scene, NOT a background panel, and nothing running off the edge of the frame: a rectangle of ink on a shirt is the cheap print-on-demand look.',
     'Isolated artwork on a fully transparent background. No shirt, no hoodie, no garment, no hanger, no model, no mockup, no frame, no border.',
-    'Because the garment is BLACK: keep every shape readable against black. No near-black fills or outlines that would vanish into the shirt.',
+    'The garment colour is chosen AFTER this render, from this artwork, to contrast with it - so commit to ONE value key and stay there: predominantly DARK ink or predominantly LIGHT ink, never a mid-grey hedge that reads as mush on every shirt. Never leave a shape whose only edge is the absence of ink, and do not rely on the shirt colour showing through as part of the design.',
     'No drop shadows, outer glows, or vignettes anywhere - the press lays a white underbase down first, so a soft glow prints as a grey smear around the art. No gradient fading out into transparency at the edges either: every edge has to be a real edge.',
     'Bold shapes and a limited palette that still read from across a room. Nothing thinner than about one-fiftieth of the image width, and no scattered specks or floating dust - detail that fine does not survive the transfer.',
     'Never paint a checkerboard, a grey-and-white grid, or any other fake-transparency pattern into the image.',
@@ -352,7 +367,11 @@ async function createProduct(
         original_prompt: brief.prompt,
         model_id: 'openai/gpt-image-2',
         product_type: isMetal ? 'metal-art' : garment,
-        ...(isMetal ? { metal_size: '8x10' } : { shirt_color: 'black', print_placement: 'front-center', print_size_inches: 11 }),
+        // NO shirt_color here. The artwork has only just been rendered and
+        // nothing has measured it yet; stamping 'black' at this point is the
+        // exact bug this batch used to ship. stampGarmentColor() below writes
+        // it once the print-ready file exists.
+        ...(isMetal ? { metal_size: '8x10' } : { print_placement: 'front-center', print_size_inches: 11 }),
       },
     })
     .select('id, slug')
@@ -462,7 +481,45 @@ async function removeBackground(productId: string, sourceAssetId: string): Promi
   }
 }
 
-async function enqueueMockups(brief: DesignBrief, productId: string, designAssetId: string): Promise<number> {
+/**
+ * Measure the print-ready artwork, pick the garment colour it actually reads on,
+ * and write the decision (with its numbers) onto the product row.
+ *
+ * Runs AFTER the transparency pass on purpose: the measurement only counts
+ * non-transparent pixels, so on a design that still carries its generated
+ * background it would be measuring the background. Returns null when there is
+ * nothing to judge, and the caller then keeps the renderer's own default.
+ */
+async function stampGarmentColor(
+  brief: DesignBrief,
+  productId: string,
+  printUrl: string
+): Promise<GarmentColorDecision | null> {
+  const decision = await chooseGarmentColorForDesign(printUrl, { garment: brief.garment ?? 'tshirt' })
+  if (!decision) return null
+
+  const { data: row } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
+  const current = ((row as any)?.metadata as Record<string, any>) || {}
+  await supabase
+    .from('products')
+    .update({
+      metadata: {
+        ...current,
+        shirt_color: decision.color,
+        shirt_color_source: 'measured',
+        garment_color: garmentColorMetadata(decision, 'measured'),
+      },
+    })
+    .eq('id', productId)
+  return decision
+}
+
+async function enqueueMockups(
+  brief: DesignBrief,
+  productId: string,
+  designAssetId: string,
+  garmentColor: GarmentColorDecision | null
+): Promise<number> {
   const jobs: any[] = []
   if (brief.kind === 'metal') {
     for (const template of ['metal_shelf', 'metal_wall']) {
@@ -478,7 +535,10 @@ async function enqueueMockups(brief: DesignBrief, productId: string, designAsset
     const baseInput = {
       product_type: garment === 'tshirt' ? 'shirts' : 'hoodies',
       productType: garment,
-      shirtColor: 'black',
+      // Measured off the artwork (stampGarmentColor). 'black' only survives as
+      // the last-resort fallback for a design that could not be measured at all
+      // - which is also what the worker would fall back to on its own.
+      shirtColor: garmentColor?.color ?? 'black',
       printPlacement: 'front-center',
       printSizeInches: 11,
       selected_asset_id: designAssetId,
@@ -491,6 +551,18 @@ async function enqueueMockups(brief: DesignBrief, productId: string, designAsset
       jobs.push({ product_id: productId, type: 'replicate_mockup_v2', status: 'queued', input: { ...baseInput, template: 'mr_imagine' } })
     }
     jobs.push({ product_id: productId, type: 'replicate_mockup_v2', status: 'queued', input: { ...baseInput, template: 'flat_lay', printPlacement: 'left-pocket' } })
+
+    // A design that holds up on a SECOND base gets a second colourway shot.
+    // mockupRole pins its own asset slot so the two colours cannot delete each
+    // other through the worker's replace-by-role write.
+    for (const alt of garmentColor?.alternates ?? []) {
+      jobs.push({
+        product_id: productId,
+        type: 'replicate_mockup_v2',
+        status: 'queued',
+        input: { ...baseInput, shirtColor: alt, template: 'flat_lay', mockupRole: `mockup_color_${alt}` },
+      })
+    }
   }
   const { error } = await supabase.from('ai_jobs').insert(jobs)
   if (error) throw new Error(`mockup enqueue failed: ${error.message}`)
@@ -643,8 +715,22 @@ async function buildOneDesign(brief: DesignBrief, batchId: string, note: (m: str
       await note(`${brief.key}: design already transparent — skipping the rembg pass`)
     }
 
+    // The garment is chosen HERE, from the print-ready file, before a single
+    // mockup is rendered - the whole point of the fix. Metal panels have no
+    // garment, so they skip it.
+    let garmentColor: GarmentColorDecision | null = null
+    if (!isMetal) {
+      garmentColor = await stampGarmentColor(brief, refs.productId, printUrl)
+      await note(
+        garmentColor
+          ? `${brief.key}: garment chosen from the artwork - ${GARMENT_LABEL[garmentColor.color]}` +
+              (garmentColor.alternates.length ? ` (+ ${garmentColor.alternates.map((a) => GARMENT_LABEL[a]).join(', ')})` : '')
+          : `${brief.key}: garment colour could not be measured - falling back to the renderer default`
+      )
+    }
+
     await note(`${brief.key}: mockups rendering on the worker`)
-    await enqueueMockups(brief, refs.productId, printAssetId)
+    await enqueueMockups(brief, refs.productId, printAssetId, garmentColor)
     const mockupUrls = await waitForMockups(refs.productId)
     await syncGallery(refs.productId, printUrl, mockupUrls)
 

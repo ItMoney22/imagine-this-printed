@@ -17,8 +17,31 @@ import {
   isGarment,
   type Channel
 } from './presentation-qa.js'
+import {
+  checkDesignContrast,
+  CRITERIA,
+  SCORE_WEIGHTS,
+  type VisionRead
+} from './presentation-qa.js'
 import { coverageIsExempt } from './mockup-qa.js'
 import { laplacianStats } from './image-metrics.js'
+
+/** A vision read where every point passes, so a test can flip exactly one. */
+const VISION_PASS: VisionRead = {
+  realistic: true,
+  realismIssue: '',
+  centered: true,
+  placementIssue: '',
+  hasText: false,
+  typographyOk: true,
+  typographyIssue: '',
+  backgroundPanel: false,
+  backgroundIssue: '',
+  printOnFabric: true,
+  fabricIssue: '',
+  artworkVisible: true,
+  contrastIssue: ''
+}
 
 // ---------------------------------------------------------------------------
 // The presentation QA gate, deterministic half. The vision-judged criteria
@@ -432,5 +455,154 @@ describe('laplacianStats', () => {
     // emits grey+alpha, and reading that as one channel scores a crisp
     // transparent PNG as blurry.
     expect(laplacianStats(new Uint8Array(10), 32, 32)).toEqual({ variance: 0, meanAbs: 0 })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// design_contrast — the criterion that would have caught the golf stick figure.
+//
+// The gap it closes: typography short-circuits on `hasText: false`, so an
+// illustration was never checked against the garment at all. These tests hold
+// the properties that make the new criterion worth having, not its wording.
+// ---------------------------------------------------------------------------
+describe('checkDesignContrast', () => {
+  const LUMA_BINS = 32
+  /** An artwork measurement with all of its ink in one luminance bin. */
+  const inkAt = (luma: number, inkFraction = 0.2, url = 'https://cdn/design.png') => {
+    const histogram = Array.from({ length: LUMA_BINS }, () => 0)
+    histogram[Math.min(LUMA_BINS - 1, Math.floor(luma * LUMA_BINS))] = 1
+    return {
+      url,
+      ok: true as const,
+      sampled: 10000,
+      inkPixels: Math.round(10000 * inkFraction),
+      inkFraction,
+      meanLuma: luma,
+      medianLuma: luma,
+      p10Luma: luma,
+      p90Luma: luma,
+      histogram
+    }
+  }
+  /** Half the ink dark, half light — the two-tail case. */
+  const split = (dark: number, light: number, darkShare: number, inkFraction = 0.2) => {
+    const base = inkAt(dark, inkFraction)
+    const histogram = Array.from({ length: LUMA_BINS }, () => 0)
+    histogram[Math.min(LUMA_BINS - 1, Math.floor(dark * LUMA_BINS))] = darkShare
+    histogram[Math.min(LUMA_BINS - 1, Math.floor(light * LUMA_BINS))] = 1 - darkShare
+    return { ...base, histogram, medianLuma: darkShare >= 0.5 ? dark : light }
+  }
+
+  it('BLOCKS dark artwork on a black garment and names the shirt that fixes it', () => {
+    const v = checkDesignContrast(inkAt(0.01), 'black', null, true, 'front-center')
+    expect(v.ok).toBe(false)
+    const blocking = v.findings.filter(f => f.severity === 'block')
+    expect(blocking).toHaveLength(1)
+    expect(blocking[0].issue).toMatch(/black garment/)
+    expect(blocking[0].fix).toMatch(/white/)
+    expect((v.measured as any).vanishing_fraction).toBe(1)
+    expect((v.measured as any).best_garment).toBe('white')
+  })
+
+  it('passes that same artwork once it is moved to white', () => {
+    expect(checkDesignContrast(inkAt(0.01), 'white', null, true, 'front-center').ok).toBe(true)
+  })
+
+  it('BLOCKS pale artwork on a white garment — the mirror failure', () => {
+    const v = checkDesignContrast(inkAt(0.95), 'white', null, true, 'front-center')
+    expect(v.ok).toBe(false)
+    expect(v.findings.find(f => f.severity === 'block')!.fix).toMatch(/black/)
+  })
+
+  it('runs for artwork with NO TEXT — the gap that let this through', () => {
+    // A vision read that says "no focal words" satisfies typography and is
+    // silent here, exactly as it should be: the measurement does the work.
+    const noText = { ...VISION_PASS, hasText: false, typographyOk: true }
+    const v = checkDesignContrast(inkAt(0.01), 'black', noText, true, 'front-center')
+    expect(v.ok).toBe(false)
+  })
+
+  it('grades an UNSTAMPED product as black, because that is what renders', () => {
+    const v = checkDesignContrast(inkAt(0.01), null, null, true, 'front-center')
+    expect(v.ok).toBe(false)
+    expect((v.measured as any).garment_color_assumed).toBe('black')
+  })
+
+  it('does not block a dark OUTLINE on a dark garment', () => {
+    // 30% black outline around 70% bright fill is a legitimate look, not a
+    // defect. Blocking it would fail a large share of the live catalogue and
+    // the gate would be switched off within a day.
+    const v = checkDesignContrast(split(0.01, 0.8, 0.3), 'black', null, true, 'front-center')
+    expect(v.ok).toBe(true)
+    expect(v.findings.some(f => f.severity === 'warn')).toBe(true)
+  })
+
+  it('blocks on the VISION read alone, even when the file measures fine', () => {
+    const blind = { ...VISION_PASS, artworkVisible: false, contrastIssue: 'The line work vanishes into the shirt.' }
+    // Dark ink on a white shirt measures 10.5:1 — the file is fine. Only the
+    // finished photo shows the problem, which is what the vision read is for.
+    const v = checkDesignContrast(inkAt(0.05), 'white', blind, true, 'front-center')
+    expect(v.ok).toBe(false)
+    expect(v.findings.find(f => f.severity === 'block')!.issue).toMatch(/vanishes/)
+  })
+
+  it('warns instead of blocking when the artwork has no dead air', () => {
+    // A flattened rectangle's "ink" includes a background that never reaches
+    // the press, so the number is not about the design. print_background owns
+    // that failure; double-blocking sends the designer after the wrong fix.
+    const v = checkDesignContrast(inkAt(0.01, 1), 'black', null, true, 'front-center')
+    expect(v.ok).toBe(true)
+    expect(v.findings.find(f => f.severity === 'warn')!.issue).toMatch(/no transparent area/)
+  })
+
+  it('is not applicable to a non-garment or an all-over print', () => {
+    expect(checkDesignContrast(inkAt(0.01), 'black', null, false).ok).toBe(true)
+    expect(checkDesignContrast(inkAt(0.01), 'black', null, true, 'not-applicable').ok).toBe(true)
+  })
+
+  it('never blocks on a measurement it could not take', () => {
+    // Same contract as the sibling print_background criterion: an unreadable
+    // or missing design is a warning, not a held listing.
+    for (const lum of [null, { url: 'u', ok: false as const, error: 'HTTP 404' }]) {
+      const v = checkDesignContrast(lum, 'black', null, true, 'front-center')
+      expect(v.ok).toBe(true)
+      expect(v.findings.every(f => f.severity === 'warn')).toBe(true)
+    }
+  })
+
+  it('refuses to grade a product render as if it were the artwork', () => {
+    const v = checkDesignContrast(inkAt(0.01, 1, 'https://cdn/mockups/slug/flat_lay/x.png'), 'black', null, true, 'front-center')
+    expect(v.ok).toBe(true)
+    expect((v.measured as any).artwork_resolved).toBe(false)
+  })
+
+  it('blocks artwork the background pass has erased', () => {
+    const v = checkDesignContrast(inkAt(0.01, 0), 'white', null, true, 'front-center')
+    expect(v.ok).toBe(false)
+    expect(v.findings.find(f => f.severity === 'block')!.issue).toMatch(/nothing to print/)
+  })
+
+  it('can still grade a colour the mockup renderer cannot produce', () => {
+    // Navy is sold but has no mockup base. A product stamped navy still gets a
+    // real answer rather than a shrug.
+    const v = checkDesignContrast(inkAt(0.01), 'navy', null, true, 'front-center')
+    expect(v.ok).toBe(false)
+    expect((v.measured as any).garment_color).toBe('navy')
+  })
+
+  it('warns, but does not block, on a colour that is not in the catalogue', () => {
+    const v = checkDesignContrast(inkAt(0.01), 'chartreuse', null, true, 'front-center')
+    expect(v.ok).toBe(true)
+    expect(v.findings[0].severity).toBe('warn')
+  })
+})
+
+describe('the criterion roster', () => {
+  it('carries design_contrast and still weights to 100', () => {
+    expect(CRITERIA).toContain('design_contrast')
+    // The score has to stay comparable to the numbers already stored on past
+    // submissions, so adding a criterion re-slices the 100 rather than adding
+    // to it.
+    expect(Object.values(SCORE_WEIGHTS).reduce((t, v) => t + v, 0)).toBe(100)
   })
 })

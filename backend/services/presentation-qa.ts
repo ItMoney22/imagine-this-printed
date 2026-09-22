@@ -24,7 +24,18 @@
 // ---------------------------------------------------------------------------
 import OpenAI from 'openai'
 import { checkMockup, coverageIsExempt } from './mockup-qa.js'
-import { measureImages, measureOpacity, type ImageMetricsResult, type OpacityResult } from './image-metrics.js'
+import { measureImages, measureOpacity, measureArtworkLuminance, type ImageMetricsResult, type OpacityResult, type ArtworkLuminanceResult } from './image-metrics.js'
+import {
+  garmentLumaOf,
+  scoreGarmentLuma,
+  pickGarmentColor,
+  RENDERABLE_COLORS,
+  GARMENT_LABEL,
+  MIN_INK_CONTRAST,
+  BLOCK_VANISHING_FRACTION,
+  WARN_VANISHING_FRACTION,
+  OPAQUE_INK_FRACTION
+} from './garment-color.js'
 import { MAX_TAGS, MAX_TITLE_LEN } from './etsy-listing-fields.js'
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
@@ -41,6 +52,7 @@ export const CRITERIA = [
   'design_placement',
   'print_background',
   'typography',
+  'design_contrast',
   'seo',
   'pricing',
   'image_sharpness'
@@ -291,6 +303,10 @@ export interface PresentationInput {
   mockupUrls: string[]
   placement?: string | null
   printSizeInches?: number | null
+  /** The garment colour this design will actually be printed on, as stored on
+   *  products.metadata.shirt_color. Null is graded as BLACK, because that is
+   *  what the renderer falls back to — see checkDesignContrast. */
+  garmentColor?: string | null
   title: string
   description: string
   tags: string[]
@@ -843,6 +859,173 @@ export function checkPrintBackground(
 }
 
 // ---------------------------------------------------------------------------
+// (g) DESIGN CONTRAST — does the artwork actually SHOW on the shirt it is
+// being printed on?
+//
+// WHY THIS IS ITS OWN CRITERION AND NOT PART OF TYPOGRAPHY. Typography does ask
+// about contrast, but only about LETTERING, and it short-circuits:
+// `hasText: false -> typographyOk: true`. So an illustration — the golf stick
+// figure David photographed on 2026-09-01, black line art on a black polo —
+// took the pass branch with nothing having looked at it. Every other criterion
+// in this file has the same shape: measure the thing, then ask the model about
+// the thing. This one was missing the measurement half entirely.
+//
+// TWO INDEPENDENT READS, same contract as print_background. The histogram is
+// objective and free but only sees the SOURCE file, so it judges the artwork
+// against the colour the product row says it will be printed on. The vision
+// read sees the finished garment, so it also catches a renderer that ignored
+// that colour. Either one is enough to block.
+//
+// A NULL shirt_color IS BLACK. Not an assumption — it is what the code does:
+// worker/ai-jobs-worker.ts resolves `job.input?.shirtColor ||
+// productMeta.shirt_color || imageJob?.input?.shirtColor || 'black'`. Grading an
+// un-stamped row as "colour unknown, cannot judge" would hand every legacy
+// listing a free pass on precisely the defect it has.
+// ---------------------------------------------------------------------------
+export function checkDesignContrast(
+  luminance: ArtworkLuminanceResult | null,
+  garmentColor: string | null | undefined,
+  vision: VisionRead | null,
+  garment: boolean,
+  placement?: string | null
+): CriterionVerdict {
+  if (!garment) {
+    return {
+      ok: true,
+      summary: 'Not a printed garment — there is no garment colour to contrast with.',
+      findings: [],
+      measured: { applicable: false }
+    }
+  }
+  if (coverageIsExempt(placement)) {
+    return {
+      ok: true,
+      summary: 'All-over print — the artwork IS the garment surface.',
+      findings: [],
+      measured: { applicable: false, placement: placement ?? null }
+    }
+  }
+
+  const findings: Finding[] = []
+  const measured: Record<string, unknown> = {}
+
+  const declared = garmentColor ?? null
+  const base = garmentLumaOf(declared)
+  measured.garment_color = declared
+  measured.garment_color_assumed = declared ? null : 'black'
+  measured.garment_luma = base ? Number(base.luma.toFixed(4)) : null
+
+  if (!base) {
+    findings.push({
+      severity: 'warn',
+      issue: `The product is stamped with a garment colour ("${declared}") that is not in the catalogue, so its contrast against the artwork could not be measured.`,
+      fix: 'Set metadata.shirt_color to one of the colours in shared/catalog-capability.ts.',
+      evidence: { garment_color: declared }
+    })
+  } else if (luminance?.ok && looksLikeRender(luminance.url)) {
+    // Defence in depth, same as print_background: a photograph of a shirt
+    // measured as artwork reports the shirt's own tone as ink.
+    measured.artwork_resolved = false
+    findings.push({
+      severity: 'warn',
+      issue: 'The URL supplied as the source artwork is a product render, not the design file, so design-vs-garment contrast could not be measured.',
+      fix: 'Attach the design as a product_asset of kind dtf, nobg or source so the gate can measure what actually goes to the printer.',
+      evidence: { url: luminance.url }
+    })
+  } else if (luminance?.ok && luminance.inkPixels > 0) {
+    const score = scoreGarmentLuma(luminance, base.id, base.label, base.luma)
+    const best = pickGarmentColor(luminance, { allow: RENDERABLE_COLORS })
+    const bestScore = best ? best.scores.find(s => s.color === best.color) ?? null : null
+    measured.ink_fraction = luminance.inkFraction
+    measured.median_artwork_luma = luminance.medianLuma
+    measured.vanishing_fraction = score.vanishing
+    measured.mean_contrast = score.meanContrast
+    measured.min_contrast_required = MIN_INK_CONTRAST
+    measured.block_above = BLOCK_VANISHING_FRACTION
+    measured.best_garment = best?.color ?? null
+    measured.garment_scores = best?.scores ?? [score]
+
+    // A file with no dead air is a flattened rectangle, so the "ink" measured
+    // here includes a background that will never reach the press — the number
+    // is not about the design at all. print_background already blocks that
+    // file; blocking it twice sends the designer after the wrong fix.
+    const opaqueFile = luminance.inkFraction >= OPAQUE_INK_FRACTION
+    const pct = Math.round(score.vanishing * 100)
+    const better = bestScore && best && best.color !== base.id ? bestScore : null
+
+    if (score.vanishing >= BLOCK_VANISHING_FRACTION) {
+      findings.push({
+        severity: opaqueFile ? 'warn' : 'block',
+        issue:
+          `${pct}% of this design's ink has less than ${MIN_INK_CONTRAST}:1 contrast against the ${base.label} garment ` +
+          `it prints on, so that much of the artwork disappears into the shirt (mean contrast ${score.meanContrast}:1).` +
+          (opaqueFile ? ' Warning rather than blocking only because the artwork has no transparent area at all — fix its background first.' : ''),
+        fix: better
+          ? `Print it on ${GARMENT_LABEL[better.color]} instead — ${Math.round(better.vanishing * 100)}% vanishes there against ${pct}% here. Set metadata.shirt_color and re-render the mockups.`
+          : 'Re-brief the artwork with a value range that separates from the garment: the design and the shirt are currently the same tone, and no colourway we stock fixes it.',
+        evidence: {
+          url: luminance.url,
+          garment_color: base.id,
+          vanishing_fraction: score.vanishing,
+          mean_contrast: score.meanContrast,
+          median_artwork_luma: luminance.medianLuma,
+          alternatives: best?.scores
+        }
+      })
+    } else if (score.vanishing >= WARN_VANISHING_FRACTION) {
+      findings.push({
+        severity: 'warn',
+        issue: `${pct}% of this design's ink is low-contrast against the ${base.label} garment — visible, but the design is fighting its own background.`,
+        fix: better
+          ? `${GARMENT_LABEL[better.color]} would carry it better (${Math.round(better.vanishing * 100)}% vanishing).`
+          : 'Lift the darkest or lightest passages so they separate from the fabric.',
+        evidence: { url: luminance.url, garment_color: base.id, vanishing_fraction: score.vanishing, mean_contrast: score.meanContrast }
+      })
+    }
+  } else if (luminance?.ok) {
+    findings.push({
+      severity: 'block',
+      issue: 'The source artwork has no opaque pixels at all — there is nothing to print.',
+      fix: 'The background-removal pass has erased the design. Re-run it from the original artwork.',
+      evidence: { url: luminance.url, ink_fraction: 0 }
+    })
+  } else if (luminance && !luminance.ok) {
+    findings.push({
+      severity: 'warn',
+      issue: `The source artwork could not be opened to measure its contrast (${luminance.error}).`,
+      fix: 'Check the design URL resolves. Without it this criterion rests on the vision read alone.',
+      evidence: { url: luminance.url }
+    })
+  } else {
+    findings.push({
+      severity: 'warn',
+      issue: 'No source artwork was supplied, so design-vs-garment contrast could not be measured.',
+      fix: 'Submit the design URL alongside the mockups.'
+    })
+  }
+
+  if (vision && !vision.artworkVisible) {
+    findings.push({
+      severity: 'block',
+      issue: vision.contrastIssue || 'Part of the design disappears into the garment colour in the listing photo.',
+      fix: 'Change the garment colour to one that contrasts with the artwork, or re-brief the design. A print that vanishes into the shirt is the defect the shopper photographs and returns.',
+      evidence: { source: 'vision', garment_color: declared }
+    })
+  }
+
+  measured.vision_checked = Boolean(vision)
+  const blocking = findings.filter(f => f.severity === 'block')
+  return {
+    ok: blocking.length === 0,
+    summary: blocking.length
+      ? blocking[0].issue
+      : `The design separates from the ${base?.label ?? 'garment'} it prints on.`,
+    findings,
+    measured
+  }
+}
+
+// ---------------------------------------------------------------------------
 // (b) PLACEMENT + (c) TYPOGRAPHY + the realism half of (a) — the vision pass.
 //
 // One extra model call on top of the fidelity/coverage comparison that
@@ -864,6 +1047,11 @@ export interface VisionRead {
   /** The print reads as ink in the fabric rather than a sticker laid on top. */
   printOnFabric: boolean
   fabricIssue: string
+  /** The WHOLE design is visible against the garment colour — asked about the
+   *  artwork itself, not only its lettering, which is the gap that let black
+   *  line art onto a black polo. */
+  artworkVisible: boolean
+  contrastIssue: string
 }
 
 export async function readPresentation(
@@ -916,10 +1104,17 @@ export async function readPresentation(
                 'design that IS a circle, a badge or an emblem is fine. Set printOnFabric to false if the ' +
                 'print does not follow the fabric folds and drape, or meets the garment with a hard cut ' +
                 'edge.\n\n' +
+                '5. CONTRAST — judge the WHOLE design against the GARMENT COLOUR, whether or not it ' +
+                'contains any words. Set artworkVisible to false when a meaningful part of the artwork ' +
+                'disappears into the shirt: dark line work or dark outlines on a dark garment, pale art ' +
+                'on a white or light garment, a shape whose only edge is the absence of ink. Ask what a ' +
+                'shopper would see from three feet away, not what you can find by zooming in. Deliberate ' +
+                'tonal shading INSIDE a design that is otherwise clearly separated from the fabric is ' +
+                'fine; a design you have to hunt for is not.\n\n' +
                 'Respond in JSON: {"realistic": bool, "realismIssue": string, "centered": bool, ' +
                 '"placementIssue": string, "hasText": bool, "typographyOk": bool, "typographyIssue": string, ' +
                 '"backgroundPanel": bool, "backgroundIssue": string, "printOnFabric": bool, ' +
-                '"fabricIssue": string}. ' +
+                '"fabricIssue": string, "artworkVisible": bool, "contrastIssue": string}. ' +
                 'Each issue string is one short sentence naming the single worst defect, or an empty string when ' +
                 'that point passes.'
             },
@@ -946,7 +1141,9 @@ export async function readPresentation(
       backgroundPanel: parsed?.backgroundPanel === true,
       backgroundIssue: clean(parsed?.backgroundIssue).slice(0, 200),
       printOnFabric: parsed?.printOnFabric !== false,
-      fabricIssue: clean(parsed?.fabricIssue).slice(0, 200)
+      fabricIssue: clean(parsed?.fabricIssue).slice(0, 200),
+      artworkVisible: parsed?.artworkVisible !== false,
+      contrastIssue: clean(parsed?.contrastIssue).slice(0, 200)
     }
   } catch (err: any) {
     console.warn(`[presentation-qa] vision read failed (${err?.message || err})`)
@@ -976,14 +1173,20 @@ const unverifiedVerdict = (what: string): CriterionVerdict => ({
 // ---------------------------------------------------------------------------
 // The gate.
 // ---------------------------------------------------------------------------
-const SCORE_WEIGHTS: Record<CriterionId, number> = {
-  mockup_quality: 18,
-  design_placement: 18,
-  print_background: 12,
-  typography: 12,
-  seo: 18,
-  pricing: 9,
-  image_sharpness: 13
+export const SCORE_WEIGHTS: Record<CriterionId, number> = {
+  mockup_quality: 16,
+  design_placement: 16,
+  print_background: 11,
+  typography: 11,
+  // design_contrast takes its 10 points out of the other seven proportionally
+  // rather than out of any one of them — the weights still sum to 100, which is
+  // what makes `score` comparable to the numbers already stored on past
+  // submissions. A criterion that can make a listing invisible is not worth
+  // less than the pricing sanity band.
+  design_contrast: 10,
+  seo: 16,
+  pricing: 8,
+  image_sharpness: 12
 }
 
 export async function runPresentationQa(input: PresentationInput): Promise<PresentationVerdict> {
@@ -1001,7 +1204,7 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
   const garment = isGarment(input.category)
   const placementForCoverage = garment ? input.placement : NO_PLACEMENT
 
-  const [metrics, vision, fidelity, opacity] = await Promise.all([
+  const [metrics, vision, fidelity, opacity, luminance] = await Promise.all([
     measureImages(urls),
     primary ? readPresentation(primary, input.placement, garment) : Promise.resolve(null),
     primary && input.designUrl
@@ -1009,7 +1212,11 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
       : Promise.resolve(null),
     // The SOURCE artwork, not a mockup — this asks whether the file that goes to
     // the printer has a background, which no render of it can answer.
-    input.designUrl ? measureOpacity(input.designUrl) : Promise.resolve(null)
+    input.designUrl ? measureOpacity(input.designUrl) : Promise.resolve(null),
+    // Same file again, measured for INK LUMINANCE rather than alpha coverage:
+    // the two questions ("is there a background" / "does the art show on the
+    // shirt") are independent, and a design can fail either one alone.
+    input.designUrl ? measureArtworkLuminance(input.designUrl) : Promise.resolve(null)
   ])
 
   const mockupQuality = checkMockupQuality(metrics, urls.length, shotTemplatesFrom(urls), garment)
@@ -1017,6 +1224,7 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
   const seo = checkSeo(input)
   const pricing = checkPricing(input)
   const printBackground = checkPrintBackground(opacity, vision, garment, input.placement)
+  const designContrast = checkDesignContrast(luminance, input.garmentColor, vision, garment, input.placement)
 
   // Realism rides on the mockup_quality criterion: both answer "is this a photo
   // we can put in front of a shopper".
@@ -1125,6 +1333,7 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
     design_placement: placement,
     print_background: printBackground,
     typography,
+    design_contrast: designContrast,
     seo,
     pricing,
     image_sharpness: sharpness

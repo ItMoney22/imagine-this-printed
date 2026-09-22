@@ -26,6 +26,7 @@ import { requireCreator } from '../middleware/requireCreator.js'
 import { normalizeProduct } from '../services/ai-product.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { applyImageSelection } from '../services/product-build.js'
+import { toRenderableColor } from '../services/garment-color.js'
 import { processImageJobInline } from './admin/ai-products.js'
 import { pricingService } from '../services/imagination-pricing.js'
 import { transcribeAudio } from '../services/transcribe.js'
@@ -122,7 +123,12 @@ router.post('/create', requireAuth, requireCreator, rateLimit(3), async (req: Re
       prompt,
       category: requestedCategory,
       productType = 'tshirt',
-      shirtColor = 'black',
+      // No default colour. The artwork does not exist yet at this point in the
+      // request, so there is nothing to measure and nothing to decide —
+      // services/product-build.ts picks the garment from the design once the
+      // creator has chosen one. A colour Mr. Imagine or the creator DID name is
+      // recorded as `requested` below and is never overridden.
+      shirtColor = null,
       printPlacement = 'front-center',
       printSizeInches = 11,
       metalSize,
@@ -145,12 +151,14 @@ router.post('/create', requireAuth, requireCreator, rateLimit(3), async (req: Re
     await pricingService.deductITC(userId, cost, 'creator_studio_generate')
     charged = cost
 
+    const requestedShirtColor = toRenderableColor(shirtColor)
+
     const fullPrompt = [prompt.trim(), style ? `Style: ${style}.` : '', tone ? `Mood: ${tone}.` : ''].filter(Boolean).join(' ')
     const normalized = await normalizeProduct({
       prompt: fullPrompt,
       category,
       productType,
-      shirtColor,
+      shirtColor: requestedShirtColor ?? undefined,
       printPlacement,
     })
     normalized.category_slug = category
@@ -203,7 +211,7 @@ router.post('/create', requireAuth, requireCreator, rateLimit(3), async (req: Re
           original_prompt: prompt,
           image_prompt: normalized.image_prompt,
           product_type: productType,
-          shirt_color: shirtColor,
+          ...(requestedShirtColor ? { shirt_color: requestedShirtColor, shirt_color_source: 'requested' } : {}),
           print_placement: printPlacement,
           print_style: 'clean',
           ...(category === 'metal-art'
@@ -231,7 +239,7 @@ router.post('/create', requireAuth, requireCreator, rateLimit(3), async (req: Re
           width: 1024,
           height: 1024,
           productType,
-          shirtColor,
+          shirtColor: requestedShirtColor,
           printPlacement,
           printSizeInches,
           multiModel: true,
@@ -651,7 +659,10 @@ router.post('/turn', requireAuth, requireCreator, rateLimit(20), turnUpload.sing
           prompt: String(args.prompt || '').trim(),
           style: args.style ? String(args.style) : undefined,
           tone: args.tone ? String(args.tone) : undefined,
-          shirtColor: ['black', 'white', 'gray'].includes(String(args.shirt_color)) ? args.shirt_color : 'black',
+          // Mr. Imagine only pins a colour when the CUSTOMER asked for one.
+          // Falling back to 'black' here is how a stray conversation turned
+          // into a hardcoded garment for every design he briefed.
+          shirtColor: toRenderableColor(args.shirt_color) ?? undefined,
           printPlacement: ['front-center', 'left-pocket', 'back-only', 'front-back', 'pocket-front-back-full'].includes(String(args.print_placement))
             ? args.print_placement : undefined,
           printSizeInches: Number.isFinite(Number(args.print_size_inches)) && Number(args.print_size_inches) > 0

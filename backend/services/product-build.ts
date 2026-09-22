@@ -20,6 +20,7 @@ import { GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT
 import { startModelShots } from './etsy-model-shots.js'
 import { addWatermark } from './watermark.js'
 import { uploadImageFromBuffer } from './google-cloud-storage.js'
+import { chooseGarmentColorForDesign, garmentColorMetadata, type GarmentColorDecision } from './garment-color.js'
 
 /**
  * Gallery contract slot: a watermarked copy of the chosen design for
@@ -65,6 +66,101 @@ export async function createWatermarkedDesignAsset(
   } catch (err: any) {
     console.error('[product-build] ⚠️ Watermarked design asset failed:', err.message)
   }
+}
+
+/**
+ * Decide, record and return the garment colour a product's mockups should be
+ * rendered on.
+ *
+ * WHY IT LIVES HERE. This file's own header says anything that changes what a
+ * "build" produces belongs in it, and the colour of the shirt in every listing
+ * photo is about as load-bearing as that gets. Both callers of
+ * applyImageSelection (the admin builder and the creator studio) go through
+ * here already, and routes/admin/ai-products.ts's /create-mockups twin imports
+ * this same function so the two fan-outs cannot drift on the one setting that
+ * put a black design on a black shirt.
+ *
+ * THE RULE:
+ *   - a colour a HUMAN asked for is never overridden. That is what
+ *     `metadata.shirt_color_source === 'requested'` records, and the create
+ *     routes only stamp it when the request body actually named a colour.
+ *   - anything else is MEASURED off the artwork (services/garment-color.ts).
+ *     Rows created before this existed carry no source at all, so they are
+ *     measured too — which is the intended repair: their 'black' was never a
+ *     decision, it was a default.
+ *   - a failure (no artwork yet, unreadable file, no ink) changes nothing. The
+ *     product keeps whatever it had, exactly as before.
+ *
+ * The decision and its numbers are written to `metadata.garment_color` so that
+ * "why is this on a white shirt" has an answer that outlives the job.
+ */
+export async function resolveGarmentColor(opts: {
+  productId: string
+  /** The artwork that will be printed — the selected design asset's URL. */
+  designUrl: string | null | undefined
+  /** Garment id or legacy string ('tshirt', 'shirts', 'hoodie'). */
+  productType: string | null | undefined
+  /** The product's category; metal art has no garment and is skipped. */
+  category?: string | null
+  /** Already-loaded metadata, to save a read. Re-read when omitted. */
+  metadata?: Record<string, any> | null
+  log?: { info?: (o: any, m: string) => void; error?: (o: any, m: string) => void }
+}): Promise<{ color: string; source: 'requested' | 'measured' | 'default'; decision: GarmentColorDecision | null }> {
+  const { productId, designUrl, productType, log } = opts
+
+  let meta = opts.metadata ?? null
+  if (!meta) {
+    const { data } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
+    meta = ((data as any)?.metadata as Record<string, any>) || {}
+  }
+
+  const stamped = typeof meta.shirt_color === 'string' && meta.shirt_color ? meta.shirt_color : null
+
+  if (opts.category === 'metal-art' || meta.product_type === 'metal-art') {
+    return { color: stamped ?? 'black', source: 'default', decision: null }
+  }
+  if (meta.shirt_color_source === 'requested' && stamped) {
+    return { color: stamped, source: 'requested', decision: null }
+  }
+  if (!designUrl) {
+    return { color: stamped ?? 'black', source: 'default', decision: null }
+  }
+
+  const decision = await chooseGarmentColorForDesign(designUrl, { garment: productType })
+  if (!decision) {
+    log?.info?.({ productId }, '[product-build] garment colour not measurable — keeping the existing value')
+    return { color: stamped ?? 'black', source: 'default', decision: null }
+  }
+
+  // Read-modify-write: products.metadata is one JSON column that many writers
+  // share, so the update has to carry everything that was already there.
+  const { data: fresh } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
+  const current = ((fresh as any)?.metadata as Record<string, any>) || meta
+  const { error } = await supabase
+    .from('products')
+    .update({
+      metadata: {
+        ...current,
+        shirt_color: decision.color,
+        shirt_color_source: 'measured',
+        garment_color: garmentColorMetadata(decision, 'measured'),
+      },
+    })
+    .eq('id', productId)
+  if (error) {
+    console.warn('[product-build] ⚠️ could not persist the garment colour decision:', error.message)
+  }
+
+  console.log('[product-build] 👕 garment colour MEASURED:', JSON.stringify({
+    product_id: productId,
+    was: stamped,
+    now: decision.color,
+    alternates: decision.alternates,
+    reason: decision.reason,
+  }))
+  log?.info?.({ productId, color: decision.color, was: stamped }, '[product-build] 👕 garment colour chosen from the artwork')
+
+  return { color: decision.color, source: 'measured', decision }
 }
 
 export interface ApplyImageSelectionOpts {
@@ -202,12 +298,27 @@ export async function applyImageSelection(opts: ApplyImageSelectionOpts): Promis
   // products.metadata. Image job input is a secondary fallback; defaults last.
   const meta = (product?.metadata as any) || {}
   const resolvedProductType = meta.product_type || imageJob?.input?.productType || 'tshirt'
-  const resolvedShirtColor = meta.shirt_color || imageJob?.input?.shirtColor || 'black'
   const resolvedPrintPlacement = meta.print_placement || imageJob?.input?.printPlacement || 'front-center'
   const resolvedPrintSize = Number(meta.print_size_inches) || Number(imageJob?.input?.printSizeInches) || 11
 
+  // GARMENT COLOUR IS MEASURED, NOT DEFAULTED (David 2026-09-01, on black line
+  // art rendered onto a black polo: "it should go on a white shirt because of
+  // how it looks but it was mocked on a black shirt"). The artwork exists by
+  // the time a build starts — it is the asset the user just picked — so this is
+  // the first point in the pipeline where the question can actually be answered.
+  const garmentColor = await resolveGarmentColor({
+    productId: id,
+    designUrl: selectedAsset.url,
+    productType: resolvedProductType,
+    category: product?.category,
+    metadata: meta,
+    log,
+  })
+  const resolvedShirtColor = garmentColor.color
+
   console.log('[product-build] 🎯 mockup DTF settings:', JSON.stringify({
     shirtColor: resolvedShirtColor,
+    shirtColorSource: garmentColor.source,
     productType: resolvedProductType,
     printPlacement: resolvedPrintPlacement,
     printSizeInches: resolvedPrintSize,
@@ -302,6 +413,30 @@ export async function applyImageSelection(opts: ApplyImageSelectionOpts): Promis
         input: { ...baseInput, template: 'flat_lay', printPlacement: 'left-pocket' },
       })
       console.log('[product-build] 👕 Adding pocket-scale mockup job')
+    }
+
+    // SECOND COLOURWAY. Only when the measurement says the design genuinely
+    // holds up on another base (services/garment-color.ts: almost no vanishing
+    // ink AND comfortable mean contrast) — a colourway is a listing variation
+    // and another render bill, so "technically legible" is not the bar.
+    //
+    // mockupRole pins it to its own slot: without that it would land as
+    // mockup_flat_lay and the replace-by-role write in the worker would have
+    // the two colours delete each other forever.
+    for (const alt of garmentColor.decision?.alternates ?? []) {
+      jobs.push({
+        product_id: targetProductId,
+        type: 'replicate_mockup_v2',
+        status: 'queued',
+        input: {
+          ...baseInput,
+          shirtColor: alt,
+          template: 'flat_lay',
+          printPlacement: frontPlacement,
+          mockupRole: `mockup_color_${alt}`,
+        },
+      })
+      console.log('[product-build] 🎨 Adding second-colourway mockup job:', alt)
     }
     return jobs
   }

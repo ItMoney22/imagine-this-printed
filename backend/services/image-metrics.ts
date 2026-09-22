@@ -412,6 +412,231 @@ export async function measureOpacity(url: string): Promise<OpacityResult> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// ARTWORK LUMINANCE — the measured half of "what colour shirt does this go on?"
+//
+// WHY THIS EXISTS: David, 2026-09-01 — "look at this design it should go on a
+// white shirt because of how it looks but it was mocked on a black shirt so now
+// it looks like this." Black line art, rendered onto a black polo, invisible.
+// Every generation path in the backend stamped shirtColor 'black' without ever
+// opening the file, so nothing in the pipeline could have caught it.
+//
+// The measurement has to run over NON-TRANSPARENT PIXELS ONLY. A DTF transfer
+// is ink plus dead air; averaging the dead air in drags every design toward the
+// same mid-grey and the answer stops depending on the artwork at all. The
+// alpha channel is the mask, and it is already there.
+//
+// LUMINANCE IS WCAG RELATIVE LUMINANCE, not the greyscale byte. The two are
+// not the same thing and the difference decides real cases: pure red (#FF0000)
+// is 0.2126 relative luminance — it reads as a DARK ink and needs a light
+// garment — while sRGB-average greyscale calls it 85/255 and gamma-encoded
+// greyscale (what sharp's .greyscale() emits) calls it 54/255. Working in the
+// same linear space the contrast ratio is defined in means the number that
+// comes out of here can be handed straight to contrastRatio() below.
+// ---------------------------------------------------------------------------
+
+/** Alpha at or above this is INK — a pixel that actually prints.
+ *
+ *  Deliberately well above TRANSPARENT_ALPHA: the band between them is the
+ *  anti-aliased rim of the artwork, which is literally a blend of the ink and
+ *  whatever is behind it. Those pixels take the garment's colour in the press
+ *  and would bias the measurement toward "already matches the shirt". */
+export const INK_ALPHA = 128
+
+/** sRGB -> linear, the WCAG 2.x transfer function, as a 256-entry table. Built
+ *  once: the per-pixel alternative is three Math.pow calls on every pixel. */
+const LINEAR = new Float64Array(256)
+for (let i = 0; i < 256; i++) {
+  const c = i / 255
+  LINEAR[i] = c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
+}
+
+/** WCAG relative luminance of an 8-bit sRGB triple, 0 (black) to 1 (white). */
+export function relativeLuminance(r: number, g: number, b: number): number {
+  return 0.2126 * LINEAR[r] + 0.7152 * LINEAR[g] + 0.0722 * LINEAR[b]
+}
+
+/** Relative luminance of a `#rrggbb` (or `#rgb`) colour. */
+export function luminanceOfHex(hex: string): number {
+  const h = String(hex).trim().replace(/^#/, '')
+  const full = h.length === 3 ? h.split('').map(c => c + c).join('') : h
+  if (!/^[0-9a-fA-F]{6}$/.test(full)) throw new Error(`not a hex colour: ${hex}`)
+  return relativeLuminance(
+    parseInt(full.slice(0, 2), 16),
+    parseInt(full.slice(2, 4), 16),
+    parseInt(full.slice(4, 6), 16)
+  )
+}
+
+/** WCAG contrast ratio between two relative luminances. 1 = identical, 21 =
+ *  black against white. */
+export function contrastRatio(a: number, b: number): number {
+  const hi = Math.max(a, b)
+  const lo = Math.min(a, b)
+  return (hi + 0.05) / (lo + 0.05)
+}
+
+/** Bins in the reported ink histogram. 32 is enough to re-derive the contrast
+ *  against ANY garment colour later without refetching the image, and small
+ *  enough to store on a product row. */
+export const LUMA_BINS = 32
+
+/** Edge the luminance sample is resampled to. Larger than OPACITY_SAMPLE_PX
+ *  because this measures a DISTRIBUTION, not a border ring — thin line art is
+ *  a small share of the pixels and a coarse sample loses it. 384px keeps the
+ *  loop under 150k iterations while holding roughly 1/3 of a 1024px render's
+ *  detail. */
+export const LUMINANCE_SAMPLE_PX = 384
+
+export interface ArtworkLuminance {
+  url: string
+  ok: true
+  /** Pixels sampled, and how many of them carry ink. */
+  sampled: number
+  inkPixels: number
+  /** Share of the frame that actually prints. Near 1.0 means the file has no
+   *  dead air — the measurement is then over the whole rectangle, background
+   *  included, and the reader should say so rather than pretend otherwise. */
+  inkFraction: number
+  /** Mean / median WCAG relative luminance of the INK, 0-1. */
+  meanLuma: number
+  medianLuma: number
+  /** 10th and 90th percentile, which is what tells "one flat tone" from
+   *  "full range". */
+  p10Luma: number
+  p90Luma: number
+  /** Histogram of ink luminance over LUMA_BINS equal bins, as FRACTIONS of the
+   *  ink (so it sums to ~1). Everything downstream — every garment's contrast
+   *  score — is computed from this, which is why it is reported. */
+  histogram: number[]
+}
+
+export type ArtworkLuminanceResult = ArtworkLuminance | ImageMetricsFailure
+
+/**
+ * Measure the ink luminance of an artwork buffer. Exported separately from the
+ * URL form because the generation pipelines already hold the PNG in memory and
+ * re-fetching it over the network to measure it would be silly.
+ */
+export async function measureArtworkLuminanceFromBuffer(
+  buf: Buffer,
+  url = 'buffer:'
+): Promise<ArtworkLuminanceResult> {
+  try {
+    const { data, info } = await sharp(buf)
+      // ensureAlpha so the loop can always read 4 bytes per pixel. On a file
+      // with NO alpha channel this yields a fully-opaque one, which makes every
+      // pixel ink — the honest answer for a flattened file, and inkFraction
+      // reports it so a caller can refuse to decide on that basis.
+      .ensureAlpha()
+      .resize(LUMINANCE_SAMPLE_PX, LUMINANCE_SAMPLE_PX, { fit: 'inside', withoutEnlargement: true })
+      .raw()
+      .toBuffer({ resolveWithObject: true })
+    if (info.channels !== 4) throw new Error(`expected 4 channels after ensureAlpha, got ${info.channels}`)
+
+    const sampled = info.width * info.height
+    const bins = new Float64Array(LUMA_BINS)
+    const values: number[] = []
+    let sum = 0
+    let ink = 0
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i + 3] < INK_ALPHA) continue
+      const l = relativeLuminance(data[i], data[i + 1], data[i + 2])
+      ink++
+      sum += l
+      values.push(l)
+      const b = Math.min(LUMA_BINS - 1, Math.floor(l * LUMA_BINS))
+      bins[b]++
+    }
+
+    if (!ink) {
+      // A fully transparent file. Not an error — it is a finding, and the
+      // caller (the picker, the QA gate) has to be the one to say so.
+      return {
+        url,
+        ok: true,
+        sampled,
+        inkPixels: 0,
+        inkFraction: 0,
+        meanLuma: 0,
+        medianLuma: 0,
+        p10Luma: 0,
+        p90Luma: 0,
+        histogram: Array.from({ length: LUMA_BINS }, () => 0)
+      }
+    }
+
+    values.sort((a, b) => a - b)
+    const at = (q: number) => values[Math.min(values.length - 1, Math.max(0, Math.round(q * (values.length - 1))))]
+    const round = (n: number) => Number(n.toFixed(4))
+
+    return {
+      url,
+      ok: true,
+      sampled,
+      inkPixels: ink,
+      inkFraction: round(ink / Math.max(1, sampled)),
+      meanLuma: round(sum / ink),
+      medianLuma: round(at(0.5)),
+      p10Luma: round(at(0.1)),
+      p90Luma: round(at(0.9)),
+      histogram: Array.from(bins, v => round(v / ink))
+    }
+  } catch (err: any) {
+    return { url, ok: false, error: String(err?.message || err).slice(0, 200) }
+  }
+}
+
+/** `measureArtworkLuminanceFromBuffer` for a hosted file. Never throws — an
+ *  unreadable design is a RESULT the caller reports, same contract as every
+ *  other measurement in this module. */
+export async function measureArtworkLuminance(url: string): Promise<ArtworkLuminanceResult> {
+  try {
+    return await measureArtworkLuminanceFromBuffer(await fetchImageBytes(url), url)
+  } catch (err: any) {
+    return { url, ok: false, error: String(err?.message || err).slice(0, 200) }
+  }
+}
+
+/**
+ * Share of the ink that would fall below `minContrast` against a garment of
+ * `garmentLuma`, read straight off the histogram.
+ *
+ * Each bin is scored at its own MIDPOINT. The alternative — scoring at the
+ * nearer edge — makes a design look better than it is on exactly the boundary
+ * cases this exists to catch, and scoring at the far edge condemns designs that
+ * are fine. The midpoint is the unbiased choice and the bins are 1/32 wide.
+ */
+export function vanishingFraction(
+  histogram: number[],
+  garmentLuma: number,
+  minContrast: number
+): number {
+  let vanish = 0
+  let total = 0
+  for (let b = 0; b < histogram.length; b++) {
+    const share = histogram[b]
+    if (!share) continue
+    total += share
+    const mid = (b + 0.5) / histogram.length
+    if (contrastRatio(mid, garmentLuma) < minContrast) vanish += share
+  }
+  return total > 0 ? Number((vanish / total).toFixed(4)) : 0
+}
+
+/** Ink-weighted mean contrast against a garment, from the same histogram. */
+export function meanContrastAgainst(histogram: number[], garmentLuma: number): number {
+  let sum = 0
+  let total = 0
+  for (let b = 0; b < histogram.length; b++) {
+    const share = histogram[b]
+    if (!share) continue
+    total += share
+    sum += share * contrastRatio((b + 0.5) / histogram.length, garmentLuma)
+  }
+  return total > 0 ? Number((sum / total).toFixed(2)) : 0
+}
+
 /** Measure a set of images concurrently, preserving order. */
 export async function measureImages(urls: string[]): Promise<ImageMetricsResult[]> {
   return Promise.all(urls.map(measureImage))

@@ -171,7 +171,7 @@ Additional preferences:
 
 Print settings (these describe HOW the artwork is printed — they do NOT change the product category):
 - Product type: ${input.productType || 'tshirt'}
-- Shirt color: ${input.shirtColor || 'black'} (design colors should complement/contrast with this)
+- Shirt color: ${input.shirtColor ? `${input.shirtColor} (design colors should complement/contrast with this)` : 'NOT CHOSEN YET - it is picked from the finished artwork to contrast with it, so the image_prompt must commit to ONE value key (predominantly dark ink or predominantly light ink) and must not name or rely on a garment colour'}
 - Print placement: ${input.printPlacement || 'front-center'} (${placementDescriptions[input.printPlacement || 'front-center']})`
 
   const messages = [

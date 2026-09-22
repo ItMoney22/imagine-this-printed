@@ -109,8 +109,23 @@ describe('dtfPrompt', () => {
     const p = dtfPrompt(brief).toLowerCase()
     expect(p).toContain('dtf transfer')
     expect(p).toContain('11 inches')
-    expect(p).toContain('black')          // the garment she is designing against
-    expect(p).toContain('t-shirt')        // ...and which garment it is
+    expect(p).toContain('t-shirt')        // which garment it is
+  })
+
+  it('never names a garment COLOUR, because none has been chosen yet', () => {
+    // David 2026-09-01: black line art mocked up on a black polo. The old
+    // prompt asserted "a BLACK t-shirt ... keep every shape readable against
+    // black" while the product row got its 'black' from a default that had
+    // never looked at the picture. The colour is now measured off the finished
+    // artwork (services/garment-color.ts), so the prompt must not pre-empt it.
+    const p = dtfPrompt(brief).toLowerCase()
+    expect(p).not.toContain('black t-shirt')
+    expect(p).not.toContain('black hoodie')
+    expect(p).not.toContain('readable against black')
+    // What it asks for instead is the property that makes the measurement
+    // decisive: one committed value key rather than a mid-grey hedge.
+    expect(p).toContain('chosen after this render')
+    expect(p).toContain('one value key')
   })
 
   it('rules out the things that wreck a transfer', () => {
