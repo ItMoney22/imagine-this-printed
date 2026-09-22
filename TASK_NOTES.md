@@ -4252,3 +4252,58 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### File shortlist (approved scope — 2026-09-22 team-plate font path fix, Watchtower 3a3455f7)
+- `backend/services/team-plate/fonts.ts` (+ fonts.test.ts) — testable FONT_DIR
+  resolution
+- `backend/scripts/copy-assets.mjs` (new) — postbuild copy + loud verification
+  of `dist/assets/fonts`
+- `backend/package.json` — wire the copy into `build`
+- `TASK_NOTES.md`
+- Out of scope: `backend/Dockerfile` does not exist in this worktree — it only
+  exists, uncommitted to main, on `earth/levi-james/step-2-6-author-fly-toml-
+  0f33268f-mucglvkn`. Noted in the handoff + a follow-up task instead of
+  touching a file this branch doesn't own.
+
+### Work log (append-only) — 2026-09-22 font path fix
+- Confirmed the bug: `backend/package.json`'s `build` script was plain `tsc`,
+  which never copies `.ttf` files, so `dist/assets/fonts` never existed after
+  a real build (Render runs exactly this script; there is no Dockerfile in
+  the live path today, so this was live-broken independent of the Fly
+  migration).
+- Fix: `backend/scripts/copy-assets.mjs` (new) copies `assets/` -> `dist/assets/`
+  after `tsc` and fails the build loudly (non-zero exit) if the expected
+  `.ttf` count doesn't land — build script is now
+  `"build": "tsc && node scripts/copy-assets.mjs"`. `fonts.ts`'s FONT_DIR
+  resolution logic was already correct (relative to the compiled/executing
+  file); the offset math was never the bug, the missing copy step was.
+- Refactored FONT_DIR into an exported `resolveFontDir(moduleUrl)` purely so
+  the resolution logic is unit-testable against a simulated dist/ location
+  without needing a real build in the fast test suite.
+- Verified for real, not just unit tests: ran the actual `npm run build`
+  chain (`tsc` then `copy-assets.mjs`), then dynamically imported the
+  COMPILED `dist/services/team-plate/fonts.js` and called `loadFont` — it
+  loaded a real house face with no ENOENT. This is the exact production
+  failure mode, proven fixed against the real compiled artifact, not a mock.
+- `npx tsc` in this worktree fails with pre-existing TS2742 errors in
+  `middleware/rate-limits.ts` (unrelated file, untouched here) caused by this
+  worktree's `node_modules` being a symlink to the shared checkout outside
+  `rootDir` — a worktree-tooling artifact, not a real prod issue (Render's
+  `npm ci` gives a real non-symlinked `node_modules` inside `rootDir`). `tsc`
+  still emits `.js` output despite the non-zero exit, which is how the
+  end-to-end proof above was run manually. Confirmed via `git diff` that
+  `rate-limits.ts` has zero changes from this session — pre-existing, out of
+  scope.
+- Tests: added 2 tests to `fonts.test.ts` (dev-path resolves to a real
+  `backend/assets/fonts` on disk; compiled-path resolves to the equivalent
+  `dist/assets/fonts` shape). `vitest run services/team-plate/` → 6 files /
+  86 tests green. Full backend `vitest run` → 92/93 files green, 1492/1495
+  tests green; the 3 failures are all in `etsy-copy-repair.test.ts`, a file
+  this session never touched (confirmed via `git diff`) — pre-existing,
+  unrelated, out of scope.
+- `backend/Dockerfile` (only on levi-james's unmerged Fly branch) has a
+  `RUN cp -R assets dist/assets` + a runtime `COPY --from=build /app/assets
+  ./assets` that become redundant once this fix merges (the build now
+  produces `dist/assets/fonts` itself, which is the only path FONT_DIR ever
+  resolves to). Left untouched — not in this worktree/branch's tree — and
+  filed as a follow-up task instead.
