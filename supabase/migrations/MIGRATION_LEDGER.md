@@ -7,6 +7,86 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-09-22 — legacy wide-open RLS policies reconciled FORWARD (Sifu, Watchtower `82d4ae2e`)
+
+New file: **`20260922210000_drop_legacy_wide_open_rls_policies.sql`**. Full
+writeup with the audit table and the live evidence:
+`docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md`.
+
+**The gap.** The August 2026 hardening (2026-08-06 `security_round2`, and commit
+`dbb8476` on 2026-08-19 for the anon INSERT policies) dropped wide-open policies
+by running SQL straight at production — path (2)/(3) below. Production was
+correct; the repo was not. `002_rls_policies.sql` and
+`20251231000002_community_features.sql` still `CREATE` those policies and nothing
+later dropped them, so `supabase db reset` / a staging stack / a DR rebuild /
+a test database replayed the chain and came up **wide open** while production was
+locked. A fresh environment was strictly less safe than prod.
+
+**What the new file does.** Seven `DROP POLICY IF EXISTS` statements, each behind
+a `to_regclass(...) IS NOT NULL` guard inside one `DO $$ … $$` block:
+`points_transactions` / `itc_transactions` / `referral_transactions` /
+`order_items` / `vendor_payouts` / `founder_earnings` (all six "System can …"
+policies from `002_rls_policies.sql`) and `community_boost_earnings`
+("System can insert earnings"). **No historical migration was edited** —
+checksums and history intact.
+
+- The guards are not decoration: `DROP POLICY IF EXISTS "p" ON t` still raises
+  `42P01` when `t` is missing (`IF EXISTS` covers the policy, not the relation —
+  verified live inside a rolled-back transaction). Without them the file aborts
+  on a partially provisioned database.
+- The nine wide-open policies in `20251219_coupons_giftcards_support.sql` needed
+  **no** new statement — `20260805_security_lockdown.sql` and
+  `20260805_02_discount_codes_lockdown.sql` sort after it and already drop all of
+  them forward. Listed in the new file's comments so nobody re-derives it.
+- **Nine public `FOR SELECT USING (true)` policies were deliberately retained**
+  (`products`, `imagination_pricing`, `imagination_products`,
+  `imagination_product_sizes`, `shipping_methods`, `social_votes`,
+  `community_boosts`, `agent_status`, `product_copurchase`). Each is a real
+  storefront read through the anon client; dropping one is an outage, not a fix.
+  They are allow-listed **by name** in the verifier so a future pass cannot
+  quietly take one out.
+
+**Applied to prod? YES — 2026-09-22, and it was a proven no-op.** Executed inside
+a transaction with a full `pg_policies` snapshot either side: **0 removed, 0
+added, 187 policies before and 187 after** — expected, because production was
+already hardened. Because it is a proven no-op it was committed and the tracking
+row inserted, so version `20260922210000` now exists in
+`supabase_migrations.schema_migrations` and `supabase migration up` will not
+replay it.
+
+- **Version-number collisions are real on this repo.** The first pick,
+  `20260922160000`, was already taken in `schema_migrations` by
+  `20260922160000_products_maker_agent_id` (a different agent's unmerged branch),
+  and `20260922120000` is used by **two** different files across branches
+  (`signup_wallet_and_welcome_email` and `itc_refund_guard`). The insert used
+  `ON CONFLICT (version) DO NOTHING`, so nothing was overwritten — but check
+  `SELECT version FROM supabase_migrations.schema_migrations` **and**
+  `git log --all --name-only -- 'supabase/migrations/*'` before choosing a stamp.
+
+**Re-runnable proof:** `scripts/verify-rls-policy-reconciliation.mjs` (new).
+Static mode needs no credentials and is CI-safe; `--live` additionally diffs the
+replayed set against production `pg_policies` (one read-only SELECT). Replayed
+set went from **149 policies / 13 wide-open** to **142 / 6**, and all six
+survivors are allow-listed with a reason. Exit code 0.
+
+**Two things it found and did NOT fix** (both filed as follow-ups):
+
+1. `email_logs` · `Service can insert email logs` ·
+   `FOR INSERT TO authenticated WITH CHECK (true)`
+   (`20251223000000_email_templates.sql:104`) is **live in production**, so
+   dropping it here would make the replay *diverge*. No browser-client writes
+   that table, so it looks removable — but that is a production change and needs
+   its own reviewed migration.
+2. **Production is MORE open than the chain on `products`.** Live carries
+   `Anyone can view products` `USING (true)`, which exists in **no migration
+   file**; the chain only ever creates `All users can view approved products`
+   `USING (approved = true AND status = 'active')`. Measured live: **2,474 of
+   2,602 `products` rows are not approved and not active and are readable with
+   the public anon key**, design library and unreleased drafts included. Same
+   shape for `imagination_products`, `imagination_product_sizes` and
+   `shipping_methods` (legitimate public reads, but created by no file, so
+   staging/DR comes up without them).
+
 ## 2026-08-19 — vendor-marketplace bundle MERGED to `main` + tracking rows reconciled (Levi James, Watchtower `c53ca544`)
 
 - Merge commit `9144e7b` brings `16727bf` (vendor-scoped products RLS),
@@ -643,3 +723,4 @@ a reviewed, deliberate action, not a rubber stamp.
 | `20260816_02_tryon_photo_retention.sql` | **YES — applied 2026-08-17** (Zero Nine, task d7ceb366; `photos_purged_at` + `idx_tryon_runs_retention` confirmed live, and a real 40-day-old run was purged end-to-end by the worker sweep) | Watchtower task f3bf450c. Adds `virtual_tryon_runs.photos_purged_at` (audit stamp for the automatic photo-retention sweep) plus the partial index `idx_tryon_runs_retention` that the sweep's query rides. Additive and idempotent (`ADD COLUMN IF NOT EXISTS`, `CREATE INDEX IF NOT EXISTS`); order against `20260816_virtual_tryon.sql` does not matter as long as that one is applied first. **The sweep does not depend on this migration** — `purgeRow()` retries the write without the stamp if PostgREST reports the column missing, so an unapplied migration costs the audit timestamp and the index, not the deletions. |
 
 | `20260922120000_signup_wallet_and_welcome_email.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 4d915741; ledger row inserted into `supabase_migrations.schema_migrations` in the same script, so the CLI is not drifting further on this one) | Signup hardening. (1) `public.create_user_wallet()` rewritten: production had it minting **500 ITC unconditionally** while every migration file in this repo showed zeros — `handle_new_user()`'s own zero-balance insert was losing to its `ON CONFLICT (user_id) DO NOTHING` because the profile insert had already fired the wallet trigger. Now zeros, with `SET search_path` added to a `SECURITY DEFINER` function that lacked one. (2) Adds `user_profiles.welcome_email_sent_at` and backfills every existing row, so the durable one-welcome-per-account stamp cannot re-mail the existing customer base. (3) Drops `on_auth_user_welcome_email` + `send_welcome_email_webhook()` — it POSTed to `/api/webhooks/supabase-auth` on every `auth.users` INSERT with no `x-webhook-secret`, so it has only ever been answered 401/503, and it fired before confirmation. Verified live by inserting a real `auth.users` row and reading the wallet back at 0.00, then deleting the probe. Uses production's actual column names (`points`, `usd_balance`, `total_earned`, `total_spent` — NOT `points_balance`/`lifetime_*`, which `COMPLETE_DATABASE_SETUP.sql` still wrongly describes). Full writeup: `docs/SIGNUP_BOT_PROTECTION.md`. |
+| `20260922210000_drop_legacy_wide_open_rls_policies.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 82d4ae2e; proven no-op — executed in a transaction with a full `pg_policies` snapshot either side, 0 removed / 0 added / 187 before / 187 after, then committed and the tracking row inserted into `supabase_migrations.schema_migrations`) | Forward reconciliation of the legacy wide-open RLS policies. Seven guarded `DROP POLICY IF EXISTS` statements (`points_transactions`, `itc_transactions`, `referral_transactions`, `order_items`, `vendor_payouts`, `founder_earnings`, `community_boost_earnings`) so a from-scratch replay stops recreating `TO public` write policies that production dropped by hand in August. **No historical migration edited.** Nine public `FOR SELECT USING (true)` policies deliberately retained and allow-listed by name. Idempotent and safe to re-run: every drop is `IF EXISTS` behind a `to_regclass(...) IS NOT NULL` guard (a bare `DROP POLICY IF EXISTS` still raises 42P01 when the table is missing). Verify with `node scripts/verify-rls-policy-reconciliation.mjs --live`. Full writeup: `docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md`. |

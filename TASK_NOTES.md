@@ -4252,3 +4252,51 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## 2026-09-22 — legacy wide-open RLS policies reconciled FORWARD (Sifu, Watchtower `82d4ae2e`)
+
+The August 2026 hardening dropped wide-open RLS policies by running SQL straight
+at production, so production is hardened but the migration chain still CREATEs
+them. Any fresh environment built by replaying the chain — `supabase db reset`, a
+staging stack, a DR rebuild, a test DB — came up WIDE OPEN while prod was locked.
+One forward migration closes that; no historical migration file is touched.
+
+### File shortlist (approved scope — 2026-09-22 RLS reconciliation)
+- `supabase/migrations/20260922210000_drop_legacy_wide_open_rls_policies.sql` (new)
+- `scripts/verify-rls-policy-reconciliation.mjs` (new — re-runnable proof)
+- `docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md` (new — audit + evidence)
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+Explicitly NOT in scope and NOT touched: every historical migration file (their
+checksums and history must stay intact), table-level `anon` write GRANTs
+(Watchtower `b6d6720f`), and `src/context/SupabaseAuthContext.tsx`.
+
+### Work log (append-only) — 2026-09-22 RLS reconciliation
+- Dumped live production `pg_policies` (read-only): 187 policies, 8 of them
+  wide-open and every one a public `FOR SELECT USING (true)` read.
+- Static-replayed every `CREATE POLICY`/`DROP POLICY` in `supabase/migrations/`
+  in filename order: 149 policies, 13 wide-open. Diffed against live. Seven
+  wide-open WRITE policies exist only in the files, never in production.
+- Confirmed the nine wide-open policies in `20251219_coupons_giftcards_support.sql`
+  are ALREADY dropped forward by `20260805_security_lockdown.sql` /
+  `20260805_02_discount_codes_lockdown.sql`, so they need no new statement.
+- Proved blast radius is nil: every writer of the seven tables is service-role
+  `backend/**` (RLS bypassed). Only browser-client hit anywhere in `src/` is the
+  already-dead wallet fallback at `src/context/SupabaseAuthContext.tsx:191`.
+- Verified against live, inside a rolled-back transaction, that
+  `DROP POLICY IF EXISTS … ON <missing table>` still raises `42P01` — so each
+  drop sits behind a `to_regclass(...) IS NOT NULL` guard.
+- Wrote the migration, the verifier and the evidence doc. Replayed set is now
+  142 policies / 6 wide-open, all six allow-listed by name with a reason.
+  `node scripts/verify-rls-policy-reconciliation.mjs --live` exits 0.
+- Applied to production as a proven no-op (transaction + full `pg_policies`
+  snapshot either side: 0 removed, 0 added, 187 -> 187), committed, and recorded
+  in `supabase_migrations.schema_migrations` as `20260922210000`. First pick
+  `20260922160000` was already taken by another agent's branch — checked and
+  moved rather than overwriting.
+- Two findings deliberately left for follow-up tasks: the live
+  `email_logs` "Service can insert email logs" INSERT-to-authenticated policy
+  (live, so dropping it would diverge), and production's `products`
+  `USING (true)` SELECT policy, which exists in no migration file and exposes
+  2,474 of 2,602 unapproved/inactive product rows to the anon key.
