@@ -4252,3 +4252,56 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## Current request (2026-09-22) — backfill metal_sizes metadata (Levi James, task 0c72fd16)
+
+### File shortlist (approved scope — 2026-09-22 metal-art backfill)
+- `backend/scripts/audit-metal-art-sizes.ts` (new, read-only)
+- `backend/scripts/backfill-metal-sizes.ts` (new, writes prod)
+- `backend/scripts/validate-metal-art-storefront.ts` (new, read-only)
+- `TASK_NOTES.md`
+- Read-only reference (not edited): `backend/shared/metal-art.ts`, `src/lib/product-kind.ts`
+
+### Work log (append-only)
+- Audited all 34 `metal-art` prod rows (20 active / 14 draft-inactive) against
+  the canonical table locked 2026-09-02 (4x6 $8.95 / 8x10 $16.95). Only 2 rows
+  (Golden Gate, Misty Mountain) carried the full canonical shape
+  (`metadata.metal_sizes`/`metal_size`/`metal_prices` + `sizes` column +
+  `price`=8.95); the other 18 active rows still carried their pre-2026-09-02
+  flat legacy price ($25–$75) in `products.price` with no `metal_sizes` at
+  all. Confirmed BEFORE writing anything that this was not an active
+  mispricing bug: `unitBasePrice`/`lineBasePrice` (client) and
+  `computeLineItemCents` (server, via `isMetalProductRow`/
+  `fetchMetalProductIds`) both already price every row classified as metal
+  off `METAL_ART_PRICES`, never off `products.price` — the gap was only that
+  the *stored* metadata didn't match what the code already assumes, so any
+  future reader trusting `metadata.metal_sizes` directly (not through
+  `metalSizesFor()`'s fallback) would get a wrong/missing answer, and the
+  admin editor / size picker showed stale numbers.
+- Wrote `backfill-metal-sizes.ts`: writes the exact shape `POST
+  /:id/step/sizes` already writes for new listings (`price`, `sizes` column,
+  `metadata.metal_sizes`/`metal_size`/`metal_prices`), preserving every other
+  metadata key. Snapshots every row's pre-change state to a timestamped JSON
+  before writing anything (kept out of the repo — session scratchpad, not
+  committed, since it's a full prod-data dump). Also checks every active row
+  for real artwork (`images[]` or `metadata.assets.{display,clean,mockups}`)
+  and would flip any row with none to `is_active:false` — zero rows matched,
+  so no deactivations happened; all 20 active rows already have real art.
+- Ran for real against prod: 19 rows updated (18 missing metadata entirely +
+  1 — Misty Mountain — missing only the `sizes` column, metadata was already
+  right), 0 deactivations, 14 already-inactive legacy rows left untouched
+  (no metadata churn on rows nobody is buying).
+- VERIFIED two ways: re-ran the audit script post-write (20/20 active rows
+  now match canonical, 0 missing, 0 artwork-less); wrote
+  `validate-metal-art-storefront.ts`, which imports the REAL
+  `src/lib/product-kind.ts` (`productKindOf`/`hasPriceRange`/
+  `metalSizeOptions`/`unitBasePrice` — the same module ProductPage/
+  ProductCard/Cart import) and runs it against all 20 live active rows —
+  PASS: every row classifies `metal`, shows the size picker
+  (`hasPriceRange`), offers exactly `['4x6','8x10']`, and prices
+  4x6=$8.95/8x10=$16.95. Also ran the existing suites that cover this code
+  (`backend/shared/metal-art.test.ts` + `src/lib/product-kind.test.ts`, 65
+  tests) — all green, unmodified.
+- NOT done / not needed: no `is_active` flips (audit found nothing
+  unrecoverable to deactivate — every active row has real artwork); the 14
+  already-draft legacy rows were left exactly as they were.
