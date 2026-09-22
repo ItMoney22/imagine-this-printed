@@ -27,6 +27,40 @@ export const StepCard: React.FC<{ children: React.ReactNode; className?: string 
   </div>
 )
 
+/**
+ * A long wait with its name on it.
+ *
+ * David 2026-09-02 locked the house rule: no bare spinners — a wait shows a
+ * themed animated bar, says what stage it is at, and counts the seconds. It
+ * earns its keep here because bringing an under-sized design into the flow
+ * sends it to an upscaler, and thirty silent seconds reads as a dead page
+ * (David 2026-09-22: "when i hit step flow nothing happen").
+ *
+ * The bar is indeterminate on purpose: the upscaler reports no progress, and
+ * a fake percentage that stalls at 90 is worse than an honest sweep.
+ */
+export const WorkingPanel: React.FC<{ note: string; hint?: string }> = ({ note, hint }) => {
+  const [elapsed, setElapsed] = React.useState(0)
+  React.useEffect(() => {
+    const started = Date.now()
+    const t = setInterval(() => setElapsed(Math.round((Date.now() - started) / 1000)), 1000)
+    return () => clearInterval(t)
+  }, [note])
+
+  return (
+    <StepCard>
+      <div className="flex items-baseline justify-between gap-4 mb-3">
+        <p className="text-sm font-medium text-text">{note}</p>
+        <p className="text-xs text-muted tabular-nums shrink-0">{elapsed}s</p>
+      </div>
+      <div className="h-2 w-full rounded-full bg-bg/70 overflow-hidden">
+        <div className="h-full w-1/3 rounded-full bg-gradient-to-r from-primary to-secondary animate-indeterminate" />
+      </div>
+      {hint && <p className="text-xs text-muted mt-3">{hint}</p>}
+    </StepCard>
+  )
+}
+
 /** Big, obvious "approve this step" button — every step ends with one of these. */
 export const ApproveButton: React.FC<{
   onClick: () => void

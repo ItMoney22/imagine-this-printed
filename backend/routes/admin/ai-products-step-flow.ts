@@ -34,7 +34,8 @@ import { createWatermarkedDesignAsset } from '../../services/product-build.js'
 // The print-resolution gate the design-library grid already enforces on its
 // own Activate button — reused by /:id/step/adopt so a too-small design can't
 // slip live through the Step Flow instead (see that route).
-import { canActivate } from '../../services/design-library-quality.js'
+import { canActivate, requiredShortEdgePx } from '../../services/design-library-quality.js'
+import { ensurePrintResolution, measureArtwork, upscaleArtwork } from '../../services/step-flow/print-resolution.js'
 import { stepFlowStage, STAGE_LABELS } from '../../services/step-flow/progress.js'
 import {
   queueStepShots,
@@ -649,7 +650,7 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
       return res.json({ ok: true, productId: id, assetId: existingSource.id, alreadyAdopted: true, rembgJob: null })
     }
 
-    const designUrl: string | undefined = Array.isArray(product.images)
+    let designUrl: string | undefined = Array.isArray(product.images)
       ? product.images.find((u: unknown) => typeof u === 'string' && u)
       : undefined
     if (!designUrl) {
@@ -697,15 +698,98 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
       }
     }
 
+    // TOO SMALL IS A JOB, NOT A VERDICT. David 2026-09-22 built the Spartans
+    // team tee from the only two files he had — 1122x1402 each — and the flow
+    // stopped on a red bar with no button on it. "Go find a bigger file" is not
+    // an answer for artwork that came off a phone or out of a chat: there is no
+    // bigger file. So the server makes one (services/step-flow/print-resolution.ts).
+    //
+    // BOTH sides go up, not just the primary design. A front-and-back product
+    // has two pieces of artwork and the back is the half the customer pays
+    // extra for — on a team shirt it is the half with their own name on it.
+    let upscaleReport: Record<string, any> | null = null
+    // Where the design asset's `path` should point. Starts at whatever the
+    // importer recorded and follows the artwork if it gets upscaled, so the
+    // row never claims a path that serves a different image than its url.
+    let designPath: string | null = (product.metadata as any)?.gcs_path ?? null
+    if (canActivate(productMetadata).check.code === 'too_small') {
+      const artwork = (productMetadata as any)?.print_artwork || {}
+      const candidates = [designUrl, artwork.front_image, artwork.back_image].filter(
+        (u: unknown): u is string => typeof u === 'string' && !!u
+      )
+      const resolved = await ensurePrintResolution(candidates, requiredShortEdgePx(), {
+        measure: measureArtwork,
+        upscale: (url) => upscaleArtwork(url, { productId: id }),
+        log: req.log,
+      })
+      const mapped = (u: unknown) => (typeof u === 'string' && resolved.get(u)?.url) || u
+      const anyUpscaled = [...resolved.values()].some((r) => r.upscaled)
+
+      if (anyUpscaled) {
+        const primary = resolved.get(designUrl)
+        designUrl = (primary?.url as string) || designUrl
+        if (primary?.upscaled && primary.path) designPath = primary.path
+        const images = Array.isArray(product.images) ? product.images.map(mapped) : product.images
+        productMetadata = {
+          ...(productMetadata || {}),
+          image: {
+            ...((productMetadata as any)?.image || {}),
+            width_px: primary?.width ?? (productMetadata as any)?.image?.width_px,
+            height_px: primary?.height ?? (productMetadata as any)?.image?.height_px,
+            measured_by: 'step-flow-upscale',
+            measured_at: new Date().toISOString(),
+          },
+          print_artwork: {
+            ...artwork,
+            ...(artwork.front_image ? { front_image: mapped(artwork.front_image) } : {}),
+            ...(artwork.back_image ? { back_image: mapped(artwork.back_image) } : {}),
+            // The files David actually uploaded. Kept because the upscale is a
+            // derived file and nothing should quietly replace his source.
+            originals: {
+              ...(artwork.originals || {}),
+              ...(artwork.front_image ? { front_image: artwork.front_image } : {}),
+              ...(artwork.back_image ? { back_image: artwork.back_image } : {}),
+            },
+          },
+          print_upscale: {
+            at: new Date().toISOString(),
+            required_px: requiredShortEdgePx(),
+            results: [...resolved.values()].map((r) => ({
+              from: r.originalUrl,
+              to: r.upscaled ? r.url : null,
+              size: r.width && r.height ? `${r.width}x${r.height}` : null,
+              upscaled: r.upscaled,
+              skipped: r.skipped ?? null,
+              error: r.error ?? null,
+            })),
+          },
+        }
+        await supabase.from('products').update({ images, metadata: productMetadata }).eq('id', id)
+        product.images = images
+        product.metadata = productMetadata
+      }
+      upscaleReport = {
+        attempted: candidates.length,
+        upscaled: [...resolved.values()].filter((r) => r.upscaled).length,
+        failures: [...resolved.values()]
+          .filter((r) => r.skipped === 'upscale_failed')
+          .map((r) => r.error || 'the upscaler failed'),
+      }
+    }
+
     const verdict = canActivate(productMetadata)
     if (!verdict.allowed) {
+      const failure = upscaleReport?.failures?.[0]
       return res.status(422).json({
-        error: verdict.check.reason,
+        error: failure
+          ? `${verdict.check.reason} Enlarging it for print failed: ${failure}`
+          : verdict.check.reason,
         blocked: [{ id, name: product.name, reason: verdict.check.reason, code: verdict.check.code, gate: 'print' }],
+        upscale: upscaleReport,
       })
     }
 
-    const image = product.metadata?.image || {}
+    const image = productMetadata?.image || {}
     const { data: asset, error: assetError } = await supabase
       .from('product_assets')
       .insert({
@@ -714,7 +798,7 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
         // The importer already stored the GCS object path; reusing it keeps
         // the asset row pointing at the SAME object as products.images[0]
         // instead of duplicating an 11 MB PNG into a second bucket path.
-        path: product.metadata?.gcs_path ?? null,
+        path: designPath,
         url: designUrl,
         width: Number(image.width_px) || null,
         height: Number(image.height_px) || null,

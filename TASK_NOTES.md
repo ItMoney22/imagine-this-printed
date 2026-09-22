@@ -4225,3 +4225,30 @@ time.
 - NOT done: no real Spartans template authored yet (task 14 in the plan) —
   that needs the artwork uploaded and an OPENAI_API_KEY-backed erase run
   against live prod, which is David's call. Nothing is pushed.
+
+### Work log (append-only) — 2026-09-22 print resolution
+- David built the Spartans tee from the only two files he had (1122x1402 each)
+  and the Step Flow stopped on the print gate: "short edge under the 1200px
+  needed for a 4" print at 300 DPI". The gate was right — 1122px across a 12"
+  front is 93 DPI — but it offered no way forward, and for artwork that came
+  out of a chat there is no bigger file to go find.
+- Added `backend/services/step-flow/print-resolution.ts`: measures every piece
+  of artwork, sends only the under-sized ones to recraft-crisp-upscale (already
+  in the image-flow catalogue, $0.006), in parallel, once each, deduped. The
+  upscaler returns opaque WebP, so the ORIGINAL alpha channel is resampled and
+  composited back with `dest-in` rather than re-cut with rembg.
+- Wired into `/step/adopt` ahead of the gate: both sides of a two-sided product
+  go up, `products.images` / `metadata.print_artwork` / `metadata.image` are
+  rewritten to the print-ready files, and the files David uploaded are kept
+  under `print_artwork.originals`. The design asset's `path` follows the
+  artwork instead of inheriting the original's `gcs_path`.
+- Frontend: `WorkingPanel` in studio/shared.tsx — themed indeterminate bar,
+  stage text and elapsed seconds — shown while adopt runs, held in local state
+  so background polling can't clear it mid-wait. Thirty silent seconds reads as
+  a dead page.
+- PROVEN LIVE on product 568ee288 through the browser: front and back both
+  1122x1402 -> 3278x4096 (273 DPI across a 12" front), alpha preserved
+  (original mean 196.9, restored 197.7), design + watermark + nobg assets all
+  created, gate now passes.
+- 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
+  in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.

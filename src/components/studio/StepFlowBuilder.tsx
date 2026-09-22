@@ -1,7 +1,7 @@
 // Imagine Studio — Step Flow. One idea in, an approve on every step, a
 // product + Etsy listing out. See
 // docs/plans/2026-09-01-imagine-studio-step-flow-plan.md ("Track C").
-import React, { useCallback, useEffect, useReducer, useRef } from 'react'
+import React, { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   canReachStep,
@@ -11,7 +11,7 @@ import {
 } from './stepFlowReducer'
 import { adminLane, StudioLaneProvider, useStudioLane, type StudioLane } from './lane'
 import type { StepId } from './types'
-import { HexTracker, InlineError, StepCard } from './shared'
+import { HexTracker, InlineError, StepCard, WorkingPanel } from './shared'
 import IdeaStep from './IdeaStep'
 import DesignStep from './DesignStep'
 import GarmentStep from './GarmentStep'
@@ -50,6 +50,11 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
   // that genuinely has no usable image cannot put us in a refresh loop.
   const adoptAttempted = useRef<Set<string>>(new Set())
 
+  // What a long wait is for. Held locally rather than on the reducer because
+  // background polling HYDRATEs every few seconds and would clear a shared
+  // loading flag out from under a wait that is still running.
+  const [busyNote, setBusyNote] = useState<string | null>(null)
+
   const refresh = useCallback(async (opts?: { productId?: string; advance?: boolean }) => {
     const id = opts?.productId ?? stateRef.current.productId
     if (!id) return
@@ -83,6 +88,7 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
       if (!hasDesignTake && hasImage && !adoptAttempted.current.has(productId)) {
         adoptAttempted.current.add(productId)
         dispatch({ type: 'SET_LOADING', loading: true })
+        setBusyNote('Bringing the design into the flow')
         try {
           await lane.api.adopt(productId)
           await refresh({ productId, advance: true })
@@ -93,6 +99,8 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
               err?.message ||
               'This product has no design to build from — open it in the design library and bring it into the flow.',
           })
+        } finally {
+          setBusyNote(null)
         }
       }
     })()
@@ -180,10 +188,18 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
         steps={lane.steps}
       />
 
-      {state.loading && !state.product && (
-        <StepCard>
-          <p className="text-sm text-muted text-center py-6">Loading…</p>
-        </StepCard>
+      {busyNote ? (
+        <WorkingPanel
+          note={busyNote}
+          hint="Artwork under print resolution is enlarged first, which takes about half a minute a side."
+        />
+      ) : (
+        state.loading &&
+        !state.product && (
+          <StepCard>
+            <p className="text-sm text-muted text-center py-6">Loading…</p>
+          </StepCard>
+        )
       )}
 
       <InlineError message={state.error} />
