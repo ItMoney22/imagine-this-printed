@@ -380,3 +380,333 @@ export function normalizeColor(value: string | null | undefined): ColorId | null
   const byHex = (Object.values(COLORS) as CapabilityColor[]).find((c) => c.hex.toLowerCase() === v)
   return byHex ? byHex.id : null
 }
+
+// ---------------------------------------------------------------------------
+// MANUFACTURING METHODS — what ITP can physically DO to a blank.
+//
+// David 2026-08-24 (task 9ff3919c), verbatim ground truth:
+//   CAN     DTF (the core business), UV DTF, sublimation (METAL ART and
+//           TUMBLERS ONLY — never apparel), digital download.
+//   CANNOT  embroidery, screen print, vinyl.
+//
+// This is not a styling list. Every entry is a claim a listing is allowed to
+// make to a buyer, and anything absent is a promise we would have to break.
+// David 2026-09-01: "we have a lot of products that we can't even post to Etsy
+// because we don't even do embroidery" — 18 live products claimed embroidery
+// and 23 claimed polo, all written by a generator that was never told what the
+// shop owns.
+// ---------------------------------------------------------------------------
+
+export type ProductLineId = 'apparel' | 'metal-art' | 'tumblers' | 'digital-download'
+export type MethodId = 'dtf' | 'uv-dtf' | 'sublimation' | 'digital-download'
+
+export interface ManufacturingMethod {
+  id: MethodId
+  label: string
+  /**
+   * How listing copy is allowed to name this method, in buyer English. Fed
+   * verbatim into the generator prompts so a model never has to invent a
+   * decoration verb — inventing one is exactly how "embroidered" reached 18
+   * live listings.
+   */
+  copyPhrase: string
+  /** The product lines this method may be claimed on. */
+  lines: ProductLineId[]
+}
+
+export const MANUFACTURING_METHODS: ManufacturingMethod[] = [
+  {
+    id: 'dtf',
+    label: 'DTF transfer',
+    copyPhrase: 'printed with a DTF (direct-to-film) transfer heat-pressed onto the garment',
+    lines: ['apparel'],
+  },
+  {
+    id: 'uv-dtf',
+    label: 'UV DTF',
+    copyPhrase: 'applied as a UV DTF transfer',
+    lines: ['tumblers'],
+  },
+  {
+    // The one method with a hard line through the middle of it: sublimation is
+    // real here, but ONLY on metal panels and tumblers. A sublimated GARMENT is
+    // something ITP cannot make, which is why this is declared per-line rather
+    // than as a global "we do sublimation".
+    id: 'sublimation',
+    label: 'Sublimation',
+    copyPhrase: 'dye-sublimated directly into the panel surface',
+    lines: ['metal-art', 'tumblers'],
+  },
+  {
+    id: 'digital-download',
+    label: 'Digital download',
+    copyPhrase: 'delivered as an instant digital download — nothing is shipped',
+    lines: ['digital-download'],
+  },
+]
+
+export interface ProductLine {
+  id: ProductLineId
+  label: string
+  /** products.category values that belong to this line. */
+  categories: string[]
+  /** Methods allowed on this line; the first entry is the one copy declares. */
+  methods: MethodId[]
+  /**
+   * A standing hold means: generate nothing new on this line. Not
+   * "deprioritise" — zero briefs, zero listings. Read it through
+   * `isLineOnHold()`, never directly, so the env override below always applies.
+   */
+  hold: boolean
+  holdReason: string | null
+  /** The Watchtower row that owns lifting the hold. */
+  holdTaskId: string | null
+  /** Env var that lifts the hold without a code change. */
+  holdEnvVar: string | null
+}
+
+export const PRODUCT_LINES: ProductLine[] = [
+  {
+    id: 'apparel',
+    label: 'Apparel',
+    categories: ['t-shirts', 'hoodies', 'shirts'],
+    methods: ['dtf'],
+    hold: false,
+    holdReason: null,
+    holdTaskId: null,
+    holdEnvVar: null,
+  },
+  {
+    id: 'metal-art',
+    label: 'Metal Art',
+    categories: ['metal-art'],
+    methods: ['sublimation'],
+    // STANDING HOLD — Watchtower task c11af937. Mrs. Imagine must produce zero
+    // metal briefs while this is true. Set ITP_METAL_ART_HOLD=false on the
+    // backend to lift it; leaving the constant `true` means the hold survives a
+    // fresh deploy with no env set, which is the safe direction to fail.
+    hold: true,
+    holdReason: 'Metal art is on a standing production hold (Watchtower c11af937) — no new metal listings.',
+    holdTaskId: 'c11af937',
+    holdEnvVar: 'ITP_METAL_ART_HOLD',
+  },
+  {
+    id: 'tumblers',
+    label: 'Tumblers',
+    categories: ['tumblers', 'drinkware'],
+    methods: ['uv-dtf', 'sublimation'],
+    hold: false,
+    holdReason: null,
+    holdTaskId: null,
+    holdEnvVar: null,
+  },
+  {
+    id: 'digital-download',
+    label: 'Digital Downloads',
+    categories: ['digital-downloads', 'digital'],
+    methods: ['digital-download'],
+    hold: false,
+    holdReason: null,
+    holdTaskId: null,
+    holdEnvVar: null,
+  },
+]
+
+export function getProductLine(id: string | null | undefined): ProductLine | null {
+  if (!id) return null
+  return PRODUCT_LINES.find((l) => l.id === id) ?? null
+}
+
+/** products.category → the line it belongs to. Unknown category → null. */
+export function lineForCategory(category: string | null | undefined): ProductLine | null {
+  const c = (category || '').toLowerCase().trim()
+  if (!c) return null
+  return PRODUCT_LINES.find((l) => l.categories.includes(c)) ?? null
+}
+
+/**
+ * Whether this line is on a standing hold RIGHT NOW.
+ *
+ * Reads the env var on every call rather than once at import: the batch runner
+ * and the QA gate live in the same process for hours, and a hold that is only
+ * read at boot is a hold nobody can trust.
+ */
+export function isLineOnHold(id: ProductLineId | string | null | undefined): boolean {
+  const line = getProductLine(id)
+  if (!line) return false
+  if (line.holdEnvVar) {
+    const override = process.env[line.holdEnvVar]
+    if (override === 'false' || override === '0') return false
+    if (override === 'true' || override === '1') return true
+  }
+  return line.hold
+}
+
+/** The same question asked with a products.category instead of a line id. */
+export function isCategoryOnHold(category: string | null | undefined): boolean {
+  const line = lineForCategory(category)
+  return line ? isLineOnHold(line.id) : false
+}
+
+export function holdReasonFor(id: ProductLineId | string | null | undefined): string | null {
+  const line = getProductLine(id)
+  return line && isLineOnHold(line.id) ? line.holdReason : null
+}
+
+/** Every line currently frozen, for a one-line log at batch start. */
+export function heldLines(): ProductLine[] {
+  return PRODUCT_LINES.filter((l) => isLineOnHold(l.id))
+}
+
+/** The method a line's listing copy should declare; null for an unknown line. */
+export function methodForLine(id: ProductLineId | string | null | undefined): ManufacturingMethod | null {
+  const line = getProductLine(id)
+  if (!line) return null
+  const methodId = line.methods[0]
+  return MANUFACTURING_METHODS.find((m) => m.id === methodId) ?? null
+}
+
+/** The sentence a generator must put in the copy for this products.category. */
+export function decorationPhraseForCategory(category: string | null | undefined): string | null {
+  const line = lineForCategory(category)
+  return line ? (methodForLine(line.id)?.copyPhrase ?? null) : null
+}
+
+// ---------------------------------------------------------------------------
+// BANNED DECORATION VOCABULARY — words a listing may never contain.
+//
+// Deliberately BLUNT, and the bluntness is the design rather than an oversight.
+// The cost of a false positive is one regenerated paragraph (free and automatic
+// — see writeCopy's retry in services/mrs-imagine.ts). The cost of a false
+// NEGATIVE is a live listing promising a process the shop cannot run: a refund,
+// a bad review and an Etsy policy problem. Those costs are not close, so the
+// filter errs hard toward rejecting.
+//
+// Two known and ACCEPTED false positives, written down so nobody "fixes" them:
+//   - "vinyl" also names a record. A retro vinyl-record design is a fine tee,
+//     but "vinyl" in apparel copy overwhelmingly reads as heat-transfer vinyl,
+//     which ITP does not cut. The design keeps its concept; the copy loses the
+//     word.
+//   - "knit" and "woven" are true statements about cotton fabric. They are
+//     banned anyway, because inside a decoration sentence they claim a
+//     construction we do not offer, and no buyer needs the weave named to buy
+//     a t-shirt.
+//
+// Every pattern is stored as a SOURCE STRING, not a RegExp object. A shared /g
+// RegExp carries `lastIndex` between calls and silently skips matches on every
+// second scan — the same shape of bug as the '4x6' → '4X' plus-size match
+// already documented above.
+// ---------------------------------------------------------------------------
+
+export interface BannedTerm {
+  /** Regex source, matched case-insensitively with the global flag per call. */
+  source: string
+  /** Human name of the claim being blocked. */
+  label: string
+  /** What ITP actually does instead — goes straight into the fix instruction. */
+  instead: string
+}
+
+export const BANNED_DECORATION_TERMS: BannedTerm[] = [
+  { source: 'embroider\\w*', label: 'embroidery', instead: 'ITP does not embroider. Say the design is printed with a DTF transfer.' },
+  { source: '\\bstitch(?:ed|ing|es)?\\b', label: 'stitching', instead: 'Nothing is stitched into the design. Describe the printed artwork instead.' },
+  { source: '\\bscreen[-\\s]?print\\w*\\b', label: 'screen printing', instead: 'ITP does not screen print. The process is a DTF transfer.' },
+  { source: '\\bsilk[-\\s]?screen\\w*\\b', label: 'silk screening', instead: 'ITP does not silk screen. The process is a DTF transfer.' },
+  { source: '\\bvinyl\\b', label: 'vinyl / HTV', instead: 'ITP does not cut heat-transfer vinyl. Say DTF transfer and drop the word vinyl entirely.' },
+  { source: '\\bhtv\\b', label: 'heat-transfer vinyl', instead: 'ITP does not cut heat-transfer vinyl. Say DTF transfer.' },
+  { source: 'engrav\\w*', label: 'engraving', instead: 'Nothing is engraved. Metal art is dye-sublimated; apparel is DTF printed.' },
+  { source: '\\betch(?:ed|ing)\\b', label: 'etching', instead: 'Nothing is etched. Metal art is dye-sublimated; apparel is DTF printed.' },
+  { source: '\\bknit(?:ted|ting|s)?\\b', label: 'knitting', instead: 'Do not name the fabric construction. Describe the printed design.' },
+  { source: '\\bwoven\\b', label: 'weaving', instead: 'Do not name the fabric construction. Describe the printed design.' },
+  { source: '\\bappliqu(?:e|\u00e9)\\w*\\b', label: 'applique', instead: 'ITP does not applique. The design is a DTF transfer.' },
+  { source: '\\bpatch(?:es|ed)?\\b', label: 'patches', instead: 'ITP does not sew patches. The design is printed directly on the garment.' },
+  // NOT_OFFERED garments, as COPY claims. A title selling a "polo" is
+  // unfulfillable even when the product row correctly says tshirt — 23 live
+  // products claimed polo on 2026-09-01.
+  { source: '\\bpolos?\\b', label: 'polo shirt', instead: 'ITP makes t-shirts, hoodies and youth t-shirts only. Sell one of those.' },
+  { source: '\\btank[-\\s]?tops?\\b|\\btanktops?\\b', label: 'tank top', instead: 'ITP makes t-shirts, hoodies and youth t-shirts only. Sell one of those.' },
+]
+
+export interface BannedTermHit {
+  /** The banned claim, by name. */
+  label: string
+  /** The literal words found, deduped. */
+  matched: string[]
+  instead: string
+  /** Which field the words were found in ('title', 'description', 'tags'). */
+  field?: string
+}
+
+/**
+ * Every banned decoration claim in one blob of text. An empty array is clean.
+ * A fresh RegExp per term per call, so this is stateless and safe to call in a
+ * loop (see the lastIndex note above).
+ */
+export function findBannedDecorationTerms(text: string | null | undefined, field?: string): BannedTermHit[] {
+  const haystack = String(text ?? '')
+  if (!haystack) return []
+  const hits: BannedTermHit[] = []
+  for (const term of BANNED_DECORATION_TERMS) {
+    const matches = haystack.match(new RegExp(term.source, 'gi'))
+    if (matches && matches.length) {
+      hits.push({
+        label: term.label,
+        matched: [...new Set(matches.map((m) => m.trim()))],
+        instead: term.instead,
+        ...(field ? { field } : {}),
+      })
+    }
+  }
+  return hits
+}
+
+/** The shape every copy-producing stage hands to the filter. */
+export interface ListingCopyParts {
+  title?: string | null
+  description?: string | null
+  tags?: string[] | null
+}
+
+/** Scan a whole listing — title, description and every tag — field by field. */
+export function scanListingCopy(copy: ListingCopyParts): BannedTermHit[] {
+  return [
+    ...findBannedDecorationTerms(copy.title, 'title'),
+    ...findBannedDecorationTerms(copy.description, 'description'),
+    ...findBannedDecorationTerms((copy.tags ?? []).join(', '), 'tags'),
+  ]
+}
+
+/** One line a model can act on: what was found and what to say instead. */
+export function describeBannedHits(hits: BannedTermHit[]): string {
+  return hits
+    .map((h) => `${h.field ? `${h.field}: ` : ''}"${h.matched.join('", "')}" (${h.label}) — ${h.instead}`)
+    .join(' ')
+}
+
+/**
+ * HARD OUTPUT FILTER. Throws when listing copy claims anything ITP cannot make.
+ *
+ * Called immediately before any database insert, so that no code path —
+ * generator, retry, repair, or a caller nobody has written yet — can land an
+ * unfulfillable claim in `products`.
+ */
+export function assertCopyIsFulfillable(copy: ListingCopyParts, context = 'listing copy'): void {
+  const hits = scanListingCopy(copy)
+  if (hits.length) {
+    throw new Error(`${context} claims production ITP cannot do — ${describeBannedHits(hits)}`)
+  }
+}
+
+/**
+ * The exact vocabulary rule handed to a copywriting model, built from the list
+ * above so the prompt can never drift from the filter that judges its output.
+ */
+export function bannedVocabularyRule(): string {
+  const words = BANNED_DECORATION_TERMS.map((t) => t.label).join(', ')
+  return (
+    'NEVER claim a production method this shop does not run. These are FORBIDDEN, and any listing ' +
+    `containing one is rejected outright: ${words}. Do not use the words embroidered, embroidery, ` +
+    'stitched, stitching, screen print, screen printed, silk screen, vinyl, HTV, engraved, etched, ' +
+    'knit, knitted, woven, applique, patch, polo or tank top anywhere in the title, description or tags.'
+  )
+}

@@ -26,6 +26,16 @@ import OpenAI from 'openai'
 import { checkMockup, coverageIsExempt } from './mockup-qa.js'
 import { measureImages, measureOpacity, type ImageMetricsResult, type OpacityResult } from './image-metrics.js'
 import { MAX_TAGS, MAX_TITLE_LEN } from './etsy-listing-fields.js'
+// The capability boundary is not a QA opinion — it is what the shop can
+// physically make. Both the vocabulary ban and the product-line holds come
+// from the one module the generator reads, so the gate and the generator can
+// never disagree about it.
+import {
+  findBannedDecorationTerms,
+  holdReasonFor,
+  lineForCategory,
+  isLineOnHold,
+} from '../shared/catalog-capability.js'
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
 const VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
@@ -43,7 +53,12 @@ export const CRITERIA = [
   'typography',
   'seo',
   'pricing',
-  'image_sharpness'
+  'image_sharpness',
+  // Can ITP actually MAKE this? The only criterion that is not a quality
+  // judgement — it is a legality one. David 2026-09-01: 18 live products
+  // claimed embroidery and 23 claimed polo, and every one of them passed a QA
+  // gate that had no opinion about what the shop owns.
+  'capability'
 ] as const
 export type CriterionId = typeof CRITERIA[number]
 
@@ -634,6 +649,26 @@ export function checkSeo(input: Pick<PresentationInput, 'channel' | 'title' | 'd
     }
   }
 
+  // --- production claims -------------------------------------------------
+  // The copy may not promise a process ITP does not run. This sits in the SEO
+  // criterion because it is a fact about the TEXT, and because every direct
+  // caller of checkSeo — etsy-copy-repair grades its own repairs through this
+  // exact function — has to be held to it too. The product-level half of the
+  // boundary (a line on hold) is the separate `capability` criterion.
+  const bannedHits = [
+    ...findBannedDecorationTerms(title, 'title'),
+    ...findBannedDecorationTerms(description, 'description'),
+    ...findBannedDecorationTerms(tags.join(', '), 'tags')
+  ]
+  for (const hit of bannedHits) {
+    findings.push({
+      severity: 'block',
+      issue: `The ${hit.field} claims ${hit.label}, which Imagine This Printed does not do: "${hit.matched.join('", "')}".`,
+      fix: hit.instead,
+      evidence: { field: hit.field, matched: hit.matched, claim: hit.label }
+    })
+  }
+
   const blocking = findings.filter(f => f.severity === 'block')
   return {
     ok: blocking.length === 0,
@@ -641,7 +676,50 @@ export function checkSeo(input: Pick<PresentationInput, 'channel' | 'title' | 'd
       ? `${blocking.length} SEO problem(s) that would hurt or block the listing.`
       : `Title ${title.length} chars, ${tags.length} tags, description ${description.length} chars.`,
     findings,
-    measured: { title_length: title.length, tag_count: tags.length, description_length: description.length }
+    measured: {
+      title_length: title.length,
+      tag_count: tags.length,
+      description_length: description.length,
+      banned_claims: bannedHits.map(h => h.label)
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// (g) CAPABILITY — can this shop actually make the thing being listed?
+//
+// Deliberately narrow, and deliberately conservative. It blocks ONLY on a
+// product line that is explicitly on a standing hold: a category the
+// capability module has never heard of ('3d-prints', a new line added
+// tomorrow) passes, because "unknown to this module" is not evidence of
+// anything and silently blocking it would take a working lane off the shelf.
+//
+// The copy half of the boundary — a listing that claims embroidery — lives in
+// checkSeo above, so the two never double-report the same words.
+// ---------------------------------------------------------------------------
+export function checkCapability(input: Pick<PresentationInput, 'category'>): CriterionVerdict {
+  const findings: Finding[] = []
+  const line = lineForCategory(input.category)
+
+  if (line && isLineOnHold(line.id)) {
+    findings.push({
+      severity: 'block',
+      issue: holdReasonFor(line.id) ?? `${line.label} is on a production hold.`,
+      fix: `Do not list ${line.label} while the hold stands. Lift it on Watchtower task ${line.holdTaskId ?? '(unrecorded)'}${line.holdEnvVar ? `, or set ${line.holdEnvVar}=false on the backend` : ''}.`,
+      evidence: { category: input.category, line: line.id, hold_task: line.holdTaskId }
+    })
+  }
+
+  const blocking = findings.filter(f => f.severity === 'block')
+  return {
+    ok: blocking.length === 0,
+    summary: blocking.length
+      ? blocking[0].issue
+      : line
+        ? `${line.label} is in production and off hold.`
+        : 'No production hold applies to this category.',
+    findings,
+    measured: { category: input.category ?? null, line: line?.id ?? null, on_hold: Boolean(line && isLineOnHold(line.id)) }
   }
 }
 
@@ -983,7 +1061,15 @@ const SCORE_WEIGHTS: Record<CriterionId, number> = {
   typography: 12,
   seo: 18,
   pricing: 9,
-  image_sharpness: 13
+  image_sharpness: 13,
+  // Weight 0 ON PURPOSE. Capability is a binary legality gate, not a quality
+  // dimension: a listing that claims embroidery is not "ten points worse", it
+  // is unsellable, and a blocking finding fails the verdict outright no matter
+  // what the score says. Giving it real weight would also have meant
+  // re-cutting the other seven numbers, and those were calibrated against 40
+  // live listings — a scoring change nobody asked for, hidden inside a
+  // capability fix.
+  capability: 0
 }
 
 export async function runPresentationQa(input: PresentationInput): Promise<PresentationVerdict> {
@@ -1016,6 +1102,7 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
   const sharpness = checkSharpness(metrics)
   const seo = checkSeo(input)
   const pricing = checkPricing(input)
+  const capability = checkCapability(input)
   const printBackground = checkPrintBackground(opacity, vision, garment, input.placement)
 
   // Realism rides on the mockup_quality criterion: both answer "is this a photo
@@ -1127,7 +1214,8 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
     typography,
     seo,
     pricing,
-    image_sharpness: sharpness
+    image_sharpness: sharpness,
+    capability
   }
 
   const rework: ReworkItem[] = []

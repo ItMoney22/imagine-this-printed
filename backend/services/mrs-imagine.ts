@@ -51,8 +51,22 @@ import {
 } from './etsy-market-research.js'
 // Catalog capability boundary (David 2026-09-01: "we don't even do
 // embroidery" — polo goes away here too). GARMENT_IDS/getGarment replace the
-// local polo-inclusive lists this file used to carry.
-import { GARMENTS, GARMENT_IDS, getGarment, type GarmentId } from '../shared/catalog-capability.js'
+// local polo-inclusive lists this file used to carry, and the capability
+// module is now also the ONE place that says which production methods copy may
+// claim, which words are forbidden, and which product lines are frozen.
+import {
+  GARMENTS,
+  GARMENT_IDS,
+  getGarment,
+  assertCopyIsFulfillable,
+  bannedVocabularyRule,
+  describeBannedHits,
+  heldLines,
+  isLineOnHold,
+  methodForLine,
+  scanListingCopy,
+  type GarmentId,
+} from '../shared/catalog-capability.js'
 
 // Writing brain rides OpenRouter when available (David 2026-08-20 cost pass:
 // OpenAI is for the design ART; briefs and copy are text jobs Gemini Flash
@@ -147,12 +161,35 @@ const METAL_BRIEF_RULES =
   'read from across a room. NO third-party brands or franchises.'
 
 /**
+ * The production reality every brief and every line of copy has to obey,
+ * assembled from the capability module so the prompt and the output filter can
+ * never disagree about what the shop owns.
+ *
+ * Naming the method explicitly is the whole point. The old copy prompt said
+ * only "this listing sells a polo shirt" with no process attached, and a model
+ * asked to write about apparel with no stated decoration reaches for the most
+ * premium-sounding verb it knows — which is why 18 live products said
+ * "embroidered" about a heat-pressed print.
+ */
+const CAPABILITY_RULES = () =>
+  'PRODUCTION REALITY — this shop prints garments ONE way: a DTF (direct-to-film) transfer ' +
+  'heat-pressed onto a blank Gildan t-shirt or hoodie. Metal art is dye-sublimated onto an ' +
+  `aluminium panel. Nothing else exists here. ${bannedVocabularyRule()}`
+
+/**
  * Pure JSON → DesignBrief[] mapping, split out of writeBriefs so the garment
  * coercion (unknown/legacy values, including a stray "polo" the model still
  * hands back sometimes, collapse to 'tshirt') is testable without a network
  * call or an API key.
+ *
+ * Also the LAST line of defence on the metal hold. The count is already forced
+ * to zero upstream in startMrsImagineBatch, but a model handed a prompt that
+ * mentions metal at all will sometimes volunteer metal briefs nobody asked for,
+ * and a hold that only exists in the caller is a hold one refactor away from
+ * gone.
  */
 export function parseBriefsResponse(parsed: any, counts: { garments: number; metal: number }): DesignBrief[] {
+  const metalHeld = isLineOnHold('metal-art')
   const garments: DesignBrief[] = (Array.isArray(parsed?.garments) ? parsed.garments : [])
     .slice(0, counts.garments)
     .map((b: any, i: number) => ({
@@ -164,7 +201,7 @@ export function parseBriefsResponse(parsed: any, counts: { garments: number; met
       priceUsd: clampPrice(Number(b.priceUsd), b.garment === 'hoodie' ? [34.99, 49.99] : [19.99, 34.99]),
       trendBasis: String(b.trendBasis || ''),
     }))
-  const metal: DesignBrief[] = (Array.isArray(parsed?.metal) ? parsed.metal : [])
+  const metal: DesignBrief[] = (metalHeld || !Array.isArray(parsed?.metal) ? [] : parsed.metal)
     .slice(0, counts.metal)
     .map((b: any, i: number) => ({
       key: slugify(String(b.key || `metal-${i + 1}`)).slice(0, 40),
@@ -191,12 +228,17 @@ export async function writeBriefs(
           'You are Mrs. Imagine, the design director of a US print-on-demand shop. You are handed ' +
           'REALTIME Etsy marketplace data (top tags, title phrases, price bands, and the hottest ' +
           'listings by favorites-per-day). Your job: pick the niches that are moving RIGHT NOW and ' +
-          `write design briefs a buyer would stop scrolling for. ${GARMENT_BRIEF_RULES} ${METAL_BRIEF_RULES} ` +
+          `write design briefs a buyer would stop scrolling for. ${CAPABILITY_RULES()} ` +
+          `${GARMENT_BRIEF_RULES} ${counts.metal > 0 ? METAL_BRIEF_RULES : ''} ` +
           'Reply with JSON only: {"garments": [{"key": string(kebab-case), "garment": "tshirt"|"hoodie", ' +
           '"buyer": string (who buys this, specific), "prompt": string (60-120 words of concrete visual ' +
           'description: subject, composition, palette, art style, print texture), "priceUsd": number, ' +
           '"trendBasis": string (one sentence citing the data that justifies this brief)}], ' +
           '"metal": [same shape without "garment"]}. ' +
+          (counts.metal > 0
+            ? ''
+            : 'The metal-art line is on a PRODUCTION HOLD: return "metal": [] and do not write a ' +
+              'single metal, aluminium, wall-art or panel brief. ') +
           'Every brief targets a DIFFERENT niche — no two briefs may share a buyer. Spread the garment ' +
           'mix across tshirt and hoodie with at least one hoodie. Price within the ' +
           'researched band for that category.',
@@ -272,38 +314,76 @@ const GARMENT_NOUN: Record<GarmentType, string> = Object.fromEntries(
   GARMENTS.map((g) => [g.id, g.noun])
 ) as Record<GarmentType, string>
 
+/**
+ * Listing copy for one brief.
+ *
+ * Two changes carry the whole capability boundary here:
+ *   1. the prompt NAMES the decoration method ("printed with a DTF transfer")
+ *      instead of leaving the model to guess one. The old prompt said only
+ *      "this listing sells a polo shirt" — no process — and the model filled
+ *      the gap with "embroidered" over and over;
+ *   2. the output is scanned before it is returned, and a dirty draft buys
+ *      exactly one corrective rewrite quoting the offending words back. If the
+ *      rewrite is still dirty this THROWS, which fails the one design rather
+ *      than shipping a promise the shop cannot keep.
+ */
 async function writeCopy(brief: DesignBrief): Promise<{ title: string; description: string; tags: string[] }> {
-  const productNoun = brief.kind === 'metal' ? 'metal wall-art print' : GARMENT_NOUN[brief.garment ?? 'tshirt']
-  const res = await getBrain().chat.completions.create({
-    model: BRAIN_MODEL,
-    messages: [
-      {
-        role: 'system',
-        content:
-          `You write product listings for a US print-on-demand shop. This listing sells a ${productNoun}. ` +
-          'You write for a specific buyer, never in generic marketplace filler. Reply with JSON only: ' +
-          '{"title": string, "description": string, "tags": string[]}. ' +
-          'HARD RULES: title is 35-68 characters, plain readable English, no emoji, no commas stacked ' +
-          'as keywords, and it does NOT contain any third-party brand or franchise name. description ' +
-          'is AT LEAST 340 characters and at most 900. It MUST open with a single short sentence under ' +
-          '140 characters that ends in a period and stands alone as the mobile search preview, then a ' +
-          'blank line, then the rest. tags is exactly 13 lowercase tags, each under 20 characters, and ' +
-          'at least four of them must also appear as words in the title or description.',
-      },
-      {
-        role: 'user',
-        content: `The design: ${brief.prompt}\n\nThe buyer: ${brief.buyer}\n\nTrend basis: ${brief.trendBasis}\n\nWrite the listing.`,
-      },
-    ],
-    response_format: { type: 'json_object' },
-  })
-  const parsed = parseJsonLoose(res.choices[0]?.message?.content)
-  const tags: string[] = Array.isArray(parsed.tags) ? parsed.tags.map((t: any) => String(t)) : []
-  return {
-    title: String(parsed.title ?? '').trim(),
-    description: String(parsed.description ?? '').trim(),
-    tags: tags.filter(Boolean).slice(0, 13),
+  const isMetal = brief.kind === 'metal'
+  const productNoun = isMetal ? 'metal wall-art print' : GARMENT_NOUN[brief.garment ?? 'tshirt']
+  const method = methodForLine(isMetal ? 'metal-art' : 'apparel')
+  const methodPhrase = method?.copyPhrase ?? 'printed with a DTF (direct-to-film) transfer'
+  let correction = ''
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const res = await getBrain().chat.completions.create({
+      model: BRAIN_MODEL,
+      messages: [
+        {
+          role: 'system',
+          content:
+            `You write product listings for a US print-on-demand shop. This listing sells a ${productNoun} ` +
+            `that is ${methodPhrase}. Say so plainly somewhere in the description — the buyer is told how it ` +
+            `is made, in those terms and no others. ${CAPABILITY_RULES()} ` +
+            'You write for a specific buyer, never in generic marketplace filler. Reply with JSON only: ' +
+            '{"title": string, "description": string, "tags": string[]}. ' +
+            'HARD RULES: title is 35-68 characters, plain readable English, no emoji, no commas stacked ' +
+            'as keywords, and it does NOT contain any third-party brand or franchise name. description ' +
+            'is AT LEAST 340 characters and at most 900. It MUST open with a single short sentence under ' +
+            '140 characters that ends in a period and stands alone as the mobile search preview, then a ' +
+            'blank line, then the rest. tags is exactly 13 lowercase tags, each under 20 characters, and ' +
+            'at least four of them must also appear as words in the title or description.',
+        },
+        {
+          role: 'user',
+          content:
+            `The design: ${brief.prompt}\n\nThe buyer: ${brief.buyer}\n\nTrend basis: ${brief.trendBasis}\n\nWrite the listing.` +
+            correction,
+        },
+      ],
+      response_format: { type: 'json_object' },
+    })
+    const parsed = parseJsonLoose(res.choices[0]?.message?.content)
+    const tags: string[] = Array.isArray(parsed.tags) ? parsed.tags.map((t: any) => String(t)) : []
+    const copy = {
+      title: String(parsed.title ?? '').trim(),
+      description: String(parsed.description ?? '').trim(),
+      tags: tags.filter(Boolean).slice(0, 13),
+    }
+
+    const hits = scanListingCopy(copy)
+    if (!hits.length) return copy
+    const detail = describeBannedHits(hits)
+    console.warn(`[mrs-imagine] ${brief.key}: copy rejected (take ${attempt}) — ${detail}`)
+    if (attempt === 2) {
+      throw new Error(`copy claims production ITP cannot do after a corrective rewrite — ${detail}`)
+    }
+    correction =
+      `\n\nYour previous draft was REJECTED by the production filter. ${detail} ` +
+      'Rewrite the whole listing with those words gone. Do not substitute a synonym for a process ' +
+      `we do not run — the only true statement about how this is made is that it is ${methodPhrase}.`
   }
+  // Unreachable: the loop either returns clean copy or throws on take 2.
+  throw new Error('copy generation exhausted its attempts')
 }
 
 interface ProductRefs {
@@ -319,6 +399,15 @@ async function createProduct(
   objectPath: string,
   batchId: string
 ): Promise<ProductRefs> {
+  // HARD OUTPUT FILTER — the last gate before anything reaches the database.
+  // writeCopy already scans and rewrites, so reaching this throw means a caller
+  // bypassed it or a future edit reordered the stages. Both are bugs, and both
+  // are cheaper to catch here than on a live Etsy listing.
+  assertCopyIsFulfillable(copy, `Mrs. Imagine copy for "${brief.key}"`)
+  if (brief.kind === 'metal' && isLineOnHold('metal-art')) {
+    throw new Error('metal art is on a production hold — refusing to create a metal product')
+  }
+
   const baseSlug = slugify(copy.title.slice(0, 60))
   const { data: existing } = await supabase.from('products').select('slug').like('slug', `${baseSlug}%`)
   const slug = generateUniqueSlug(baseSlug, (existing ?? []).map((p: any) => p.slug).filter(Boolean))
@@ -724,7 +813,10 @@ export interface BatchOptions {
 }
 
 export async function previewResearch(): Promise<MarketSignal[]> {
-  const cats: ResearchCategory[] = ['shirts', 'hoodies', 'metal-art']
+  // Don't spend Etsy research calls on a line we are forbidden to build.
+  const cats: ResearchCategory[] = isLineOnHold('metal-art')
+    ? ['shirts', 'hoodies']
+    : ['shirts', 'hoodies', 'metal-art']
   const out: MarketSignal[] = []
   for (const c of cats) out.push(await researchCategory(c))
   return out
@@ -738,9 +830,20 @@ export async function startMrsImagineBatch(opts: BatchOptions = {}): Promise<{ b
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured')
   if (!isEtsyResearchConfigured()) throw new Error('ETSY_KEYSTRING is not configured — Mrs. Imagine cannot research without it')
 
+  // The standing metal-art hold (Watchtower c11af937) is enforced HERE, at the
+  // count, not later at the brief: zero metal briefs are requested, zero metal
+  // research calls are spent, and an explicit caller asking for metal is
+  // overruled rather than obeyed. The ai_jobs input row records what was asked
+  // for alongside what was allowed, so a batch that returns no metal art reads
+  // as a hold and not as a failure.
+  const metalHeld = isLineOnHold('metal-art')
+  const metalRequested = Math.min(10, Math.max(0, opts.metal ?? METAL_COUNT()))
   const counts = {
     garments: Math.min(20, Math.max(0, opts.garments ?? GARMENT_COUNT())),
-    metal: Math.min(10, Math.max(0, opts.metal ?? METAL_COUNT())),
+    metal: metalHeld ? 0 : metalRequested,
+  }
+  if (metalHeld && metalRequested > 0) {
+    console.log(`[mrs-imagine] metal art is on hold (c11af937) — dropping ${metalRequested} requested metal brief(s)`)
   }
   const { data: job, error } = await supabase
     .from('ai_jobs')
@@ -749,7 +852,11 @@ export async function startMrsImagineBatch(opts: BatchOptions = {}): Promise<{ b
       // 'running' from birth: this row is a progress ledger for the inline
       // orchestrator, never a queue entry — the worker must not claim it.
       status: 'running',
-      input: { ...counts, requestedBy: opts.requestedBy ?? null },
+      input: {
+        ...counts,
+        requestedBy: opts.requestedBy ?? null,
+        ...(metalHeld ? { metalRequested, metalHold: 'c11af937' } : {}),
+      },
       output: { stage: 'research', progress: [], designs: [] },
     })
     .select('id')
@@ -782,9 +889,10 @@ async function runBatch(batchId: string, counts: { garments: number; metal: numb
   }
 
   await note(`batch ${batchId} — realtime Etsy research`)
+  for (const line of heldLines()) await note(`${line.label} is on hold — no ${line.label} briefs this batch (${line.holdTaskId})`)
   const signals: MarketSignal[] = []
   const cats: ResearchCategory[] = counts.garments > 0 ? ['shirts', 'hoodies'] : []
-  if (counts.metal > 0) cats.push('metal-art')
+  if (counts.metal > 0 && !isLineOnHold('metal-art')) cats.push('metal-art')
   for (const c of cats) {
     signals.push(await researchCategory(c))
     await note(`research: ${c} sampled ${signals[signals.length - 1].sampled} live listings`)
