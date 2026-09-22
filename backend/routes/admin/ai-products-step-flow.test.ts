@@ -192,6 +192,18 @@ vi.mock('../../services/product-build.js', () => ({
   createWatermarkedDesignAsset: (...args: any[]) => createWatermarkedDesignAsset(...args),
 }))
 
+// ensureBackArtworkAsset (this route) measures the back plate before
+// creating its asset row — real measureArtwork does a network fetch, which
+// this suite never wants to actually make. ensurePrintResolution/
+// upscaleArtwork are stubbed too since nothing here exercises the too_small
+// upscale path against a real back image.
+const measureArtwork = vi.fn()
+vi.mock('../../services/step-flow/print-resolution.js', () => ({
+  measureArtwork: (...args: any[]) => measureArtwork(...args),
+  upscaleArtwork: vi.fn(),
+  ensurePrintResolution: vi.fn(async () => new Map()),
+}))
+
 const stepFlowRouter = (await import('./ai-products-step-flow.js')).default
 
 /** Pulls the actual async handler off a registered route, skipping its auth/role-check middleware. */
@@ -254,6 +266,8 @@ beforeEach(() => {
   adviseColorsForMetal.mockReset()
   createWatermarkedDesignAsset.mockReset()
   createWatermarkedDesignAsset.mockResolvedValue(undefined)
+  measureArtwork.mockReset()
+  measureArtwork.mockResolvedValue({ width: 3000, height: 3600, hasAlpha: true })
 })
 
 describe('POST /:id/step/select-design — background removal renders inline (2026-09-02)', () => {
@@ -776,6 +790,95 @@ describe('POST /:id/step/adopt — design library into the Step Flow', () => {
     await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
     expect(res.statusCode).toBe(400)
     expect(db.product_assets).toHaveLength(0)
+  })
+
+  // Two-sided products (Watchtower 48fa9d09, 2026-09-22, Spartans tee
+  // 568ee288): metadata.print_artwork.back_image is populated but adopt used
+  // to only ever bring in images[0] (the front) — ensureBackArtworkAsset is
+  // the fix.
+  describe('back artwork (ensureBackArtworkAsset)', () => {
+    it('creates a distinct design_back source asset and cuts it too', async () => {
+      seedLibraryDesign({ print_artwork: { back_image: 'https://api.example.test/back.png' } })
+      const handler = getRouteHandler('post', '/:id/step/adopt')
+      const res = makeRes()
+      await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+      expect(res.statusCode).toBe(200)
+      const sources = db.product_assets.filter((a) => a.kind === 'source')
+      expect(sources).toHaveLength(2)
+      const back = sources.find((a) => a.asset_role === 'design_back')
+      expect(back).toBeTruthy()
+      expect(back!.url).toBe('https://api.example.test/back.png')
+      // Never the flow's primary/approved design — only the front take is.
+      expect(back!.is_primary).toBe(false)
+
+      // One rembg job per side, both pre-claimed 'running' and both rendered
+      // inline — same contract as the front's own cut.
+      const rembgJobs = db.ai_jobs.filter((j) => j.type === 'replicate_rembg')
+      expect(rembgJobs).toHaveLength(2)
+      await waitUntil(() => processRemoveBgJob.mock.calls.length === 2)
+
+      // The gallery contract slot for the back (product-gallery.ts's
+      // design_watermarked_back / ROLE_ORDER) — fired the same way the front
+      // gets its own watermarked copy in selectDesignForFlow.
+      expect(createWatermarkedDesignAsset).toHaveBeenCalledWith(
+        'p1',
+        { id: back!.id, url: 'https://api.example.test/back.png' },
+        { side: 'back' }
+      )
+    })
+
+    it('does nothing extra for a one-sided product', async () => {
+      seedLibraryDesign()
+      const handler = getRouteHandler('post', '/:id/step/adopt')
+      await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, makeRes())
+
+      expect(db.product_assets.filter((a) => a.kind === 'source')).toHaveLength(1)
+      expect(db.ai_jobs.filter((j) => j.type === 'replicate_rembg')).toHaveLength(1)
+    })
+
+    it('is idempotent — a second adopt makes no second back source or job', async () => {
+      seedLibraryDesign({ print_artwork: { back_image: 'https://api.example.test/back.png' } })
+      const handler = getRouteHandler('post', '/:id/step/adopt')
+      await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, makeRes())
+      await waitUntil(() => processRemoveBgJob.mock.calls.length === 2)
+      // Both cuts landed — nothing left for a second press to repair.
+      db.product_assets.push({ id: 'nobg-front', product_id: 'p1', kind: 'nobg', asset_role: 'auxiliary', url: 'front-clear.png', created_at: '2026-01-02' })
+      db.product_assets.push({ id: 'nobg-back', product_id: 'p1', kind: 'nobg', asset_role: 'nobg_back', url: 'back-clear.png', created_at: '2026-01-02' })
+
+      const res = makeRes()
+      await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+      expect(res.statusCode).toBe(200)
+      expect(db.product_assets.filter((a) => a.kind === 'source')).toHaveLength(2)
+      expect(db.ai_jobs.filter((j) => j.type === 'replicate_rembg')).toHaveLength(2)
+    })
+
+    it('backfills the back plate on a product that was already adopted front-only', async () => {
+      // Exactly product 568ee288's real shape before this fix: a front
+      // source + its cut already exist, but print_artwork.back_image was
+      // never brought in as its own asset.
+      seedLibraryDesign({ print_artwork: { back_image: 'https://api.example.test/back.png' } })
+      db.product_assets.push({
+        id: 'src-front', product_id: 'p1', kind: 'source', asset_role: 'design',
+        url: 'https://api.example.test/api/media/design-library/cats/avogato.png',
+        is_primary: true, created_at: '2026-01-01',
+      })
+      db.product_assets.push({
+        id: 'nobg-front', product_id: 'p1', kind: 'nobg', asset_role: 'auxiliary',
+        url: 'front-clear.png', created_at: '2026-01-01',
+      })
+
+      const handler = getRouteHandler('post', '/:id/step/adopt')
+      const res = makeRes()
+      await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+      expect(res.statusCode).toBe(200)
+      expect(res.body.alreadyAdopted).toBe(true)
+      const back = db.product_assets.find((a) => a.asset_role === 'design_back')
+      expect(back).toBeTruthy()
+      await waitUntil(() => processRemoveBgJob.mock.calls.length === 1)
+      expect(processRemoveBgJob).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ selected_asset_id: back!.id }) }))
+    })
   })
 })
 
