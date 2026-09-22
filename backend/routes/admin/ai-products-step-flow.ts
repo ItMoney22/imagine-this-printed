@@ -61,6 +61,7 @@ import {
 // `startWorker()` lives in the same file but is only invoked from
 // backend/worker/index.ts.
 import { processRemoveBgJob } from '../../worker/ai-jobs-worker.js'
+import sharp from 'sharp'
 
 /**
  * Mirrors ai-products.ts's local requireAdmin (admin OR manager) for
@@ -661,7 +662,42 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
     // this check, routing a too-small design through the Step Flow would be a
     // way to put blurry artwork live that the grid's own Activate button
     // refuses. An admin who has knowingly released the quarantine passes.
-    const verdict = canActivate(product.metadata)
+    // MEASURE IT RATHER THAN ASKING SOMEONE TO. A product created in the
+    // product editor has no metadata.image dimensions, so the print gate
+    // returns 'unmeasured' and tells the operator to go run
+    // backfill-design-library-media.mjs by hand. That is a dead end in the
+    // middle of a build — and the server is holding the image, so it can just
+    // look. Measured once and persisted, so the next adopt reads it straight
+    // from metadata like any backfilled row.
+    let productMetadata = product.metadata
+    if (canActivate(productMetadata).check.code === 'unmeasured') {
+      try {
+        const probe = await fetch(designUrl)
+        if (probe.ok) {
+          const dims = await sharp(Buffer.from(await probe.arrayBuffer())).metadata()
+          if (dims.width && dims.height) {
+            productMetadata = {
+              ...(productMetadata || {}),
+              image: {
+                ...((productMetadata as any)?.image || {}),
+                width_px: dims.width,
+                height_px: dims.height,
+                measured_by: 'step-flow-adopt',
+                measured_at: new Date().toISOString(),
+              },
+            }
+            await supabase.from('products').update({ metadata: productMetadata }).eq('id', id)
+            req.log?.info({ productId: id, width: dims.width, height: dims.height }, '[step-flow] measured design on adopt')
+          }
+        }
+      } catch (err) {
+        // Fall through to the gate below — an unmeasurable image still gets a
+        // clear refusal, it just is not this path's job to invent one.
+        req.log?.warn({ err, productId: id }, '[step-flow] could not measure design on adopt')
+      }
+    }
+
+    const verdict = canActivate(productMetadata)
     if (!verdict.allowed) {
       return res.status(422).json({
         error: verdict.check.reason,
