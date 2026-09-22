@@ -127,6 +127,11 @@ function actorId(req: Request): string {
  * The nobg asset (falls back to the primary source design when rembg hasn't
  * run yet) — same resolution order color-advice uses, factored out here so
  * both print-prep routes below share it instead of duplicating the query.
+ *
+ * Excludes `nobg_back` (ensureBackArtworkAsset, ai-products-step-flow.ts):
+ * "the design artwork" here means the FRONT/primary print, and a two-sided
+ * product's back cut being newer would otherwise win the `order by
+ * created_at desc` and get advised/prepped as if it were the front.
  */
 async function resolveDesignArtworkUrl(productId: string): Promise<string | undefined> {
   const { data: nobgAsset } = await supabase
@@ -134,6 +139,7 @@ async function resolveDesignArtworkUrl(productId: string): Promise<string | unde
     .select('url')
     .eq('product_id', productId)
     .eq('kind', 'nobg')
+    .neq('asset_role', 'nobg_back')
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -464,6 +470,133 @@ async function selectDesignForFlow(
   return { asset: updatedAsset, rembgJob }
 }
 
+/**
+ * Queues a 'replicate_rembg' job for one asset and renders it inline — the
+ * same pre-claim-as-'running' + fire-and-forget pattern selectDesignForFlow
+ * uses for the front design above. Standalone (not routed through
+ * selectDesignForFlow) because the back plate must NEVER become the flow's
+ * primary/approved design — it stays a secondary source asset that only
+ * needs its own transparent cut, not the is_primary/asset_role:'design'
+ * stamp selectDesignForFlow applies.
+ */
+async function queueRembgForAsset(
+  productId: string,
+  assetId: string,
+  log?: { error?: (...args: any[]) => void }
+): Promise<void> {
+  const { data: rembgJob, error: jobError } = await supabase
+    .from('ai_jobs')
+    .insert({
+      product_id: productId,
+      type: 'replicate_rembg',
+      status: 'running',
+      input: { selected_asset_id: assetId, stepKey: 'design_rembg' },
+    })
+    .select()
+    .single()
+  if (jobError || !rembgJob) {
+    log?.error?.({ err: jobError?.message, productId, assetId }, '[step-flow] failed to queue background removal for back artwork')
+    return
+  }
+
+  void processRemoveBgJob(rembgJob).catch(async (err: any) => {
+    const message = err?.message || 'Background removal failed'
+    log?.error?.({ jobId: rembgJob.id, err: message }, '[step-flow] back-artwork rembg inline job failed')
+    await supabase
+      .from('ai_jobs')
+      .update({ status: 'failed', error: message, updated_at: new Date().toISOString() })
+      .eq('id', rembgJob.id)
+  })
+}
+
+/**
+ * Brings a two-sided product's BACK artwork into product_assets, mirroring
+ * what /step/adopt has always done for the front design — a distinct
+ * 'design_back' source row plus its own background-removal cut and
+ * watermarked gallery copy, so mockup rendering, the storefront gallery and
+ * the Admin Edit modal can all tell the two sides apart instead of the back
+ * silently having no product_assets row at all (Watchtower 48fa9d09,
+ * 2026-09-22, Spartans tee 568ee288: front-only adopt left
+ * print_artwork.back_image populated on metadata but invisible everywhere
+ * downstream that reads product_assets as the source of truth).
+ *
+ * Idempotent and safe to call on every /step/adopt hit, including repeats on
+ * an already-adopted product — it only ever creates the row once and only
+ * ever re-queues the cut when one is missing, exactly like the front's own
+ * `needsCut` repair check above.
+ *
+ * `nobg_back`/`design_back` are deliberately NEW roles, not reuses of the
+ * front's 'auxiliary'/'design' — every existing "the nobg asset for this
+ * product" query (mockup rendering, color advice, print-prep) assumes
+ * exactly one row and would either throw or silently grab the wrong side's
+ * cut once a second one exists. Those call sites now explicitly exclude
+ * `nobg_back` so they keep resolving the FRONT cut they always meant.
+ */
+async function ensureBackArtworkAsset(
+  productId: string,
+  backImageUrl: string | null | undefined,
+  importSource: string | null | undefined,
+  log?: { warn?: (...args: any[]) => void; error?: (...args: any[]) => void }
+): Promise<void> {
+  if (typeof backImageUrl !== 'string' || !backImageUrl) return
+
+  const { data: existingBack } = await supabase
+    .from('product_assets')
+    .select('id')
+    .eq('product_id', productId)
+    .eq('kind', 'source')
+    .eq('asset_role', 'design_back')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  let backAssetId = existingBack?.id as string | undefined
+
+  if (!backAssetId) {
+    const measured = await measureArtwork(backImageUrl).catch(() => null)
+    const { data: backAsset, error: backAssetError } = await supabase
+      .from('product_assets')
+      .insert({
+        product_id: productId,
+        kind: 'source',
+        path: null,
+        url: backImageUrl,
+        width: measured?.width ?? null,
+        height: measured?.height ?? null,
+        asset_role: 'design_back',
+        is_primary: false,
+        display_order: 99,
+        metadata: {
+          adopted_from: importSource || 'catalog',
+          side: 'back',
+          has_alpha: measured?.hasAlpha ?? null,
+          adopted_at: new Date().toISOString(),
+        },
+      })
+      .select()
+      .single()
+    if (backAssetError || !backAsset) {
+      log?.error?.({ err: backAssetError?.message, productId }, '[step-flow] failed to create back design asset')
+      return
+    }
+    backAssetId = backAsset.id as string
+    // Gallery contract slot for the back, mirroring what selectDesignForFlow
+    // does for the front (design_watermarked) — see product-gallery.ts.
+    void createWatermarkedDesignAsset(productId, { id: backAsset.id, url: backImageUrl }, { side: 'back' })
+  }
+
+  const { data: backNobg } = await supabase
+    .from('product_assets')
+    .select('id')
+    .eq('product_id', productId)
+    .eq('kind', 'nobg')
+    .eq('asset_role', 'nobg_back')
+    .limit(1)
+  if (!(backNobg || []).length) {
+    await queueRembgForAsset(productId, backAssetId, log)
+  }
+}
+
 // POST /:id/step/select-design — { assetId } -> { ok, asset, rembgJob }.
 // Marks the picked take primary and queues rembg ONLY — unlike /select-image,
 // this never queues mockups (David: mockups come later, after garments/colors
@@ -641,6 +774,11 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
         .limit(1)
       const selected = (existing || []).some((a: any) => a.is_primary)
       const needsCut = product.category !== 'metal-art' && !(nobg || []).length
+      // Repeat adopts (David's backfill / the repair button above) are also
+      // the only way an already-live product picks up back artwork that was
+      // never brought in the first time it was adopted — see
+      // ensureBackArtworkAsset.
+      await ensureBackArtworkAsset(id, product.metadata?.print_artwork?.back_image, product.metadata?.import_source, req.log)
       if (!selected || needsCut) {
         const { rembgJob } = await selectDesignForFlow(id, existingSource.id, req.log)
         return res.json({ ok: true, productId: id, assetId: existingSource.id, alreadyAdopted: true, rembgJob })
@@ -711,6 +849,10 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
     }
 
     const { rembgJob } = await selectDesignForFlow(id, asset.id, req.log)
+    // Bring the back plate in too, when this product has one — see
+    // ensureBackArtworkAsset. Reads productMetadata (not product.metadata)
+    // so a back image that just got upscaled above is the one adopted.
+    await ensureBackArtworkAsset(id, (productMetadata as any)?.print_artwork?.back_image, product.metadata?.import_source, req.log)
     res.json({ ok: true, productId: id, assetId: asset.id, alreadyAdopted: false, rembgJob })
   } catch (err: any) {
     if (err instanceof StepFlowNotFoundError) return res.status(404).json({ error: err.message })
@@ -829,27 +971,10 @@ router.post('/:id/step/color-advice', requireAuth, requireStudioAccess, async (r
 
     const garment: GarmentId = stepFlow.garment || (stepFlow.brief?.garmentHint as GarmentId | undefined) || 'tshirt'
 
-    const { data: nobgAsset } = await supabase
-      .from('product_assets')
-      .select('url')
-      .eq('product_id', id)
-      .eq('kind', 'nobg')
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-
-    let pngUrl = nobgAsset?.url as string | undefined
-    if (!pngUrl) {
-      const { data: sourceAsset } = await supabase
-        .from('product_assets')
-        .select('url')
-        .eq('product_id', id)
-        .eq('kind', 'source')
-        .eq('is_primary', true)
-        .limit(1)
-        .maybeSingle()
-      pngUrl = sourceAsset?.url as string | undefined
-    }
+    // Same resolution order as the metal branch above — factored into
+    // resolveDesignArtworkUrl so this duplicate copy (which used to omit the
+    // nobg_back exclusion) can't drift from it again.
+    const pngUrl = await resolveDesignArtworkUrl(id)
     if (!pngUrl) return res.status(400).json({ error: 'No design artwork found yet — select a design first' })
 
     const { advice, artwork } = await adviseColors(pngUrl, garment)

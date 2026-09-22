@@ -41,17 +41,27 @@ const GROUP_LABELS: Record<AssetGroupKey, string> = {
 // into 'listing', so the tab sections and the lightbox agree on sequence.
 const GROUP_ORDER: AssetGroupKey[] = ['source', 'nobg', 'upscaled', 'mockup', 'model', 'listing']
 
+// Back-plate asset roles (backend/shared/product-gallery.ts's
+// BACK_DESIGN_ROLE/BACK_NOBG_ROLE) — a two-sided product now gets a second
+// row in BOTH the 'source' and 'nobg' groups (ai-products-step-flow.ts's
+// ensureBackArtworkAsset), so the Images tab needs to say which is which
+// instead of two identical-looking "Source (2)" thumbnails.
+const BACK_ASSET_ROLES = new Set(['design_back', 'nobg_back', 'design_watermarked_back'])
+const sideLabel = (assetRole?: string | null): 'Front' | 'Back' =>
+  assetRole && BACK_ASSET_ROLES.has(assetRole) ? 'Back' : 'Front'
+
 export interface GalleryImage {
   url: string
   assetId?: string
   group: AssetGroupKey
+  assetRole?: string | null
 }
 
 const buildGallery = (product: any, assetGroups: Record<string, any[]>): GalleryImage[] => {
   const out: GalleryImage[] = []
   const pushGroup = (key: AssetGroupKey, list: any[] | undefined) => {
     for (const asset of list || []) {
-      if (asset?.url) out.push({ url: asset.url, assetId: asset.id, group: key })
+      if (asset?.url) out.push({ url: asset.url, assetId: asset.id, group: key, assetRole: asset.asset_role })
     }
   }
   pushGroup('source', assetGroups?.source)
@@ -161,7 +171,18 @@ export const AdminProductEditModal: React.FC<AdminProductEditModalProps> = ({
   }, [product?.id, gallery])
 
   const lightboxImages: LightboxImage[] = useMemo(
-    () => gallery.map(g => ({ url: g.url, label: GROUP_LABELS[g.group], assetId: g.assetId })),
+    () =>
+      gallery.map(g => ({
+        url: g.url,
+        // Same "which side" call as the thumbnail badge — only worth saying
+        // for the two groups that can actually hold both (see showSide in
+        // ImagesTab below).
+        label:
+          g.group === 'source' || g.group === 'nobg'
+            ? `${GROUP_LABELS[g.group]} — ${sideLabel(g.assetRole)}`
+            : GROUP_LABELS[g.group],
+        assetId: g.assetId,
+      })),
     [gallery],
   )
 
@@ -639,6 +660,12 @@ const ImagesTab: React.FC<{
       {GROUP_ORDER.map((key) => {
         const imgs = gallery.filter(g => g.group === key)
         if (imgs.length === 0) return null
+        // A two-sided product now carries BOTH the front and back design in
+        // the same 'source'/'nobg' group (ai-products-step-flow.ts's
+        // ensureBackArtworkAsset writes asset_role:'design_back'/'nobg_back'
+        // for the back) — label which is which so "Source (2)" isn't two
+        // unlabeled thumbnails an admin has to guess between.
+        const showSide = (key === 'source' || key === 'nobg') && imgs.length > 1
         return (
           <div key={key}>
             <h5 className="text-xs font-semibold uppercase tracking-wide text-muted mb-2">
@@ -658,7 +685,7 @@ const ImagesTab: React.FC<{
                     type="button"
                     onClick={() => onSelect(img.url)}
                     className="absolute inset-0 w-full h-full"
-                    aria-label={`View ${GROUP_LABELS[key]} ${i + 1}`}
+                    aria-label={`View ${GROUP_LABELS[key]} ${i + 1}${showSide ? ` (${sideLabel(img.assetRole)})` : ''}`}
                   >
                     <img src={img.url} alt={`${GROUP_LABELS[key]} ${i + 1}`} className="w-full h-full object-contain" />
                   </button>
@@ -676,6 +703,17 @@ const ImagesTab: React.FC<{
                   >
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
+                  {/* Raw source/nobg assets are never products.images[0], so
+                      this never has to share the corner with MAIN below. */}
+                  {showSide && (
+                    <span
+                      className={`absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full text-white ${
+                        sideLabel(img.assetRole) === 'Back' ? 'bg-secondary' : 'bg-primary'
+                      }`}
+                    >
+                      {sideLabel(img.assetRole).toUpperCase()}
+                    </span>
+                  )}
                   {mainImageUrl === img.url ? (
                     <span className="absolute top-1 left-1 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-accent text-black">
                       MAIN

@@ -427,13 +427,22 @@ export async function processMockupJob(job: any): Promise<void> {
   }
 
   if (!garmentImageUrl) {
-    // Try to get the no-background asset (if background removal was done)
+    // Try to get the no-background asset (if background removal was done).
+    // Excludes nobg_back (the back-plate cut, ai-products-step-flow.ts's
+    // ensureBackArtworkAsset) — a two-sided product now has two nobg rows,
+    // and this fallback (no explicit design_url/selected_asset_id given)
+    // means "the" front design, not whichever cut happens to be newest.
+    // .single() would also throw once a second row exists, which is the
+    // more urgent reason this can't stay unfiltered.
     const { data: nobgAsset } = await supabase
       .from('product_assets')
       .select('url')
       .eq('product_id', job.product_id)
       .eq('kind', 'nobg')
-      .single()
+      .neq('asset_role', 'nobg_back')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
 
     if (nobgAsset) {
       garmentImageUrl = nobgAsset.url
@@ -920,15 +929,19 @@ export async function processMockupJob(job: any): Promise<void> {
 export async function processRemoveBgJob(job: any): Promise<void> {
   // Remove background from source image
   await updateJobProgress(job.id, '🔍 Locating selected design image...', 1, 3)
-  // If user selected a specific asset, use that one; otherwise get the most recent source image
-  let sourceAsset: { url: string } | null = null
+  // If user selected a specific asset, use that one; otherwise get the most
+  // recent source image. `asset_role` rides along so the cut this produces
+  // can be tagged back → nobg_back instead of every nobg row looking the
+  // same (see the insert below and ai-products-step-flow.ts's
+  // ensureBackArtworkAsset, which is what queues a back-artwork job).
+  let sourceAsset: { url: string; asset_role?: string | null } | null = null
 
   if (job.input?.selected_asset_id) {
     console.log('[worker] 🎯 Using user-selected asset for background removal:', job.input.selected_asset_id)
 
     const { data: selectedAsset } = await supabase
       .from('product_assets')
-      .select('url')
+      .select('url, asset_role')
       .eq('id', job.input.selected_asset_id)
       .single()
 
@@ -940,13 +953,17 @@ export async function processRemoveBgJob(job: any): Promise<void> {
     }
   }
 
-  // Fallback: get the most recent source image
+  // Fallback: get the most recent source image. Excludes the back plate
+  // (design_back) — a caller that didn't say which asset it wanted almost
+  // always means "the" (front) design, and letting a newer back upload win
+  // here would silently cut the wrong side.
   if (!sourceAsset) {
     const { data: fallbackAsset } = await supabase
       .from('product_assets')
-      .select('url')
+      .select('url, asset_role')
       .eq('product_id', job.product_id)
       .eq('kind', 'source')
+      .neq('asset_role', 'design_back')
       .order('created_at', { ascending: false })
       .limit(1)
       .single()
@@ -987,6 +1004,14 @@ export async function processRemoveBgJob(job: any): Promise<void> {
 
     console.log('[worker] ✅ No-background image uploaded to GCS:', publicUrl)
 
+    // The cut of a back-plate source (asset_role:'design_back', see
+    // ensureBackArtworkAsset in ai-products-step-flow.ts) gets its own
+    // 'nobg_back' role instead of the usual 'auxiliary' — every "the nobg
+    // asset for this product" query elsewhere assumes exactly one row per
+    // product, and a second indistinguishable 'auxiliary' row would make
+    // those queries throw (.single()) or silently pick either side.
+    const isBackCut = sourceAsset.asset_role === 'design_back'
+
     // Save to product_assets
     const { error: assetError } = await supabase
       .from('product_assets')
@@ -1007,8 +1032,9 @@ export async function processRemoveBgJob(job: any): Promise<void> {
         metadata: {
           bg_removal_method: removal.method,
           bg_removal_field: removal.background,
+          side: isBackCut ? 'back' : 'front',
         },
-        asset_role: 'auxiliary',
+        asset_role: isBackCut ? 'nobg_back' : 'auxiliary',
         is_primary: false,
         display_order: 99,
       })
@@ -1304,12 +1330,18 @@ async function startJob(job: any) {
     }
 
     if (!designImageUrl) {
+      // Excludes nobg_back — see the identical fallback in processMockupJob
+      // above for why an unfiltered .single() breaks once a two-sided
+      // product has both a front and a back cut.
       const { data: nobgAsset } = await supabase
         .from('product_assets')
         .select('url')
         .eq('product_id', job.product_id)
         .eq('kind', 'nobg')
-        .single()
+        .neq('asset_role', 'nobg_back')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
       if (nobgAsset) {
         designImageUrl = nobgAsset.url

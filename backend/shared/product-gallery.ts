@@ -12,6 +12,8 @@
  *   8. Mr. Imagine mockup — exactly ONE
  *   9. Pocket-scale shot, when the design is also offered as a pocket print
  *  10. The design itself, WATERMARKED (never the raw design)
+ *  11. The BACK design, WATERMARKED, when the product prints on both sides
+ *      and doesn't have a photographed back mockup (#4) yet
  *
  * Canonical home (2026-09-01 review fix): this used to be forked — a copy in
  * `src/lib/product-gallery.ts` for the frontend and a second, drifted copy
@@ -97,6 +99,14 @@ export const ROLE_ORDER = [
   'mockup_mr_imagine',
   'mockup_pocket',
   'design_watermarked',
+  // The back plate's watermarked artwork (routes/admin/ai-products-step-flow.ts's
+  // ensureBackArtworkAsset, 2026-09-22). `mockup_back` above is the photographed
+  // back — a rendered scene shot late in the flow (Mockups step) — while this is
+  // the raw back design itself, watermarked, available as soon as adopt/select
+  // brings the back plate in. Keeps a two-sided product from having NOTHING to
+  // show for the back before its mockup fan-out has run, same reason
+  // design_watermarked exists for the front.
+  'design_watermarked_back',
 ] as const
 
 /**
@@ -117,6 +127,12 @@ export const METAL_ROLE_ORDER = [
 export const POCKET_ROLE = 'mockup_pocket'
 /** Gallery role of the back-side render on two-sided (front-back) products. */
 export const BACK_ROLE = 'mockup_back'
+/** Gallery role of the back plate's WATERMARKED design artwork (product-build.ts's createWatermarkedDesignAsset, side:'back'). */
+export const BACK_DESIGN_WATERMARKED_ROLE = 'design_watermarked_back'
+/** `product_assets.asset_role` of the back plate's raw SOURCE design (kind:'source') — never in ROLE_ORDER; raw art never ships unwatermarked. */
+export const BACK_DESIGN_ROLE = 'design_back'
+/** `product_assets.asset_role` of the back plate's transparent cut (kind:'nobg') — never in ROLE_ORDER; a print file, not a listing photo. */
+export const BACK_NOBG_ROLE = 'nobg_back'
 
 /**
  * @param order Which role whitelist/ordering to apply — ROLE_ORDER (garments,
