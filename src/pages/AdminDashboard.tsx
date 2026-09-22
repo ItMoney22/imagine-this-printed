@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { useSearchParams, useNavigate, Link } from 'react-router-dom'
@@ -1506,6 +1506,20 @@ const AdminDashboard: React.FC = () => {
     setShowEnhancedEditModal(true)
     await loadProductJobs(product.id)
   }
+
+  const lastOpenedEditProductIdRef = useRef<string | null>(null)
+
+  // Auto-open product edit modal when returning from Imagination Station
+  useEffect(() => {
+    const editProductId = searchParams.get('editProduct') || searchParams.get('productId')
+    if (editProductId && products.length > 0 && lastOpenedEditProductIdRef.current !== editProductId) {
+      const target = products.find((p: any) => p.id === editProductId)
+      if (target) {
+        lastOpenedEditProductIdRef.current = editProductId
+        openEnhancedEditModal(target)
+      }
+    }
+  }, [searchParams, products])
 
   const handleUpscaleImage = async (productId: string) => {
     try {

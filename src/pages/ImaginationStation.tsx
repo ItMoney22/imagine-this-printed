@@ -7,6 +7,7 @@ import { useAuth } from '../context/SupabaseAuthContext';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../hooks/useToast';
 import { imaginationApi, apiFetch } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import ErrorBoundary from '../components/ErrorBoundary';
 import type {
   ImaginationSheet,
@@ -56,6 +57,7 @@ import {
   AlertCircle,
   Loader2,
   ArrowRight,
+  ArrowLeft,
   PanelLeft,
   PanelRight,
   User,
@@ -170,6 +172,50 @@ const ImaginationStation: React.FC = () => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const hasProcessedUrlImage = useRef(false);
+
+  // Product edit session tracking (when opened from AdminProductEditModal)
+  const [productId, setProductId] = useState<string | null>(() => {
+    const fromUrl = searchParams.get('productId');
+    if (fromUrl) return fromUrl;
+    try {
+      return sessionStorage.getItem('itp_imagination_product_id');
+    } catch {
+      return null;
+    }
+  });
+  const [productName, setProductName] = useState<string | null>(() => {
+    const fromUrl = searchParams.get('productName');
+    if (fromUrl) return fromUrl;
+    try {
+      return sessionStorage.getItem('itp_imagination_product_name');
+    } catch {
+      return null;
+    }
+  });
+  const [isSendingBack, setIsSendingBack] = useState(false);
+
+  // Sync productId and productName with searchParams and sessionStorage
+  useEffect(() => {
+    const urlPid = searchParams.get('productId');
+    const urlPname = searchParams.get('productName');
+    if (urlPid) {
+      setProductId(urlPid);
+      try {
+        sessionStorage.setItem('itp_imagination_product_id', urlPid);
+      } catch { /* ignore */ }
+    }
+    if (urlPname) {
+      setProductName(urlPname);
+      try {
+        sessionStorage.setItem('itp_imagination_product_name', urlPname);
+      } catch { /* ignore */ }
+    }
+  }, [searchParams]);
+
+  // Helper to preserve search params across router navigation
+  const preserveSearch = useCallback((path: string) => {
+    return location.search ? `${path}${location.search}` : path;
+  }, [location.search]);
 
   // Sheet state
   const [sheet, setSheet] = useState<ImaginationSheet | null>(null);
@@ -421,30 +467,35 @@ const ImaginationStation: React.FC = () => {
   useEffect(() => {
     // First check URL params
     const addImageUrl = searchParams.get('addImage');
-    const productName = searchParams.get('productName');
+    const pName = searchParams.get('productName');
+    const pId = searchParams.get('productId');
 
-    if (addImageUrl && !hasProcessedUrlImage.current) {
-      setPendingImage({ url: addImageUrl, name: productName || 'Product Image' });
-      // Clear the URL params
-      setSearchParams({});
+    if (pId && pId !== productId) setProductId(pId);
+    if (pName && pName !== productName) setProductName(pName);
+
+    if (addImageUrl && !hasProcessedUrlImage.current && !pendingImage) {
+      setPendingImage({ url: addImageUrl, name: pName || productName || 'Product Image' });
+      // Keep URL params until image is successfully placed on canvas!
       return;
     }
 
     // Then check navigation state (from CreateDesignModal)
     const state = location.state as { preloadImage?: string; designConcept?: string } | null;
-    if (state?.preloadImage && !hasProcessedUrlImage.current) {
+    if (state?.preloadImage && !hasProcessedUrlImage.current && !pendingImage) {
       setPendingImage({ url: state.preloadImage, name: state.designConcept || 'Voice Design' });
       // Clear the navigation state
-      navigate(location.pathname, { replace: true });
+      navigate(location.pathname + location.search, { replace: true });
     }
-  }, [searchParams, setSearchParams, location.state, location.pathname, navigate]);
+  }, [searchParams, location.state, location.pathname, location.search, navigate, productId, productName, pendingImage]);
 
   // Handle adding pending image once sheet exists
   useEffect(() => {
     const addPendingImageToSheet = () => {
-      if (!pendingImage || hasProcessedUrlImage.current || !sheet) return;
+      const addImageUrl = pendingImage?.url || (!hasProcessedUrlImage.current ? searchParams.get('addImage') : null);
+      const name = pendingImage?.name || searchParams.get('productName') || productName || 'Product Image';
 
-      const { url: addImageUrl, name: productName } = pendingImage;
+      if (!addImageUrl || hasProcessedUrlImage.current || !sheet) return;
+
       hasProcessedUrlImage.current = true;
       setPendingImage(null);
 
@@ -500,7 +551,7 @@ const ImaginationStation: React.FC = () => {
           scale_y: 1,
           z_index: layers.length,
           metadata: {
-            name: productName,
+            name,
             visible: true,
             locked: false,
             opacity: 1,
@@ -514,16 +565,52 @@ const ImaginationStation: React.FC = () => {
         setLayers(prev => [...prev, newLayer]);
         setSelectedLayerIds([newLayer.id]);
         setSaveStatus('unsaved');
+        setSheetOpen(true);
         fitSheetToView();
+
+        // Also add to Studio gallery (designs) so it is visible in the studio center preview!
+        const newStudioDesign: StudioDesign = {
+          id: `design-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+          name,
+          url: addImageUrl,
+          originalUrl: addImageUrl,
+          history: [addImageUrl],
+          createdAt: new Date().toISOString(),
+          meta: {
+            originalWidth,
+            originalHeight,
+            source: 'product-handoff',
+            productId: productId || searchParams.get('productId') || undefined,
+          },
+        };
+        setDesigns(prev => {
+          if (prev.some(d => d.url === addImageUrl)) return prev;
+          return [newStudioDesign, ...prev];
+        });
+        setActiveDesignId(newStudioDesign.id);
+
+        // Remove addImage from searchParams without losing productId or productName
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.delete('addImage');
+          return next;
+        }, { replace: true });
       };
+
       img.onerror = () => {
         console.error('Failed to load product image:', addImageUrl);
+        setSearchParams(prev => {
+          const next = new URLSearchParams(prev);
+          next.delete('addImage');
+          return next;
+        }, { replace: true });
       };
+
       img.src = addImageUrl;
     };
 
     addPendingImageToSheet();
-  }, [sheet, pendingImage, fitSheetToView]);
+  }, [sheet, pendingImage, searchParams, setSearchParams, productName, productId, fitSheetToView, layers.length]);
 
   const loadInitialData = async () => {
     setIsLoading(true);
@@ -615,28 +702,67 @@ const ImaginationStation: React.FC = () => {
           const { data: sheetsData } = await imaginationApi.getSheets();
           setRecentSheets(sheetsData || []);
           if (sheetsData && sheetsData.length > 0) {
-            navigate(`/imagination-station/${sheetsData[0].id}`, { replace: true });
+            navigate(preserveSearch(`/imagination-station/${sheetsData[0].id}`), { replace: true });
             return; // remount loads it via the id branch above
           }
           // No sheets yet → auto-create a default so the studio + drawer are ready.
-          if (merged) {
-            const keys = Object.keys(merged);
-            const defaultType = (keys.includes('dtf') ? 'dtf' : keys[0]) as PrintType;
-            const p = defaultType ? merged[defaultType] : null;
-            if (p) {
-              const defaultHeight = (Array.isArray(p.heights) && p.heights[0]) || 12;
-              const { data } = await imaginationApi.createSheet({
-                name: `${p.name} Sheet`,
-                print_type: defaultType,
-                sheet_height: defaultHeight,
-              });
-              navigate(`/imagination-station/${data.id}`, { replace: true });
+          const keys = merged ? Object.keys(merged) : [];
+          const defaultType = (keys.includes('dtf') ? 'dtf' : (keys[0] || 'dtf')) as PrintType;
+          const p = merged && defaultType ? merged[defaultType] : null;
+          const defaultHeight = (p && Array.isArray(p.heights) && p.heights[0]) || 12;
+          const defaultName = p?.name ? `${p.name} Sheet` : 'DTF Sheet';
+
+          try {
+            const { data } = await imaginationApi.createSheet({
+              name: defaultName,
+              print_type: defaultType,
+              sheet_height: defaultHeight,
+            });
+            if (data?.id) {
+              navigate(preserveSearch(`/imagination-station/${data.id}`), { replace: true });
               return;
             }
+          } catch (createErr) {
+            console.error('Failed to auto-create sheet on server:', createErr);
           }
-          // Fallback: presets unavailable → leave sheet null so the picker shows.
+
+          // Fallback: create local sheet so canvas is always available when addImage is present
+          const fallbackSheet: ImaginationSheet = {
+            id: `sheet-${Date.now()}`,
+            user_id: user?.id || 'local-user',
+            name: defaultName,
+            print_type: defaultType,
+            sheet_width: 22,
+            sheet_height: defaultHeight,
+            canvas_state: null,
+            thumbnail_url: null,
+            status: 'draft',
+            itc_spent: 0,
+            admin_notes: null,
+            layers: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          setSheet(fallbackSheet);
         } catch (e) {
-          console.log('Could not load/auto-create sheet — falling back to picker');
+          console.log('Could not load/auto-create sheet — falling back to local default sheet');
+          const fallbackSheet: ImaginationSheet = {
+            id: `sheet-${Date.now()}`,
+            user_id: user?.id || 'local-user',
+            name: 'DTF Sheet',
+            print_type: 'dtf',
+            sheet_width: 22,
+            sheet_height: 12,
+            canvas_state: null,
+            thumbnail_url: null,
+            status: 'draft',
+            itc_spent: 0,
+            admin_notes: null,
+            layers: [],
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          setSheet(fallbackSheet);
         }
       }
     } catch (error) {
@@ -661,7 +787,7 @@ const ImaginationStation: React.FC = () => {
         print_type: printType,
         sheet_height: height
       });
-      navigate(`/imagination-station/${data.id}`);
+      navigate(preserveSearch(`/imagination-station/${data.id}`));
     } catch (error: any) {
       console.error('Failed to create sheet:', error);
       const errorMsg = error.response?.data?.error || error.message || 'Unknown error';
@@ -1156,6 +1282,160 @@ const ImaginationStation: React.FC = () => {
       toast.error('Failed to add to cart', 'Please try again');
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  // Send finished artwork back to originating product
+  const handleSendBackToProduct = async () => {
+    if (!productId) {
+      toast.error('No product linked', 'This session is not linked to a specific product.');
+      return;
+    }
+
+    // 1. Identify which image/artwork to send back
+    const selectedLayer = layers.find(
+      l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated')
+    );
+    const currentActiveDesign = designs.find(d => d.id === activeDesignId);
+    const matchingLayer = layers.find(
+      l => l.metadata?.name === productName && (l.processed_url || l.source_url)
+    );
+    const anyImageLayer = [...layers].reverse().find(
+      l => (l.layer_type === 'image' || l.layer_type === 'ai_generated') && (l.processed_url || l.source_url)
+    );
+
+    let targetUrl: string | null = null;
+    let imgWidth = 1024;
+    let imgHeight = 1024;
+
+    if (selectedLayer && (selectedLayer.processed_url || selectedLayer.source_url)) {
+      targetUrl = selectedLayer.processed_url || selectedLayer.source_url;
+      if (selectedLayer.metadata?.originalWidth) {
+        imgWidth = selectedLayer.metadata.originalWidth;
+        imgHeight = selectedLayer.metadata.originalHeight;
+      }
+    } else if (currentActiveDesign?.url) {
+      targetUrl = currentActiveDesign.url;
+      if (currentActiveDesign.meta?.originalWidth) {
+        imgWidth = currentActiveDesign.meta.originalWidth;
+        imgHeight = currentActiveDesign.meta.originalHeight;
+      }
+    } else if (matchingLayer && (matchingLayer.processed_url || matchingLayer.source_url)) {
+      targetUrl = matchingLayer.processed_url || matchingLayer.source_url;
+      if (matchingLayer.metadata?.originalWidth) {
+        imgWidth = matchingLayer.metadata.originalWidth;
+        imgHeight = matchingLayer.metadata.originalHeight;
+      }
+    } else if (anyImageLayer && (anyImageLayer.processed_url || anyImageLayer.source_url)) {
+      targetUrl = anyImageLayer.processed_url || anyImageLayer.source_url;
+      if (anyImageLayer.metadata?.originalWidth) {
+        imgWidth = anyImageLayer.metadata.originalWidth;
+        imgHeight = anyImageLayer.metadata.originalHeight;
+      }
+    }
+
+    if (!targetUrl) {
+      toast.warning('No artwork to send', 'Please select or create a design to send back to the product.');
+      return;
+    }
+
+    setIsSendingBack(true);
+
+    try {
+      let finalAssetUrl = targetUrl;
+
+      // Try backend endpoint first
+      try {
+        const res = await imaginationApi.saveToProduct({
+          productId,
+          imageUrl: targetUrl,
+          productName: productName || undefined,
+          width: imgWidth,
+          height: imgHeight,
+        });
+        if (res.data?.ok || res.data?.success) {
+          if (res.data.url) finalAssetUrl = res.data.url;
+        }
+      } catch (apiErr) {
+        console.warn('[ImaginationStation] Backend save-to-product failed, falling back to direct Supabase:', apiErr);
+      }
+
+      // Direct Supabase insert / sync
+      try {
+        if (finalAssetUrl.startsWith('data:')) {
+          try {
+            const uploadRes = await apiFetch('/api/imagination-station/ai/use-upload', {
+              method: 'POST',
+              body: JSON.stringify({ dataUrl: finalAssetUrl })
+            });
+            if (uploadRes?.url) {
+              finalAssetUrl = uploadRes.url;
+            }
+          } catch (uploadErr) {
+            console.warn('[ImaginationStation] Could not convert dataUrl to storage URL:', uploadErr);
+          }
+        }
+
+        const { data: existingAsset } = await supabase
+          .from('product_assets')
+          .select('id')
+          .eq('product_id', productId)
+          .eq('url', finalAssetUrl)
+          .maybeSingle();
+
+        if (!existingAsset) {
+          await supabase
+            .from('product_assets')
+            .insert({
+              product_id: productId,
+              kind: 'source',
+              path: finalAssetUrl,
+              url: finalAssetUrl,
+              width: imgWidth,
+              height: imgHeight,
+              asset_role: 'design',
+              is_primary: false,
+              display_order: 1,
+              metadata: {
+                source: 'imagination-station',
+                product_name: productName || null,
+                created_at: new Date().toISOString(),
+              },
+            });
+        }
+
+        // Update product images array
+        const { data: prodData } = await supabase
+          .from('products')
+          .select('images')
+          .eq('id', productId)
+          .maybeSingle();
+
+        if (prodData) {
+          const currentImgs = Array.isArray(prodData.images) ? prodData.images : [];
+          const newImgs = [finalAssetUrl, ...currentImgs.filter((u: string) => u !== finalAssetUrl)];
+          await supabase
+            .from('products')
+            .update({ images: newImgs })
+            .eq('id', productId);
+        }
+      } catch (sbErr) {
+        console.error('[ImaginationStation] Supabase sync error:', sbErr);
+      }
+
+      toast.success('Design saved to product', `Successfully sent artwork back to ${productName || 'product'}.`);
+
+      try {
+        sessionStorage.removeItem('itp_imagination_product_id');
+        sessionStorage.removeItem('itp_imagination_product_name');
+      } catch { /* ignore */ }
+
+      navigate(`/admin?tab=products&editProduct=${encodeURIComponent(productId)}`);
+    } catch (err: any) {
+      console.error('Failed to send design back to product:', err);
+      toast.error('Failed to save design to product', err.message || 'Please try again.');
+    } finally {
+      setIsSendingBack(false);
     }
   };
 
@@ -2421,6 +2701,21 @@ const ImaginationStation: React.FC = () => {
           <Link to="/account/profile" className="hidden sm:flex w-7 h-7 items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Profile">
             <User className="w-4 h-4" />
           </Link>
+          {productId && (
+            <button
+              onClick={handleSendBackToProduct}
+              disabled={isSendingBack}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-xs sm:text-sm font-semibold shadow-sm transition-all disabled:opacity-50"
+              title={`Save and return to ${productName || 'Product'}`}
+            >
+              {isSendingBack ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <ArrowLeft className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+              )}
+              <span>Send back to {productName || 'Product'}</span>
+            </button>
+          )}
           <button
             onClick={() => setSheetOpen(o => !o)}
             className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold border transition-colors ${
@@ -2676,6 +2971,21 @@ const ImaginationStation: React.FC = () => {
                     <ShoppingBag className="w-4 h-4" />
                     Make a Product
                   </button>
+                  {productId && (
+                    <button
+                      onClick={handleSendBackToProduct}
+                      disabled={isSendingBack}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-lg text-sm font-semibold transition-all shadow-sm disabled:opacity-50"
+                      title={`Save this design back to ${productName || 'Product'}`}
+                    >
+                      {isSendingBack ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ArrowLeft className="w-4 h-4" />
+                      )}
+                      Send back to {productName || 'Product'}
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
@@ -3045,7 +3355,22 @@ const ImaginationStation: React.FC = () => {
                 </div>
 
                 {/* Checkout footer */}
-                <div className="p-3 border-t border-text/10 bg-card shrink-0">
+                <div className="p-3 border-t border-text/10 bg-card shrink-0 space-y-2">
+                  {productId && (
+                    <button
+                      onClick={handleSendBackToProduct}
+                      disabled={isSendingBack}
+                      className="w-full px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2 shadow-sm disabled:opacity-50"
+                      title={`Save this artwork back to ${productName || 'Product'}`}
+                    >
+                      {isSendingBack ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ArrowLeft className="w-4 h-4" />
+                      )}
+                      Send back to {productName || 'Product'}
+                    </button>
+                  )}
                   <button
                     onClick={handleAddToCart}
                     disabled={isProcessing || layers.length === 0}

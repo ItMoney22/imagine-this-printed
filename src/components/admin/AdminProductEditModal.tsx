@@ -752,7 +752,13 @@ const AiToolsTab: React.FC<{
   const productId = product.id
 
   const openInImaginationStation = () => {
-    const sourceUrl = gallery.find(g => g.group === 'source')?.url || product.images?.[0] || ''
+    const sourceUrl = gallery.find(g => g.group === 'source')?.url
+      || gallery.find(g => g.group === 'nobg')?.url
+      || gallery.find(g => g.group === 'upscaled')?.url
+      || gallery.find(g => g.group === 'listing')?.url
+      || gallery[0]?.url
+      || product.images?.[0]
+      || ''
     const params = new URLSearchParams({
       addImage: sourceUrl,
       productName: product.name || '',

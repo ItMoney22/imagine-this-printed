@@ -1587,6 +1587,100 @@ router.post('/ai/use-upload', requireAuth, async (req: Request, res: Response): 
   }
 });
 
+/**
+ * POST /api/imagination-station/save-to-product
+ * Persists an edited or rendered design back to a product as a product_assets record,
+ * ensuring any temporary Replicate or base64 data URLs are persisted to GCS.
+ */
+router.post('/save-to-product', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { productId, imageUrl, productName, width, height } = req.body;
+    if (!productId || !imageUrl) {
+      res.status(400).json({ error: 'productId and imageUrl are required' });
+      return;
+    }
+
+    let permanentUrl = imageUrl;
+
+    // Persist dataUrl if provided
+    if (typeof imageUrl === 'string' && imageUrl.startsWith('data:')) {
+      const uploaded = await uploadImageFromBase64(
+        imageUrl,
+        `graphics/${productId}/designs/imagination-${Date.now()}.png`
+      );
+      permanentUrl = uploaded.publicUrl;
+    } else if (
+      typeof imageUrl === 'string' &&
+      (imageUrl.includes('replicate.delivery') || imageUrl.includes('pbxt.replicate.delivery'))
+    ) {
+      try {
+        const uploadResult = await gcsStorage.uploadFromUrl(imageUrl, {
+          userId: 'admin',
+          folder: `graphics/${productId}`,
+          filename: `design-${Date.now()}.png`,
+        });
+        permanentUrl = uploadResult.publicUrl;
+      } catch (e) {
+        console.warn('[imagination-station] Could not persist replicate URL to GCS:', e);
+      }
+    }
+
+    // Insert into product_assets
+    const { data: asset, error: assetError } = await supabase
+      .from('product_assets')
+      .insert({
+        product_id: productId,
+        kind: 'source',
+        path: permanentUrl,
+        url: permanentUrl,
+        width: Number(width) || 1024,
+        height: Number(height) || 1024,
+        asset_role: 'design',
+        is_primary: false,
+        display_order: 1,
+        metadata: {
+          source: 'imagination-station',
+          product_name: productName || null,
+          created_at: new Date().toISOString(),
+        },
+      })
+      .select()
+      .single();
+
+    if (assetError) {
+      console.error('[imagination-station] Failed to insert product_asset:', assetError);
+      res.status(500).json({ error: assetError.message });
+      return;
+    }
+
+    // Update product's images array
+    const { data: prod } = await supabase
+      .from('products')
+      .select('images')
+      .eq('id', productId)
+      .single();
+
+    if (prod) {
+      const currentImages = Array.isArray(prod.images) ? prod.images : [];
+      const updatedImages = [permanentUrl, ...currentImages.filter((u: string) => u !== permanentUrl)];
+      await supabase
+        .from('products')
+        .update({ images: updatedImages })
+        .eq('id', productId);
+    }
+
+    res.json({
+      ok: true,
+      success: true,
+      asset,
+      url: permanentUrl,
+    });
+  } catch (error: any) {
+    console.error('[imagination-station] save-to-product error:', error);
+    res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
+  }
+});
+
 // ===========================================
 // DESIGN SUBMISSION FROM CREATE DESIGN MODAL
 // ===========================================

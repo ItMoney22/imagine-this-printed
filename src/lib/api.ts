@@ -1650,6 +1650,15 @@ export const imaginationApi = {
   submitToProduction: (params: { sheet: any; layers: any[]; format: 'png' | 'pdf'; options?: { includeCutlines?: boolean; mirrorForSublimation?: boolean } }) =>
     api.post('/api/imagination-station/export/submit', params),
 
+  // Save design layer back to product as a product_assets record
+  saveToProduct: (params: {
+    productId: string;
+    imageUrl: string;
+    productName?: string;
+    width?: number;
+    height?: number;
+  }) => api.post('/api/imagination-station/save-to-product', params),
+
   // Legacy sheet-based operations (for backward compatibility)
   removeBackgroundSheet: (sheetId: string, layerId: string) =>
     api.post(`/api/imagination-station/sheets/${sheetId}/remove-bg`, { layer_id: layerId }),
