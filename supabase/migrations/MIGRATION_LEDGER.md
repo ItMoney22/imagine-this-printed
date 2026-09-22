@@ -7,6 +7,41 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-09-22 — `print_materials` APPLIED + TRACKED, initial stock seeded (Lucas Blaze, Watchtower `c89e511c`)
+
+- `20260819230000_print_materials.sql` — **APPLIED LIVE** 2026-09-22 via
+  `node --env-file=backend/.env scripts/apply-pending-migrations.mjs
+  --only=print-materials --apply --track` (PLAN entry `print-materials`).
+  **Tracked** in `supabase_migrations.schema_migrations` as version
+  `20260819230000`. It had been merged to `main` since 2026-08-19 and sat
+  unapplied for a month, so the Admin Dashboard "Filament & Paint" tab and the
+  filament/paint plan on every toy order were dark that whole time (the code
+  degrades silently — `matchMaterials()` returns `null` on a missing relation,
+  so orders simply shipped with no color plan and nothing errored).
+- **Verified read-only after the apply:** all 15 columns with the file's types
+  and defaults; `print_materials_kind_check`, `print_materials_hex_check`,
+  the `(kind, brand, material, color_name)` UNIQUE and the pkey all present;
+  `print_materials_kind_active_idx` present; `relrowsecurity = true` with
+  **zero policies** — the intended service-role-only posture, same as
+  `blank_inventory`.
+- **Note for the anon-grant sweep (task `b6d6720f`):** this table arrives with
+  Supabase's default `anon` / `authenticated` table grants (SELECT/INSERT/
+  UPDATE/DELETE). RLS-on-with-no-policies denies all of it, so it is not
+  reachable today, but it is one more table for that sweep to revoke.
+- **Initial stock seeded through the live admin API** (`POST
+  /api/admin/print-materials/bulk`, 13 rows). The four filament rows are the
+  spools physically loaded in the two A1s, read live off the AMS via the
+  Watchtower `printers` table: Bambu Lab PLA Matte `#757575` (genuine RFID),
+  Unbranded PLA `#ffffff`, `#000000` (qty 2 — loaded on both machines) and
+  `#f65973`. The nine paint rows are **placeholders at `qty_on_hand = 0`**;
+  `matchMaterials()` filters on `qty_on_hand > 0`, so they cannot put a paint
+  the shop does not own onto a floor sheet.
+- CRUD proven against production through the deployed route: GET, GET
+  `?kind=filament`, POST, POST duplicate → 409, POST bad hex → 400, PUT,
+  DELETE. The real `matchMaterials()` was then run against the seeded stock and
+  produced `Load filament: 1. Black …; 2. Coral Pink …; 3. White …; 4. NO STOCK
+  MATCH for #0000ff — restock needed`.
+
 ## 2026-08-19 — vendor-marketplace bundle MERGED to `main` + tracking rows reconciled (Levi James, Watchtower `c53ca544`)
 
 - Merge commit `9144e7b` brings `16727bf` (vendor-scoped products RLS),
