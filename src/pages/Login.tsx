@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
+import TurnstileWidget from '../components/TurnstileWidget'
+import { isCaptchaConfigured } from '../lib/captcha'
 
 // Feature flags from environment
 const ENABLE_GOOGLE_OAUTH = import.meta.env.VITE_ENABLE_GOOGLE_OAUTH === 'true'
@@ -12,7 +14,19 @@ const Login: React.FC = () => {
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
   const { signIn, signInWithGoogle, signInWithMagicLink, resetPassword, user } = useAuth()
+
+  // Bot & Abuse Protection guards password sign-in, magic link and password
+  // reset — not just signup. Google OAuth is exempt: it leaves for Google's
+  // own domain and comes back through /auth/callback, never touching a
+  // captcha-protected GoTrue endpoint.
+  const captchaRequired = isCaptchaConfigured()
+  const burnCaptcha = () => {
+    setCaptchaToken(null)
+    setCaptchaReset((n) => n + 1)
+  }
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -37,10 +51,16 @@ const Login: React.FC = () => {
 
     console.log('🔄 Login: Form submitted', { mode, email, hasPassword: !!password })
 
+    if (captchaRequired && !captchaToken) {
+      setLoading(false)
+      setMessage('Please complete the security check below.')
+      return
+    }
+
     try {
       if (mode === 'signin') {
         console.log('🔄 Login: Attempting sign in...')
-        const { error } = await signIn(email, password)
+        const { error } = await signIn(email, password, captchaToken)
 
         if (error) {
           console.error('❌ Login: Sign in failed:', error)
@@ -54,7 +74,7 @@ const Login: React.FC = () => {
         navigate(from, { replace: true })
       } else if (mode === 'reset') {
         console.log('🔄 Login: Attempting password reset...')
-        const { error } = await resetPassword(email)
+        const { error } = await resetPassword(email, captchaToken)
         if (error) {
           console.error('❌ Login: Password reset failed:', error)
           setMessage(error)
@@ -67,6 +87,8 @@ const Login: React.FC = () => {
       console.error('❌ Login: Form submission error:', error)
       setMessage(error?.message || 'An unexpected error occurred')
     } finally {
+      // A Turnstile token is spent by the attempt, successful or not.
+      burnCaptcha()
       setLoading(false)
     }
   }
@@ -76,6 +98,7 @@ const Login: React.FC = () => {
     setEmail('')
     setPassword('')
     setMessage('')
+    burnCaptcha()
   }
 
   const switchMode = (newMode: 'signin' | 'reset') => {
@@ -107,11 +130,16 @@ const Login: React.FC = () => {
       return
     }
 
+    if (captchaRequired && !captchaToken) {
+      setMessage('Please complete the security check below.')
+      return
+    }
+
     setLoading(true)
     setMessage('')
 
     try {
-      const { error } = await signInWithMagicLink(email)
+      const { error } = await signInWithMagicLink(email, captchaToken)
       if (error) {
         setMessage(error)
       } else {
@@ -121,6 +149,7 @@ const Login: React.FC = () => {
       console.error('❌ Magic link error:', error)
       setMessage(error?.message || 'Magic link failed')
     } finally {
+      burnCaptcha()
       setLoading(false)
     }
   }
@@ -167,10 +196,17 @@ const Login: React.FC = () => {
             )}
           </div>
 
+          <TurnstileWidget
+            action={mode === 'reset' ? 'password-reset' : 'signin'}
+            onVerify={setCaptchaToken}
+            resetSignal={captchaReset}
+            className="flex justify-center"
+          />
+
           <div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (captchaRequired && !captchaToken)}
               className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-gradient-to-r from-primary to-secondary hover:shadow-glow focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:bg-gray-400 disabled:cursor-not-allowed transition-all hover:scale-[1.02]"
             >
               {loading ? 'Processing...' : (
@@ -214,7 +250,7 @@ const Login: React.FC = () => {
               <button
                 type="button"
                 onClick={handleMagicLinkSignIn}
-                disabled={loading || !email}
+                disabled={loading || !email || (captchaRequired && !captchaToken)}
                 className="group relative w-full flex justify-center py-3 px-4 border card-border text-sm font-medium rounded-md text-text bg-card hover:bg-card focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-card disabled:cursor-not-allowed"
               >
                 <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">

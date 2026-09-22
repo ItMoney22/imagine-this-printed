@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import TurnstileWidget from './TurnstileWidget'
+import { isCaptchaConfigured } from '../lib/captcha'
 
 interface AuthModalProps {
   isOpen: boolean
@@ -15,7 +17,15 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
   const [lastName, setLastName] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
   const { signIn, signUp, resetPassword } = useAuth()
+
+  // Supabase applies Bot & Abuse Protection to sign-in and password reset as
+  // well as signup, so all three modes of this modal carry a token — gating
+  // only the signup branch would lock customers out of the other two the
+  // moment the dashboard toggle is flipped.
+  const captchaRequired = isCaptchaConfigured()
 
   if (!isOpen) return null
 
@@ -24,24 +34,34 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
     setLoading(true)
     setMessage('')
 
+    if (captchaRequired && !captchaToken) {
+      setLoading(false)
+      setMessage('Please complete the security check below.')
+      return
+    }
+
     try {
       if (mode === 'signin') {
-        const { error } = await signIn(email, password)
+        const { error } = await signIn(email, password, captchaToken)
         if (error) throw error
         setMessage('Signed in successfully!')
         onClose()
       } else if (mode === 'signup') {
-        const { error } = await signUp(email, password, { firstName, lastName })
+        const { error } = await signUp(email, password, { firstName, lastName }, captchaToken)
         if (error) throw error
         setMessage('Account created! Please check your email to verify your account.')
       } else if (mode === 'reset') {
-        const { error } = await resetPassword(email)
+        const { error } = await resetPassword(email, captchaToken)
         if (error) throw error
         setMessage('Password reset email sent!')
       }
     } catch (error: any) {
       setMessage(error.message)
     } finally {
+      // Tokens are single-use, so the next attempt needs a fresh challenge
+      // whether this one succeeded or not.
+      setCaptchaToken(null)
+      setCaptchaReset((n) => n + 1)
       setLoading(false)
     }
   }
@@ -52,6 +72,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
     setFirstName('')
     setLastName('')
     setMessage('')
+    setCaptchaToken(null)
+    setCaptchaReset((n) => n + 1)
   }
 
   const switchMode = (newMode: 'signin' | 'signup' | 'reset') => {
@@ -120,9 +142,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
             />
           )}
 
+          <TurnstileWidget
+            action={mode === 'signup' ? 'signup' : mode === 'reset' ? 'password-reset' : 'signin'}
+            onVerify={setCaptchaToken}
+            resetSignal={captchaReset}
+            className="flex justify-center"
+          />
+
           <button
             type="submit"
-            disabled={loading}
+            disabled={loading || (captchaRequired && !captchaToken)}
             className="w-full btn-primary disabled:bg-gray-400 disabled:cursor-not-allowed"
           >
             {loading ? 'Processing...' : (
