@@ -4252,3 +4252,40 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### Work log (append-only) — 2026-09-22 signup hardening deploy (vinny-carbone, Watchtower 206620e3)
+
+- Reviewed sifu's `6f91b26` against main: build clean, 1901/1904 tests pass. The 3
+  failures are `backend/services/etsy-copy-repair.test.ts`, last touched 2026-09-08
+  by `4d7bea6`, with no file in its import graph among the 17 this commit changes —
+  pre-existing, already filed as `15c1dc5c`.
+- FOUND AND DID NOT SHIP: local `main` was 31 commits ahead of `origin/main`.
+  Production had not been deployed since 2026-09-11 (`91811cc`). Those 31 commits
+  are the team-shirt personalization build, whose UI is known broken and queued for
+  a rebuild on board row `eda4f12e`. Pushing `main` wholesale would have put that
+  flow in front of customers, which task 206620e3 never asked for.
+- Instead deployed the security fix ALONE. None of the 31 commits touches any of the
+  17 files in `6f91b26`, so a cherry-pick onto `origin/main` applies byte-identically
+  (verified with `git diff 6f91b26 <pick>` over all 17 paths — empty). Pushed as
+  `6522e57`: production plus the signup hardening and nothing else.
+- Reconciled afterwards so nobody inherits a merge: `main` fast-forwarded to
+  `6f91b26`, then `origin/main` merged back in as `ac3ad6e`. That merge changes no
+  file (`git diff 6f91b26 ac3ad6e` is empty) and leaves `origin/main` an ancestor of
+  `main`, so the backlog push is a clean fast-forward whenever David rules on it
+  (approval `fadd2a75`).
+- Verified live, before and after. Before: `POST /api/account/send-welcome-email`
+  with no auth returned `400 Email is required` — the open relay. After: `401
+  Sign-in required` for an empty body, for the open-relay replay with an address in
+  the body, and for a forged bearer token. With a real Supabase token it returns
+  `200 {"success":true,"alreadySent":true}`, which proves the token path, the
+  `welcome_email_sent_at` lookup and the idempotency guard all work against the live
+  schema. All 5 production profiles carry the stamp, so that probe mailed nobody.
+- Captcha fail-open confirmed in the shipped bundle, not just in source: the
+  production chunk compiles `TURNSTILE_SITE_KEY` to `""` and `isCaptchaConfigured()`
+  to `()=>"".length>0`, so every gate (`captchaRequired && !captchaToken`)
+  short-circuits false, `TurnstileWidget` returns null, and `captchaOptions()` sends
+  `{}` to GoTrue — byte-identical to the pre-captcha payload. Live DOM shows no
+  Turnstile script, global or iframe. The new CSP with `challenges.cloudflare.com`
+  in script-src, frame-src and connect-src is serving on www.
+- Render backend + worker and Vercel production all built and went live on `6522e57`;
+  four health endpoints and the auth pages are 200.
