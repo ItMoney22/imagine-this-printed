@@ -4252,3 +4252,58 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+---
+
+## 2026-09-22 — server-side aggregation + pagination (Watchtower 582e38ea, Ethan Dunn)
+
+### File shortlist (approved scope)
+- `supabase/migrations/20260922170000_crm_customer_aggregates.sql` (new)
+- `backend/routes/admin/crm.ts` (new), `backend/index.ts` (mount only)
+- `src/lib/api.ts` (`crmApi` + types), `src/components/Pagination.tsx` (new)
+- `src/pages/CRM.tsx`, `src/pages/AdminDashboard.tsx`, `src/pages/VendorDashboard.tsx`,
+  `src/pages/MarketingTools.tsx`, `src/pages/SocialContentManagement.tsx`,
+  `src/pages/CustomerMessages.tsx`, `src/pages/VendorMessages.tsx`,
+  `src/utils/messaging.ts`
+
+### Work log (append-only)
+- CRM's customer money moved into Postgres. `crm_customer_stats()` /
+  `crm_dashboard_totals()` / `crm_role_segments()` do the GROUP BY; the page
+  reads them through `/api/admin/crm/*` (admin+manager) and pages 50 at a time.
+  The old load pulled every `user_profiles` row and every `orders` row and
+  summed them in JavaScript — a client `.limit()` could not fix that, because
+  truncating the orders fetch shows WRONG MONEY rather than fewer rows.
+- Chose an Express route over calling the RPC straight from the browser: the
+  functions are `service_role`-only (EXECUTE revoked from anon/authenticated),
+  so whole-store customer aggregates are never reachable with an anon key. The
+  route falls back to a bounded per-page join if the migration has not been
+  applied yet, because Vercel and Render deploy independently.
+- Two real defects fell out of moving the maths to SQL, both fixed here:
+  ABANDONED CHECKOUTS were counted as revenue (an `orders` row exists from the
+  moment the payment intent is created), and GUEST ORDERS were credited to
+  nobody (the JS loop keyed on `order.user_id`, which is NULL for half the real
+  orders on this store). Live numbers: CRM showed $9.41 of lifetime revenue;
+  the true figure is $93.34 over 6 paid orders. Unpaid drafts are now named on
+  the card rather than folded into the total.
+- Pagination elsewhere: AdminDashboard (products/users/vendor submissions/3D
+  models) now filters and pages in SQL, with narrowed column lists — the users
+  tab was `select('*')` over ~50 columns of every account, and the products tab
+  walked the whole catalogue in 1,000-row pages on every load. VendorDashboard
+  (own products + the full active catalogue), MarketingTools (product picker +
+  campaigns, with a real server-side search), SocialContentManagement (pending
+  queue + the approved archive) all page too. Header counts that used to be
+  summed from the loaded array are now whole-table COUNTs, so they no longer
+  change when you turn a page. Bulk select-all on products is scoped to the
+  visible page on purpose — "all" reaching past what you can see is the worst
+  possible surprise on a delete.
+- `messaging.ts` gained `getMessagePage` / `getConversationPage` (total +
+  hasMore); both message pages got "load older" controls. The range was always
+  there; nothing could reach past the first page of it.
+- Verified: the three functions applied to the LIVE database and checked
+  against hand-written SQL (per-customer spend, order counts, last-order date
+  and total revenue all match exactly); every endpoint exercised against the
+  live data through a locally-booted API, including paging, search, role
+  filter, all five sorts, the status/date/user filters, 401 without a token and
+  403 on a customer-role token. `tsc -b` and `npm run build` clean. 1,901 tests
+  pass; the 3 failures in `backend/services/etsy-copy-repair.test.ts` are
+  pre-existing (that file is unmodified in this worktree).

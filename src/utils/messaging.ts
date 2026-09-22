@@ -191,17 +191,36 @@ export class MessagingService {
     limit: number = 50,
     offset: number = 0
   ): Promise<Message[]> {
+    const { messages } = await this.getMessagePage(conversationId, limit, offset)
+    return messages
+  }
+
+  /**
+   * Same query as getMessages, plus the total and a `hasMore` flag.
+   *
+   * The range was always here; what was missing was any way for a caller to
+   * know it had been truncated. Both message pages asked for the default 50
+   * and rendered them as if that were the conversation — a long thread simply
+   * lost its oldest messages with nothing on screen to say so.
+   */
+  async getMessagePage(
+    conversationId: string,
+    limit: number = 50,
+    offset: number = 0
+  ): Promise<{ messages: Message[]; total: number; hasMore: boolean }> {
     try {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from('messages')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('conversation_id', conversationId)
         .order('created_at', { ascending: true })
         .range(offset, offset + limit - 1)
 
       if (error) throw error
 
-      return (data || []).map(mapMessageRow)
+      const messages = (data || []).map(mapMessageRow)
+      const total = count ?? messages.length
+      return { messages, total, hasMore: offset + messages.length < total }
     } catch (error) {
       console.error('Error fetching messages:', error)
       throw new Error('Failed to fetch messages')
@@ -214,19 +233,39 @@ export class MessagingService {
     limit: number = 20,
     offset: number = 0
   ): Promise<Conversation[]> {
+    const { conversations } = await this.getConversationPage(userId, limit, offset)
+    return conversations
+  }
+
+  /**
+   * Same query as getConversations, plus the total and a `hasMore` flag so the
+   * inbox can offer "load older" instead of silently stopping at 20.
+   *
+   * `hasMore` is derived from the COUNT rather than from the returned row
+   * count, because archived conversations are filtered out after the range:
+   * a page that comes back with 3 of 20 rows because 17 were archived is still
+   * followed by more pages.
+   */
+  async getConversationPage(
+    userId: string,
+    limit: number = 20,
+    offset: number = 0
+  ): Promise<{ conversations: Conversation[]; total: number; hasMore: boolean }> {
     try {
-      const { data, error } = await supabase
+      const { data, error, count } = await supabase
         .from('conversations')
-        .select('*')
+        .select('*', { count: 'exact' })
         .or(`participant_one.eq.${userId},participant_two.eq.${userId}`)
         .order('updated_at', { ascending: false })
         .range(offset, offset + limit - 1)
 
       if (error) throw error
 
+      const fetched = (data || []).length
+      const total = count ?? fetched
       const rows = (data || []).filter(row => !(row.archived_by || []).includes(userId))
 
-      return await Promise.all(
+      const conversations = await Promise.all(
         rows.map(async row => {
           const otherUserId = row.participant_one === userId ? row.participant_two : row.participant_one
           const [participantDetails, lastMessageRow, unreadCount] = await Promise.all([
@@ -244,6 +283,8 @@ export class MessagingService {
           )
         })
       )
+
+      return { conversations, total, hasMore: offset + fetched < total }
     } catch (error) {
       console.error('Error fetching conversations:', error)
       throw new Error('Failed to fetch conversations')

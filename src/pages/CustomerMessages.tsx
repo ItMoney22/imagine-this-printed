@@ -1,11 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { messagingService, getAttachmentDownloadUrl } from '../utils/messaging'
+
+// Page sizes for the inbox and for a thread.
+const CONVERSATION_PAGE = 20
+const MESSAGE_PAGE = 50
 import type { Conversation, Message } from '../types'
 
 const CustomerMessages: React.FC = () => {
   const { user } = useAuth()
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [hasMoreConversations, setHasMoreConversations] = useState(false)
+  // How many messages sit before the page currently rendered.
+  const [olderMessageCount, setOlderMessageCount] = useState(0)
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null)
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
@@ -32,16 +39,27 @@ const CustomerMessages: React.FC = () => {
     }
   }, [selectedConversation])
 
-  const loadConversations = async () => {
+  // Both lists are paged (Watchtower task 582e38ea). The service always applied
+  // a range; what was missing was any way to reach past the first page, so an
+  // inbox with more than CONVERSATION_PAGE threads and a thread with more than
+  // MESSAGE_PAGE messages both just stopped, with nothing on screen saying so.
+  const loadConversations = async (append = false) => {
     if (!user) return
-    
+
     try {
       setIsLoading(true)
-      const data = await messagingService.getConversations(user.id)
-      setConversations(data)
-      
-      if (data.length > 0 && !selectedConversation) {
-        setSelectedConversation(data[0])
+      const offset = append ? conversations.length : 0
+      const { conversations: page, hasMore } = await messagingService.getConversationPage(
+        user.id,
+        CONVERSATION_PAGE,
+        offset
+      )
+      setHasMoreConversations(hasMore)
+      const next = append ? [...conversations, ...page] : page
+      setConversations(next)
+
+      if (next.length > 0 && !selectedConversation) {
+        setSelectedConversation(next[0])
       }
     } catch (error) {
       console.error('Error loading conversations:', error)
@@ -52,10 +70,33 @@ const CustomerMessages: React.FC = () => {
 
   const loadMessages = async (conversationId: string) => {
     try {
-      const data = await messagingService.getMessages(conversationId)
-      setMessages(data)
+      const { messages: page, total } = await messagingService.getMessagePage(
+        conversationId,
+        MESSAGE_PAGE,
+        0
+      )
+      setMessages(page)
+      setOlderMessageCount(Math.max(total - page.length, 0))
     } catch (error) {
       console.error('Error loading messages:', error)
+    }
+  }
+
+  // Older messages are BEFORE the ones on screen, so a page is taken from the
+  // start of the range and prepended.
+  const loadOlderMessages = async () => {
+    if (!selectedConversation || olderMessageCount <= 0) return
+    try {
+      const take = Math.min(MESSAGE_PAGE, olderMessageCount)
+      const { messages: page } = await messagingService.getMessagePage(
+        selectedConversation.id,
+        take,
+        olderMessageCount - take
+      )
+      setMessages(prev => [...page, ...prev])
+      setOlderMessageCount(count => Math.max(count - take, 0))
+    } catch (error) {
+      console.error('Error loading older messages:', error)
     }
   }
 
@@ -266,6 +307,16 @@ const CustomerMessages: React.FC = () => {
                 )
               })
             )}
+            {hasMoreConversations && (
+              <button
+                type="button"
+                onClick={() => loadConversations(true)}
+                disabled={isLoading}
+                className="w-full px-4 py-3 text-sm font-medium text-primary hover:bg-primary/5 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border-t border-primary/10"
+              >
+                {isLoading ? 'Loading…' : 'Load older conversations'}
+              </button>
+            )}
           </div>
         </div>
 
@@ -301,6 +352,18 @@ const CustomerMessages: React.FC = () => {
 
               {/* Messages */}
               <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {olderMessageCount > 0 && (
+                  <div className="text-center">
+                    <button
+                      type="button"
+                      onClick={loadOlderMessages}
+                      className="px-4 py-2 text-sm font-medium text-primary hover:bg-primary/5 rounded-lg transition-colors"
+                    >
+                      Load {Math.min(MESSAGE_PAGE, olderMessageCount)} older
+                      {olderMessageCount === 1 ? ' message' : ' messages'}
+                    </button>
+                  </div>
+                )}
                 {messages.map((message) => {
                   const isOwnMessage = message.senderId === user.id
                   

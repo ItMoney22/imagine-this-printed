@@ -1,20 +1,63 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
-import type { CustomerContact, ContactNote, CustomJobRequest, Order } from '../types'
+import { Pagination } from '../components/Pagination'
+import { crmApi } from '../lib/api'
+import type { CrmCustomer, CrmOrder, CrmSegments, CrmTotals } from '../lib/api'
+import type { ContactNote, CustomJobRequest } from '../types'
+
+// Rows per page. 50 keeps a full screen of table without the 2,600-row payload
+// this page used to pull down on mount.
+const PAGE_SIZE = 50
+
+// Hard ceiling on a CSV export. Export still walks the server pages, but it
+// walks a KNOWN number of them — an unbounded export is the same unbounded
+// fetch this page was built to delete, just triggered by a button.
+const EXPORT_MAX_ROWS = 5000
+
+/**
+ * The table needs a couple of fields the aggregate does not carry: `tags`
+ * (today, the customer's role) and `notes` (loaded per customer). Kept as a
+ * view model so the server payload stays exactly what the SQL returned.
+ */
+type CustomerRow = CrmCustomer & { tags: string[]; notes: ContactNote[] }
+
+const toRow = (c: CrmCustomer): CustomerRow => ({
+  ...c,
+  tags: c.role ? [c.role] : [],
+  notes: []
+})
 
 const CRM: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [selectedTab, setSelectedTab] = useState<'customers' | 'jobs' | 'analytics' | 'orders'>('customers')
-  const [customers, setCustomers] = useState<CustomerContact[]>([])
+
+  // --- Customers (server-aggregated, server-paged) -------------------------
+  const [customers, setCustomers] = useState<CustomerRow[]>([])
+  const [customerTotal, setCustomerTotal] = useState(0)
+  const [customerPage, setCustomerPage] = useState(1)
+  const [customerSort, setCustomerSort] = useState<'recent' | 'spend' | 'orders' | 'last_order' | 'name'>('recent')
+  const [customersBusy, setCustomersBusy] = useState(false)
+
+  // --- Orders (server-paged) -----------------------------------------------
+  const [orders, setOrders] = useState<CrmOrder[]>([])
+  const [orderTotal, setOrderTotal] = useState(0)
+  const [orderPage, setOrderPage] = useState(1)
+  const [ordersBusy, setOrdersBusy] = useState(false)
+
+  // --- Whole-table numbers -------------------------------------------------
+  const [totals, setTotals] = useState<CrmTotals | null>(null)
+  const [segments, setSegments] = useState<CrmSegments | null>(null)
+
   const [jobs, setJobs] = useState<CustomJobRequest[]>([])
-  const [orders, setOrders] = useState<Order[]>([])
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerContact | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerRow | null>(null)
+  const [customerOrders, setCustomerOrders] = useState<CrmOrder[]>([])
   const [showCustomerModal, setShowCustomerModal] = useState(false)
   const [newNote, setNewNote] = useState('')
   const [searchTerm, setSearchTerm] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filterTag, setFilterTag] = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
@@ -22,124 +65,141 @@ const CRM: React.FC = () => {
   const [newChatMessage, setNewChatMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
 
-  // Fetch real data from Supabase
+  // Search hits the server now, so every keystroke would be a query. 350ms is
+  // the same debounce ProductCatalog uses.
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
-      setError(null)
+    const id = setTimeout(() => setDebouncedSearch(searchTerm.trim()), 350)
+    return () => clearTimeout(id)
+  }, [searchTerm])
 
+  // Any filter change invalidates the page number — page 4 of the old result
+  // set is not page 4 of the new one.
+  useEffect(() => { setCustomerPage(1) }, [debouncedSearch, filterTag, customerSort])
+  useEffect(() => { setOrderPage(1) }, [debouncedSearch, orderStatusFilter, dateRange.start, dateRange.end])
+
+  // Header cards + analytics: whole-table aggregates, fetched once. These are
+  // the numbers that used to be summed from whatever rows happened to be in
+  // memory, which meant they changed when you filtered the table.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
       try {
-        // Fetch customers and orders in parallel
-        const [profilesResult, ordersResult] = await Promise.all([
-          supabase.from('user_profiles').select('*').order('created_at', { ascending: false }),
-          supabase.from('orders').select('*').order('created_at', { ascending: false })
-        ])
-
-        if (profilesResult.error) throw profilesResult.error
-        if (ordersResult.error) throw ordersResult.error
-
-        const profiles = profilesResult.data
-        const ordersData = ordersResult.data
-
-        // Calculate customer stats from orders
-        const customerStats: Record<string, { totalSpent: number; totalOrders: number; lastOrderDate: string | null }> = {}
-
-        ordersData?.forEach((order: any) => {
-          const userId = order.user_id
-          if (!customerStats[userId]) {
-            customerStats[userId] = { totalSpent: 0, totalOrders: 0, lastOrderDate: null }
-          }
-          customerStats[userId].totalSpent += parseFloat(order.total_amount || order.total || 0)
-          customerStats[userId].totalOrders += 1
-          if (!customerStats[userId].lastOrderDate || order.created_at > customerStats[userId].lastOrderDate) {
-            customerStats[userId].lastOrderDate = order.created_at
-          }
-        })
-
-        // Map user_profiles to CustomerContact format
-        const mappedCustomers: CustomerContact[] = (profiles || []).map((profile: any) => {
-          const stats = customerStats[profile.id] || { totalSpent: 0, totalOrders: 0, lastOrderDate: null }
-          return {
-            id: profile.id,
-            userId: profile.id,
-            email: profile.email || '',
-            name: profile.display_name || profile.username || profile.email?.split('@')[0] || 'Unknown',
-            phone: profile.phone || '',
-            company: profile.company_name || '',
-            tags: profile.role ? [profile.role] : [],
-            notes: [],
-            totalSpent: stats.totalSpent,
-            totalOrders: stats.totalOrders,
-            lastOrderDate: stats.lastOrderDate || undefined,
-            registrationDate: profile.created_at,
-            preferredProducts: []
-          }
-        })
-
-        setCustomers(mappedCustomers)
-
-        // Map orders to Order format
-        const mappedOrders: Order[] = (ordersData || []).map((order: any) => ({
-          id: order.id,
-          userId: order.user_id,
-          status: order.status || 'pending',
-          items: order.items || [],
-          total: parseFloat(order.total_amount || order.total || 0),
-          shippingAddress: order.shipping_address || {},
-          createdAt: order.created_at,
-          trackingNumber: order.tracking_number,
-          shippingLabelUrl: order.shipping_label_url,
-          estimatedDelivery: order.estimated_delivery,
-          customerNotes: order.customer_notes,
-          internalNotes: order.internal_notes
-        }))
-
-        setOrders(mappedOrders)
-
-        // Try to fetch custom job requests (table may not exist yet)
-        try {
-          const { data: jobsData, error: jobsError } = await supabase
-            .from('custom_job_requests')
-            .select('*')
-            .order('created_at', { ascending: false })
-
-          if (!jobsError && jobsData) {
-            const mappedJobs: CustomJobRequest[] = jobsData.map((job: any) => ({
-              id: job.id,
-              customerId: job.user_id,
-              title: job.title,
-              description: job.description,
-              requirements: job.requirements,
-              budget: job.budget,
-              deadline: job.deadline,
-              files: job.files || [],
-              status: job.status || 'submitted',
-              assignedTo: job.assigned_to,
-              approvedBy: job.approved_by,
-              estimatedCost: job.estimated_cost,
-              finalCost: job.final_cost,
-              notes: job.notes || [],
-              createdAt: job.created_at,
-              updatedAt: job.updated_at
-            }))
-            setJobs(mappedJobs)
-          }
-        } catch {
-          // custom_job_requests table may not exist yet
-          console.log('[CRM] custom_job_requests table not found, using empty array')
-          setJobs([])
-        }
-
+        const [t, s] = await Promise.all([crmApi.totals(), crmApi.segments()])
+        if (cancelled) return
+        setTotals(t)
+        setSegments(s)
       } catch (err: any) {
-        console.error('[CRM] Error fetching data:', err)
-        setError(err.message || 'Failed to load CRM data')
-      } finally {
-        setLoading(false)
+        if (!cancelled) console.error('[CRM] totals/segments failed:', err)
       }
-    }
+    })()
+    return () => { cancelled = true }
+  }, [])
 
-    fetchData()
+  const loadCustomers = useCallback(async () => {
+    setCustomersBusy(true)
+    try {
+      const result = await crmApi.customers({
+        page: customerPage,
+        limit: PAGE_SIZE,
+        search: debouncedSearch || undefined,
+        role: filterTag || undefined,
+        sort: customerSort
+      })
+      setCustomers(result.customers.map(toRow))
+      setCustomerTotal(result.total)
+      setError(null)
+    } catch (err: any) {
+      console.error('[CRM] Error fetching customers:', err)
+      setError(err.message || 'Failed to load CRM data')
+    } finally {
+      setCustomersBusy(false)
+      setLoading(false)
+    }
+  }, [customerPage, debouncedSearch, filterTag, customerSort])
+
+  useEffect(() => { void loadCustomers() }, [loadCustomers])
+
+  const loadOrders = useCallback(async () => {
+    setOrdersBusy(true)
+    try {
+      const result = await crmApi.orders({
+        page: orderPage,
+        limit: PAGE_SIZE,
+        status: orderStatusFilter !== 'all' ? orderStatusFilter : undefined,
+        search: debouncedSearch || undefined,
+        // Only send a range when BOTH ends are set — the old client-side filter
+        // had the same rule, and a half-open range silently hid rows.
+        start: dateRange.start && dateRange.end ? dateRange.start : undefined,
+        end: dateRange.start && dateRange.end ? dateRange.end : undefined
+      })
+      setOrders(result.orders)
+      setOrderTotal(result.total)
+    } catch (err: any) {
+      console.error('[CRM] Error fetching orders:', err)
+      toast.error('Failed to load orders', err.message)
+    } finally {
+      setOrdersBusy(false)
+    }
+    // toast is stable per render from useToast(); excluded so a re-render does
+    // not re-trigger the fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderPage, orderStatusFilter, debouncedSearch, dateRange.start, dateRange.end])
+
+  useEffect(() => { void loadOrders() }, [loadOrders])
+
+  // Custom jobs. The table does not exist on this database yet; a missing
+  // table must leave the tab empty, not break the page.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const { data, error: jobsError } = await supabase
+        .from('custom_job_requests')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(0, PAGE_SIZE - 1)
+
+      if (cancelled) return
+      if (jobsError) {
+        console.log('[CRM] custom_job_requests unavailable:', jobsError.message)
+        setJobs([])
+        return
+      }
+      setJobs((data || []).map((job: any) => ({
+        id: job.id,
+        customerId: job.user_id,
+        title: job.title,
+        description: job.description,
+        requirements: job.requirements,
+        budget: job.budget,
+        deadline: job.deadline,
+        files: job.files || [],
+        status: job.status || 'submitted',
+        assignedTo: job.assigned_to,
+        approvedBy: job.approved_by,
+        estimatedCost: job.estimated_cost,
+        finalCost: job.final_cost,
+        notes: job.notes || [],
+        createdAt: job.created_at,
+        updatedAt: job.updated_at
+      })))
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // The detail modal shows one customer's purchase history. That used to be a
+  // filter over every order in memory; now it is that customer's page of orders.
+  const openCustomer = useCallback(async (customer: CustomerRow) => {
+    setSelectedCustomer(customer)
+    setCustomerOrders([])
+    setShowCustomerModal(true)
+    try {
+      const result = await crmApi.orders({ userId: customer.id, limit: PAGE_SIZE, paidOnly: true })
+      setCustomerOrders(result.orders)
+    } catch (err: any) {
+      console.error('[CRM] Error fetching customer orders:', err)
+    }
   }, [])
 
   // All five mutations below follow the same shape: update local state first
@@ -278,7 +338,7 @@ const CRM: React.FC = () => {
     }
   }
 
-  const updateOrderStatus = async (orderId: string, status: Order['status'], notes?: string) => {
+  const updateOrderStatus = async (orderId: string, status: string, notes?: string) => {
     const previous = orders.find(order => order.id === orderId)
     if (!previous) return
 
@@ -288,7 +348,7 @@ const CRM: React.FC = () => {
 
     setOrders(prev => prev.map(order =>
       order.id === orderId
-        ? { ...order, status, updatedAt: new Date().toISOString(), internalNotes }
+        ? { ...order, status, internalNotes }
         : order
     ))
 
@@ -350,77 +410,134 @@ const CRM: React.FC = () => {
     }
   }
 
-  const exportCustomers = () => {
-    const customerData = customers.map(customer => ({
-      name: customer.name,
-      email: customer.email,
-      phone: customer.phone,
-      company: customer.company,
-      tags: customer.tags.join('; '),
-      totalOrders: customer.totalOrders,
-      totalSpent: customer.totalSpent,
-      lastOrderDate: customer.lastOrderDate || 'Never',
-      registrationDate: customer.registrationDate
-    }))
-    exportToCSV(customerData, 'customers')
+  /**
+   * Walks the server pages for an export.
+   *
+   * Export used to serialise whatever was already in memory — which, now that
+   * the table is paged, would silently be one page. It also must not become a
+   * back door to the full-table fetch this page just removed, so it stops at
+   * EXPORT_MAX_ROWS and says so.
+   */
+  const collectAllPages = async <T,>(
+    fetchPage: (page: number) => Promise<{ rows: T[]; total: number }>
+  ): Promise<{ rows: T[]; truncated: boolean; total: number }> => {
+    const rows: T[] = []
+    let page = 1
+    let total = 0
+    for (;;) {
+      const result = await fetchPage(page)
+      total = result.total
+      rows.push(...result.rows)
+      if (result.rows.length < PAGE_SIZE) break
+      if (rows.length >= Math.min(total, EXPORT_MAX_ROWS)) break
+      page += 1
+    }
+    return { rows, truncated: rows.length < total, total }
   }
 
-  const exportOrders = () => {
-    const orderData = filteredOrders.map(order => {
-      const customer = customers.find(c => c.userId === order.userId)
-      return {
-        orderId: order.id,
-        customerName: customer?.name || 'Unknown',
-        customerEmail: customer?.email || 'Unknown',
-        status: order.status,
-        total: order.total,
-        createdAt: new Date(order.createdAt).toLocaleDateString(),
-        trackingNumber: order.trackingNumber || 'N/A',
-        items: order.items.map(item => `${item.product.name} (${item.quantity})`).join('; ')
+  const exportCustomers = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const { rows, truncated, total } = await collectAllPages<CrmCustomer>(async page => {
+        const result = await crmApi.customers({
+          page,
+          limit: PAGE_SIZE,
+          search: debouncedSearch || undefined,
+          role: filterTag || undefined,
+          sort: customerSort
+        })
+        return { rows: result.customers, total: result.total }
+      })
+
+      exportToCSV(
+        rows.map(customer => ({
+          name: customer.name,
+          email: customer.email,
+          phone: customer.phone,
+          company: customer.company,
+          role: customer.role,
+          totalOrders: customer.totalOrders,
+          totalSpent: customer.totalSpent,
+          lastOrderDate: customer.lastOrderDate || 'Never',
+          registrationDate: customer.registrationDate || ''
+        })),
+        'customers'
+      )
+      if (truncated) {
+        toast.error(
+          'Export truncated',
+          `Exported the first ${rows.length} of ${total} customers. Narrow the search or role filter to export the rest.`
+        )
       }
-    })
-    exportToCSV(orderData, 'orders')
+    } catch (err: any) {
+      console.error('[CRM] customer export failed:', err)
+      toast.error('Export failed', err.message)
+    } finally {
+      setExporting(false)
+    }
   }
 
-  // Memoize the three derived lists. They're cheap individually but were
-  // recomputing on every render of this 900+ line component (search-input
-  // keystrokes, modal open/close, tab switches all trigger renders), and
-  // returning fresh references on each pass kept downstream tables from
-  // memoizing properly.
-  const filteredCustomers = useMemo(() => {
-    const q = searchTerm.toLowerCase()
-    return customers.filter(customer => {
-      const matchesSearch = customer.name.toLowerCase().includes(q) ||
-                           customer.email.toLowerCase().includes(q)
-      const matchesTag = !filterTag || customer.tags.includes(filterTag)
-      return matchesSearch && matchesTag
-    })
-  }, [customers, searchTerm, filterTag])
+  const exportOrders = async () => {
+    if (exporting) return
+    setExporting(true)
+    try {
+      const { rows, truncated, total } = await collectAllPages<CrmOrder>(async page => {
+        const result = await crmApi.orders({
+          page,
+          limit: PAGE_SIZE,
+          status: orderStatusFilter !== 'all' ? orderStatusFilter : undefined,
+          search: debouncedSearch || undefined,
+          start: dateRange.start && dateRange.end ? dateRange.start : undefined,
+          end: dateRange.start && dateRange.end ? dateRange.end : undefined
+        })
+        return { rows: result.orders, total: result.total }
+      })
 
-  const filteredOrders = useMemo(() => {
-    const q = searchTerm.toLowerCase()
-    return orders.filter(order => {
-      const customer = customers.find(c => c.userId === order.userId)
-      const matchesSearch = (customer?.name || '').toLowerCase().includes(q) ||
-                           (customer?.email || '').toLowerCase().includes(q) ||
-                           order.id.toLowerCase().includes(q)
-      const matchesStatus = orderStatusFilter === 'all' || order.status === orderStatusFilter
-
-      let matchesDate = true
-      if (dateRange.start && dateRange.end) {
-        const orderDate = new Date(order.createdAt)
-        const startDate = new Date(dateRange.start)
-        const endDate = new Date(dateRange.end)
-        matchesDate = orderDate >= startDate && orderDate <= endDate
+      exportToCSV(
+        rows.map(order => ({
+          orderId: order.id,
+          orderNumber: order.orderNumber || '',
+          customerName: order.customerName || 'Unknown',
+          customerEmail: order.customerEmail || 'Unknown',
+          status: order.status,
+          paymentStatus: order.paymentStatus || 'unknown',
+          paid: order.everPaid ? 'yes' : 'no',
+          total: order.total,
+          createdAt: new Date(order.createdAt).toLocaleDateString(),
+          trackingNumber: order.trackingNumber || 'N/A',
+          items: order.items.map(item => `${item.name} (${item.quantity})`).join('; ')
+        })),
+        'orders'
+      )
+      if (truncated) {
+        toast.error(
+          'Export truncated',
+          `Exported the first ${rows.length} of ${total} orders. Narrow the filters to export the rest.`
+        )
       }
+    } catch (err: any) {
+      console.error('[CRM] order export failed:', err)
+      toast.error('Export failed', err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
 
-      return matchesSearch && matchesStatus && matchesDate
-    })
-  }, [orders, customers, searchTerm, orderStatusFilter, dateRange.start, dateRange.end])
+  // Search, role filter, status filter and the date range are all applied by
+  // the server now (backend/routes/admin/crm.ts), so `customers` and `orders`
+  // ARE the filtered page. The old client-side memos over the full table are
+  // gone with the full table — a filter that only searched the rows the browser
+  // happened to hold was never showing the whole answer anyway.
+  const filteredCustomers = customers
+  const filteredOrders = orders
 
+  // Role options come from the whole-table segment counts, not from the loaded
+  // page — otherwise the "All Roles" dropdown could only offer roles that
+  // happen to appear on page 1.
   const allTags = useMemo(
-    () => Array.from(new Set(customers.flatMap(c => c.tags))),
-    [customers]
+    () => (segments?.segments || []).map(s => s.role),
+    [segments]
   )
 
   if (user?.role !== 'admin' && user?.role !== 'manager') {
@@ -474,15 +591,15 @@ const CRM: React.FC = () => {
             <div className="flex flex-wrap gap-3">
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Customers</span>
-                <p className="text-white text-xl font-bold">{customers.length}</p>
+                <p className="text-white text-xl font-bold">{totals ? totals.customers.toLocaleString() : '—'}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Revenue</span>
-                <p className="text-white text-xl font-bold">${customers.reduce((sum, c) => sum + c.totalSpent, 0).toFixed(0)}</p>
+                <p className="text-white text-xl font-bold">{totals?.revenue != null ? `$${totals.revenue.toFixed(0)}` : '—'}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Pending</span>
-                <p className="text-white text-xl font-bold">{orders.filter(o => o.status === 'pending').length}</p>
+                <p className="text-white text-xl font-bold">{totals ? totals.pendingOrders.toLocaleString() : '—'}</p>
               </div>
             </div>
           </div>
@@ -501,7 +618,7 @@ const CRM: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Total Customers</p>
-                <p className="text-2xl font-bold text-text">{customers.length}</p>
+                <p className="text-2xl font-bold text-text">{totals ? totals.customers.toLocaleString() : '—'}</p>
               </div>
             </div>
           </div>
@@ -514,8 +631,15 @@ const CRM: React.FC = () => {
                 </svg>
               </div>
               <div className="ml-4">
-                <p className="text-sm font-medium text-muted">Total Orders</p>
-                <p className="text-2xl font-bold text-text">{orders.length}</p>
+                <p className="text-sm font-medium text-muted">Paid Orders</p>
+                <p className="text-2xl font-bold text-text">{totals ? totals.paidOrders.toLocaleString() : '—'}</p>
+                {/* Abandoned checkouts write a complete-looking `orders` row.
+                    Counting them as orders is what put a Refund button next to
+                    a payment that never happened, so they are named, not
+                    folded in. */}
+                {totals != null && totals.unpaidDrafts > 0 && (
+                  <p className="text-xs text-muted mt-0.5">+{totals.unpaidDrafts.toLocaleString()} unpaid drafts</p>
+                )}
               </div>
             </div>
           </div>
@@ -529,7 +653,7 @@ const CRM: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Pending Orders</p>
-                <p className="text-2xl font-bold text-text">{orders.filter(o => o.status === 'pending').length}</p>
+                <p className="text-2xl font-bold text-text">{totals ? totals.pendingOrders.toLocaleString() : '—'}</p>
               </div>
             </div>
           </div>
@@ -543,7 +667,12 @@ const CRM: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Total Revenue</p>
-                <p className="text-2xl font-bold text-text">${customers.reduce((sum, c) => sum + c.totalSpent, 0).toFixed(2)}</p>
+                {/* Summed from `orders`, not from the customer rows. Guest
+                    checkouts belong to no profile, so a sum over customers
+                    reported $0.00 of money that was really taken. */}
+                <p className="text-2xl font-bold text-text">
+                  {totals?.revenue != null ? `$${totals.revenue.toFixed(2)}` : '—'}
+                </p>
               </div>
             </div>
           </div>
@@ -602,14 +731,30 @@ const CRM: React.FC = () => {
                   <option key={tag} value={tag}>{tag}</option>
                 ))}
               </select>
+              {/* Sorting is a server concern now: "biggest spenders" has to be
+                  ordered by the SQL aggregate over every order, not by the
+                  totals that happen to be on this page. */}
+              <select
+                value={customerSort}
+                onChange={(e) => setCustomerSort(e.target.value as typeof customerSort)}
+                className="px-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-text"
+                aria-label="Sort customers"
+              >
+                <option value="recent">Newest first</option>
+                <option value="spend">Highest spend</option>
+                <option value="orders">Most orders</option>
+                <option value="last_order">Most recent order</option>
+                <option value="name">Name A–Z</option>
+              </select>
               <button
                 onClick={exportCustomers}
-                className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-5 py-2.5 rounded-xl flex items-center shadow-lg shadow-green-500/25 transition-all"
+                disabled={exporting}
+                className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-5 py-2.5 rounded-xl flex items-center shadow-lg shadow-green-500/25 transition-all"
               >
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              Export CSV
+              {exporting ? 'Exporting…' : 'Export CSV'}
             </button>
           </div>
 
@@ -670,10 +815,7 @@ const CRM: React.FC = () => {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <button
-                            onClick={() => {
-                              setSelectedCustomer(customer)
-                              setShowCustomerModal(true)
-                            }}
+                            onClick={() => { void openCustomer(customer) }}
                             className="px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 text-sm font-medium rounded-lg transition-colors"
                           >
                             View Details
@@ -681,9 +823,24 @@ const CRM: React.FC = () => {
                         </td>
                       </tr>
                     ))}
+                    {filteredCustomers.length === 0 && !customersBusy && (
+                      <tr>
+                        <td colSpan={7} className="px-6 py-10 text-center text-sm text-muted">
+                          No customers match this search.
+                        </td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>
+              <Pagination
+                page={customerPage}
+                limit={PAGE_SIZE}
+                total={customerTotal}
+                onPageChange={setCustomerPage}
+                busy={customersBusy}
+                label="customers"
+              />
           </div>
         </div>
       )}
@@ -739,7 +896,8 @@ const CRM: React.FC = () => {
             </div>
             <button
               onClick={exportOrders}
-              className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md flex items-center whitespace-nowrap"
+              disabled={exporting}
+              className="bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-md flex items-center whitespace-nowrap"
             >
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -769,22 +927,24 @@ const CRM: React.FC = () => {
                 </thead>
                 <tbody className="bg-card divide-y divide-gray-200">
                   {filteredOrders.map((order) => {
-                    const customer = customers.find(c => c.userId === order.userId)
                     return (
                     <tr key={order.id} className="hover:bg-card">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-text">{order.id}</div>
-                        <div className="text-sm text-muted">Order #{order.id.split('-')[1]}</div>
+                        <div className="text-sm text-muted">Order #{order.orderNumber || order.id.split('-')[1]}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-text">{customer?.name || 'Unknown'}</div>
-                        <div className="text-sm text-muted">{customer?.email || 'Unknown'}</div>
+                        {/* Off the order row itself, so a guest checkout — which
+                            has no profile to look up — still shows who bought. */}
+                        <div className="text-sm font-medium text-text">{order.customerName || 'Unknown'}</div>
+                        <div className="text-sm text-muted">{order.customerEmail || 'Unknown'}</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-text">
+                          {order.items.length === 0 && <span className="text-muted">—</span>}
                           {order.items.map((item, index) => (
                             <div key={index} className="mb-1">
-                              {item.product.name} (x{item.quantity})
+                              {item.name} (x{item.quantity})
                             </div>
                           ))}
                         </div>
@@ -803,6 +963,14 @@ const CRM: React.FC = () => {
                         }`}>
                           {order.status.replace('_', ' ')}
                         </span>
+                        {/* An order row exists from the moment the payment
+                            intent is created. Saying so stops an abandoned
+                            checkout from being worked as a real order. */}
+                        {!order.everPaid && (
+                          <div className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-amber-600">
+                            unpaid draft
+                          </div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-muted">
                         {order.trackingNumber ? (
@@ -853,9 +1021,24 @@ const CRM: React.FC = () => {
                     </tr>
                     )
                   })}
+                  {filteredOrders.length === 0 && !ordersBusy && (
+                    <tr>
+                      <td colSpan={8} className="px-6 py-10 text-center text-sm text-muted">
+                        No orders match these filters.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
+            <Pagination
+              page={orderPage}
+              limit={PAGE_SIZE}
+              total={orderTotal}
+              onPageChange={setOrderPage}
+              busy={ordersBusy}
+              label="orders"
+            />
           </div>
         </div>
       )}
@@ -950,40 +1133,49 @@ const CRM: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-card rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-text mb-4">Customer Segments</h3>
+              {/* SQL GROUP BY over every profile. The previous version counted
+                  the loaded array, so the bars changed when you paged or
+                  filtered the table. */}
               <div className="space-y-3">
-                {allTags.map(tag => {
-                  const count = customers.filter(c => c.tags.includes(tag)).length
-                  const percentage = customers.length > 0 ? (count / customers.length) * 100 : 0
+                {(segments?.segments || []).map(segment => {
+                  const totalCustomers = totals?.customers || 0
+                  const percentage = totalCustomers > 0 ? (segment.customers / totalCustomers) * 100 : 0
                   return (
-                    <div key={tag} className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-text">{tag}</span>
+                    <div key={segment.role} className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-text">{segment.role}</span>
                       <div className="flex items-center">
                         <div className="w-20 bg-gray-200 rounded-full h-2 mr-2">
                           <div className="bg-purple-600 h-2 rounded-full" style={{ width: `${percentage}%` }}></div>
                         </div>
-                        <span className="text-sm text-muted">{count}</span>
+                        <span className="text-sm text-muted">{segment.customers}</span>
                       </div>
                     </div>
                   )
                 })}
+                {(segments?.segments || []).length === 0 && (
+                  <p className="text-sm text-muted">No customer segments yet.</p>
+                )}
               </div>
             </div>
 
             <div className="bg-card rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-text mb-4">Top Customers</h3>
+              {/* Ranked by the server aggregate over the whole orders table.
+                  Sorting the loaded page could only ever name the biggest
+                  spender ON THAT PAGE. */}
               <div className="space-y-3">
-                {customers
-                  .sort((a, b) => b.totalSpent - a.totalSpent)
-                  .slice(0, 5)
-                  .map((customer, index) => (
-                    <div key={customer.id} className="flex items-center justify-between">
-                      <div className="flex items-center">
-                        <span className="text-sm font-medium text-muted mr-2">#{index + 1}</span>
-                        <span className="text-sm font-medium text-text">{customer.name}</span>
-                      </div>
-                      <span className="text-sm font-semibold text-green-600">${customer.totalSpent.toFixed(2)}</span>
+                {(segments?.topCustomers || []).map((customer, index) => (
+                  <div key={customer.id} className="flex items-center justify-between">
+                    <div className="flex items-center">
+                      <span className="text-sm font-medium text-muted mr-2">#{index + 1}</span>
+                      <span className="text-sm font-medium text-text">{customer.name}</span>
                     </div>
-                  ))}
+                    <span className="text-sm font-semibold text-green-600">${customer.totalSpent.toFixed(2)}</span>
+                  </div>
+                ))}
+                {(segments?.topCustomers || []).length === 0 && (
+                  <p className="text-sm text-muted">No customer spend recorded yet.</p>
+                )}
               </div>
             </div>
           </div>
@@ -1023,7 +1215,7 @@ const CRM: React.FC = () => {
                   <p><span className="font-medium">Total Orders:</span> {selectedCustomer.totalOrders}</p>
                   <p><span className="font-medium">Total Spent:</span> ${selectedCustomer.totalSpent.toFixed(2)}</p>
                   <p><span className="font-medium">Last Order:</span> {selectedCustomer.lastOrderDate ? new Date(selectedCustomer.lastOrderDate).toLocaleDateString() : 'Never'}</p>
-                  <p><span className="font-medium">Member Since:</span> {new Date(selectedCustomer.registrationDate).toLocaleDateString()}</p>
+                  <p><span className="font-medium">Member Since:</span> {selectedCustomer.registrationDate ? new Date(selectedCustomer.registrationDate).toLocaleDateString() : 'Unknown'}</p>
                 </div>
               </div>
             </div>
@@ -1176,13 +1368,15 @@ const CRM: React.FC = () => {
             <div>
               <h4 className="font-semibold text-text mb-3">Purchase History</h4>
               <div className="bg-card rounded-lg p-4">
+                {/* Fetched for THIS customer when the modal opens, rather than
+                    filtered out of every order in memory. */}
                 <div className="space-y-3">
-                  {orders.filter(order => order.userId === selectedCustomer.userId).map((order) => (
+                  {customerOrders.map((order) => (
                     <div key={order.id} className="flex items-center justify-between bg-card rounded p-3">
                       <div>
-                        <div className="text-sm font-medium text-text">{order.id}</div>
+                        <div className="text-sm font-medium text-text">{order.orderNumber || order.id}</div>
                         <div className="text-xs text-muted">
-                          {order.items.map(item => item.product.name).join(', ')}
+                          {order.items.map(item => item.name).join(', ') || order.status}
                         </div>
                       </div>
                       <div className="text-right">
@@ -1191,8 +1385,8 @@ const CRM: React.FC = () => {
                       </div>
                     </div>
                   ))}
-                  {orders.filter(order => order.userId === selectedCustomer.userId).length === 0 && (
-                    <p className="text-muted text-center py-4">No orders found for this customer</p>
+                  {customerOrders.length === 0 && (
+                    <p className="text-muted text-center py-4">No paid orders found for this customer</p>
                   )}
                 </div>
               </div>

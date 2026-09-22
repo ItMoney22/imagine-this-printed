@@ -26,6 +26,7 @@ import AdminGiftCardManagement from '../components/AdminGiftCardManagement'
 import AdminNotificationBell from '../components/AdminNotificationBell'
 import AdminConnectManagement from '../components/AdminConnectManagement'
 import { MockupProgressPanel } from '../components/MockupProgressPanel'
+import { Pagination } from '../components/Pagination'
 import { PromoPricingModal } from '../components/PromoPricingModal'
 import { COLOR_PRESETS, getColorName, isLightSwatch } from '../utils/color-presets'
 import AdminInvoiceManagement from '../components/AdminInvoiceManagement'
@@ -192,12 +193,44 @@ const AdminDashboard: React.FC = () => {
   }
   const [users, setUsers] = useState<User[]>([])
   const [vendorProducts, setVendorProducts] = useState<VendorSubmission[]>([])
+  // Vendor submissions and the 3D model queue: both were unbounded
+  // `select('*')` reads of tables that grow without limit.
+  const VENDOR_PAGE_SIZE = 24
+  const [vendorPage, setVendorPage] = useState(1)
+  const [vendorTotal, setVendorTotal] = useState(0)
+  const [vendorBusy, setVendorBusy] = useState(false)
+  const MODELS_PAGE_SIZE = 24
+  const [modelPage, setModelPage] = useState(1)
+  const [modelTotal, setModelTotal] = useState(0)
+  const [modelsBusy, setModelsBusy] = useState(false)
+  // Whole-table "pending approval" counts. Counting the loaded array was fine
+  // while the array was the whole table; now it would quietly report "3
+  // pending" when the queue is 40 deep.
+  const [vendorPending, setVendorPending] = useState(0)
+  const [modelPending, setModelPending] = useState(0)
   // Users-tab filters: 180+ accounts render in one table, so finding the person
   // to promote was the hard part of granting a role.
+  //
+  // Search, role filter and paging are all applied by the DATABASE now
+  // (Watchtower task 582e38ea). This tab used to `select('*')` the whole
+  // `user_profiles` table — ~50 columns per row, every column of every account —
+  // and then filter it in the browser, which also meant the filter could only
+  // ever search the rows PostgREST had agreed to hand over.
   const [userSearch, setUserSearch] = useState('')
+  const [debouncedUserSearch, setDebouncedUserSearch] = useState('')
   const [userRoleFilter, setUserRoleFilter] = useState<string>('all')
   const USERS_PAGE_SIZE = 50
-  const [userLimit, setUserLimit] = useState(USERS_PAGE_SIZE)
+  const [userPage, setUserPage] = useState(1)
+  const [userTotal, setUserTotal] = useState(0)
+  const [usersBusy, setUsersBusy] = useState(false)
+  // Whole-table role counts for the chips above the table. Head-only counts, so
+  // they cost no rows and do not change when you turn a page.
+  const [roleTotals, setRoleTotals] = useState<Record<string, number>>({})
+  // Names for user ids referenced by OTHER tabs (a submission's vendor, a
+  // model's uploader, an audit log's actor). Those used to be resolved with
+  // `users.find(...)` over the full table; with the table paged, the row you
+  // need is usually not on the page, so the ids are looked up on demand.
+  const [userDirectory, setUserDirectory] = useState<Record<string, { email: string; firstName: string; lastName: string; role: string }>>({})
   // Pending role change awaiting confirmation (privileged roles only).
   const [roleChange, setRoleChange] = useState<{ user: User; newRole: User['role'] } | null>(null)
   // Pending account deletion awaiting confirmation. Deleting is permanent and
@@ -210,66 +243,44 @@ const AdminDashboard: React.FC = () => {
   const [botScanning, setBotScanning] = useState(false)
   const [purging, setPurging] = useState(false)
   const [showBotReview, setShowBotReview] = useState(false)
-  const filteredUsers = React.useMemo(() => {
-    const q = userSearch.trim().toLowerCase()
-    return users.filter(u => {
-      if (userRoleFilter !== 'all' && u.role !== userRoleFilter) return false
-      if (!q) return true
-      return `${u.email || ''} ${u.firstName || ''} ${u.lastName || ''}`.toLowerCase().includes(q)
-    })
-  }, [users, userSearch, userRoleFilter])
+  // `users` IS the filtered page now — the server applied the search and the
+  // role filter. Kept under the old name so the table below reads the same.
+  const filteredUsers = users
   // Every assignable role gets a chip even at zero — "Vendor · 0" is exactly the
   // fact an admin needs to see. Any role present in the data but not assignable
-  // from here (e.g. kiosk) is appended so it is never hidden.
+  // from here (e.g. kiosk) is appended so it is never hidden. Counts come from
+  // whole-table COUNT queries, not from the loaded page.
   const roleCounts = React.useMemo(() => {
     const counts = new Map<string, number>()
     for (const r of ASSIGNABLE_ROLES) counts.set(r.value, 0)
-    for (const u of users) counts.set(u.role, (counts.get(u.role) || 0) + 1)
+    for (const [role, count] of Object.entries(roleTotals)) counts.set(role, count)
     return [...counts.entries()]
-  }, [users])
+  }, [roleTotals])
   const [products, setProducts] = useState<Product[]>([])
   // Products-tab filters: the imported design library pushed the catalog past
   // 2,700 rows — collection/status/search + paging keep the table usable.
+  //
+  // Collection, status, search and paging are all applied by the DATABASE now
+  // (Watchtower task 582e38ea). This tab used to walk every matching row into
+  // memory in 1,000-row pages and then filter the array — so the browser paid
+  // for the whole catalog on every load just to render fifty rows of it.
   const [productSearch, setProductSearch] = useState('')
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState('')
   const [productCollectionFilter, setProductCollectionFilter] = useState<string>('all')
   const [productStatusFilter, setProductStatusFilter] = useState<string>('all')
   const [productPage, setProductPage] = useState(0)
+  const [productTotal, setProductTotal] = useState(0)
+  const [productsBusy, setProductsBusy] = useState(false)
+  // The collection dropdown's options, loaded once from a single narrow column
+  // rather than derived from whatever page is on screen — otherwise the filter
+  // could only offer the collections visible on page 1.
+  const [productCollections, setProductCollections] = useState<Array<[string, number]>>([])
   const PRODUCTS_PAGE_SIZE = 50
-  const productCollections = React.useMemo(() => {
-    const counts = new Map<string, number>()
-    for (const p of products as any[]) {
-      const c = p.metadata?.collection
-      if (c) counts.set(c, (counts.get(c) || 0) + 1)
-    }
-    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [products])
-  const filteredProducts = React.useMemo(() => {
-    const q = productSearch.trim().toLowerCase()
-    return (products as any[]).filter(p => {
-      if (productCollectionFilter === '__none__') {
-        if (p.metadata?.collection) return false
-      } else if (productCollectionFilter !== 'all' && (p.metadata?.collection || '') !== productCollectionFilter) {
-        return false
-      }
-      // 'in_flow' is not a products.status value — it is "part-way through the
-      // Step Flow", the same signal the Designs grid uses to take a design out
-      // of the to-do pile (backend/services/step-flow/progress.ts). Surfaced
-      // here so a build David started is findable under Products, which is
-      // where he expects it to land once it leaves Designs.
-      if (productStatusFilter === 'in_flow') {
-        if (!p.metadata?.step_flow?.approvals?.design || p.status === 'active') return false
-      } else if (productStatusFilter === 'from_flow') {
-        // Everything that came OUT of the Step Flow — the finished builds.
-        // "Where is the thing I just made" deserves an answer that does not
-        // depend on remembering its name.
-        if (!p.metadata?.step_flow?.approvals?.design) return false
-      } else if (productStatusFilter !== 'all' && (p.status || 'draft') !== productStatusFilter) return false
-      if (q && !`${p.name} ${p.category}`.toLowerCase().includes(q)) return false
-      return true
-    })
-  }, [products, productCollectionFilter, productStatusFilter, productSearch])
-  const pagedProducts = filteredProducts.slice(productPage * PRODUCTS_PAGE_SIZE, (productPage + 1) * PRODUCTS_PAGE_SIZE)
-  useEffect(() => { setProductPage(0) }, [productCollectionFilter, productStatusFilter, productSearch])
+  // `products` IS the filtered page. Both names kept so the table and the
+  // bulk-selection code below read unchanged.
+  const filteredProducts = products as any[]
+  const pagedProducts = filteredProducts
+  useEffect(() => { setProductPage(0) }, [productCollectionFilter, productStatusFilter, debouncedProductSearch])
   // Flat `{ productId: { url, path } }` — the ONE source asset per product,
   // written only by loadProducts(). Feeds the products-table thumbnail.
   // How many imported designs the Products tab is deliberately not showing —
@@ -665,9 +676,9 @@ const AdminDashboard: React.FC = () => {
     }))
   }
 
-  // Load products and metrics from Supabase
+  // Load metrics from Supabase. Products have their own effect, declared next
+  // to loadProducts() below — it depends on the page and the active filters.
   useEffect(() => {
-    loadProducts()
     loadMetrics()
   }, [])
 
@@ -784,38 +795,70 @@ const AdminDashboard: React.FC = () => {
   const NOT_A_LIBRARY_DRAFT =
     'metadata->>import_source.is.null,metadata->>import_source.neq.design-library,status.eq.active'
 
-  const loadProducts = async () => {
+  const loadProducts = React.useCallback(async () => {
+    setProductsBusy(true)
     try {
-      // PAGED, because PostgREST caps an unbounded select at 1,000 rows and
-      // says nothing about it. The tab was silently showing only the newest
-      // 1,000 of 2,592 — a live product created before that cut-off could not
-      // be found by scrolling, searching or filtering, because the rows it
-      // filters were never fetched (David 2026-09-08: "the 1 live one isnt
-      // even showing up in products" — it sat at row 1,523). Paging plus the
-      // filter above lands at ~224 rows: complete, and lighter than the
-      // truncated list it replaces.
-      const data: any[] = []
-      for (let from = 0; ; from += 1000) {
-        const { data: page, error } = await supabase
-          .from('products')
-          .select(PRODUCT_COLUMNS)
-          .or(NOT_A_LIBRARY_DRAFT)
-          // Most recently CHANGED first, not most recently created. An
-          // imported design carries the date it was imported, so a design
-          // finished in the Step Flow today sorted as if it were months old:
-          // "Resting Witch Face" was published 2026-09-08 but created
-          // 2026-07-06, which put it at row 170 — page 4 of a 50-row table —
-          // the moment David went looking for it (2026-09-08: "why isnt that
-          // 1 in products??"). By updated_at it is row 0. Finishing a build
-          // should put it at the top, which is where you go looking for it.
-          // nullsFirst:false because Postgres sorts NULLs FIRST on DESC, which
-          // would float any never-touched row above everything real.
-          .order('updated_at', { ascending: false, nullsFirst: false })
-          .range(from, from + 999)
-        if (error) throw error
-        data.push(...(page || []))
-        if (!page || page.length < 1000) break
+      // ONE PAGE, filtered by the database.
+      //
+      // This used to loop 1,000-row pages until the table was exhausted — a
+      // fix for the silent PostgREST cap that made the tab show only the
+      // newest 1,000 of 2,592 rows (David 2026-09-08: "the 1 live one isnt
+      // even showing up in products" — it sat at row 1,523). The cap bug is
+      // still fixed here, just properly: the filters that used to run in the
+      // browser now run in SQL, so the row you are looking for is found by the
+      // query instead of by a scan of everything that was downloaded.
+      const from = productPage * PRODUCTS_PAGE_SIZE
+      let query = supabase
+        .from('products')
+        .select(PRODUCT_COLUMNS, { count: 'exact' })
+        .or(NOT_A_LIBRARY_DRAFT)
+        // Most recently CHANGED first, not most recently created. An
+        // imported design carries the date it was imported, so a design
+        // finished in the Step Flow today sorted as if it were months old:
+        // "Resting Witch Face" was published 2026-09-08 but created
+        // 2026-07-06, which put it at row 170 — page 4 of a 50-row table —
+        // the moment David went looking for it (2026-09-08: "why isnt that
+        // 1 in products??"). By updated_at it is row 0. Finishing a build
+        // should put it at the top, which is where you go looking for it.
+        // nullsFirst:false because Postgres sorts NULLs FIRST on DESC, which
+        // would float any never-touched row above everything real.
+        .order('updated_at', { ascending: false, nullsFirst: false })
+        .range(from, from + PRODUCTS_PAGE_SIZE - 1)
+
+      if (productCollectionFilter === '__none__') {
+        query = query.is('metadata->>collection', null)
+      } else if (productCollectionFilter !== 'all') {
+        query = query.eq('metadata->>collection', productCollectionFilter)
       }
+
+      // 'in_flow' is not a products.status value — it is "part-way through the
+      // Step Flow", the same signal the Designs grid uses to take a design out
+      // of the to-do pile (backend/services/step-flow/progress.ts). Surfaced
+      // here so a build David started is findable under Products, which is
+      // where he expects it to land once it leaves Designs.
+      if (productStatusFilter === 'in_flow') {
+        query = query.not('metadata->step_flow->approvals->design', 'is', null).neq('status', 'active')
+      } else if (productStatusFilter === 'from_flow') {
+        // Everything that came OUT of the Step Flow — the finished builds.
+        // "Where is the thing I just made" deserves an answer that does not
+        // depend on remembering its name.
+        query = query.not('metadata->step_flow->approvals->design', 'is', null)
+      } else if (productStatusFilter !== 'all') {
+        // products.status is NOT NULL with a 'draft' default, so an equality
+        // match needs no null branch.
+        query = query.eq('status', productStatusFilter)
+      }
+
+      if (debouncedProductSearch) {
+        // Commas and parens are PostgREST's own `or=` separators; a search for
+        // "Mug, Large" would otherwise be parsed as two broken filters.
+        const like = `%${debouncedProductSearch.replace(/[,()]/g, ' ')}%`
+        query = query.or(`name.ilike.${like},category.ilike.${like}`)
+      }
+
+      const { data, error, count } = await query
+      if (error) throw error
+      setProductTotal(count ?? 0)
 
       // Counted, not guessed, so the tab can say out loud where the rest are
       // instead of just appearing to be missing them.
@@ -848,21 +891,16 @@ const AdminDashboard: React.FC = () => {
 
       setProducts(mappedProducts as any)
 
-      // Fetch source images from product_assets for all products.
-      // Chunked: a single .in() with 2,700+ ids overflows the request URL.
+      // Source thumbnails for the rows actually on screen. This used to be
+      // chunked 200 ids at a time across the WHOLE catalog for a table that
+      // renders fifty of them.
       const productIds = mappedProducts.map(p => p.id)
       if (productIds.length > 0) {
-        let assetsData: any[] = []
-        let assetsError: any = null
-        for (let i = 0; i < productIds.length; i += 200) {
-          const { data: chunk, error: chunkError } = await supabase
-            .from('product_assets')
-            .select('product_id, url, path')
-            .in('product_id', productIds.slice(i, i + 200))
-            .eq('kind', 'source')
-          if (chunkError) { assetsError = chunkError; break }
-          if (chunk) assetsData = assetsData.concat(chunk)
-        }
+        const { data: assetsData, error: assetsError } = await supabase
+          .from('product_assets')
+          .select('product_id, url, path')
+          .in('product_id', productIds)
+          .eq('kind', 'source')
 
         if (!assetsError && assetsData) {
           const assetsMap: Record<string, { url: string, path: string }> = {}
@@ -872,13 +910,62 @@ const AdminDashboard: React.FC = () => {
               path: asset.path
             }
           })
-          setProductAssets(assetsMap)
+          // Merged, not replaced: paging back to a previous page should not
+          // have to re-fetch thumbnails it already holds.
+          setProductAssets(prev => ({ ...prev, ...assetsMap }))
         }
       }
     } catch (error) {
       console.error('Error loading products:', error)
+    } finally {
+      setProductsBusy(false)
     }
-  }
+    // PRODUCT_COLUMNS / NOT_A_LIBRARY_DRAFT are literal constants rebuilt each
+    // render — listing them here would change the callback identity every pass
+    // and spin the effect below forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productPage, productCollectionFilter, productStatusFilter, debouncedProductSearch])
+
+  // Re-run whenever the page or a filter changes.
+  useEffect(() => { void loadProducts() }, [loadProducts])
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedProductSearch(productSearch.trim()), 350)
+    return () => clearTimeout(id)
+  }, [productSearch])
+
+  // Collection facet list. One narrow column, explicitly paged — the dropdown
+  // has to offer every collection in the catalog, not just the ones that made
+  // it onto the current page, and this is the only read here that is not
+  // page-scoped. Capped so a runaway catalog cannot turn it back into the
+  // full-table scan this tab just lost.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const counts = new Map<string, number>()
+      for (let from = 0, guard = 0; guard < 10; from += 1000, guard++) {
+        const { data, error } = await supabase
+          .from('products')
+          .select('collection:metadata->>collection')
+          .or(NOT_A_LIBRARY_DRAFT)
+          .range(from, from + 999)
+        if (error) {
+          console.error('Error loading product collections:', error)
+          return
+        }
+        for (const row of (data || []) as any[]) {
+          const c = row.collection
+          if (c) counts.set(c, (counts.get(c) || 0) + 1)
+        }
+        if (!data || data.length < 1000) break
+      }
+      if (!cancelled) {
+        setProductCollections([...counts.entries()].sort((a, b) => a[0].localeCompare(b[0])))
+      }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // ITC Pricing functions
   const loadItcPricing = async () => {
@@ -1402,8 +1489,10 @@ const AdminDashboard: React.FC = () => {
   }
 
   const toggleAllProducts = () => {
-    // Select-all operates on the FILTERED set so bulk publish/delete can't
-    // silently touch products hidden by the current collection/status filter.
+    // Select-all operates on the rows ON SCREEN. With the table server-paged,
+    // "all" can no longer mean every matching row in the database — a bulk
+    // delete that reached past the page you are looking at would be the worst
+    // possible surprise, so the checkbox is scoped to what you can see.
     if (selectedProducts.size === filteredProducts.length) {
       setSelectedProducts(new Set())
     } else {
@@ -1828,23 +1917,46 @@ const AdminDashboard: React.FC = () => {
     }
   }
 
-  // Load real data from database
+  // Load real data from database. Users, vendor submissions and models each
+  // have their own paged effect — this one carries the reads that are not
+  // page-scoped.
   useEffect(() => {
-    loadUsersData()
-    loadVendorProductsData()
-    loadModelsData()
     loadAuditLogsData()
+    ;(async () => {
+      const [vendors, models3d] = await Promise.all([
+        supabase.from('products').select('id', { count: 'exact', head: true })
+          .not('vendor_id', 'is', null).not('approved', 'is', true),
+        supabase.from('three_d_models').select('id', { count: 'exact', head: true })
+          .not('approved', 'is', true)
+      ])
+      setVendorPending(vendors.count ?? 0)
+      setModelPending(models3d.count ?? 0)
+    })()
   }, [user?.id])
 
-  const loadUsersData = async () => {
+  const loadUsersData = React.useCallback(async () => {
+    setUsersBusy(true)
     try {
-      // Fetch profiles first
-      const { data: profileData, error: profileError } = await supabase
+      // ONE PAGE of profiles, with only the columns this table renders.
+      // `select('*')` here meant ~50 columns — addresses, preferences, social
+      // links, metadata — for every account on the store, to draw six of them.
+      const from = (userPage - 1) * USERS_PAGE_SIZE
+      let profileQuery = supabase
         .from('user_profiles')
-        .select('*')
+        .select('id, email, role, first_name, last_name, stripe_account_id, created_at', { count: 'exact' })
         .order('created_at', { ascending: false })
+        .range(from, from + USERS_PAGE_SIZE - 1)
+
+      if (userRoleFilter !== 'all') profileQuery = profileQuery.eq('role', userRoleFilter)
+      if (debouncedUserSearch) {
+        const like = `%${debouncedUserSearch.replace(/[,()]/g, ' ')}%`
+        profileQuery = profileQuery.or(`email.ilike.${like},first_name.ilike.${like},last_name.ilike.${like}`)
+      }
+
+      const { data: profileData, error: profileError, count } = await profileQuery
 
       if (profileError) throw profileError
+      setUserTotal(count ?? 0)
 
       // Fetch wallets separately to avoid FK join issues
       const userIds = profileData?.map(u => u.id) || []
@@ -1874,10 +1986,77 @@ const AdminDashboard: React.FC = () => {
       }))
 
       setUsers(mappedUsers)
+      // Feed the shared directory so other tabs can name these people without
+      // a second lookup.
+      setUserDirectory(prev => {
+        const next = { ...prev }
+        for (const u of mappedUsers) {
+          next[u.id] = { email: u.email, firstName: u.firstName || '', lastName: u.lastName || '', role: u.role }
+        }
+        return next
+      })
     } catch (error) {
       console.error('Error loading users:', error)
+    } finally {
+      setUsersBusy(false)
     }
-  }
+  }, [userPage, userRoleFilter, debouncedUserSearch])
+
+  useEffect(() => { void loadUsersData() }, [loadUsersData])
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedUserSearch(userSearch.trim()), 350)
+    return () => clearTimeout(id)
+  }, [userSearch])
+
+  useEffect(() => { setUserPage(1) }, [debouncedUserSearch, userRoleFilter])
+
+  // Whole-table role counts for the chips. `head: true` transfers no rows, so
+  // eight counts cost less than the single `select('*')` this tab used to run.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const roles = ASSIGNABLE_ROLES.map(r => r.value)
+      const results = await Promise.all(
+        roles.map(role =>
+          supabase.from('user_profiles').select('id', { count: 'exact', head: true }).eq('role', role)
+        )
+      )
+      if (cancelled) return
+      const totals: Record<string, number> = {}
+      roles.forEach((role, i) => { totals[role] = results[i].count ?? 0 })
+      setRoleTotals(totals)
+    })()
+    return () => { cancelled = true }
+  }, [user?.id])
+
+  /**
+   * Resolves display names for user ids referenced outside the Users tab.
+   * Only fetches ids the directory does not already hold, and only the columns
+   * that get rendered.
+   */
+  const ensureUserDirectory = React.useCallback(async (ids: Array<string | null | undefined>) => {
+    const missing = Array.from(new Set(ids.filter((id): id is string => !!id)))
+      .filter(id => !userDirectory[id])
+    if (missing.length === 0) return
+    const { data, error } = await supabase
+      .from('user_profiles')
+      .select('id, email, first_name, last_name, role')
+      .in('id', missing.slice(0, 200))
+    if (error || !data) return
+    setUserDirectory(prev => {
+      const next = { ...prev }
+      for (const p of data as any[]) {
+        next[p.id] = {
+          email: p.email || '',
+          firstName: p.first_name || '',
+          lastName: p.last_name || '',
+          role: p.role || 'customer'
+        }
+      }
+      return next
+    })
+  }, [userDirectory])
 
   // Vendor submissions land in public.products with vendor_id set — that is what
   // VendorDashboard.tsx actually writes (both "Add to store" and the submit
@@ -1886,15 +2065,24 @@ const AdminDashboard: React.FC = () => {
   // admin could never see (let alone approve) a real submission. That table was
   // dropped by 20260819210000_drop_vendor_products.sql having never held a row;
   // `products` is now the single source for this tab.
-  const loadVendorProductsData = async () => {
+  const loadVendorProductsData = React.useCallback(async () => {
+    setVendorBusy(true)
     try {
-      const { data, error } = await supabase
+      // Paged and column-narrowed. `select('*')` on `products` drags the whole
+      // metadata blob — Step Flow state, QA reviews, promo history — per row.
+      const from = (vendorPage - 1) * VENDOR_PAGE_SIZE
+      const { data, error, count } = await supabase
         .from('products')
-        .select('*')
+        .select(
+          'id, vendor_id, name, description, price, images, category, approved, created_at, product_type, digital_price, file_url, status',
+          { count: 'exact' }
+        )
         .not('vendor_id', 'is', null)
         .order('created_at', { ascending: false })
+        .range(from, from + VENDOR_PAGE_SIZE - 1)
 
       if (error) throw error
+      setVendorTotal(count ?? 0)
 
       const submissions: VendorSubmission[] = (data || []).map((p: any) => ({
         id: p.id,
@@ -1916,19 +2104,33 @@ const AdminDashboard: React.FC = () => {
       }))
 
       setVendorProducts(submissions)
+      void ensureUserDirectory(submissions.map(s => s.vendorId))
     } catch (error) {
       console.error('Error loading vendor products:', error)
+    } finally {
+      setVendorBusy(false)
     }
-  }
+    // ensureUserDirectory changes identity as the directory fills; including it
+    // would re-run this fetch every time a name is resolved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vendorPage])
 
-  const loadModelsData = async () => {
+  useEffect(() => { void loadVendorProductsData() }, [loadVendorProductsData])
+
+  const loadModelsData = React.useCallback(async () => {
+    setModelsBusy(true)
     try {
-      const { data, error } = await supabase
+      const from = (modelPage - 1) * MODELS_PAGE_SIZE
+      const { data, error, count } = await supabase
         .from('three_d_models')
-        .select('*')
+        .select('id, title, description, file_url, category, uploaded_by, approved, votes, points, created_at, file_type', {
+          count: 'exact'
+        })
         .order('created_at', { ascending: false })
+        .range(from, from + MODELS_PAGE_SIZE - 1)
 
       if (error) throw error
+      setModelTotal(count ?? 0)
 
       const mappedModels: ThreeDModel[] = (data || []).map((m: any) => ({
         id: m.id,
@@ -1945,10 +2147,16 @@ const AdminDashboard: React.FC = () => {
       }))
 
       setModels(mappedModels)
+      void ensureUserDirectory(mappedModels.map(m => m.uploadedBy))
     } catch (error) {
       console.error('Error loading 3D models:', error)
+    } finally {
+      setModelsBusy(false)
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [modelPage])
+
+  useEffect(() => { void loadModelsData() }, [loadModelsData])
 
   const loadAuditLogsData = async () => {
     try {
@@ -1973,6 +2181,9 @@ const AdminDashboard: React.FC = () => {
       }))
 
       setAuditLogs(mappedAuditLogs)
+      // Names the actors on these 50 rows. Previously read off the full users
+      // array, which no longer exists.
+      void ensureUserDirectory(mappedAuditLogs.map(l => l.userId))
     } catch (error) {
       console.error('Error loading audit logs:', error)
     }
@@ -2484,14 +2695,14 @@ const AdminDashboard: React.FC = () => {
                     className="w-full text-left p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors border border-blue-100"
                   >
                     <div className="font-semibold text-blue-900">Review Vendor Products</div>
-                    <div className="text-sm text-blue-600">{vendorProducts.filter(p => !p.approved).length} pending approval</div>
+                    <div className="text-sm text-blue-600">{vendorPending} pending approval</div>
                   </button>
                   <button
                     onClick={() => setSelectedTab('models')}
                     className="w-full text-left p-4 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-100"
                   >
                     <div className="font-semibold text-emerald-900">Review 3D Models</div>
-                    <div className="text-sm text-emerald-600">{models.filter(m => !m.approved).length} pending approval</div>
+                    <div className="text-sm text-emerald-600">{modelPending} pending approval</div>
                   </button>
                   <button
                     onClick={() => setSelectedTab('users')}
@@ -2603,7 +2814,7 @@ const AdminDashboard: React.FC = () => {
                   {roleCounts.map(([role, count]) => (
                     <button
                       key={role}
-                      onClick={() => { setUserRoleFilter(userRoleFilter === role ? 'all' : role); setUserLimit(USERS_PAGE_SIZE) }}
+                      onClick={() => setUserRoleFilter(userRoleFilter === role ? 'all' : role)}
                       className={`px-3 py-1.5 text-xs font-semibold rounded-full transition-colors ${userRoleFilter === role
                         ? 'bg-purple-600 text-white'
                         : ROLE_BADGE_CLASS[role] || 'bg-slate-100 text-slate-600'
@@ -2626,13 +2837,13 @@ const AdminDashboard: React.FC = () => {
               <div className="flex flex-wrap items-center gap-2">
                 <input
                   value={userSearch}
-                  onChange={e => { setUserSearch(e.target.value); setUserLimit(USERS_PAGE_SIZE) }}
+                  onChange={e => setUserSearch(e.target.value)}
                   placeholder="Search by email or name…"
                   className="border border-slate-200 rounded-lg px-3 py-2 text-sm w-72"
                 />
                 <select
                   value={userRoleFilter}
-                  onChange={e => { setUserRoleFilter(e.target.value); setUserLimit(USERS_PAGE_SIZE) }}
+                  onChange={e => setUserRoleFilter(e.target.value)}
                   className="border border-slate-200 rounded-lg px-3 py-2 text-sm bg-white"
                 >
                   <option value="all">All roles</option>
@@ -2641,7 +2852,7 @@ const AdminDashboard: React.FC = () => {
                   ))}
                 </select>
                 <span className="text-sm text-slate-500">
-                  {filteredUsers.length} of {users.length} users
+                  {userTotal.toLocaleString()} {userTotal === 1 ? 'account' : 'accounts'} match
                 </span>
               </div>
             </div>
@@ -2658,7 +2869,7 @@ const AdminDashboard: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-slate-100">
-                  {filteredUsers.slice(0, userLimit).map((row) => (
+                  {filteredUsers.map((row) => (
                     <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm font-medium text-slate-900">
@@ -2741,16 +2952,14 @@ const AdminDashboard: React.FC = () => {
                 </tbody>
               </table>
             </div>
-            {filteredUsers.length > userLimit && (
-              <div className="px-6 py-4 border-t border-slate-200 text-center">
-                <button
-                  onClick={() => setUserLimit(l => l + USERS_PAGE_SIZE)}
-                  className="text-sm font-medium text-purple-600 hover:text-purple-700 hover:underline"
-                >
-                  Show {Math.min(USERS_PAGE_SIZE, filteredUsers.length - userLimit)} more
-                </button>
-              </div>
-            )}
+            <Pagination
+              page={userPage}
+              limit={USERS_PAGE_SIZE}
+              total={userTotal}
+              onPageChange={setUserPage}
+              busy={usersBusy}
+              label="accounts"
+            />
           </div>
         )}
 
@@ -2767,11 +2976,11 @@ const AdminDashboard: React.FC = () => {
                   </p>
                 </div>
                 <span className="px-3 py-1.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">
-                  {vendorProducts.filter(p => !p.approved).length} pending
+                  {vendorPending} pending
                 </span>
               </div>
             </div>
-            {vendorProducts.length === 0 ? (
+            {vendorTotal === 0 ? (
               <div className="px-6 py-12 text-center">
                 <p className="text-sm font-medium text-slate-700">No vendor submissions yet.</p>
                 <p className="text-sm text-slate-500 mt-1">
@@ -2782,7 +2991,7 @@ const AdminDashboard: React.FC = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
                 {vendorProducts.map((product) => {
-                  const vendor = users.find(u => u.id === product.vendorId)
+                  const vendor = product.vendorId ? userDirectory[product.vendorId] : undefined
                   const vendorName = [vendor?.firstName, vendor?.lastName].filter(Boolean).join(' ')
                   const isRejected = product.status === 'rejected'
                   return (
@@ -2843,6 +3052,14 @@ const AdminDashboard: React.FC = () => {
                 })}
               </div>
             )}
+            <Pagination
+              page={vendorPage}
+              limit={VENDOR_PAGE_SIZE}
+              total={vendorTotal}
+              onPageChange={setVendorPage}
+              busy={vendorBusy}
+              label="submissions"
+            />
           </div>
         )}
 
@@ -2900,7 +3117,7 @@ const AdminDashboard: React.FC = () => {
                   <option value="incomplete">Incomplete</option>
                 </select>
                 <span className="text-sm text-slate-500">
-                  {filteredProducts.length} of {products.length} products
+                  {productTotal.toLocaleString()} {productTotal === 1 ? 'product' : 'products'} match
                   {designLibraryHeldBack > 0 && (
                     <>
                       {' · '}
@@ -3314,30 +3531,16 @@ const AdminDashboard: React.FC = () => {
                 </tbody>
               </table>
             </div>
-            {filteredProducts.length > PRODUCTS_PAGE_SIZE && (
-              <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 text-sm text-slate-500">
-                <span>
-                  Showing {productPage * PRODUCTS_PAGE_SIZE + 1}–{Math.min((productPage + 1) * PRODUCTS_PAGE_SIZE, filteredProducts.length)} of {filteredProducts.length}
-                </span>
-                <div className="flex items-center gap-2">
-                  <button
-                    disabled={productPage === 0}
-                    onClick={() => setProductPage(p => Math.max(0, p - 1))}
-                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40"
-                  >
-                    ← Prev
-                  </button>
-                  <span>{productPage + 1} / {Math.ceil(filteredProducts.length / PRODUCTS_PAGE_SIZE)}</span>
-                  <button
-                    disabled={(productPage + 1) * PRODUCTS_PAGE_SIZE >= filteredProducts.length}
-                    onClick={() => setProductPage(p => p + 1)}
-                    className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 disabled:opacity-40"
-                  >
-                    Next →
-                  </button>
-                </div>
-              </div>
-            )}
+            {/* Server-paged: `productPage` is 0-indexed here, the shared
+                control is 1-indexed. */}
+            <Pagination
+              page={productPage + 1}
+              limit={PRODUCTS_PAGE_SIZE}
+              total={productTotal}
+              onPageChange={next => setProductPage(next - 1)}
+              busy={productsBusy}
+              label="products"
+            />
           </div>
         )
         }
@@ -3351,7 +3554,7 @@ const AdminDashboard: React.FC = () => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
                 {models.map((model) => {
-                  const uploader = users.find(u => u.id === model.uploadedBy)
+                  const uploader = model.uploadedBy ? userDirectory[model.uploadedBy] : undefined
                   return (
                     <div key={model.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
                       <div className="h-48 bg-slate-100 flex items-center justify-center">
@@ -3400,6 +3603,14 @@ const AdminDashboard: React.FC = () => {
                   )
                 })}
               </div>
+              <Pagination
+                page={modelPage}
+                limit={MODELS_PAGE_SIZE}
+                total={modelTotal}
+                onPageChange={setModelPage}
+                busy={modelsBusy}
+                label="models"
+              />
             </div>
           )
         }
@@ -3641,7 +3852,7 @@ const AdminDashboard: React.FC = () => {
                       </tr>
                     )}
                     {auditLogs.map((log) => {
-                      const logUser = users.find(u => u.id === log.userId)
+                      const logUser = log.userId ? userDirectory[log.userId] : undefined
                       return (
                         <tr key={log.id} className="hover:bg-slate-50 transition-colors">
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">

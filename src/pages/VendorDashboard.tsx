@@ -5,6 +5,7 @@ import { API_BASE } from '../lib/api'
 import type { VendorProduct, Product } from '../types'
 import { CreatorAnalytics } from '../components/CreatorAnalytics'
 import { useToast } from '../hooks/useToast'
+import { Pagination } from '../components/Pagination'
 import { STOREFRONT_CATEGORIES } from '../lib/product-kind'
 
 const VendorDashboard: React.FC = () => {
@@ -35,6 +36,18 @@ const VendorDashboard: React.FC = () => {
   const [catalogProducts, setCatalogProducts] = useState<Product[]>([])
   const [selectedTab, setSelectedTab] = useState<'products' | 'catalog' | 'submit' | 'creator' | 'analytics' | 'payouts'>('products')
   const [isLoadingCatalog, setIsLoadingCatalog] = useState(false)
+
+  // Both product grids used to be unbounded `select('*')` reads. The catalog
+  // one is the expensive half: it is the store's ENTIRE active catalogue (128
+  // rows today, 2,600 if the design-library drafts ever go live), pulled with
+  // every column including the metadata blob, to render a grid of cards.
+  const PAGE_SIZE = 24
+  const [productPage, setProductPage] = useState(1)
+  const [productTotal, setProductTotal] = useState(0)
+  const [productsBusy, setProductsBusy] = useState(false)
+  const [approvedCount, setApprovedCount] = useState(0)
+  const [catalogPage, setCatalogPage] = useState(1)
+  const [catalogTotal, setCatalogTotal] = useState(0)
 
   // Enhanced state for 3D Marketplace
   const [newProduct, setNewProduct] = useState({
@@ -82,16 +95,32 @@ const VendorDashboard: React.FC = () => {
     loadAnalytics()
   }, [user?.id])
 
-  const loadVendorProducts = async () => {
+  const loadVendorProducts = React.useCallback(async () => {
     if (!user) return
+    setProductsBusy(true)
     try {
-      const { data, error } = await supabase
+      const from = (productPage - 1) * PAGE_SIZE
+      const { data, error, count } = await supabase
         .from('products')
-        .select('*')
+        .select(
+          'id, vendor_id, name, description, price, digital_price, images, category, approved, created_at, product_type, file_url',
+          { count: 'exact' }
+        )
         .eq('vendor_id', user.id)
         .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
 
       if (error) throw error
+      setProductTotal(count ?? 0)
+
+      // Whole-store count for the analytics tiles, which must not shrink when
+      // you turn a page.
+      const { count: approved } = await supabase
+        .from('products')
+        .select('id', { count: 'exact', head: true })
+        .eq('vendor_id', user.id)
+        .eq('approved', true)
+      setApprovedCount(approved ?? 0)
 
       const mappedProducts: VendorProduct[] = (data || []).map((p: any) => ({
         id: p.id,
@@ -114,29 +143,33 @@ const VendorDashboard: React.FC = () => {
       setProducts(mappedProducts)
     } catch (error) {
       console.error('Error loading vendor products:', error)
+    } finally {
+      setProductsBusy(false)
     }
-  }
+    // user?.id, not `user` — the auth context hands back a fresh object on
+    // every render, so depending on the object itself would refetch forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, productPage])
 
   useEffect(() => {
-    loadVendorProducts()
-  }, [user?.id])
+    void loadVendorProducts()
+  }, [loadVendorProducts])
 
-  useEffect(() => {
-    if (selectedTab === 'catalog') {
-      loadCatalogProducts()
-    }
-  }, [selectedTab])
-
-  const loadCatalogProducts = async () => {
+  const loadCatalogProducts = React.useCallback(async () => {
     try {
       setIsLoadingCatalog(true)
-      const { data, error } = await supabase
+      const from = (catalogPage - 1) * PAGE_SIZE
+      const { data, error, count } = await supabase
         .from('products')
-        .select('*')
+        .select('id, name, description, price, images, category, is_active, created_at, updated_at, metadata, print_locations', {
+          count: 'exact'
+        })
         .eq('is_active', true)
         .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
 
       if (error) throw error
+      setCatalogTotal(count ?? 0)
 
       const mappedProducts: Product[] = (data || []).map((p: any) => ({
         id: p.id,
@@ -161,7 +194,13 @@ const VendorDashboard: React.FC = () => {
     } finally {
       setIsLoadingCatalog(false)
     }
-  }
+  }, [catalogPage])
+
+  useEffect(() => {
+    if (selectedTab === 'catalog') {
+      void loadCatalogProducts()
+    }
+  }, [selectedTab, loadCatalogProducts])
 
   const handleAddToStore = async (product: Product) => {
     if (!user) return
@@ -562,7 +601,7 @@ const VendorDashboard: React.FC = () => {
             </button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-            {products.length === 0 ? (
+            {productTotal === 0 ? (
               <div className="col-span-full text-center py-12">
                 <p className="text-muted mb-4">You haven't added any products yet.</p>
                 <button
@@ -628,6 +667,14 @@ const VendorDashboard: React.FC = () => {
               ))
             )}
           </div>
+          <Pagination
+            page={productPage}
+            limit={PAGE_SIZE}
+            total={productTotal}
+            onPageChange={setProductPage}
+            busy={productsBusy}
+            label="products"
+          />
         </div>
       )}
 
@@ -675,6 +722,14 @@ const VendorDashboard: React.FC = () => {
               ))}
             </div>
           )}
+          <Pagination
+            page={catalogPage}
+            limit={PAGE_SIZE}
+            total={catalogTotal}
+            onPageChange={setCatalogPage}
+            busy={isLoadingCatalog}
+            label="catalog products"
+          />
         </div>
       )}
 
@@ -877,7 +932,7 @@ const VendorDashboard: React.FC = () => {
               <div className="bg-gradient-to-r from-purple-400 to-pink-500 rounded-lg p-6 text-white shadow-lg">
                 <h4 className="text-lg font-semibold mb-2">Products Sold</h4>
                 <p className="text-3xl font-bold">47</p>
-                <p className="text-sm opacity-90">Across {products.filter(p => p.approved).length} products</p>
+                <p className="text-sm opacity-90">Across {approvedCount} products</p>
               </div>
             </div>
 

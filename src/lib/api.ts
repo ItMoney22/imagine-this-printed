@@ -1766,6 +1766,121 @@ export const adminApi = {
     api.post('/api/admin/imagination-pricing/reset'),
 };
 
+// ---------------------------------------------------------------------------
+// CRM (Watchtower task 582e38ea).
+//
+// The CRM page no longer reads `user_profiles` or `orders` from the browser.
+// Customer money is a SQL GROUP BY over the whole orders table — it cannot be
+// approximated from a page of rows without lying about someone's lifetime
+// spend — so it is computed by backend/routes/admin/crm.ts and read from here.
+// ---------------------------------------------------------------------------
+export interface CrmCustomer {
+  id: string
+  email: string
+  name: string
+  phone: string
+  company: string
+  role: string
+  registrationDate: string | null
+  totalSpent: number
+  totalOrders: number
+  lastOrderDate: string | null
+}
+
+export interface CrmCustomersPage {
+  customers: CrmCustomer[]
+  total: number
+  page: number
+  limit: number
+  sort: string
+  /** 'fallback' when the API is running ahead of the DB migration. */
+  mode: 'aggregate' | 'fallback'
+}
+
+export interface CrmTotals {
+  customers: number
+  paidOrders: number
+  unpaidDrafts: number
+  pendingOrders: number
+  /** null when the aggregate is unavailable — never fake a revenue number. */
+  revenue: number | null
+  mode: 'aggregate' | 'fallback'
+}
+
+export interface CrmOrder {
+  id: string
+  orderNumber: string | null
+  userId: string | null
+  customerName: string
+  customerEmail: string
+  status: string
+  paymentStatus: string | null
+  everPaid: boolean
+  total: number
+  trackingNumber?: string
+  shippingLabelUrl?: string
+  estimatedDelivery?: string
+  shippingAddress: Record<string, any>
+  customerNotes?: string
+  internalNotes?: string
+  createdAt: string
+  items: Array<{ name: string; quantity: number; unitPrice: number }>
+}
+
+export interface CrmOrdersPage {
+  orders: CrmOrder[]
+  total: number
+  page: number
+  limit: number
+}
+
+export interface CrmSegments {
+  segments: Array<{ role: string; customers: number }>
+  topCustomers: Array<{ id: string; name: string; totalSpent: number }>
+  mode: 'aggregate' | 'fallback'
+}
+
+export const crmApi = {
+  customers: (params: {
+    page?: number
+    limit?: number
+    search?: string
+    role?: string
+    sort?: 'recent' | 'spend' | 'orders' | 'last_order' | 'name'
+  } = {}): Promise<CrmCustomersPage> =>
+    api.get('/api/admin/crm/customers', { params: prune(params) }).then(r => r.data),
+
+  totals: (): Promise<CrmTotals> => api.get('/api/admin/crm/totals').then(r => r.data),
+
+  segments: (): Promise<CrmSegments> => api.get('/api/admin/crm/segments').then(r => r.data),
+
+  orders: (params: {
+    page?: number
+    limit?: number
+    status?: string
+    search?: string
+    start?: string
+    end?: string
+    userId?: string
+    paidOnly?: boolean
+  } = {}): Promise<CrmOrdersPage> =>
+    api.get('/api/admin/crm/orders', { params: prune(params) }).then(r => r.data)
+}
+
+/**
+ * Drops empty/undefined params. `api.get` stringifies every value it is given,
+ * so an undefined filter would otherwise travel as the literal "undefined" and
+ * the server would filter on it.
+ */
+function prune(params: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = {}
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue
+    out[key] = value
+  }
+  return out
+}
+
 
 
 // ---------------------------------------------------------------------------

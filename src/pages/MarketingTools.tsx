@@ -1,14 +1,37 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
+import { Pagination } from '../components/Pagination'
 import type { MarketingCampaign, Product } from '../types'
+
+// Both lists here were unbounded `select('*')` reads (Watchtower task
+// 582e38ea). Products is the one that hurts: it pulled every ACTIVE product on
+// the store, with every column, to populate a picker.
+const PAGE_SIZE = 24
+
+// Ceiling on the product-feed export, which is the one place that legitimately
+// wants every active product. It walks the same paged query rather than
+// re-opening the full-table fetch.
+const FEED_MAX_ROWS = 5000
+
+// Only the columns the picker and the export actually read.
+const PRODUCT_COLUMNS = 'id, name, description, price, images, category, is_active, created_at'
 
 const MarketingTools: React.FC = () => {
   const { user } = useAuth()
   const [selectedTab, setSelectedTab] = useState<'campaigns' | 'create' | 'content' | 'analytics' | 'feeds'>('campaigns')
   const [campaigns, setCampaigns] = useState<MarketingCampaign[]>([])
+  const [campaignPage, setCampaignPage] = useState(1)
+  const [campaignTotal, setCampaignTotal] = useState(0)
+  const [campaignsBusy, setCampaignsBusy] = useState(false)
   const [products, setProducts] = useState<Product[]>([])
+  const [productPage, setProductPage] = useState(1)
+  const [productTotal, setProductTotal] = useState(0)
+  const [productsBusy, setProductsBusy] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState('')
+  const [exportingFeed, setExportingFeed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [newCampaign, setNewCampaign] = useState({
@@ -37,46 +60,80 @@ const MarketingTools: React.FC = () => {
   const totalClicks = useMemo(() => campaigns.reduce((sum, c) => sum + (c.metrics?.clicks || 0), 0), [campaigns])
   const totalSpend = useMemo(() => campaigns.reduce((sum, c) => sum + (c.metrics?.spend || 0), 0), [campaigns])
 
-  // Fetch real data from Supabase
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true)
-      setError(null)
+    const id = setTimeout(() => setDebouncedProductSearch(productSearch.trim()), 350)
+    return () => clearTimeout(id)
+  }, [productSearch])
 
-      try {
-        // Fetch real products (active products available for marketing)
-        const { data: productsData, error: productsError } = await supabase
-          .from('products')
-          .select('*')
-          .eq('status', 'active')
-          .eq('is_active', true)
-          .order('created_at', { ascending: false })
+  useEffect(() => { setProductPage(1) }, [debouncedProductSearch])
 
-        if (productsError) throw productsError
+  /** One page of active products, filtered by the database. */
+  const fetchProductPage = useCallback(async (page: number) => {
+    const from = (page - 1) * PAGE_SIZE
+    let query = supabase
+      .from('products')
+      .select(PRODUCT_COLUMNS, { count: 'exact' })
+      .eq('status', 'active')
+      .eq('is_active', true)
+      .order('created_at', { ascending: false })
+      .range(from, from + PAGE_SIZE - 1)
 
-        // Fetch marketing campaigns
-        const { data: campaignsData, error: campaignsError } = await supabase
-          .from('marketing_campaigns')
-          .select('*')
-          .order('created_at', { ascending: false })
-
-        // If marketing_campaigns table doesn't exist, use empty array
-        if (campaignsError && campaignsError.code !== 'PGRST116') {
-          console.warn('Marketing campaigns table may not exist:', campaignsError)
-        }
-
-        setProducts(productsData || [])
-        setCampaigns(campaignsData || [])
-      } catch (err: any) {
-        console.error('Error fetching data:', err)
-        setError(err.message)
-      } finally {
-        setLoading(false)
-      }
+    if (debouncedProductSearch) {
+      // Commas and parens are PostgREST's own or= separators.
+      const like = '%' + debouncedProductSearch.replace(/[,()]/g, ' ') + '%'
+      query = query.or('name.ilike.' + like + ',category.ilike.' + like)
     }
 
-    fetchData()
-  }, [])
+    const { data, error: queryError, count } = await query
+    if (queryError) throw queryError
+    return { rows: (data || []) as unknown as Product[], total: count ?? 0 }
+  }, [debouncedProductSearch])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setProductsBusy(true)
+      try {
+        const { rows, total } = await fetchProductPage(productPage)
+        if (cancelled) return
+        setProducts(rows)
+        setProductTotal(total)
+        setError(null)
+      } catch (err: any) {
+        if (!cancelled) {
+          console.error('Error fetching products:', err)
+          setError(err.message)
+        }
+      } finally {
+        if (!cancelled) { setProductsBusy(false); setLoading(false) }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [fetchProductPage, productPage])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setCampaignsBusy(true)
+      const from = (campaignPage - 1) * PAGE_SIZE
+      const { data, error: campaignsError, count } = await supabase
+        .from('marketing_campaigns')
+        .select('*', { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
+
+      if (cancelled) return
+      // The table may not exist on this database - an empty campaigns tab is
+      // the right outcome, not a dead page.
+      if (campaignsError && campaignsError.code !== 'PGRST116') {
+        console.warn('Marketing campaigns table may not exist:', campaignsError)
+      }
+      setCampaigns(data || [])
+      setCampaignTotal(count ?? 0)
+      setCampaignsBusy(false)
+    })()
+    return () => { cancelled = true }
+  }, [campaignPage])
 
   const generateContent = async () => {
     setContentGeneration(prev => ({ ...prev, isGenerating: true }))
@@ -178,8 +235,28 @@ const MarketingTools: React.FC = () => {
     }
   }
 
-  const exportProductFeed = (format: 'google' | 'facebook') => {
-    const feedData = products.map(product => ({
+  const exportProductFeed = async (format: 'google' | 'facebook') => {
+    if (exportingFeed) return
+    setExportingFeed(true)
+    const feedRows: Product[] = []
+    try {
+      // Walks the paged query. The feed is the one caller that genuinely wants
+      // every active product, so it asks for them explicitly and stops at a
+      // stated ceiling instead of re-introducing the unbounded fetch.
+      for (let page = 1; ; page++) {
+        const { rows, total } = await fetchProductPage(page)
+        feedRows.push(...rows)
+        if (rows.length < PAGE_SIZE || feedRows.length >= Math.min(total, FEED_MAX_ROWS)) break
+      }
+    } catch (err: any) {
+      console.error('Error building product feed:', err)
+      setError(err.message)
+      return
+    } finally {
+      setExportingFeed(false)
+    }
+
+    const feedData = feedRows.map(product => ({
       id: product.id,
       title: product.name,
       description: product.description,
@@ -276,7 +353,7 @@ const MarketingTools: React.FC = () => {
             <div className="flex flex-wrap gap-3">
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Campaigns</span>
-                <p className="text-white text-xl font-bold">{campaigns.length}</p>
+                <p className="text-white text-xl font-bold">{campaignTotal}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Active</span>
@@ -284,7 +361,7 @@ const MarketingTools: React.FC = () => {
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Products</span>
-                <p className="text-white text-xl font-bold">{products.length}</p>
+                <p className="text-white text-xl font-bold">{productTotal}</p>
               </div>
             </div>
           </div>
@@ -377,7 +454,7 @@ const MarketingTools: React.FC = () => {
         {/* Campaigns Tab */}
         {selectedTab === 'campaigns' && (
           <div className="space-y-6">
-            {campaigns.length === 0 ? (
+            {campaignTotal === 0 ? (
               <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-12 text-center">
                 <svg className="w-16 h-16 text-muted mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -458,6 +535,14 @@ const MarketingTools: React.FC = () => {
                 </div>
               ))
             )}
+            <Pagination
+              page={campaignPage}
+              limit={PAGE_SIZE}
+              total={campaignTotal}
+              onPageChange={setCampaignPage}
+              busy={campaignsBusy}
+              label="campaigns"
+            />
           </div>
         )}
 
@@ -507,6 +592,17 @@ const MarketingTools: React.FC = () => {
 
               <div>
                 <label className="block text-sm font-medium text-text mb-2">Target Products</label>
+                {/* The picker shows one page of active products. Search runs in
+                    the database, so a product that is not on this page is still
+                    findable — which the old full-table fetch only managed by
+                    downloading the entire catalogue first. */}
+                <input
+                  type="text"
+                  value={productSearch}
+                  onChange={(e) => setProductSearch(e.target.value)}
+                  placeholder="Search products by name or category…"
+                  className="w-full mb-3 px-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-text"
+                />
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {products.map((product) => (
                     <label key={product.id} className="flex items-center p-3 border border-purple-500/20 rounded-xl hover:bg-purple-50 dark:hover:bg-purple-900/10 cursor-pointer transition-colors">
@@ -537,7 +633,23 @@ const MarketingTools: React.FC = () => {
                       </div>
                     </label>
                   ))}
+                  {products.length === 0 && !productsBusy && (
+                    <p className="col-span-full text-sm text-muted py-4">No active products match that search.</p>
+                  )}
                 </div>
+                <Pagination
+                  page={productPage}
+                  limit={PAGE_SIZE}
+                  total={productTotal}
+                  onPageChange={setProductPage}
+                  busy={productsBusy}
+                  label="active products"
+                />
+                {newCampaign.targetProducts.length > 0 && (
+                  <p className="text-xs text-muted mt-2">
+                    {newCampaign.targetProducts.length} selected. Selections are kept while you page and search.
+                  </p>
+                )}
               </div>
 
               <button
@@ -560,6 +672,13 @@ const MarketingTools: React.FC = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                 <div>
                   <label className="block text-sm font-medium text-text mb-2">Select Product</label>
+                  <input
+                    type="text"
+                    value={productSearch}
+                    onChange={(e) => setProductSearch(e.target.value)}
+                    placeholder="Search products…"
+                    className="w-full mb-2 px-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-text"
+                  />
                   <select
                     value={contentGeneration.productId}
                     onChange={(e) => setContentGeneration(prev => ({ ...prev, productId: e.target.value }))}
@@ -570,6 +689,11 @@ const MarketingTools: React.FC = () => {
                       <option key={product.id} value={product.id}>{product.name}</option>
                     ))}
                   </select>
+                  {productTotal > products.length && (
+                    <p className="text-xs text-muted mt-1">
+                      Showing {products.length} of {productTotal} active products — search to narrow the list.
+                    </p>
+                  )}
                 </div>
 
                 <div>
