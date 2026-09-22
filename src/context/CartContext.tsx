@@ -6,6 +6,7 @@ import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
+import { personalizationUpchargeDollars } from '../../backend/shared/team-template'
 
 interface CartState {
   items: CartItem[]
@@ -228,7 +229,19 @@ const calculateTotal = (items: CartItem[]): number => {
   // Comfort Colors). Per unit; mirrors GARMENT_TIER_UPCHARGE_CENTS server-side.
   const tierTotal = items.reduce((sum, item) => sum + (isBlankLine(item) ? 0 : garmentTierUpcharge(item.selectedTier)) * item.quantity, 0)
 
-  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal + tierTotal
+  // Personalizing a team shirt (products.metadata.team_template.upcharge). Per
+  // unit, and shown to the customer next to the name box on the product page —
+  // which is exactly why it has to be in this total: the server charges it
+  // from the product row (backend/services/order-pricing.ts
+  // fetchPersonalizationUpcharges) and checkout refuses a client total that
+  // disagrees by more than a cent. It was displayed and never charged until
+  // 2026-09-22.
+  const personalizationTotal = items.reduce(
+    (sum, item) => sum + personalizationUpchargeDollars(item.product?.metadata) * item.quantity,
+    0
+  )
+
+  return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal + tierTotal + personalizationTotal
 }
 
 const cartReducer = (state: CartState, action: CartAction): CartState => {

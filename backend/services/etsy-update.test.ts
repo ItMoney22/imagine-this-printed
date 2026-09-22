@@ -45,7 +45,7 @@ vi.mock('../lib/supabase.js', () => {
   return { supabase: { from: (t: string) => builder(t) } }
 })
 
-const { updateEtsyListing, resolveListingCopy } = await import('./etsy.js')
+const { updateEtsyListing, resolveListingCopy, personalizationFieldsFor } = await import('./etsy.js')
 
 // --- Etsy stub -------------------------------------------------------------
 type Call = { method: string; path: string; body: any }
@@ -181,7 +181,7 @@ describe('updateEtsyListing', () => {
     const r = await updateEtsyListing('p1', { dryRun: true })
     expect(r.ok).toBe(true)
     expect(r.dryRun).toBe(true)
-    expect(r.updated).toEqual({ copy: false, variations: false })
+    expect(r.updated).toEqual({ copy: false, variations: false, personalization: false })
     expect(r.prices!['2XL']).toBe(27.5)
     expect(r.prices!['Youth M']).toBe(22)
     expect(calls.some(c => c.method === 'PUT' || c.method === 'PATCH')).toBe(false)
@@ -279,5 +279,99 @@ describe('resolveListingCopy — publish and update must derive copy identically
   it('never exceeds the title limit', () => {
     const long = { ...product, metadata: { etsy_pack: { title: 'x'.repeat(400) } } }
     expect(resolveListingCopy(long, 'primary').title.length).toBeLessThanOrEqual(140)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Personalization sync — David 2026-09-02: "we made a shirt for a football team
+// we should be able to let the customer change name jersey number etc ...
+// translate that to our Etsy store." An Etsy listing that does not carry
+// is_personalizable has no box for the buyer to type into, so the shirt sells
+// there with no name on it at all.
+// ---------------------------------------------------------------------------
+
+const TEAM_TEMPLATE = {
+  version: 1,
+  side: 'back_image',
+  plateAssetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  distressAssetId: null,
+  canvas: { w: 3600, h: 4800, dpi: 300 },
+  halftone: false,
+  upcharge: 5,
+  fields: [
+    {
+      key: 'name', label: 'Last name', type: 'text', max: 12, placeholder: 'SMITH', uppercase: true,
+      zone: { x: 220, y: 380, w: 3160, h: 900 }, arch: 18,
+      font: { family: 'collegiate-slab', src: 'house' }, fill: '#8C1D2D', strokes: [], offset: null
+    },
+    {
+      key: 'number', label: 'Number', type: 'number', max: 2, placeholder: '22', uppercase: false,
+      zone: { x: 900, y: 1500, w: 1800, h: 2400 }, arch: 0,
+      font: { family: 'varsity-block', src: 'house' }, fill: '#C9A227', strokes: [], offset: null
+    }
+  ]
+}
+
+const withTemplate = () => {
+  db.products = { ...db.products, metadata: { ...db.products.metadata, team_template: TEAM_TEMPLATE } }
+}
+
+describe('updateEtsyListing personalization', () => {
+  it('leaves a listing alone when the product has no team template', async () => {
+    const r = await updateEtsyListing('p1')
+    expect(r.updated.personalization).toBe(false)
+    expect(patch()).toBeUndefined()
+  })
+
+  it('pushes is_personalizable, the character cap and the instructions', async () => {
+    withTemplate()
+    const r = await updateEtsyListing('p1')
+    expect(r.updated.personalization).toBe(true)
+    const body = patch()!.body
+    expect(body.is_personalizable).toBe('true')
+    expect(body.personalization_is_required).toBe('true')
+    expect(Number(body.personalization_char_count_max)).toBeGreaterThan(0)
+    expect(body.personalization_instructions).toContain('Last name: SMITH')
+    expect(body.personalization_instructions).toContain('Number: 22')
+  })
+
+  it('rides along with the copy PATCH instead of spending a second call', async () => {
+    withTemplate()
+    await updateEtsyListing('p1', { copy: true })
+    const patches = calls.filter(c => c.method === 'PATCH')
+    expect(patches).toHaveLength(1)
+    expect(patches[0].body.title).toBeTruthy()
+    expect(patches[0].body.is_personalizable).toBe('true')
+  })
+
+  it('reports what it WOULD write on a dry run without writing it', async () => {
+    withTemplate()
+    const r = await updateEtsyListing('p1', { dryRun: true })
+    expect(r.personalization?.is_personalizable).toBe(true)
+    expect(r.updated.personalization).toBe(false)
+    expect(patch()).toBeUndefined()
+  })
+
+  it('can be switched off for a caller that only wants prices moved', async () => {
+    withTemplate()
+    const r = await updateEtsyListing('p1', { personalization: false })
+    expect(r.updated.personalization).toBe(false)
+    expect(patch()).toBeUndefined()
+  })
+})
+
+describe('personalizationFieldsFor', () => {
+  it('is null for a product with no template', () => {
+    expect(personalizationFieldsFor({ product_type: 'tshirt' }, 'primary')).toBeNull()
+  })
+
+  it('is null for the digital download tier — there is no press run to name', () => {
+    expect(personalizationFieldsFor({ team_template: TEAM_TEMPLATE }, 'download')).toBeNull()
+  })
+
+  it('derives the four Etsy fields from the template', () => {
+    const fields = personalizationFieldsFor({ team_template: TEAM_TEMPLATE }, 'primary')
+    expect(fields).toMatchObject({ is_personalizable: true, personalization_is_required: true })
+    expect(fields!.personalization_char_count_max).toBeLessThanOrEqual(1024)
   })
 })

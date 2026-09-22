@@ -27,6 +27,8 @@ interface Field {
   label: string
   type: 'text' | 'number'
   max: number
+  /** The example inside the empty box — storefront, Step Flow and Etsy alike. */
+  placeholder: string
   uppercase: boolean
   zone: Zone
   arch: number
@@ -43,6 +45,8 @@ interface Template {
   canvas: { w: number; h: number; dpi: number }
   halftone: boolean
   upcharge: number
+  /** Overrides the instruction line Etsy shows buyers. Null = derive it. */
+  instructions: string | null
   fields: Field[]
 }
 
@@ -113,6 +117,7 @@ const AdminTeamTemplates: React.FC = () => {
         label: s.guessedType === 'number' ? 'Number' : 'Last name',
         type: s.guessedType,
         max: s.guessedType === 'number' ? 2 : 12,
+        placeholder: s.guessedType === 'number' ? '00' : 'LAST NAME',
         uppercase: s.guessedType !== 'number',
         zone: s.zone,
         arch: s.guessedType === 'number' ? 0 : 16,
@@ -129,6 +134,7 @@ const AdminTeamTemplates: React.FC = () => {
         canvas: data.canvas,
         halftone: false,
         upcharge: 0,
+        instructions: null,
         fields,
       })
       setProofValues(
@@ -339,6 +345,15 @@ const AdminTeamTemplates: React.FC = () => {
                         />
                       </label>
                       <label>
+                        Example
+                        <input
+                          value={field.placeholder ?? ''}
+                          placeholder={field.type === 'number' ? '00' : 'LAST NAME'}
+                          onChange={(e) => patchField(i, { placeholder: e.target.value })}
+                          className="w-full rounded border border-primary/30 bg-bg px-2 py-1"
+                        />
+                      </label>
+                      <label>
                         Arch°
                         <input
                           type="number"
@@ -504,6 +519,21 @@ const AdminTeamTemplates: React.FC = () => {
                   value={template.upcharge}
                   onChange={(e) => setTemplate({ ...template, upcharge: Number(e.target.value) })}
                   className="w-20 rounded border border-primary/30 bg-bg px-2 py-1"
+                />
+              </label>
+              {/* Etsy gives a personalizable listing ONE free-text box and one
+                  line of instructions, so this line is everything a buyer
+                  there is told. Left blank it is derived from the fields
+                  (backend/shared/personalization-etsy.ts) — never sent empty. */}
+              <label className="w-full text-sm text-muted">
+                What Etsy buyers are told to type
+                <textarea
+                  rows={2}
+                  value={template.instructions ?? ''}
+                  placeholder="Leave blank to build it from the fields above"
+                  maxLength={255}
+                  onChange={(e) => setTemplate({ ...template, instructions: e.target.value.trim() ? e.target.value : null })}
+                  className="mt-1 w-full rounded border border-primary/30 bg-bg px-2 py-1 text-sm"
                 />
               </label>
             </div>

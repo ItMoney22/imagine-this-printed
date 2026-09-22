@@ -73,3 +73,14 @@ describe('isBundleEligible', () => {
     expect(isBundleEligible(undefined)).toBe(false)
   })
 })
+
+describe('isBundleEligible — personalized shirts', () => {
+  it('is false for a product carrying a team template, flagged or not', () => {
+    expect(isBundleEligible({ isThreeForTwentyFive: true, metadata: { team_template: { version: 1 } } })).toBe(false)
+    expect(isBundleEligible({ metadata: { isThreeForTwentyFive: true, team_template: { version: 1 } } })).toBe(false)
+  })
+
+  it('still bundles an ordinary flagged tee', () => {
+    expect(isBundleEligible({ isThreeForTwentyFive: true, metadata: {} })).toBe(true)
+  })
+})

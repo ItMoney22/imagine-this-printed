@@ -12,6 +12,7 @@ const templateFor = (canvasW = 3600) => ({
   distressAssetId: null,
   canvas: { w: canvasW, h: 4800, dpi: 300 },
   halftone: false,
+  instructions: null,
   upcharge: 0,
   fields: [
     {
@@ -19,6 +20,7 @@ const templateFor = (canvasW = 3600) => ({
       label: 'Last name',
       type: 'text',
       max: 12,
+      placeholder: '',
       uppercase: true,
       zone: { x: 100, y: 100, w: 3000, h: 600 },
       arch: 0,
@@ -32,6 +34,7 @@ const templateFor = (canvasW = 3600) => ({
       label: 'Number',
       type: 'number',
       max: 2,
+      placeholder: '',
       uppercase: false,
       zone: { x: 1200, y: 1200, w: 1200, h: 2000 },
       arch: 0,

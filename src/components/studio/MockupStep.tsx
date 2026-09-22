@@ -2,7 +2,7 @@
 // extra color. Every card needs its own approve before Listing unlocks;
 // a failed shot can be skipped instead of blocking the flow forever.
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Check, Plus, RefreshCw, Sparkles, Trash2, UserRound, X, Shirt } from 'lucide-react'
+import { AlertTriangle, Check, Plus, RefreshCw, Sparkles, Trash2, UserRound, X } from 'lucide-react'
 import { type ShotSubject } from '../../lib/api'
 import { useStudioLane } from './lane'
 import { COLORS } from '../../../backend/shared/catalog-capability'
@@ -19,6 +19,7 @@ import {
 } from './stepFlowReducer'
 import { ApproveButton, BusyDot, EngineLine, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
+import TeamTemplatePanel from './TeamTemplatePanel'
 
 // Per-shot expected render time — used when the job hasn't reported real
 // step/total_steps progress yet. Extra colors reuse the product/hanger
@@ -245,7 +246,6 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     !!productMeta?.print_artwork?.back_image ||
     productMeta?.print_placement === 'front-back' ||
     !!(state.stepFlow?.shots as any)?.back
-  const hasTeamTemplate = !!productMeta?.team_template
 
   const [firing, setFiring] = useState(false)
   const [busyKey, setBusyKey] = useState<ShotKey | null>(null)
@@ -467,31 +467,16 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
       {/* Team shirt personalization. The Mockups step is where the back of
           the garment is first decided, so it is where a name-and-number
           template belongs — David 2026-09-21: "step flow needs to know this
-          process of the team templates". Shown only for a product that
-          actually prints on the back; a front-only tee has no plate to
-          personalize. */}
-      {hasBackPrint && state.productId && (
-        <div className="mb-4 rounded-xl border border-primary/30 bg-card p-3 flex items-center gap-3 flex-wrap">
-          <Shirt className="w-4 h-4 text-primary" />
-          <div className="flex-1 min-w-[12rem]">
-            <p className="text-sm font-semibold text-text">
-              {hasTeamTemplate ? 'Personalizable — name & number' : 'Two-sided shirt'}
-            </p>
-            <p className="text-xs text-muted">
-              {hasTeamTemplate
-                ? 'Customers can type their own name and number on the back.'
-                : 'Set up a team template and customers can put their own name and number on the back.'}
-            </p>
-          </div>
-          <a
-            href={'/admin/team-templates/' + state.productId}
-            target="_blank"
-            rel="noreferrer"
-            className="px-3 py-1.5 text-sm rounded-lg bg-primary text-white hover:opacity-90"
-          >
-            {hasTeamTemplate ? 'Edit template' : 'Set up team template'}
-          </a>
-        </div>
+          process of the team templates". The panel renders the REAL back
+          plate as you type, so the flow can prove the lettering fits without
+          leaving for the admin screen. Shown only for a product that actually
+          prints on the back; a front-only tee has no plate to personalize. */}
+      {state.productId && (
+        <TeamTemplatePanel
+          productId={state.productId}
+          productMetadata={productMeta}
+          hasBackPrint={hasBackPrint}
+        />
       )}
       <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
         <h2 className="text-xl font-bold text-text">Mockups</h2>

@@ -9,6 +9,7 @@ const TEMPLATE: TeamTemplate = {
   distressAssetId: null,
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,
+  instructions: null,
   upcharge: 0,
   fields: [
     {

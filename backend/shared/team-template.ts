@@ -26,10 +26,26 @@
 // product-gallery.ts's ROLE_ORDER, which is a WHITELIST — so they are invisible
 // to the storefront no matter what publishes the product, the same mechanism
 // that already keeps the team-only halftoned print file away from customers.
-import { createHash } from 'node:crypto'
+//
+// THIS MODULE HAS NO IMPORTS AND MUST KEEP IT THAT WAY. The storefront panel
+// and the Step Flow both import it into the BROWSER bundle so that the box a
+// customer types into sanitizes exactly the way the press file does. It used
+// to import node:crypto for templateCacheKey(), which is why the frontend kept
+// its own hand-copied sanitizer — and that copy had already drifted (it
+// uppercased whenever `uppercase` was not explicitly false, while the server
+// only uppercased when it was explicitly true, so a template that omitted the
+// flag previewed in capitals and PRINTED in lower case). The cache key moved
+// to services/team-plate/cache-key.ts and the duplicate is gone.
 
 /** Bumped only for a breaking shape change. An unknown version is refused, never guessed at. */
 export const TEAM_TEMPLATE_VERSION = 1
+
+/**
+ * Etsy truncates a listing's personalization_instructions at 255 characters,
+ * so anything longer is cut on THEIR side, mid-word, in front of a buyer.
+ * Cut it here instead, where the operator can see what fits.
+ */
+export const ETSY_INSTRUCTIONS_MAX = 255
 
 export interface Zone {
   x: number
@@ -60,6 +76,12 @@ export interface TeamField {
   type: 'text' | 'number'
   /** Maximum characters AFTER sanitizing. */
   max: number
+  /**
+   * The greyed-out example inside the input box, on the product page, in the
+   * Step Flow, and inside the instructions Etsy shows a buyer. Optional: a
+   * template that predates this field falls back to defaultPlaceholder().
+   */
+  placeholder: string
   uppercase: boolean
   zone: Zone
   /** Total sweep in degrees from first glyph to last. 0 is a flat baseline. */
@@ -85,6 +107,14 @@ export interface TeamTemplate {
   halftone: boolean
   /** Dollars added per line for personalizing. */
   upcharge: number
+  /**
+   * What the buyer is told to type. Etsy gives a personalizable listing ONE
+   * free-text box and one instruction line, so this is the only place a buyer
+   * on that channel learns the shirt wants two values and what shape they take.
+   * Null means "derive it from the fields" — see personalization-etsy.ts
+   * etsyPersonalizationFields(), which is what actually reaches Etsy.
+   */
+  instructions: string | null
   fields: TeamField[]
 }
 
@@ -96,6 +126,11 @@ const TEXT_ALLOWED_RE = /[^A-Za-z0-9 '-]/g
 
 function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v)
+}
+
+/** The example shown when a template does not carry its own placeholder. */
+export function defaultPlaceholder(type: 'text' | 'number'): string {
+  return type === 'number' ? '00' : 'LAST NAME'
 }
 
 function parseZone(raw: unknown, canvas: { w: number; h: number }): Zone | null {
@@ -154,11 +189,18 @@ function parseField(raw: unknown, canvas: { w: number; h: number }): TeamField |
   const font = f.font as Record<string, unknown> | undefined
   if (!font || typeof font.family !== 'string' || typeof font.src !== 'string') return null
 
+  const label = typeof f.label === 'string' ? f.label : f.key
   return {
     key: f.key,
-    label: typeof f.label === 'string' ? f.label : f.key,
+    label,
     type: f.type,
     max: f.max,
+    // Plain text only, and short: it lands in an HTML placeholder attribute
+    // and inside the instruction line Etsy renders above the buyer's box.
+    placeholder:
+      typeof f.placeholder === 'string' && f.placeholder.trim()
+        ? f.placeholder.replace(/[\r\n]+/g, ' ').trim().slice(0, 40)
+        : defaultPlaceholder(f.type as 'text' | 'number'),
     uppercase: f.uppercase === true,
     zone,
     arch: isFiniteNumber(f.arch) ? f.arch : 0,
@@ -216,6 +258,10 @@ export function parseTeamTemplate(input: unknown): TeamTemplate | null {
       canvas,
       halftone: raw.halftone === true,
       upcharge: isFiniteNumber(raw.upcharge) && raw.upcharge > 0 ? raw.upcharge : 0,
+      instructions:
+        typeof raw.instructions === 'string' && raw.instructions.trim()
+          ? raw.instructions.trim().slice(0, ETSY_INSTRUCTIONS_MAX)
+          : null,
       fields,
     }
   } catch {
@@ -230,7 +276,13 @@ export function parseTeamTemplate(input: unknown): TeamTemplate | null {
  * the name still prints. The one thing it will not do is pass a character
  * through that the press cannot set or that could reach an SVG attribute.
  */
-export function sanitizeFieldValue(field: TeamField, raw: unknown): string {
+export function sanitizeFieldValue(
+  // Only these three decide the result, and taking the narrow shape lets the
+  // browser call it with the trimmed field summary the product page holds
+  // (zones, fonts and colours never leave the server).
+  field: Pick<TeamField, 'type' | 'max' | 'uppercase'>,
+  raw: unknown
+): string {
   if (typeof raw !== 'string') return ''
   if (field.type === 'number') {
     return raw.replace(/[^0-9]/g, '').slice(0, field.max)
@@ -250,30 +302,21 @@ export function sanitizeValues(template: TeamTemplate, raw: unknown): Record<str
   return out
 }
 
+/** Does this product row carry a usable personalization template? */
+export function hasTeamTemplate(metadata: unknown): boolean {
+  return parseTeamTemplate(metadata) !== null
+}
+
 /**
- * Cache key for a rendered plate.
+ * Dollars added per unit for personalizing, read from the PRODUCT ROW.
  *
- * Covers the TEMPLATE as well as the values, so editing a template (moving a
- * zone, changing a colour) invalidates every file derived from it without a
- * purge step — the next request simply misses and re-renders.
+ * The product page renders this next to the inputs and the cart shows it in
+ * the total, so the server has to charge the same number from the same place.
+ * Callers on the money path must pass a row they fetched themselves - the
+ * cart POSTs its own copy of product.metadata and that copy is the customer's
+ * to edit.
  */
-export function templateCacheKey(template: TeamTemplate, values: Record<string, string>): string {
-  const shape = {
-    v: template.version,
-    plate: template.plateAssetId,
-    distress: template.distressAssetId,
-    canvas: template.canvas,
-    halftone: template.halftone,
-    fields: template.fields.map((f) => ({
-      k: f.key,
-      zone: f.zone,
-      arch: f.arch,
-      font: f.font,
-      fill: f.fill,
-      strokes: f.strokes,
-      offset: f.offset,
-      value: values[f.key] ?? '',
-    })),
-  }
-  return createHash('sha256').update(JSON.stringify(shape)).digest('hex').slice(0, 32)
+export function personalizationUpchargeDollars(metadata: unknown): number {
+  const template = parseTeamTemplate(metadata)
+  return template ? template.upcharge : 0
 }

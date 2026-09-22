@@ -21,12 +21,15 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Type } from 'lucide-react'
 import { apiFetch } from '../lib/api'
+import { defaultPlaceholder, sanitizeFieldValue } from '../../backend/shared/team-template'
 
 export interface TeamTemplateField {
   key: string
   label: string
   type: 'text' | 'number'
   max: number
+  /** The example in the empty box. Falls back to the house default. */
+  placeholder?: string
   uppercase?: boolean
 }
 
@@ -43,24 +46,36 @@ interface Props {
   values: Record<string, string>
   onChange: (values: Record<string, string>) => void
   /** Told when the API turns out not to support this yet (deploy skew). */
-  onUnsupported: () => void
+  onUnsupported?: () => void
+  /** Overrides the heading. The Step Flow labels this "What the customer sees". */
+  heading?: string
+  /** One extra line under the heading, for context the storefront does not need. */
+  note?: string
 }
 
 const DEBOUNCE_MS = 400
 /** A fresh render is ~150ms warm; this is the honest ceiling for a cold one. */
 const EXPECTED_MS = 1500
 
-/** Mirrors backend/shared/team-template.ts sanitizeFieldValue. The server
- *  sanitizes again at preview AND at checkout — this only keeps the input box
- *  from showing characters that will be silently dropped. */
+/** THE server's own sanitizer, imported rather than copied.
+ *
+ *  This used to be a hand-written mirror of backend/shared/team-template.ts,
+ *  and it had already drifted: it uppercased unless `uppercase` was explicitly
+ *  false, where the server only uppercases when it is explicitly true. On a
+ *  template that omitted the flag the box showed SMITH and the press printed
+ *  Smith. The shared module is import-free precisely so this can be the same
+ *  function on both sides.
+ *
+ *  It still runs twice: the server sanitizes again at preview AND at checkout.
+ *  This copy only keeps the box from showing characters that will be dropped. */
 function clean(field: TeamTemplateField, raw: string): string {
-  if (field.type === 'number') return raw.replace(/[^0-9]/g, '').slice(0, field.max)
-  let out = raw.replace(/[^A-Za-z0-9 '-]/g, '').replace(/\s+/g, ' ')
-  if (field.uppercase !== false) out = out.toUpperCase()
-  return out.slice(0, field.max)
+  return sanitizeFieldValue(
+    { type: field.type, max: field.max, uppercase: field.uppercase === true },
+    raw
+  )
 }
 
-const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, onChange, onUnsupported }) => {
+const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, onChange, onUnsupported, heading, note }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [elapsed, setElapsed] = useState(0)
@@ -97,8 +112,10 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
         if (notServed) {
           // The API predates this feature (or is unreachable). Sell the shirt
           // rather than show a broken form.
-          onUnsupported()
-          return
+          if (onUnsupported) {
+            onUnsupported()
+            return
+          }
         }
         setError('Could not draw that preview. Your name and number are still saved.')
       } finally {
@@ -130,13 +147,15 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
     <div className="rounded-xl border border-primary/30 bg-card p-4 space-y-4">
       <div className="flex items-center gap-2">
         <Type className="w-4 h-4 text-primary" />
-        <h3 className="font-display font-semibold text-text">Personalize the back</h3>
+        <h3 className="font-display font-semibold text-text">{heading ?? 'Personalize the back'}</h3>
         {template.upcharge ? (
           <span className="ml-auto text-sm text-muted">+${template.upcharge.toFixed(2)}</span>
         ) : null}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      {note && <p className="-mt-2 text-xs text-muted">{note}</p>}
+
+      <div className="grid grid-cols-2 gap-3 max-w-xl">
         {template.fields.map((field) => (
           <label key={field.key} className="block">
             <span className="block text-sm text-muted mb-1">{field.label}</span>
@@ -146,7 +165,7 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
               value={values[field.key] ?? ''}
               maxLength={field.max}
               onChange={(e) => setField(field, e.target.value)}
-              placeholder={field.type === 'number' ? '00' : 'LAST NAME'}
+              placeholder={field.placeholder || defaultPlaceholder(field.type)}
               className="w-full rounded-lg border border-primary/30 bg-bg px-3 py-2 text-text
                          placeholder:text-muted/60 focus:border-primary focus:outline-none"
             />

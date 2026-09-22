@@ -8,6 +8,7 @@ const FIELD: TeamField = {
   label: 'Last name',
   type: 'text',
   max: 12,
+  placeholder: '',
   uppercase: true,
   zone: { x: 100, y: 100, w: 1000, h: 400 },
   arch: 18,

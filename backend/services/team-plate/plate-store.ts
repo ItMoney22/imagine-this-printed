@@ -15,7 +15,8 @@
 //     signed URL, because a signed URL expires and an order outlives it.
 import { supabase } from '../../lib/supabase.js'
 import { downloadFile, fileExists, generateSignedUrl, uploadFile } from '../gcs-storage.js'
-import { templateCacheKey, type TeamTemplate } from '../../shared/team-template.js'
+import { type TeamTemplate } from '../../shared/team-template.js'
+import { templateCacheKey } from './cache-key.js'
 import { renderTeamPlate, type PlateSource } from './render.js'
 
 /**

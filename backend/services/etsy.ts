@@ -15,6 +15,8 @@
 import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
+import { parseTeamTemplate } from '../shared/team-template.js'
+import { etsyPersonalizationFields, type EtsyPersonalizationFields } from '../shared/personalization-etsy.js'
 import { METAL_ART_SIZES } from '../shared/metal-art.js'
 import {
   normalizeGarment,
@@ -575,6 +577,35 @@ export function resolveListingCopy(
 
 // Publish one ITP product to Etsy: draft listing + image uploads (+ optional
 // activate). Sync state and errors land in etsy_listings either way.
+/**
+ * The personalization fields to put on a listing, or null to leave the
+ * listing's own settings alone.
+ *
+ * A team template turns into `is_personalizable` + a character cap + the
+ * instruction line (backend/shared/personalization-etsy.ts). Three rules,
+ * each of which cost a decision:
+ *
+ *   - PHYSICAL ONLY. The download tier sells the flat artwork file; there is
+ *     no press run to put a name into, and a personalizable digital listing
+ *     would take a buyer's name and hand them a file without it.
+ *   - NO TEMPLATE, NO WRITE. When a product has no template this returns
+ *     null and the listing is not touched, rather than pushing
+ *     is_personalizable=false. David sets personalization by hand in Shop
+ *     Manager on listings that have nothing to do with team templates, and a
+ *     sync that "corrects" those would quietly delete his work.
+ *   - SIDE-AGNOSTIC. `side` decides which plate is drawn, not whether Etsy is
+ *     told about it, so a front-personalized template syncs the same way.
+ */
+export function personalizationFieldsFor(
+  metadata: unknown,
+  tier: EtsyTier
+): EtsyPersonalizationFields | null {
+  if (etsyTierConfig(tier).listingType === 'download') return null
+  const template = parseTeamTemplate(metadata)
+  if (!template) return null
+  return etsyPersonalizationFields(template)
+}
+
 export async function publishProductToEtsy(productId: string, opts: EtsyPublishOptions = {}): Promise<EtsyPublishResult> {
   const result: EtsyPublishResult = { ok: false, productId, uploadedImages: 0 }
 
@@ -688,10 +719,16 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     // are physical-fulfilment concepts and Etsy rejects them on type=download),
     // and their stock is not consumed, so quantity is effectively unlimited.
     const isDigital = tierCfg.listingType === 'download'
+    // A team shirt sells on Etsy the same way it sells on the website: the
+    // buyer types a name and a number and the press file is drawn from them.
+    // Set at CREATE time rather than in a follow-up PATCH so a draft is never
+    // briefly live without its personalization box.
+    const personalization = personalizationFieldsFor(product.metadata, tier)
     const listing = await etsyFetch(`/application/shops/${shopId}/listings`, {
       method: 'POST',
       token,
       form: {
+        ...(personalization ?? {}),
         quantity: opts.quantity ?? (isDigital ? 999 : Number(process.env.ETSY_DEFAULT_QUANTITY || 100)),
         title,
         description,
@@ -871,6 +908,13 @@ export interface EtsyUpdateOptions {
   variations?: boolean
   /** Also PATCH title/description/tags. Default false — see the note above. */
   copy?: boolean
+  /**
+   * Push the product's team template onto the listing as Etsy's
+   * personalization settings. Default true, and a no-op for a product with no
+   * template — a listing whose ITP product became personalizable must not keep
+   * selling without the box, and the write is one cheap PATCH.
+   */
+  personalization?: boolean
   /** Per-variation stock. Defaults to ETSY_VARIATION_QUANTITY. */
   quantity?: number
   /** Dollars. Overrides the pack/tier/product price for this update only. */
@@ -887,8 +931,10 @@ export interface EtsyUpdateResult {
   etsyUrl?: string
   /** The listing's state on Etsy, as found. */
   state?: string
-  /** What this call actually changed (both false on a dry run). */
-  updated: { copy: boolean; variations: boolean }
+  /** What this call actually changed (all false on a dry run). */
+  updated: { copy: boolean; variations: boolean; personalization: boolean }
+  /** The personalization settings this update resolves to, if any. */
+  personalization?: EtsyPersonalizationFields
   /** Offerings written, or that WOULD be written on a dry run. */
   offerings?: number
   /** The per-size prices this update resolves to, for the caller to eyeball. */
@@ -910,11 +956,12 @@ export async function updateEtsyListing(
   const tier: EtsyTier = opts.tier ?? 'primary'
   const wantVariations = opts.variations !== false
   const wantCopy = opts.copy === true
+  const wantPersonalization = opts.personalization !== false
   const result: EtsyUpdateResult = {
     ok: false,
     productId,
     tier,
-    updated: { copy: false, variations: false },
+    updated: { copy: false, variations: false, personalization: false },
     dryRun: opts.dryRun === true
   }
 
@@ -1017,13 +1064,21 @@ export async function updateEtsyListing(
       }
     }
 
+    // --- personalization --------------------------------------------------
+    // Null for a product with no team template, and for the digital tier —
+    // see personalizationFieldsFor(). Resolved before the copy block so the
+    // two can share one PATCH when both are being written.
+    const personalization = wantPersonalization ? personalizationFieldsFor(product.metadata, tier) : null
+    if (personalization) result.personalization = personalization
+
     // --- copy -------------------------------------------------------------
     if (wantCopy) {
       const copy = resolveListingCopy(product, tier)
       const form: Record<string, string | number | boolean | undefined> = {
         title: copy.title,
         description: copy.description,
-        tags: copy.tags.length ? copy.tags.join(',') : undefined
+        tags: copy.tags.length ? copy.tags.join(',') : undefined,
+        ...(personalization ?? {})
       }
       // Only a listing with NO variation axis takes its price from the listing
       // itself; otherwise the offerings carry it (see the header note).
@@ -1031,8 +1086,17 @@ export async function updateEtsyListing(
       if (!opts.dryRun) {
         await etsyFetch(`/application/listings/${ledger.listing_id}`, { method: 'PATCH', token, form })
         result.updated.copy = true
+        result.updated.personalization = !!personalization
         console.log(`[etsy] ${productId} [${tier}] updated copy on listing ${ledger.listing_id}`)
       }
+    } else if (personalization && !opts.dryRun) {
+      await etsyFetch(`/application/listings/${ledger.listing_id}`, {
+        method: 'PATCH',
+        token,
+        form: { ...personalization }
+      })
+      result.updated.personalization = true
+      console.log(`[etsy] ${productId} [${tier}] synced personalization on listing ${ledger.listing_id}`)
     }
 
     if (!opts.dryRun) {

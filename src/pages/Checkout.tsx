@@ -11,6 +11,7 @@ import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
+import { personalizationUpchargeDollars } from '../../backend/shared/team-template'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
@@ -404,6 +405,15 @@ const Checkout: React.FC = () => {
     // Garment quality tier upcharge (mirrors CartContext + order-pricing.ts).
     const usdTierTotal = usdItems.reduce((sum, item) => sum + garmentTierUpcharge(item.selectedTier) * item.quantity, 0)
 
+    // Personalizing a team shirt, per unit (mirrors CartContext +
+    // order-pricing.ts fetchPersonalizationUpcharges). The server reads this
+    // off the product row, so leaving it out here fails the 1-cent gate on
+    // any template that charges for personalizing.
+    const usdPersonalizationTotal = usdItems.reduce(
+      (sum, item) => sum + personalizationUpchargeDollars(item.product?.metadata) * item.quantity,
+      0
+    )
+
     // Youth-size discount, $3 off per unit (mirrors CartContext +
     // order-pricing.ts). Never for blanks — their size price is already the
     // whole answer — and capped per unit at everything else that unit costs,
@@ -424,7 +434,10 @@ const Checkout: React.FC = () => {
     // the youth discount. Rounded to whole cents: this is the first
     // subtraction in the total and float dust here fails the server's
     // 1-cent match.
-    const usdTotal = Math.round((usdBaseTotal + plusSizeUpcharge + usdTierTotal + usdAddonsTotal - youthDiscount) * 100) / 100
+    const usdTotal =
+      Math.round(
+        (usdBaseTotal + plusSizeUpcharge + usdTierTotal + usdAddonsTotal + usdPersonalizationTotal - youthDiscount) * 100
+      ) / 100
 
     return {
       usdItems,

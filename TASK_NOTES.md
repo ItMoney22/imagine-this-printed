@@ -4252,3 +4252,35 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## 2026-09-22 — zero-nine — personalization in the Step Flow and on Etsy (task 7c9ffb48)
+
+- Scope taken: Design Doc §15. The render engine, the storefront panel, the cart
+  merge key and the website checkout render already existed (shipped 2026-09-21);
+  what did not exist was the Step Flow side, the Etsy side, and the money.
+- `backend/shared/team-template.ts` — added `placeholder` per field and
+  `instructions` per template; MOVED `templateCacheKey` out to
+  `backend/services/team-plate/cache-key.ts` so the contract is import-free and
+  the BROWSER can call the server's own `sanitizeFieldValue`. The frontend's
+  hand-copied sanitizer had already drifted on the `uppercase` default.
+- `backend/shared/personalization-etsy.ts` (new) — derives Etsy's
+  `is_personalizable` / `personalization_is_required` /
+  `personalization_char_count_max` / `personalization_instructions` from a
+  template, and parses a buyer's one free-text box back into typed field values
+  (labelled, positional, single-field; property_id 54).
+- `backend/services/etsy.ts` — publish sets those four fields at CREATE time;
+  update pushes them (default on, rides the copy PATCH when there is one).
+  Physical tiers only; a product with NO template is left alone rather than
+  having is_personalizable=false pushed over David's Shop-Manager settings.
+- `backend/worker/etsy-receipt-ingest.ts` — an Etsy sale now parses the buyer's
+  text, renders the press file at full canvas width (the same call checkout
+  makes) and writes the same `order_items.metadata` keys, plus the raw text.
+- MONEY BUG FIXED: `team_template.upcharge` was displayed on the product page and
+  charged by nobody. Now read from the product ROW in `order-pricing.ts`
+  (`fetchPersonalizationUpcharges`) and mirrored in CartContext + Checkout.
+  A personalized product is also barred from the 2-for-$25 bundle.
+- Step Flow: `src/components/studio/TeamTemplatePanel.tsx` (new) replaces the
+  link-out with a live preview of the real plate plus a readout of exactly what
+  an Etsy buyer is told. Looked at in a browser at 390px and desktop.
+- 1964 tests green in this checkout; the 3 failures are etsy-copy-repair.test.ts
+  (untouched here, already on the board as ae47df24).

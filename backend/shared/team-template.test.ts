@@ -3,7 +3,6 @@ import {
   parseTeamTemplate,
   sanitizeFieldValue,
   sanitizeValues,
-  templateCacheKey,
   type TeamField,
   type TeamTemplate,
 } from './team-template.js'
@@ -13,6 +12,7 @@ const NAME_FIELD: TeamField = {
   label: 'Last name',
   type: 'text',
   max: 12,
+  placeholder: 'LAST NAME',
   uppercase: true,
   zone: { x: 220, y: 380, w: 3160, h: 900 },
   arch: 18,
@@ -27,6 +27,7 @@ const NUMBER_FIELD: TeamField = {
   label: 'Number',
   type: 'number',
   max: 2,
+  placeholder: '00',
   uppercase: false,
   zone: { x: 900, y: 1500, w: 1800, h: 2400 },
   arch: 0,
@@ -43,6 +44,7 @@ const TEMPLATE: TeamTemplate = {
   distressAssetId: null,
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,
+  instructions: null,
   upcharge: 0,
   fields: [NAME_FIELD, NUMBER_FIELD],
 }
@@ -141,26 +143,5 @@ describe('sanitizeValues', () => {
       name: 'SMITH',
       number: '22',
     })
-  })
-})
-
-describe('templateCacheKey', () => {
-  it('is stable for the same values', () => {
-    const a = templateCacheKey(TEMPLATE, { name: 'SMITH', number: '22' })
-    const b = templateCacheKey(TEMPLATE, { number: '22', name: 'SMITH' })
-    expect(a).toBe(b)
-  })
-
-  it('changes when a value changes', () => {
-    const a = templateCacheKey(TEMPLATE, { name: 'SMITH', number: '22' })
-    const b = templateCacheKey(TEMPLATE, { name: 'LOPEZ', number: '22' })
-    expect(a).not.toBe(b)
-  })
-
-  it('changes when the template itself changes, so an edit invalidates derived files', () => {
-    const a = templateCacheKey(TEMPLATE, { name: 'SMITH', number: '22' })
-    const moved = { ...TEMPLATE, fields: [{ ...NAME_FIELD, fill: '#000000' }, NUMBER_FIELD] }
-    const b = templateCacheKey(moved, { name: 'SMITH', number: '22' })
-    expect(a).not.toBe(b)
   })
 })

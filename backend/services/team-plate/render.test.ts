@@ -12,6 +12,7 @@ const TEMPLATE: TeamTemplate = {
   distressAssetId: null,
   canvas: CANVAS,
   halftone: false,
+  instructions: null,
   upcharge: 0,
   fields: [
     {
@@ -19,6 +20,7 @@ const TEMPLATE: TeamTemplate = {
       label: 'Last name',
       type: 'text',
       max: 12,
+      placeholder: '',
       uppercase: true,
       zone: { x: 100, y: 150, w: 1000, h: 300 },
       arch: 0,
@@ -32,6 +34,7 @@ const TEMPLATE: TeamTemplate = {
       label: 'Number',
       type: 'number',
       max: 2,
+      placeholder: '',
       uppercase: false,
       zone: { x: 300, y: 600, w: 600, h: 800 },
       arch: 0,

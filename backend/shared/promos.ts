@@ -56,11 +56,24 @@ export function isBundleEligible(
   product:
     | {
         isThreeForTwentyFive?: boolean | null
-        metadata?: { isThreeForTwentyFive?: boolean | null } | null
+        metadata?: {
+          isThreeForTwentyFive?: boolean | null
+          team_template?: unknown
+        } | null
       }
     | null
     | undefined
 ): boolean {
   if (!product) return false
+  // A PERSONALIZED shirt is never part of the deal. The 2-for-$25 price is a
+  // flat promo on stock designs; a team shirt is cut, drawn and pressed for
+  // one named customer, carries its own personalization upcharge, and cannot
+  // be resold if they change their mind. Selling it at $12.50 loses money on
+  // every unit. This is a rule about the PRODUCT, so it lives here with the
+  // rest of the eligibility rule rather than in the cart and the pricing
+  // engine separately — but note that on the server the authoritative check is
+  // the DB-fetched personalization map in order-pricing.ts, because this
+  // `metadata` is the client's own copy and a client can simply omit a key.
+  if (product.metadata?.team_template) return false
   return !!(product.isThreeForTwentyFive || product.metadata?.isThreeForTwentyFive)
 }

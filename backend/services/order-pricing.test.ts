@@ -1270,3 +1270,130 @@ describe('calculateOrderPricing — fetchMetalProductIds wires size pricing end-
     expect(result.productSubtotalCents).toBe(2500)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Personalized team shirts (products.metadata.team_template).
+//
+// The product page has shown "+$X.00" next to the name box since the feature
+// shipped on 2026-09-21, and until 2026-09-22 the checkout charged $0 for it —
+// the amount was in the template and nothing on the money path ever read it.
+// These pin both halves of the fix: the upcharge is charged, and a shirt that
+// is pressed for one named customer never falls into the 2-for-$25 bundle.
+// ---------------------------------------------------------------------------
+describe('computeLineItemCents — personalization upcharge', () => {
+  const priceMap = new Map([[PRODUCT_A, 30]])
+  const personalized = new Map([[PRODUCT_A, 500]]) // $5.00 per unit
+
+  it('adds the upcharge per unit, from the DB map and never from the cart', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 2, selectedSize: 'M' },
+      priceMap,
+      new Map(),
+      new Map(),
+      new Set(),
+      personalized
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(7000) // 2 × ($30 + $5)
+  })
+
+  it('charges nothing extra for a product with no template', () => {
+    const { cents } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 1, selectedSize: 'M' },
+      priceMap,
+      new Map(),
+      new Map(),
+      new Set(),
+      new Map()
+    )
+    expect(cents).toBe(3000)
+  })
+
+  it('stacks with the plus-size upcharge rather than replacing it', () => {
+    const { cents } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 1, selectedSize: '2XL' },
+      priceMap,
+      new Map(),
+      new Map(),
+      new Set(),
+      personalized
+    )
+    expect(cents).toBe(3750) // $30 + $5 personalization + $2.50 plus-size
+  })
+})
+
+describe('computeSubtotalCents — personalized shirts are not bundle stock', () => {
+  const priceMap = new Map([[PRODUCT_A, 30], [PRODUCT_B, 25]])
+
+  it('keeps a personalized shirt out of the 2-for-$25 deal even when the product is flagged eligible', () => {
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, selectedSize: 'M', isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } }],
+      priceMap,
+      new Map(),
+      new Map(),
+      new Set(),
+      new Map([[PRODUCT_A, 0]]) // a template with no upcharge is STILL personalized
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(6000) // 2 × $30, not the $25 bundle
+  })
+
+  it('ignores a cart that hides team_template to buy its way into the bundle', () => {
+    const { subtotalCents } = computeSubtotalCents(
+      // metadata here is the CLIENT's copy — no team_template in sight.
+      [{ productId: PRODUCT_A, quantity: 2, selectedSize: 'M', isThreeForTwentyFive: true, metadata: {} }],
+      priceMap,
+      new Map(),
+      new Map(),
+      new Set(),
+      new Map([[PRODUCT_A, 0]])
+    )
+    expect(subtotalCents).toBe(6000)
+  })
+
+  it('still bundles the ordinary tees in the same cart', () => {
+    const { subtotalCents } = computeSubtotalCents(
+      [
+        { productId: PRODUCT_A, quantity: 1, selectedSize: 'M', isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } },
+        { productId: PRODUCT_B, quantity: 2, selectedSize: 'M', isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } }
+      ],
+      priceMap,
+      new Map(),
+      new Map(),
+      new Set(),
+      new Map([[PRODUCT_A, 500]])
+    )
+    // $30 + $5 for the team shirt, $25 for the pair of stock tees.
+    expect(subtotalCents).toBe(3500 + 2500)
+  })
+})
+
+describe('calculateOrderPricing — personalization reaches the charged total', () => {
+  it('charges the upcharge the product page advertised', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 30]]),
+      fetchPersonalizationUpcharges: async () => new Map([[PRODUCT_A, 500]])
+    })
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1, selectedSize: 'M' }],
+        shipping: { type: 'pickup', clientAmountCents: 0 }
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(3500)
+  })
+
+  it('prices exactly as before for a deps object that has no such fetcher', async () => {
+    const deps = makeFakeDeps({ fetchProductPrices: async () => new Map([[PRODUCT_A, 30]]) })
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1, selectedSize: 'M' }],
+        shipping: { type: 'pickup', clientAmountCents: 0 }
+      },
+      deps
+    )
+    expect(result.productSubtotalCents).toBe(3000)
+  })
+})

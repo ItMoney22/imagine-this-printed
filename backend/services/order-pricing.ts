@@ -78,6 +78,7 @@ import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normaliz
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
+import { personalizationUpchargeDollars } from '../shared/team-template.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -281,6 +282,20 @@ export interface PricingDependencies {
    * metal-aware pricing (flat catalog price), same as before.
    */
   fetchMetalProductIds?: (ids: string[]) => Promise<Set<string>>
+  /**
+   * Per-unit personalization upcharge in CENTS, for products carrying a team
+   * template (backend/shared/team-template.ts). Read from the DB, never from
+   * the cart: the product page shows the customer "+$5.00" next to the name
+   * box, and until this existed the checkout charged $0 for it.
+   *
+   * A product in this map is also barred from the 2-for-$25 bundle — a shirt
+   * pressed for one named customer is not a stock tee (see
+   * backend/shared/promos.ts isBundleEligible).
+   *
+   * Optional so existing injected-deps callers/tests keep compiling; absent =
+   * no upcharge, exactly the old behaviour.
+   */
+  fetchPersonalizationUpcharges?: (ids: string[]) => Promise<Map<string, number>>
   fetchDiscountCode: (code: string) => Promise<PricingDiscountCodeRow | null>
   countCouponUsageForUser: (discountCodeId: string, userId: string) => Promise<number>
   /** Returns the user's real ITC wallet balance (units), 0 if none. */
@@ -380,9 +395,15 @@ function computeExtrasCentsPerUnit(
   item: PricingCartItem,
   id: string,
   errors: string[],
-  opts: { blank?: boolean; bundle?: boolean } = {}
+  opts: { blank?: boolean; bundle?: boolean; personalizationCents?: number } = {}
 ): number {
   let extraCents = 0
+
+  // Personalizing is per UNIT and applies inside a bundle as much as outside
+  // it — except that a personalized product is never bundle-eligible in the
+  // first place (backend/shared/promos.ts). The amount comes from the product
+  // row the server fetched, never from the cart.
+  if (opts.personalizationCents) extraCents += opts.personalizationCents
 
   // Blank garments price per size + colour straight off their DB table
   // (backend/shared/blank-pricing.ts) — that table already carries Jiffy's
@@ -432,7 +453,8 @@ export function computeLineItemCents(
   productPriceMap: Map<string, number>,
   customItemPriceMap: Map<string, number> = new Map(),
   blankPricingMap: Map<string, BlankPricing> = new Map(),
-  metalProductIds: Set<string> = new Set()
+  metalProductIds: Set<string> = new Set(),
+  personalizationUpchargeCents: Map<string, number> = new Map()
 ): { cents: number; errors: string[]; warnings: string[] } {
   const errors: string[] = []
   const warnings: string[] = []
@@ -522,7 +544,14 @@ export function computeLineItemCents(
   // Floored at zero: the youth discount is the first NEGATIVE extra this
   // function can return, so a listing priced under $3 could otherwise produce
   // a negative line and credit the customer.
-  const perUnitCents = Math.max(0, unitCents + computeExtrasCentsPerUnit(item, id, errors, { blank: isBlank }))
+  const perUnitCents = Math.max(
+    0,
+    unitCents +
+      computeExtrasCentsPerUnit(item, id, errors, {
+        blank: isBlank,
+        personalizationCents: personalizationUpchargeCents.get(id) ?? 0
+      })
+  )
 
   return { cents: perUnitCents * quantity, errors, warnings }
 }
@@ -532,7 +561,8 @@ export function computeSubtotalCents(
   productPriceMap: Map<string, number>,
   customItemPriceMap: Map<string, number> = new Map(),
   blankPricingMap: Map<string, BlankPricing> = new Map(),
-  metalProductIds: Set<string> = new Set()
+  metalProductIds: Set<string> = new Set(),
+  personalizationUpchargeCents: Map<string, number> = new Map()
 ): { subtotalCents: number; errors: string[]; warnings: string[] } {
   let subtotalCents = 0
   const errors: string[] = []
@@ -556,13 +586,25 @@ export function computeSubtotalCents(
     // metadata claims — its price is its DB size/colour table, full stop.
     const eligible =
       !blankPricingMap.has(itemId) &&
+      // A personalized product is never in the deal, and the authority for
+      // that is the DB-fetched map, not `item.metadata` — the cart POSTs its
+      // own copy of product.metadata and a client could simply leave
+      // team_template out of it to buy a $30 team shirt for $12.50.
+      !personalizationUpchargeCents.has(itemId) &&
       isBundleEligible({
         isThreeForTwentyFive: item.isThreeForTwentyFive,
         metadata: item.metadata
       })
 
     if (!eligible) {
-      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
+      const result = computeLineItemCents(
+        item,
+        productPriceMap,
+        customItemPriceMap,
+        blankPricingMap,
+        metalProductIds,
+        personalizationUpchargeCents
+      )
       subtotalCents += result.cents
       errors.push(...result.errors)
       warnings.push(...result.warnings)
@@ -857,6 +899,25 @@ const defaultDependencies: PricingDependencies = {
     return map
   },
 
+  async fetchPersonalizationUpcharges(ids: string[]) {
+    const map = new Map<string, number>()
+    if (ids.length === 0) return map
+    const { data, error } = await supabase.from('products').select('id, metadata').in('id', ids)
+    if (error) {
+      throw new Error(`Failed to load personalization pricing: ${error.message}`)
+    }
+    for (const row of data || []) {
+      if (row?.id == null) continue
+      // EVERY product with a template lands in the map, including the common
+      // upcharge: 0 case — membership is what bars the product from the
+      // 2-for-$25 bundle, so an entry worth $0 still has to be here.
+      const metadata = (row as any).metadata
+      if (!metadata || typeof metadata !== 'object' || !(metadata as any).team_template) continue
+      map.set(String(row.id), Math.round(personalizationUpchargeDollars(metadata) * 100))
+    }
+    return map
+  },
+
   async fetchMetalProductIds(ids: string[]) {
     const metal = new Set<string>()
     if (ids.length === 0) return metal
@@ -976,6 +1037,12 @@ export async function calculateOrderPricing(
   const blankPricingMap = catalogIds.length > 0 ? await deps.fetchBlankPricing(catalogIds) : new Map<string, BlankPricing>()
   const metalProductIds =
     catalogIds.length > 0 && deps.fetchMetalProductIds ? await deps.fetchMetalProductIds(catalogIds) : new Set<string>()
+  // Personalized (team-template) products: their per-unit upcharge, and the
+  // fact that they are personalized at all — both read from the DB.
+  const personalizationUpchargeCents =
+    catalogIds.length > 0 && deps.fetchPersonalizationUpcharges
+      ? await deps.fetchPersonalizationUpcharges(catalogIds)
+      : new Map<string, number>()
 
   const customItems = input.items.filter(i => {
     const id = String(i.productId ?? '')
@@ -983,7 +1050,14 @@ export async function calculateOrderPricing(
   })
   const customItemPriceMap = customItems.length > 0 ? await deps.fetchCustomItemPrices(customItems) : new Map<string, number>()
 
-  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
+  const subtotalResult = computeSubtotalCents(
+    input.items,
+    productPriceMap,
+    customItemPriceMap,
+    blankPricingMap,
+    metalProductIds,
+    personalizationUpchargeCents
+  )
   errors.push(...subtotalResult.errors)
   warnings.push(...subtotalResult.warnings)
   const subtotalCents = subtotalResult.subtotalCents
