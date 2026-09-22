@@ -1,40 +1,48 @@
 # Claude Task Brief
 
 ## Request
-- Complete the September 17, 2026 weekly review of the live `ImagineThisPrinted1` Etsy shop.
-- Compare with the September 10 review, capture four fresh screenshots, and email the illustrated report from Mr. Imagine to the WeCare team inbox.
+
+- Validate Etsy taxonomy 6617’s custom variation slot for transfer-sheet sizes.
+- Live API proof is complete: draft listing `4580221283` accepted `property_id: 513`, seller-provided name `Size`, and `price_on_property: [513]` for $12/$20/$28 transfer variants.
 
 ## Repo detection
-- Vite + React + TypeScript storefront with a Node/Express backend and Supabase-backed shared inbox.
-- This request is an external storefront audit and email-delivery run; no Etsy settings or repo implementation code are in scope.
+
+- Vite + React TypeScript storefront with a Node/Express backend; Etsy integration is implemented in `backend/services/etsy.ts`.
+- This dispatch branch does not contain Zero Nine’s existing fallback implementation. It is commit `d7a42cd` on `earth/zero-nine/fix-etsy-transfer-listin-93ef1eb3-mubkh0y1`.
 
 ## Relevant files
+
 - `AGENTS.md`
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
+- `backend/services/etsy.ts`
+- `backend/services/etsy-variations.test.ts`
+- `backend/shared/etsy-tiers.ts`
+- `backend/scripts/etsy-poc.mjs`
 
 ## Files to edit (STRICT)
+
 - `CLAUDE_TASK.md`
 - `TASK_NOTES.md`
-- Do not modify application code, Etsy listings, prices, inventory, or policies.
+- Do not edit Etsy code: Etsy accepted `Size` on custom slot 513, so no fallback-name change is warranted.
 
 ## Plan
-1. Inspect the live shop home, strongest featured listing, an inconsistent listing, and About/policies; retain fresh screenshots outside the repo.
-2. Compare listing count, assortment, pricing, presentation, options, fulfillment details, trust copy, and visible accessibility risks with September 10.
-3. Send the concise report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` with all four screenshots embedded by CID and attached as true PNG files.
-4. Verify a delivered Resend message with four attachments, the outbound record in Mr. Imagine's Sent folder, and four working PNG downloads in the WeCare recipient record.
+
+1. Keep draft listing `4580221283` in `draft`; do not activate it or modify any active listing.
+2. Treat the returned inventory as the live contract: three products use custom slot 513 with `property_name: Size`, values `8.5x11 inches`, `11x17 inches`, `13x19 inches`, and prices $12, $20, $28; `price_on_property` is `[513]`.
+3. Merge or cherry-pick Zero Nine’s already-existing commit `d7a42cd` through the normal reviewed integration flow before relying on the production publisher; this dispatch branch predates it.
 
 ## Acceptance criteria
-- [x] Four fresh screenshots were captured, converted to true PNG encoding, and visually inspected.
-- [x] The comparison covers every requested storefront dimension and prioritizes three next actions.
-- [x] The corrected true-PNG report was delivered and logged in Mr. Imagine's Sent folder with four attachments.
-- [x] Resend reports four inline CID attachments and the WeCare recipient record has four downloadable, PNG-signature-verified image attachments.
-- [x] No Etsy settings, listings, or repo implementation files were changed.
+
+- [x] Exactly one Etsy listing was created as a free, invisible draft: `4580221283`.
+- [x] Etsy inventory PUT returned HTTP 200; no fallback name was required.
+- [x] A subsequent inventory GET returned exactly three slot-513 `Size` variants at $12, $20, and $28 and `price_on_property: [513]`.
+- [x] No active listings were touched and no activation fee was incurred.
 
 ## Commands
-- `rg -n "weekly Etsy|September 10, 2026|email_messages|mrimagine" CLAUDE_TASK.md TASK_NOTES.md backend`
+
+- `node backend/scripts/etsy-poc.mjs properties --ids 6617 --raw`
+- `npm test -- backend/services/etsy-variations.test.ts`
+- `git branch -a --contains d7a42cd`
 - `git diff --check -- CLAUDE_TASK.md TASK_NOTES.md`
-- `git diff --name-only -- CLAUDE_TASK.md TASK_NOTES.md`
 - `git status --short`

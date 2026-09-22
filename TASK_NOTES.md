@@ -4252,3 +4252,14 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+## 2026-09-22 — Etsy custom transfer-size slot validation (Watchtower 955bcdde-3eec-4d4b-b566-dafcab53ed47)
+
+### File shortlist (approved scope)
+
+- `AGENTS.md`, `CLAUDE_TASK.md`, `TASK_NOTES.md`
+- `backend/services/etsy.ts`, `backend/services/etsy-variations.test.ts`
+- `backend/shared/etsy-tiers.ts`, `backend/scripts/etsy-poc.mjs`
+
+### Work log (append-only)
+
+- 2026-09-22: Validated Etsy live API on free draft `4580221283`: taxonomy 6617 custom slot `513` accepts seller name `Size`; inventory PUT returned HTTP 200 and subsequent GET returned exactly `8.5x11 inches`/$12, `11x17 inches`/$20, and `13x19 inches`/$28 with `price_on_property: [513]`. The initial PoC create attempt returned 400 because its script omits required `readiness_state_id`; retrying once with the shop’s established state created the only draft. No active listing or activation fee was touched. This worktree predates the working code fallback in Zero Nine commit `d7a42cd`; no name fallback is needed. `npm test -- backend/services/etsy-variations.test.ts` passed (11/11).
