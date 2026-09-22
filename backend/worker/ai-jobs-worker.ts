@@ -386,11 +386,21 @@ export async function processMockupJob(job: any): Promise<void> {
     console.log('[worker] ⚠️ Background removal failed, will use source image for mockup')
   }
 
-  // Priority order: Selected asset > DTF-optimized > no-background > source
+  // Priority order: explicit design_url > Selected asset > DTF-optimized >
+  // no-background > source
   let garmentImageUrl: string | undefined
 
+  // An explicit artwork URL beats everything. This is how a two-sided
+  // product's BACK shot gets the back plate instead of the front design —
+  // every other branch below answers "what is this product's design", and a
+  // product with a front and a back has two of them.
+  if (typeof job.input?.design_url === 'string' && job.input.design_url) {
+    garmentImageUrl = job.input.design_url
+    console.log('[worker] 🎯 Using explicit design_url for mockup:', garmentImageUrl)
+  }
+
   // If user selected a specific asset, use that one
-  if (job.input?.selected_asset_id) {
+  if (!garmentImageUrl && job.input?.selected_asset_id) {
     console.log('[worker] 🎯 Using user-selected asset:', job.input.selected_asset_id)
 
     // Get the selected asset
