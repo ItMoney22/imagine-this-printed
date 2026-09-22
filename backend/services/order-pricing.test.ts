@@ -1270,3 +1270,133 @@ describe('calculateOrderPricing — fetchMetalProductIds wires size pricing end-
     expect(result.productSubtotalCents).toBe(2500)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Variant-priced printed garments (Watchtower 767f74d4).
+//
+// Retail = (blank_variant_cost x 1.20) + decoration_cost, stamped onto
+// products.metadata.garment.variant_pricing by
+// backend/scripts/reprice-catalog-variants.ts. These tests pin the two things
+// that decide whether the change makes or loses money: that the bigger blank
+// is charged ONCE (not once in the table and again via the flat rails), and
+// that a tier we cannot source is refused rather than sold cheap.
+// ---------------------------------------------------------------------------
+
+// Built from the real Jiffy costs at a $21.41 decoration split, so a standard
+// M is exactly the $25 the listing already had.
+const VARIANT_PRICING = {
+  markup_pct: 20,
+  decoration_cost: 21.41,
+  default: {
+    standard: { S: 25, M: 25, L: 25, XL: 25, '2XL': 29.73, '3XL': 31.73, YM: 25.27 },
+    heavyweight: { S: 30.45, M: 30.45, L: 30.45, XL: 30.45, '2XL': 35.39, '3XL': 38.19 }
+  },
+  by_color: {
+    White: { standard: { S: 24.76, M: 24.76, L: 24.76, XL: 24.76, '2XL': 27.87, '3XL': 30.01 } }
+  }
+}
+
+describe('computeLineItemCents — variant-priced printed garments', () => {
+  const priceMap = new Map([[PRODUCT_A, 25]])
+  const variantMap = new Map([[PRODUCT_A, VARIANT_PRICING as any]])
+
+  const price = (item: any) =>
+    computeLineItemCents(item, priceMap, new Map(), new Map(), new Set(), variantMap)
+
+  it('charges the base size exactly what the listing already charged', () => {
+    const { cents, errors } = price({ productId: PRODUCT_A, quantity: 1, selectedSize: 'M', selectedTier: 'standard' })
+    expect(errors).toEqual([])
+    expect(cents).toBe(2500)
+  })
+
+  it('charges the real 2XL upcharge instead of the flat $2.50, and only once', () => {
+    const { cents, errors } = price({ productId: PRODUCT_A, quantity: 1, selectedSize: '2XL', selectedTier: 'standard' })
+    expect(errors).toEqual([])
+    // $29.73 from the table. The old rule charged $25 + $2.50 = $27.50 against
+    // a blank that costs $3.94 more than the base — and $2973 proves the flat
+    // rail did NOT also fire (that would be $3223).
+    expect(cents).toBe(2973)
+  })
+
+  it('charges the real premium-blank difference instead of the flat ladder', () => {
+    const { cents, errors } = price({ productId: PRODUCT_A, quantity: 1, selectedSize: '3XL', selectedTier: 'heavyweight' })
+    expect(errors).toEqual([])
+    // Flat rules gave $25 + $2.50 + $7.00 = $34.50 for a Comfort Colors 3XL.
+    expect(cents).toBe(3819)
+  })
+
+  it('prices the cheaper colour off its own table', () => {
+    const { cents } = price({ productId: PRODUCT_A, quantity: 1, selectedSize: '2XL', selectedColor: 'White', selectedTier: 'standard' })
+    expect(cents).toBe(2787)
+  })
+
+  it('keeps the youth markdown — it is a price decision, not a cost proxy', () => {
+    const { cents, errors } = price({ productId: PRODUCT_A, quantity: 1, selectedSize: 'YM', selectedTier: 'standard' })
+    expect(errors).toEqual([])
+    expect(cents).toBe(2527 - 300)
+  })
+
+  it('refuses a tier this garment is not made in rather than selling it cheap', () => {
+    const { cents, errors } = price({ productId: PRODUCT_A, quantity: 1, selectedSize: 'M', selectedTier: 'premium' })
+    expect(cents).toBe(0)
+    expect(errors[0]).toMatch(/not offered on product/)
+  })
+
+  it('falls back to the listing price with a warning on a size the table lacks', () => {
+    // A legacy/odd size string the stamp has no row for. Unlike a blank (whose
+    // column price is only a "from"), a printed listing's price is a real
+    // authored price, so this degrades to the OLD behaviour — flat price plus
+    // the flat plus-size rail — instead of blocking the order.
+    const { cents, errors, warnings } = price({ productId: PRODUCT_A, quantity: 1, selectedSize: '5XL', selectedTier: 'standard' })
+    expect(errors).toEqual([])
+    expect(warnings[0]).toMatch(/no variant price for size "5XL"/)
+    expect(cents).toBe(2500 + 250)
+  })
+
+  it('still charges add-ons on top of the variant price', () => {
+    const { cents } = price({
+      productId: PRODUCT_A, quantity: 2, selectedSize: '2XL', selectedTier: 'standard',
+      selectedAddonIds: ['toy_magnet_pair']
+    })
+    expect(cents).toBe((2973 + 299) * 2)
+  })
+
+  it('flows through calculateOrderPricing via fetchVariantPricing', async () => {
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => priceMap,
+      fetchVariantPricing: async () => variantMap
+    })
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 2, selectedSize: '3XL', selectedTier: 'standard' }],
+        shipping: { type: 'pickup', clientAmountCents: 0 }
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(6346) // 2 × $31.73
+  })
+
+  it('leaves a bundle line on the flat rails, exactly as before', () => {
+    // "2 for $25" ignores the product's own price entirely, so the flat
+    // plus-size rule is still the only thing covering a 3XL inside a bundle.
+    const { subtotalCents, errors } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2, selectedSize: '2XL', selectedTier: 'standard', isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } }],
+      priceMap,
+      new Map(),
+      new Map(),
+      new Set(),
+      variantMap
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(2500 + 250 * 2)
+  })
+
+  it('does nothing at all when no variant table is supplied', () => {
+    const { cents } = computeLineItemCents(
+      { productId: PRODUCT_A, quantity: 1, selectedSize: '2XL', selectedTier: 'standard' },
+      priceMap
+    )
+    expect(cents).toBe(2500 + 250 + 0)
+  })
+})

@@ -14,7 +14,7 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, lineBasePrice, isVariantPricedProduct, variantTiersFor, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
@@ -346,9 +346,26 @@ const ProductPage: React.FC = () => {
   // Blank garments are sold as-is (no print, no quality upsell — the blank IS
   // its tier, priced outright). Seeded with metadata.garment.blank = true.
   const isBlank = isBlankProduct(product)
-  // Tier picker shows on printed apparel only.
-  const showGarmentTiers = isApparel && !isBlank
-  const tierUpcharge = showGarmentTiers ? garmentTierUpcharge(selectedTier) : 0
+  // Printed apparel that carries its own size x colour x tier retail table
+  // (backend/shared/variant-pricing.ts, stamped off the real Jiffy costs).
+  // Its prices already contain the real bigger-blank difference, so the flat
+  // +$2.50 plus-size badge and the flat tier upcharge are NOT shown for it —
+  // the size buttons and the tier cards show the real price instead.
+  const isVariantPriced = isVariantPricedProduct(product)
+  // Tier picker shows on printed apparel only, and only for the blanks this
+  // garment is actually made in — a hoodie has ONE blank, so offering it a
+  // "premium Bella+Canvas" tier was selling something we cannot source.
+  const offeredTierIds = isVariantPriced ? variantTiersFor(product) : GARMENT_TIERS.map(t => t.id)
+  const offeredTiers = GARMENT_TIERS.filter(t => offeredTierIds.includes(t.id))
+  // A YOUTH size has exactly one blank — the Gildan 5000B / 18500B youth cut
+  // (catalog-capability blankForSize). There is no youth Comfort Colors to
+  // buy, so offering the ladder there would take money for a blank we never
+  // pull and ship a Gildan anyway. The picker is hidden and the line falls
+  // back to the base tier, which is what its variant price already is.
+  const youthSelected = isYouthSize(selectedSize)
+  const showGarmentTiers =
+    isApparel && !isBlank && offeredTiers.length > 1 && !(isVariantPriced && youthSelected)
+  const tierUpcharge = showGarmentTiers && !isVariantPriced ? garmentTierUpcharge(selectedTier) : 0
 
   // The template is read straight off the product row. Only `fields` and
   // `upcharge` are used here — zones, fonts and colours never leave the
@@ -389,7 +406,16 @@ const ProductPage: React.FC = () => {
   // the panel size (4x6 $8.95 / 8x10 $16.95), shared with the cart/checkout
   // and the server's pricing engine so the number can't change on the way
   // to the receipt. Everything else is products.price.
-  const unitPrice = unitBasePrice(product, selectedSize)
+  // What the customer is actually charged for one unit of the current
+  // selection. The youth markdown is a separate rail on top of the variant
+  // table (see computeExtrasCentsPerUnit), so a page that printed the stamped
+  // price for a youth size would quote $3 more than the cart collects.
+  const variantUnitFor = (size?: string | null, tier?: string | null): number => {
+    const base = lineBasePrice(product, size, selectedColor, tier)
+    if (!isVariantPriced || !isYouthSize(size)) return base
+    return Math.max(0, Math.round((base - YOUTH_SIZE_DISCOUNT_DOLLARS) * 100) / 100)
+  }
+  const unitPrice = variantUnitFor(selectedSize, showGarmentTiers ? selectedTier : undefined)
   const priceIsFrom = productKind === 'metal' && !selectedSize && hasPriceRange(product)
   const toggleAddon = (addon: { id: string; name: string; price: number }) => {
     setSelectedAddons(prev =>
@@ -784,11 +810,20 @@ const ProductPage: React.FC = () => {
                 <div className="flex flex-wrap gap-2">
                     {sizes.map(size => {
                       const isYouth = isApparel && !isBlank && isYouthSize(size)
-                      const isPlusSize = isApparel && !isBlank && !isYouth && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                      // The "+$" badge means "this size costs extra on top of
+                      // the listed price". A variant-priced listing prints the
+                      // real per-size price on the button instead, so the badge
+                      // would be saying the same thing twice — and vaguely.
+                      const isPlusSize = isApparel && !isBlank && !isVariantPriced && !isYouth && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                       const isSelected = selectedSize === size
-                      // Blank garments: the real price for this size (in the
-                      // selected colour group) lives on the button itself.
-                      const sizePrice = blankPricing ? blankUnitPriceDollars(blankPricing, size, selectedColor) : null
+                      // Blanks AND variant-priced printed garments: the real
+                      // price for this size (in the selected colour + blank)
+                      // lives on the button itself.
+                      const sizePrice = blankPricing
+                        ? blankUnitPriceDollars(blankPricing, size, selectedColor)
+                        : isVariantPriced
+                          ? variantUnitFor(size, showGarmentTiers ? selectedTier : undefined)
+                          : null
                       return (
                         <button
                           key={size}
@@ -814,7 +849,7 @@ const ProductPage: React.FC = () => {
                               +$
                             </span>
                           )}
-                          {isYouth && (
+                          {isYouth && !isVariantPriced && (
                             <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-emerald-200' : 'text-emerald-500'}`}>
                               -$
                             </span>
@@ -827,11 +862,20 @@ const ProductPage: React.FC = () => {
 
               return (
                 <div className="mb-4">
-                  <div className="flex items-center gap-2 mb-2">
+                  <div className="flex flex-wrap items-center gap-2 mb-2">
                     <label className="block text-sm font-medium text-text">{sizeLabel}</label>
-                    {hasPlusSizes && (
+                    {/* The flat "+$2.50" legend is only true when the flat rule
+                        is what runs. A variant-priced listing prints the real
+                        price on every size button, so repeating a number that
+                        is no longer charged would just be wrong. */}
+                    {hasPlusSizes && !isVariantPriced && (
                       <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
                         2XL+ = +$2.50
+                      </span>
+                    )}
+                    {hasPlusSizes && isVariantPriced && (
+                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                        Price shown per size
                       </span>
                     )}
                     {splitBands && (
@@ -867,8 +911,19 @@ const ProductPage: React.FC = () => {
                   <span className="ml-2 text-muted font-normal">— pick your blank</span>
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {GARMENT_TIERS.map(tier => {
+                  {offeredTiers.map(tier => {
                     const isSelected = selectedTier === tier.id
+                    // A variant-priced listing knows what this blank really
+                    // costs in the size the customer has picked, so show the
+                    // actual difference rather than the flat ladder.
+                    // Before a size is picked, quote the delta at the base
+                    // size — otherwise the card would advertise the old flat
+                    // ladder and then change the moment a size is chosen.
+                    const deltaSize = selectedSize || sizeChoices.find(sz => !isYouthSize(sz)) || null
+                    const variantDelta = isVariantPriced && deltaSize
+                      ? variantUnitFor(deltaSize, tier.id) - variantUnitFor(deltaSize, DEFAULT_GARMENT_TIER_ID)
+                      : null
+                    const delta = variantDelta ?? tier.upcharge
                     return (
                       <button
                         key={tier.id}
@@ -880,8 +935,8 @@ const ProductPage: React.FC = () => {
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="font-bold text-sm text-text">{tier.label}</span>
-                          <span className={`text-xs font-semibold ${tier.upcharge > 0 ? 'text-amber-400' : 'text-muted'}`}>
-                            {tier.upcharge > 0 ? `+$${tier.upcharge.toFixed(2)}` : 'included'}
+                          <span className={`text-xs font-semibold ${delta > 0 ? 'text-amber-400' : 'text-muted'}`}>
+                            {delta > 0 ? `+$${delta.toFixed(2)}` : 'included'}
                           </span>
                         </div>
                         <p className="text-xs text-muted mt-0.5">{tier.blurb}</p>
@@ -890,12 +945,21 @@ const ProductPage: React.FC = () => {
                     )
                   })}
                 </div>
-                {tierUpcharge > 0 && (
+                {(isVariantPriced ? Boolean(selectedSize) : tierUpcharge > 0) && (
                   <p className="text-xs text-muted mt-1.5">
-                    Unit price with this blank: <span className="text-text font-semibold">${(product.price + tierUpcharge).toFixed(2)}</span>
+                    Unit price with this blank:{' '}
+                    <span className="text-text font-semibold">
+                      ${(isVariantPriced ? unitPrice : product.price + tierUpcharge).toFixed(2)}
+                    </span>
                   </p>
                 )}
               </div>
+            )}
+
+            {isApparel && !isBlank && isVariantPriced && youthSelected && offeredTiers.length > 1 && (
+              <p className="mb-4 text-xs text-muted">
+                Youth sizes come in one blank — the youth cut of our classic heavy cotton. The quality ladder applies to adult sizes.
+              </p>
             )}
 
             {productKind === 'metal' && product.metadata?.finish && (

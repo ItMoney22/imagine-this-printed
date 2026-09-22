@@ -4252,3 +4252,57 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+---
+
+## Current request (2026-09-22) — variant Jiffy costs + 20% markup repricing
+Watchtower task `767f74d4-80d5-49bb-a703-481f056f7f93` (Marcus Wolfe).
+
+David's rule: **Retail = (blank_variant_cost x 1.20) + decoration_cost.**
+The catalogue priced every printed garment off ONE flat `products.price` plus a
+flat $2.50 plus-size rule and a flat $3/$5/$7 tier ladder, while Jiffy's real
+upcharges run $2.99 -> $9.53 on a tee and $15.09 -> $23.71 on a hoodie. The
+bigger the customer, the thinner (or negative) the margin.
+
+### File shortlist (approved scope — 2026-09-22 variant pricing)
+- `supabase/migrations/20260922170000_blank_variant_costs.sql` (new)
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `backend/shared/jiffy-catalog.ts` (new) — supplier style registry + colour aliases
+- `backend/shared/variant-pricing.ts` + `.test.ts` (new) — the house rule, shared both sides
+- `backend/services/variant-cost-resolver.ts` (new) — costs -> per-product retail table
+- `backend/scripts/sync-jiffy-costs.ts` + `.test.ts` + `__fixtures__/` (new)
+- `backend/scripts/reprice-catalog-variants.ts` (new)
+- `backend/routes/admin/margins.ts` (new) + `backend/index.ts` (mount)
+- `backend/services/order-pricing.ts` + `.test.ts` — the variant rail
+- `src/lib/product-kind.ts`, `src/context/CartContext.tsx`, `src/pages/ProductPage.tsx`,
+  `src/pages/Cart.tsx`, `src/pages/Checkout.tsx`
+- `src/components/AdminVariantMargins.tsx` (new) + `src/pages/AdminDashboard.tsx` (tab)
+- `docs/BLANK_COST_SYNC.md` (new) — the re-run runbook
+- Live data: `blank_variant_costs` rows + `products.metadata.garment.variant_pricing`
+  on 91 active listings (David's rule, base prices unchanged)
+
+### Work log (append-only)
+- Applied `20260922170000_blank_variant_costs.sql` to prod. 18 columns, RLS on with
+  zero policies (service-role only), grants revoked from anon/authenticated, and the
+  `supabase_migrations.schema_migrations` row inserted in the same script.
+- Proved no credentials are needed: Jiffy's PUBLIC PDP `data-amount` matched all four
+  of David's signed-in tier cost tables from 2026-09-02 to the cent. Pinned that with a
+  test against a real captured page.
+- Found and fixed a silent trap: `?ac=` takes the colour NAME, not the anchor slug.
+  `?ac=sport-gray` served "Sand"; `?ac=Sport%20Gray` served Sport Gray. Single-word
+  colours resolve either way, so black/white/navy/red all looked fine while every
+  two-word colour came back as a different shirt's prices. The sync now also drops any
+  grid whose echoed colour does not match what was asked for.
+- Synced 3,103 variant costs across 7 styles, including the hoodie (G185) and both
+  youth cuts (G500B/G185B), which had NO cost data anywhere in the repo before.
+- Stamped 91 of 92 active printed listings. Base prices unchanged by construction; the
+  2XL+/premium variants now carry the real cost. Re-derived every stamped variant
+  against the live table: 27,335 variants, zero at or below their blank.
+- ONE listing left alone: America's 250th Anniversary Hoodie, $15.00 against a $15.09
+  blank. Repricing it moves a listed price, which is David's call — filed as an approval.
+- Youth sizes: there is no youth Comfort Colors, so the tier ladder is hidden on a youth
+  size and every tier prices at the youth blank. The old flat ladder was charging $3-$7
+  for a blank we never pull.
+- Fixed a pre-existing display bug surfaced by this work: the cart/checkout per-line
+  figure ignored the $3 youth markdown the subtotal actually took, so the line and the
+  total disagreed. `youthMarkdownFor()` in product-kind.ts is now the one answer.

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
 import { shippingCalculator } from '../utils/shipping-calculator'
-import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
+import { addonsUnitTotal, lineBasePrice, isVariantPricedProduct, youthMarkdownFor } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 
@@ -111,7 +111,13 @@ const Cart: React.FC = () => {
                       <p className="text-sm text-muted mt-1">Print location: {item.printLocation}</p>
                     )}
                     <p className="text-lg font-bold text-purple-600 mt-2">
-                      ${lineBasePrice(item.product, item.selectedSize, item.selectedColor).toFixed(2)}
+                      ${(() => {
+                        // The per-unit figure, on the same rails as the line
+                        // total below it: the picked blank's price, and the
+                        // youth markdown the subtotal actually takes.
+                        const unit = lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier)
+                        return (unit - youthMarkdownFor(item.product, item.selectedSize, unit)).toFixed(2)
+                      })()}
                     </p>
                   </div>
 
@@ -133,7 +139,12 @@ const Cart: React.FC = () => {
 
                   <div className="text-right">
                     <p className="text-lg font-bold">
-                      ${((lineBasePrice(item.product, item.selectedSize, item.selectedColor) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                      ${(() => {
+                        const unit = lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier)
+                          + (isVariantPricedProduct(item.product) ? 0 : garmentTierUpcharge(item.selectedTier))
+                          + addonsUnitTotal(item.selectedAddons)
+                        return ((unit - youthMarkdownFor(item.product, item.selectedSize, unit)) * item.quantity).toFixed(2)
+                      })()}
                     </p>
                     <button
                       onClick={() => removeFromCart(item.id)}

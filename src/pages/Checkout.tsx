@@ -7,7 +7,8 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
-import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
+import { addonsUnitTotal, lineBasePrice, isVariantPricedProduct, youthMarkdownFor } from '../lib/product-kind'
+import { isBundleEligible } from '../../backend/shared/promos'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
@@ -382,10 +383,20 @@ const Checkout: React.FC = () => {
     const usdItems = state.items.filter(item => !item.paymentMethod || item.paymentMethod === 'usd')
     const itcItems = state.items.filter(item => item.paymentMethod === 'itc')
 
-    // Calculate base total (blank garments price per size + colour off their
-    // own table — backend/shared/blank-pricing.ts; mirrors CartContext)
-    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity), 0)
-    const itcBaseTotal = itcItems.reduce((sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity), 0)
+    // A line that prices from its OWN table — a blank (blank-pricing.ts) or a
+    // printed garment with variant_pricing (variant-pricing.ts) — already
+    // carries the real 2XL-5XL and premium-blank cost, so the flat plus-size
+    // and tier upcharges below must skip it or the bigger blank is charged
+    // twice. Identical rule to CartContext's ownsPriceTable and to
+    // computeExtrasCentsPerUnit server-side, bundle exception included.
+    const ownsPriceTable = (item: typeof usdItems[number]): boolean =>
+      isBlankGarmentMeta(item.product.metadata) ||
+      (isVariantPricedProduct(item.product) && !isBundleEligible(item.product))
+
+    // Calculate base total (blank + variant garments price per size/colour/tier
+    // off their own table; mirrors CartContext)
+    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier) * item.quantity), 0)
+    const itcBaseTotal = itcItems.reduce((sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier) * item.quantity), 0)
 
     // Add-on upsells (e.g. metal-art easel stand / wall mount), priced per unit.
     const usdAddonsTotal = usdItems.reduce((sum, item) => sum + addonsUnitTotal(item.selectedAddons) * item.quantity, 0)
@@ -395,14 +406,14 @@ const Checkout: React.FC = () => {
     // Calculate plus size upcharge for USD items (never for blanks — their
     // 2XL+ price is already in the table)
     const plusSizeUpcharge = usdItems.reduce((sum, item) => {
-      if (!isBlankGarmentMeta(item.product.metadata) && isPlusSize(item.selectedSize)) {
+      if (!ownsPriceTable(item) && isPlusSize(item.selectedSize)) {
         return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
       }
       return sum
     }, 0)
 
     // Garment quality tier upcharge (mirrors CartContext + order-pricing.ts).
-    const usdTierTotal = usdItems.reduce((sum, item) => sum + garmentTierUpcharge(item.selectedTier) * item.quantity, 0)
+    const usdTierTotal = usdItems.reduce((sum, item) => sum + (ownsPriceTable(item) ? 0 : garmentTierUpcharge(item.selectedTier)) * item.quantity, 0)
 
     // Youth-size discount, $3 off per unit (mirrors CartContext +
     // order-pricing.ts). Never for blanks — their size price is already the
@@ -412,10 +423,11 @@ const Checkout: React.FC = () => {
     // inside the 1-cent tolerance the server re-price gate enforces.
     const youthDiscount = usdItems.reduce((sum, item) => {
       if (isBlankGarmentMeta(item.product.metadata) || !isYouthSize(item.selectedSize)) return sum
+      const owns = ownsPriceTable(item)
       const otherPerUnit =
-        lineBasePrice(item.product, item.selectedSize, item.selectedColor) +
-        (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
-        garmentTierUpcharge(item.selectedTier) +
+        lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier) +
+        (!owns && isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
+        (owns ? 0 : garmentTierUpcharge(item.selectedTier)) +
         addonsUnitTotal(item.selectedAddons)
       return sum + Math.min(YOUTH_SIZE_DISCOUNT_DOLLARS, otherPerUnit) * item.quantity
     }, 0)
@@ -1567,7 +1579,12 @@ const Checkout: React.FC = () => {
                     )}
                   </div>
                   <p className="font-semibold text-sm flex-shrink-0">
-                    ${((lineBasePrice(item.product, item.selectedSize, item.selectedColor) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                    ${(() => {
+                      const unit = lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier)
+                        + (isVariantPricedProduct(item.product) ? 0 : garmentTierUpcharge(item.selectedTier))
+                        + addonsUnitTotal(item.selectedAddons)
+                      return ((unit - youthMarkdownFor(item.product, item.selectedSize, unit)) * item.quantity).toFixed(2)
+                    })()}
                   </p>
                 </div>
               ))}
