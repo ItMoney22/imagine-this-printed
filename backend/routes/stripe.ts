@@ -31,6 +31,7 @@ import {
   recordRefundOnOrder,
   refundedCentsFromMetadata
 } from '../services/order-refunds.js'
+import { creditItcPurchaseOnce } from '../lib/itc-purchase-claim.js'
 
 const router = Router()
 
@@ -1429,7 +1430,13 @@ async function handleChargeDispute(dispute: Stripe.Dispute, eventType: string, r
 // The customer order-confirmation sender moved to services/order-payment.ts
 // along with the rest of the paid-order pipeline.
 
-// Handle ITC token purchase
+// Handle ITC token purchase.
+//
+// The claim happens inside claim_itc_purchase() before any balance write.
+// A redelivery loses that claim and returns here without throwing, so the
+// route responds 200 and Stripe stops retrying. A real claim failure throws,
+// which this route turns into 500 so Stripe retries — the database function
+// rolls the insert back, so the retry can still win.
 async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Request) {
   const { userId, itcAmount, packagePriceUSD } = paymentIntent.metadata
 
@@ -1441,77 +1448,30 @@ async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Reque
   const itcAmountNum = parseFloat(itcAmount)
   const usdAmount = parseFloat(packagePriceUSD)
 
-  // Check for duplicate transaction. The payment intent id lives in the
-  // `reference` column (live schema has no stripe_payment_intent_id column —
-  // the old filter errored, so dedupe NEVER worked and webhook retries could
-  // double-credit ITC).
-  const { data: existingTransaction, error: dedupeError } = await supabase
-    .from('itc_transactions')
-    .select('id')
-    .eq('type', 'purchase')
-    .eq('reference', paymentIntent.id)
-    .maybeSingle()
-
-  if (dedupeError) {
-    req.log?.error({ err: dedupeError }, 'Dedupe check failed — continuing cautiously')
+  let result: Awaited<ReturnType<typeof creditItcPurchaseOnce>>
+  try {
+    result = await creditItcPurchaseOnce(supabase, {
+      userId,
+      paymentIntentId: paymentIntent.id,
+      itcAmount: itcAmountNum,
+      usdAmount
+    })
+  } catch (err) {
+    req.log?.error({ err, paymentIntentId: paymentIntent.id, userId }, 'Failed to claim ITC purchase')
+    throw err
   }
-  if (existingTransaction) {
-    req.log?.warn({ paymentIntentId: paymentIntent.id }, 'Duplicate transaction detected')
+
+  if (result.outcome === 'duplicate') {
+    req.log?.info(
+      { paymentIntentId: paymentIntent.id, userId },
+      'ITC purchase already claimed — duplicate webhook delivery, skipping'
+    )
     return
-  }
-
-  // Update user wallet
-  const { data: wallet, error: walletError } = await supabase
-    .from('user_wallets')
-    .select('*')
-    .eq('user_id', userId)
-    .single()
-
-  if (walletError || !wallet) {
-    req.log?.error({ err: walletError, userId }, 'Failed to fetch wallet')
-    throw new Error('Failed to fetch wallet')
-  }
-
-  // Credit ITC to wallet
-  const newBalance = parseFloat(wallet.itc_balance) + itcAmountNum
-
-  const { error: updateError } = await supabase
-    .from('user_wallets')
-    .update({
-      itc_balance: newBalance,
-      updated_at: new Date().toISOString()
-    })
-    .eq('user_id', userId)
-
-  if (updateError) {
-    req.log?.error({ err: updateError, userId }, 'Failed to update wallet')
-    throw new Error('Failed to update wallet')
-  }
-
-  // Record transaction (live schema: type/amount/reference/balance_after/metadata)
-  const { error: transactionError } = await supabase
-    .from('itc_transactions')
-    .insert({
-      user_id: userId,
-      type: 'purchase',
-      amount: itcAmountNum,
-      balance_after: newBalance,
-      reference: paymentIntent.id,
-      metadata: {
-        usd_value: usdAmount,
-        reason: `Purchased ${itcAmountNum} ITC for $${usdAmount.toFixed(2)}`
-      },
-      created_at: new Date().toISOString()
-    })
-
-  if (transactionError) {
-    req.log?.error({ err: transactionError }, 'Failed to record transaction')
-    // Don't throw - wallet was updated successfully
   }
 
   // Send confirmation email (non-critical — wallet was already credited above)
   try {
-    await sendPurchaseConfirmationEmail(userId, itcAmountNum, usdAmount, newBalance)
+    await sendPurchaseConfirmationEmail(userId, itcAmountNum, usdAmount, result.newBalance ?? 0)
   } catch (emailError) {
     req.log?.error({ err: emailError }, 'Failed to send confirmation email')
     // Don't throw - this is non-critical
@@ -1520,7 +1480,7 @@ async function handleITCPurchase(paymentIntent: Stripe.PaymentIntent, req: Reque
   req.log?.info({
     userId,
     itcAmount: itcAmountNum,
-    newBalance,
+    newBalance: result.newBalance,
     paymentIntentId: paymentIntent.id
   }, 'ITC purchase processed successfully')
 }
