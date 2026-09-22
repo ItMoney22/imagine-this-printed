@@ -17,64 +17,144 @@ const router = Router()
 // with `SUPABASE_JWT_SECRET`.
 
 // ===========================================
-// SEND WELCOME EMAIL (for Supabase Auth signups)
+// SEND WELCOME EMAIL (confirmed accounts only)
 // ===========================================
+//
+// 2026-09-22 (Sifu, Watchtower 4d915741). This endpoint used to take an
+// arbitrary `email` out of the request body and mail it, with no
+// authentication at all. That made it an open relay for welcome mail from the
+// imaginethisprinted.com domain: anyone who knew the URL could send our
+// branded mail to any inbox on earth without ever creating an account, and
+// during the September bot wave it was the thing that put welcome mail in
+// front of ~290 scraped corporate addresses. Reputation damage to a sending
+// domain is slow to earn back, so the rules are now:
+//
+//   1. The caller must present a Supabase access token. No token, no send.
+//   2. The destination address is read from the VERIFIED token, never from
+//      the request body. A tampered body can no longer redirect the mail.
+//   3. The address must already be CONFIRMED. An unconfirmed signup has not
+//      proved it owns the inbox, and mailing it is exactly the spam the bot
+//      wave produced.
+//   4. One welcome per account, forever — stamped on
+//      user_profiles.welcome_email_sent_at (added in
+//      supabase/migrations/20260922120000_signup_wallet_and_welcome_email.sql)
+//      rather than an in-process map, which forgot everything on each Render
+//      restart and reset per instance.
+//
+// The frontend therefore calls this from the auth callback (where a confirmed
+// session exists) instead of straight after signUp, where one never did.
 
-// Anti-spam: cap by destination email AND by source IP. The endpoint is
-// unauthenticated because it's called immediately after signUp, before the
-// session token exists when email confirmation is enabled.
-const welcomeEmailLimitByAddress = new Map<string, number>() // email -> last send (ms)
+/** Per-IP backstop. Points 1–4 are the real control; this just caps noise. */
 const welcomeEmailLimitByIp = new Map<string, { count: number; resetAt: number }>()
 
-function checkWelcomeEmailLimit(email: string, ip: string): boolean {
+function checkWelcomeEmailIpLimit(ip: string): boolean {
   const now = Date.now()
-
-  // 60s cooldown per email address (blocks bombing one inbox)
-  const lastSent = welcomeEmailLimitByAddress.get(email)
-  if (lastSent && now - lastSent < 60_000) return false
-  welcomeEmailLimitByAddress.set(email, now)
-
-  // 5 sends per IP per 5 minutes (blocks scripted enumeration)
-  const ipState = welcomeEmailLimitByIp.get(ip)
-  if (!ipState || ipState.resetAt < now) {
+  const state = welcomeEmailLimitByIp.get(ip)
+  if (!state || state.resetAt < now) {
     welcomeEmailLimitByIp.set(ip, { count: 1, resetAt: now + 300_000 })
     return true
   }
-  if (ipState.count >= 5) return false
-  ipState.count++
+  if (state.count >= 5) return false
+  state.count++
   return true
 }
 
 /**
  * POST /api/account/send-welcome-email
- * Send welcome email to a new user after Supabase signup
- * Called from the frontend after successful registration
+ * Authorization: Bearer <supabase access token>
+ *
+ * Sends the one-time welcome email for the confirmed account the token
+ * belongs to. Idempotent: a second call returns 200 without sending.
  */
 router.post('/send-welcome-email', async (req: Request, res: Response) => {
   try {
-    const { email, username } = req.body
-
-    if (!email) {
-      return res.status(400).json({ error: 'Email is required' })
-    }
-
     const ip = (req.ip || req.headers['x-forwarded-for'] || 'unknown') as string
-    if (!checkWelcomeEmailLimit(email, ip)) {
+    if (!checkWelcomeEmailIpLimit(ip)) {
       return res.status(429).json({ error: 'Too many requests' })
     }
 
-    const displayName = username || email.split('@')[0] || 'Friend'
+    const authHeader = req.headers.authorization
+    const token = typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7).trim()
+      : ''
+    if (!token) {
+      return res.status(401).json({ error: 'Sign-in required' })
+    }
 
-    console.log('[account] 📧 Sending welcome email to:', email, 'as:', displayName)
+    const { data: { user }, error: authError } = await supabase.auth.getUser(token)
+    if (authError || !user) {
+      console.warn('[account] welcome email: token rejected')
+      return res.status(401).json({ error: 'Sign-in required' })
+    }
+
+    // `confirmed_at` covers accounts confirmed by phone or by an admin as well
+    // as by email link; either way the address has been vouched for.
+    const isConfirmed = Boolean((user as any).email_confirmed_at || (user as any).confirmed_at)
+    if (!isConfirmed) {
+      console.warn('[account] welcome email: account not confirmed, refusing to send')
+      return res.status(403).json({ error: 'Confirm your email address first' })
+    }
+
+    const email = user.email
+    if (!email) {
+      return res.status(400).json({ error: 'Account has no email address' })
+    }
+
+    const { data: profile, error: profileError } = await supabase
+      .from('user_profiles')
+      .select('username, display_name, first_name, welcome_email_sent_at')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (profileError) {
+      // Do not fail open into a send — a read failure is not proof it is unsent.
+      console.error('[account] welcome email: profile lookup failed:', profileError.message)
+      return res.status(503).json({ error: 'Could not verify account state' })
+    }
+
+    if (profile?.welcome_email_sent_at) {
+      return res.status(200).json({ success: true, alreadySent: true })
+    }
+
+    const metadata = (user.user_metadata || {}) as Record<string, string | undefined>
+    const displayName =
+      profile?.display_name ||
+      profile?.first_name ||
+      profile?.username ||
+      metadata.display_name ||
+      metadata.first_name ||
+      email.split('@')[0] ||
+      'Friend'
+
+    console.log('[account] 📧 Sending welcome email to confirmed account:', user.id)
+
+    // Stamp BEFORE sending. A crash between send and stamp would otherwise let
+    // a retry mail the customer twice; a crash between stamp and send costs
+    // them a welcome email, which is the cheaper of the two mistakes.
+    const { error: stampError } = await supabase
+      .from('user_profiles')
+      .update({ welcome_email_sent_at: new Date().toISOString() })
+      .eq('id', user.id)
+      .is('welcome_email_sent_at', null)
+
+    if (stampError) {
+      console.error('[account] welcome email: could not stamp profile:', stampError.message)
+      return res.status(503).json({ error: 'Could not record welcome email' })
+    }
 
     try {
       await sendWelcomeEmail(email, displayName)
-      console.log('[account] ✅ Welcome email sent successfully to:', email)
-      return res.status(200).json({ success: true, message: 'Welcome email sent' })
+      console.log('[account] ✅ Welcome email sent successfully')
+      return res.status(200).json({ success: true })
     } catch (emailError: any) {
       console.error('[account] ❌ Failed to send welcome email:', emailError)
-      // Return success anyway - we don't want to fail registration over email
-      return res.status(200).json({ success: false, message: 'Email sending failed but registration complete' })
+      // Registration already succeeded; a failed welcome is not the customer's
+      // problem. Clear the stamp so a later attempt can try again.
+      await supabase
+        .from('user_profiles')
+        .update({ welcome_email_sent_at: null })
+        .eq('id', user.id)
+      return res.status(200).json({ success: false, message: 'Welcome email could not be sent' })
     }
   } catch (error: any) {
     console.error('[account] ❌ Welcome email endpoint error:', error)

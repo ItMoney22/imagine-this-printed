@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
+import TurnstileWidget from '../components/TurnstileWidget'
+import { isCaptchaConfigured } from '../lib/captcha'
 
 const Signup: React.FC = () => {
   const [email, setEmail] = useState('')
@@ -9,7 +11,14 @@ const Signup: React.FC = () => {
   const [lastName, setLastName] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
   const { signUp, user } = useAuth()
+
+  // Every Turnstile token is single-use. Burning one on a failed attempt and
+  // then reusing it would make the retry fail for a reason the customer cannot
+  // see, so a new challenge is issued after each attempt.
+  const captchaRequired = isCaptchaConfigured()
   const navigate = useNavigate()
   const location = useLocation()
 
@@ -33,10 +42,18 @@ const Signup: React.FC = () => {
       lastName 
     })
 
+    if (captchaRequired && !captchaToken) {
+      setLoading(false)
+      setMessage('Please complete the security check below.')
+      return
+    }
+
     try {
       console.log('🔄 Signup: Attempting to create account...')
-      const result = await signUp(email, password, { firstName, lastName })
-      
+      const result = await signUp(email, password, { firstName, lastName }, captchaToken)
+
+      setCaptchaReset((n) => n + 1)
+
       if (result.error) {
         console.error('❌ Signup: Account creation failed:', {
           error: result.error
@@ -48,6 +65,7 @@ const Signup: React.FC = () => {
       console.log('✅ Signup: Account creation successful')
       setMessage('Account created! Please check your email to verify your account.')
     } catch (error: any) {
+      setCaptchaReset((n) => n + 1)
       console.error('❌ Signup: Form submission error:', {
         error,
         message: error?.message,
@@ -117,10 +135,17 @@ const Signup: React.FC = () => {
             />
           </div>
 
+          <TurnstileWidget
+            action="signup"
+            onVerify={setCaptchaToken}
+            resetSignal={captchaReset}
+            className="flex justify-center"
+          />
+
           <div>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || (captchaRequired && !captchaToken)}
               className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-purple-600 hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-purple-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
             >
               {loading ? 'Creating Account...' : 'Create Account'}

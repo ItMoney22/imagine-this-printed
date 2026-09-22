@@ -26,15 +26,29 @@ const CACHE_TTL = 60000 // 1 minute cache
 interface AuthContextType {
   user: User | null
   loading: boolean
-  signIn: (email: string, password: string) => Promise<{ error?: string }>
-  signUp: (email: string, password: string, userData?: any) => Promise<{ error?: string }>
+  signIn: (email: string, password: string, captchaToken?: string | null) => Promise<{ error?: string }>
+  signUp: (email: string, password: string, userData?: any, captchaToken?: string | null) => Promise<{ error?: string }>
   signInWithGoogle: () => Promise<{ error?: string }>
-  signInWithMagicLink: (email: string) => Promise<{ error?: string }>
+  signInWithMagicLink: (email: string, captchaToken?: string | null) => Promise<{ error?: string }>
   signOut: () => Promise<void>
-  resetPassword: (email: string) => Promise<{ error?: string }>
+  resetPassword: (email: string, captchaToken?: string | null) => Promise<{ error?: string }>
   validateReferralCode: (code: string) => Promise<{ isValid: boolean; error?: string }>
   refreshProfile: () => Promise<void> // Force refresh user profile from database
 }
+
+/**
+ * Turns a Turnstile token into the `options` fragment supabase-js expects.
+ *
+ * Returns {} when there is no token so the call is byte-identical to what it
+ * was before captcha existed. GoTrue rejects `captchaToken: undefined` outright
+ * once Bot & Abuse Protection is on, so the key must be absent, not undefined.
+ * Every captcha-protected GoTrue endpoint this app touches — signUp,
+ * signInWithPassword, signInWithOtp, resetPasswordForEmail — spreads this in.
+ * Missing one of them would mean the dashboard toggle locks customers out of
+ * that one flow with no way back.
+ */
+const captchaOptions = (captchaToken?: string | null): { captchaToken?: string } =>
+  captchaToken ? { captchaToken } : {}
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
@@ -304,7 +318,11 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     return () => subscription.unsubscribe()
   }, [loadUser])
 
-  const signIn = async (email: string, password: string): Promise<{ error?: string }> => {
+  const signIn = async (
+    email: string,
+    password: string,
+    captchaToken?: string | null
+  ): Promise<{ error?: string }> => {
     console.log('🔄 SupabaseAuth: Attempting sign in for:', email)
 
     // Clear profile cache to force fresh profile fetch
@@ -315,6 +333,7 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
+        options: captchaOptions(captchaToken),
       })
 
       if (error) {
@@ -334,7 +353,12 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
   }
 
-  const signUp = async (email: string, password: string, userData?: any): Promise<{ error?: string }> => {
+  const signUp = async (
+    email: string,
+    password: string,
+    userData?: any,
+    captchaToken?: string | null
+  ): Promise<{ error?: string }> => {
     console.log('🔄 SupabaseAuth: Attempting sign up for:', email)
 
     try {
@@ -344,6 +368,7 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
         email,
         password,
         options: {
+          ...captchaOptions(captchaToken),
           data: {
             username: username,
             display_name: userData?.displayName || userData?.firstName || username,
@@ -361,19 +386,13 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
       if (data.user) {
         console.log('✅ SupabaseAuth: Sign up successful')
 
-        // Send welcome email via backend
-        try {
-          const apiBase = import.meta.env.VITE_API_BASE || ''
-          await fetch(`${apiBase}/api/account/send-welcome-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email, username })
-          })
-          console.log('📧 SupabaseAuth: Welcome email request sent')
-        } catch (emailError) {
-          console.warn('⚠️ SupabaseAuth: Welcome email request failed (non-blocking):', emailError)
-          // Don't fail registration if email fails
-        }
+        // The welcome email is NOT sent from here any more. At this point the
+        // address is unproved — whoever typed it may not own it — and mailing
+        // it is how the September 2026 bot wave put our branded mail in front
+        // of scraped corporate inboxes. It now goes out from
+        // src/pages/AuthCallback.tsx, the first moment a CONFIRMED session
+        // exists, against an endpoint that reads the address from the access
+        // token instead of trusting a request body.
 
         return {}
       }
@@ -457,7 +476,10 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
   }
 
-  const signInWithMagicLink = async (email: string): Promise<{ error?: string }> => {
+  const signInWithMagicLink = async (
+    email: string,
+    captchaToken?: string | null
+  ): Promise<{ error?: string }> => {
     console.log('[AuthContext] 🔄 Attempting magic link sign in for:', email)
 
     try {
@@ -465,6 +487,7 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
       const { error } = await supabase.auth.signInWithOtp({
         email,
         options: {
+          ...captchaOptions(captchaToken),
           emailRedirectTo: `${publicUrl}/auth/callback`
         }
       })
@@ -497,11 +520,15 @@ export const SupabaseAuthProvider: React.FC<{ children: ReactNode }> = ({ childr
     }
   }
 
-  const resetPassword = async (email: string): Promise<{ error?: string }> => {
+  const resetPassword = async (
+    email: string,
+    captchaToken?: string | null
+  ): Promise<{ error?: string }> => {
     console.log('🔄 SupabaseAuth: Attempting password reset for:', email)
     
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        ...captchaOptions(captchaToken),
         redirectTo: `${window.location.origin}/auth/reset-password`
       })
 

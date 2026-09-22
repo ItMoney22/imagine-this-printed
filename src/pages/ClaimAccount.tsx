@@ -29,7 +29,7 @@ export default function ClaimAccount() {
   const [confirm, setConfirm] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [done, setDone] = useState<{ linkedOrders: number } | null>(null)
+  const [done, setDone] = useState<{ linkedOrders: number; signedIn: boolean } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -85,8 +85,15 @@ export default function ClaimAccount() {
       // The account exists and its email is already verified, so sign them
       // straight in — making someone log in again right after choosing a
       // password is the kind of friction that loses the customer we just won.
-      setDone({ linkedOrders: body.linkedOrders ?? 0 })
+      //
+      // This one sign-in carries no Turnstile token: there is no widget on this
+      // page, and putting one here would tax a conversion flow that is already
+      // gated by a signed, order-scoped link a bot cannot guess. Once Bot &
+      // Abuse Protection is on, GoTrue will refuse this call, so the screen
+      // below tells the truth either way instead of promising a redirect that
+      // never comes.
       const result = await signIn(body.email, password)
+      setDone({ linkedOrders: body.linkedOrders ?? 0, signedIn: !result.error })
       if (!result.error) {
         setTimeout(() => navigate('/account/orders'), 1800)
       }
@@ -143,7 +150,9 @@ export default function ClaimAccount() {
           <CheckCircle className="w-12 h-12 text-emerald-500 mx-auto mb-4" />
           <h1 className="text-xl font-display font-bold text-text mb-2">You're all set</h1>
           <p className="text-muted text-sm mb-2">
-            Your account is ready and we're signing you in.
+            {done.signedIn
+              ? "Your account is ready and we're signing you in."
+              : 'Your account is ready. Sign in with the password you just chose.'}
           </p>
           {done.linkedOrders > 0 && (
             <p className="text-sm text-primary font-medium mb-6">
@@ -151,10 +160,10 @@ export default function ClaimAccount() {
             </p>
           )}
           <Link
-            to="/account/orders"
+            to={done.signedIn ? '/account/orders' : '/login'}
             className="inline-block px-5 py-2.5 bg-primary text-white rounded-xl font-medium hover:opacity-90 transition-opacity"
           >
-            View my orders
+            {done.signedIn ? 'View my orders' : 'Sign in'}
           </Link>
         </div>
       </Shell>

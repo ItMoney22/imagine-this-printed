@@ -92,29 +92,29 @@ export default function AuthCallback() {
           email: verifyData.session.user.email,
         });
 
-        // Check if this is a new user (created within last 2 minutes) and send welcome email
-        const userCreatedAt = new Date(verifyData.session.user.created_at || 0);
-        const now = new Date();
-        const timeSinceCreation = now.getTime() - userCreatedAt.getTime();
-        const twoMinutesInMs = 2 * 60 * 1000;
-
-        if (timeSinceCreation < twoMinutesInMs) {
-          console.log('[callback] 🆕 New OAuth user detected, sending welcome email');
-          try {
-            const apiBase = import.meta.env.VITE_API_BASE || '';
-            const email = verifyData.session.user.email;
-            const metadata = verifyData.session.user.user_metadata || {};
-            const username = metadata.username || metadata.full_name || metadata.name || email?.split('@')[0] || 'Friend';
-
-            await fetch(`${apiBase}/api/account/send-welcome-email`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ email, username })
-            });
-            console.log('[callback] 📧 Welcome email request sent for OAuth user');
-          } catch (emailError) {
-            console.warn('[callback] ⚠️ Welcome email request failed (non-blocking):', emailError);
-          }
+        // This is the one place in the app where a CONFIRMED session exists for
+        // the first time — an email-confirmation link and an OAuth return both
+        // land here. So this is where the welcome email is asked for, for every
+        // signup path, rather than straight after signUp() where the address
+        // has not been proved yet. (2026-09-22, Watchtower 4d915741: welcome
+        // mail to unproved addresses is how ~290 bot signups spammed scraped
+        // corporate inboxes.)
+        //
+        // No address is sent. The endpoint reads the destination out of this
+        // access token, refuses unconfirmed accounts, and is idempotent, so
+        // calling it on every callback is safe and costs one cheap 200.
+        try {
+          const apiBase = import.meta.env.VITE_API_BASE || '';
+          await fetch(`${apiBase}/api/account/send-welcome-email`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${verifyData.session.access_token}`,
+            },
+          });
+          console.log('[callback] 📧 Welcome email checked for this account');
+        } catch (emailError) {
+          console.warn('[callback] ⚠️ Welcome email request failed (non-blocking):', emailError);
         }
 
         // Clean URL of OAuth parameters

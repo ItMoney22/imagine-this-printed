@@ -90,6 +90,45 @@ VITE_SITE_URL="https://imaginethisprinted.com"
 
 **Important:** Only the publishable key goes here. The secret key must NEVER be in frontend code.
 
+#### Signup Bot Protection — Cloudflare Turnstile
+
+| Variable | Description | Example | Required |
+|----------|-------------|---------|----------|
+| `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile **site** key. Renders the challenge on signup, sign-in, password reset and magic link. | `0x4AAAAAAA...` | No (see below) |
+
+**This is only half the control.** The site key puts a widget in the page and produces
+a token; nothing verifies that token until Supabase's own Bot & Abuse Protection is
+switched on with the matching Turnstile **secret** key. Browser-side code cannot
+enforce a captcha — only GoTrue can, because only GoTrue holds the secret.
+
+**Turn the two halves on in this order, or you will lock every customer out:**
+
+1. Deploy the frontend with `VITE_TURNSTILE_SITE_KEY` set (Vercel → Project →
+   Settings → Environment Variables → Production + Preview, then redeploy —
+   Vite inlines `VITE_*` at BUILD time, so setting it without a rebuild does nothing).
+2. Confirm the widget actually renders on `/signup` and `/login` in production.
+3. Only then: Supabase Dashboard → Authentication → Attack Protection →
+   **Enable Captcha protection**, provider **Turnstile**, paste the Turnstile
+   **secret** key.
+
+Flipping step 3 first makes GoTrue demand a token that no deployed page is producing,
+which fails signup, password sign-in, magic link AND password reset at once.
+
+With the key unset the widget renders nothing and every form submits exactly as it did
+before — deliberate, so the code can ship ahead of the key.
+
+**Where to get the keys:** Cloudflare Dashboard → Turnstile → Add widget. Domains must
+list `imaginethisprinted.com`, `www.imaginethisprinted.com` and `localhost`. The secret
+key goes into Supabase only — never into this repo, `.env.local`, or Vercel.
+
+**Local development:** Cloudflare publishes test keys. `1x00000000000000000000AA`
+(site) / `1x0000000000000000000000000000000AA` (secret) always pass;
+`2x00000000000000000000AB` always blocks, which is the one to use when checking that a
+refused challenge really does stop a signup. Test keys render a red
+"For testing only" band — if you ever see that band in production, the wrong key shipped.
+
+Full runbook, including what changed in the database: `docs/SIGNUP_BOT_PROTECTION.md`.
+
 #### Cryptocurrency/Wallet Configuration
 
 | Variable | Description | Example | Required |
