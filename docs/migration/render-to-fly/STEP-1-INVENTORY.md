@@ -24,6 +24,7 @@ copied from an older doc.
 | 3 | **Six of the seven worker jobs are safe to run twice concurrently; one is not.** | This is what makes a zero-downtime worker cutover possible at all. See §4.3. |
 | 4 | **The API's SIGTERM handler calls `process.exit(0)` without `server.close()`.** | In-flight requests are killed on every deploy. Render's health-gated rolling deploy hides it today; Fly will not. See §7.2. |
 | 5 | **Render auto-deploys on every push to `main`. Fly has no equivalent.** | `CLAUDE.md` states "a push to `main` IS a production deploy". That guarantee silently disappears on Fly unless a GitHub Action replaces it. See §6.1. |
+| 6 | **The cutover CNAME has a 300 s TTL and Cloudflare is API-writable.** | Step 5 needs no human and has a ~5-minute rollback window with Render still warm. See §2.1. |
 
 ---
 
@@ -118,6 +119,38 @@ GET https://api.imaginethisprinted.com/api/health/worker   → 200 {"status":"al
                                                                  "message":"Worker heartbeat is current"}
 nslookup -type=CNAME api.imaginethisprinted.com            → imagine-this-printed-backend.onrender.com
 ```
+
+### 2.1 The zone — answers the parent task's open DNS question
+
+`imaginethisprinted.com` is hosted on **Cloudflare**, and the API token in the vault can
+read *and write* it (verified by a live record read). **The Step 5 CNAME repoint can be
+fully automated — it does not need David.** Parent task `291fcf82` can close that open
+question.
+
+| Record | Type | Target | Proxied | TTL |
+|---|---|---|---|---|
+| `api.imaginethisprinted.com` | CNAME | `imagine-this-printed-backend.onrender.com` | **false** | **300** |
+| `imaginethisprinted.com` | CNAME | `cname.vercel-dns.com` | false | 300 |
+| `www.imaginethisprinted.com` | CNAME | `cname.vercel-dns.com` | false | 300 |
+
+Record id for the cutover: `74b5eb9b47e763da941199bfcc7e0941`.
+
+Three consequences, all of which matter more than they look:
+
+1. **`proxied: false` — there is no Cloudflare edge in front of the API.** Traffic goes
+   browser → Render directly. This *contradicts the comment in `backend/index.ts`*, which
+   justifies `TRUST_PROXY_HOPS=2` as a "Cloudflare+Render" hop count. Whatever the 2 is
+   counting, it is Render's own proxy layers, not Cloudflare. See §6.6 — this makes
+   re-deriving the value on Fly mandatory rather than optional.
+2. **TTL is 300 s.** The cutover propagates in ~5 minutes and, critically, **rolls back in
+   ~5 minutes**. That is the Step 5 safety net: flip the CNAME, watch, and if anything is
+   wrong flip it straight back to `imagine-this-printed-backend.onrender.com` while the
+   Render service is still running. Do not lower or raise this TTL before the cutover.
+3. **CAA records restrict certificate issuance** — the zone allows `ssl.com`, `sectigo.com`,
+   `pki.goog`, `letsencrypt.org`, `globalsign.com`, `digicert.com`, `comodoca.com`.
+   **Fly issues via Let's Encrypt, which is on the list — so `fly certs add` will work.**
+   Checked deliberately: a missing CAA entry blocks issuance silently and the new host
+   would serve TLS errors the moment DNS moved. This one is clear.
 
 ---
 
@@ -358,13 +391,22 @@ Render. On Fly this is explicit: pin `[[restart]] policy = "always"`. Staged in
 | `cache.profile: no-cache` (API) | Fly's remote Docker builder caches by layer; use `--no-cache` if a clean build is ever needed. |
 | Persistent disks | None in use — nothing to migrate. Both services are stateless. |
 
-### 6.6 `TRUST_PROXY_HOPS` is topology-specific
-`app.set('trust proxy', 2)` counts **Cloudflare → Render**. After the move the chain is
-**Cloudflare → Fly proxy**, which is also 2 hops — but this must be *verified*, not
-assumed. Getting it wrong silently breaks `req.ip`, which feeds `express-rate-limit`:
-too high and every client shares one bucket (one abuser rate-limits everyone); too low
-and the limiter keys on the edge IP. `backend/scripts/verify-security-middleware.ts`
-already asserts the correct behaviour — run it against the Fly `*.fly.dev` host in Step 4.
+### 6.6 `TRUST_PROXY_HOPS` must be re-derived, not copied
+`backend/index.ts` sets `app.set('trust proxy', 2)` and its comment attributes the 2 to a
+**Cloudflare → Render** chain. **Live DNS says that is not the current topology:**
+`api.imaginethisprinted.com` is `proxied: false`, so no Cloudflare edge sits in front of
+the API at all (§2.1). The 2 is counting Render's own proxy layers.
+
+So the value is not portable and cannot be reasoned about from the comment. Fly's proxy is
+a different chain and is most likely **1** hop. Getting it wrong silently breaks `req.ip`,
+which feeds `express-rate-limit`: too high and every client collapses into one bucket, so
+a single abuser rate-limits the whole storefront; too low and the limiter keys on the edge
+address instead of the client.
+
+**Step 4 must measure it, not guess it.** `backend/scripts/verify-security-middleware.ts`
+already asserts the correct behaviour — run it against the `*.fly.dev` hostname before
+DNS moves, and set `TRUST_PROXY_HOPS` on Fly from that result. This is why the variable is
+deliberately left out of `backend/fly.api.toml`.
 
 ---
 
@@ -472,6 +514,6 @@ If both Render services vanished tomorrow, this reproduces them exactly:
 |---|---|---|
 | Full Render inventory documented, sufficient for cold rebuild | ✅ | §1–§5, recipe in §9; read live from the Render API, not from prior docs |
 | Both Fly apps provisioned in the correct target region | ✅ | §8 — apps created, `primary_region = "ord"` staged in both manifests; region justified by evidence in §3 |
-| Render services and DNS completely untouched and active | ✅ | §2 — only `GET` calls were made to the Render API; `/api/health` 200, worker heartbeat current, CNAME unchanged, both deploys still `live` |
+| Render services and DNS completely untouched and active | ✅ | §2 — only `GET` calls were made to the Render API and only a record *read* against Cloudflare; `/api/health` 200, worker heartbeat current, CNAME unchanged, both deploys still `live` |
 | No production traffic routed to Fly | ✅ | §8 — zero machines, zero IPs, zero secrets on both apps |
 | Worker jobs and entry points fully audited | ✅ | §4 — all 7 found, including the nested one `index.ts` does not show |

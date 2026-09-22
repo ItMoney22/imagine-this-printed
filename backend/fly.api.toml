@@ -37,12 +37,16 @@ primary_region = 'ord'
   # Kept identical so nothing else has to change.
   PORT = '10000'
   NODE_ENV = 'production'
-  # NOTE: TRUST_PROXY_HOPS is deliberately NOT set here. Render's value of 2
-  # counts Cloudflare -> Render. Cloudflare -> Fly is a different edge; the
-  # hop count must be VERIFIED against a *.fly.dev host in Step 4 (run
-  # backend/scripts/verify-security-middleware.ts) before it is pinned.
-  # Guessing wrong silently breaks req.ip and therefore express-rate-limit.
-  # See INVENTORY §6.6.
+  # NOTE: TRUST_PROXY_HOPS is deliberately NOT set here. Render's value is 2,
+  # and backend/index.ts attributes that to a "Cloudflare + Render" chain --
+  # but live DNS shows api.imaginethisprinted.com is proxied:false, so there
+  # is NO Cloudflare edge in front of the API. The 2 counts Render's own proxy
+  # layers and does not carry over; Fly's chain is most likely 1.
+  # MEASURE it against a *.fly.dev host in Step 4 (run
+  # backend/scripts/verify-security-middleware.ts), then pin it.
+  # Guessing wrong silently breaks req.ip and therefore express-rate-limit:
+  # too high and one abuser rate-limits the whole storefront.
+  # See INVENTORY §2.1 and §6.6.
 
 # Everything else — all 61 variables in INVENTORY §5.1 — arrives via
 # `fly secrets set` in Step 3. Fly secrets are RUNTIME ONLY and are not
