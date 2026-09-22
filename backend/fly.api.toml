@@ -1,0 +1,88 @@
+# Fly.io config — imagine-this-printed API (replaces Render web service
+# srv-d7jpgut7vvec739bsid0).
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ STAGED — NOT DEPLOYED. As of 2026-09-22 the app `imagine-this-printed-api`│
+# │ exists with ZERO machines, ZERO IPs and ZERO secrets. Production traffic  │
+# │ still goes to Render via the api.imaginethisprinted.com CNAME. Deploying  │
+# │ this file is Step 4/6 of the migration, not Step 1.                       │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# Every value here is mirrored from the LIVE Render config captured in
+# docs/migration/render-to-fly/STEP-1-INVENTORY.md. Change that doc if you
+# change this file — it is the only cold-rebuild record (there is no
+# render.yaml in this repo).
+#
+# BLOCKED ON STEP 2: there is no Dockerfile in this repo yet. `fly deploy`
+# will fail until one exists that reproduces Render's build:
+#   npm ci --include=dev && npx prisma generate && npm run build
+# and its .dockerignore MUST exclude .env* — backend/load-env.ts calls
+# dotenv.config({ override: true }), so a stray .env inside the image would
+# silently beat every `fly secrets set` value. See INVENTORY §7.3.
+
+app = 'imagine-this-printed-api'
+
+# AWS us-east-2 (Columbus, OH) is where the Supabase project lives. Fly has no
+# Ohio region; ord (Chicago, ~300 mi) is the closest, iad (Ashburn, ~400 mi) is
+# the fallback if ord has no capacity. Today's Render service runs in oregon,
+# ~2,000 mi from the database — this move is also a latency win.
+# See INVENTORY §3.
+primary_region = 'ord'
+
+[build]
+  dockerfile = 'Dockerfile'      # TODO(step-2): author it
+
+[env]
+  # Render sets PORT=10000; backend/index.ts reads process.env.PORT.
+  # Kept identical so nothing else has to change.
+  PORT = '10000'
+  NODE_ENV = 'production'
+  # NOTE: TRUST_PROXY_HOPS is deliberately NOT set here. Render's value of 2
+  # counts Cloudflare -> Render. Cloudflare -> Fly is a different edge; the
+  # hop count must be VERIFIED against a *.fly.dev host in Step 4 (run
+  # backend/scripts/verify-security-middleware.ts) before it is pinned.
+  # Guessing wrong silently breaks req.ip and therefore express-rate-limit.
+  # See INVENTORY §6.6.
+
+# Everything else — all 61 variables in INVENTORY §5.1 — arrives via
+# `fly secrets set` in Step 3. Fly secrets are RUNTIME ONLY and are not
+# available during the image build; verified that `prisma generate` does not
+# need DATABASE_URL, so this build has no build-time secret dependency.
+# GCS_CREDENTIALS is a 2.4 KB inline JSON blob — set it from a file/stdin,
+# not on a command line.
+
+[http_service]
+  internal_port = 10000
+  force_https = true
+
+  # Render runs exactly one always-on instance (numInstances: 1) and never
+  # cold-starts. Reproduce that: no scale-to-zero, no cold start on the first
+  # request after a quiet spell.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Render will not shift traffic to a new instance until /api/health passes.
+  # On Fly that is opt-in, not a default — without this block a broken build
+  # takes the site down instead of being held back.
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/api/health'
+
+# The SIGTERM handler in backend/index.ts currently calls process.exit(0)
+# WITHOUT server.close(), so in-flight requests are severed on shutdown
+# (INVENTORY §7.2). This timeout gives a drain window the moment that is
+# fixed in Step 2, and costs nothing until then.
+kill_signal = 'SIGTERM'
+kill_timeout = 30
+
+[[vm]]
+  # Like-for-like with Render Starter (0.5 vCPU / 512 MB), which five months of
+  # production has proven adequate. ~$3.19/mo vs Render's $7.
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
