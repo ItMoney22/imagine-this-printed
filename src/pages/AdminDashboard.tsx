@@ -765,8 +765,15 @@ const AdminDashboard: React.FC = () => {
   // Only the columns this tab actually renders. `select('*')` pulled 32 columns
   // and the mapping below threw ~20 of them away — on thousands of rows that is
   // megabytes of description/keyword/SEO text nothing reads.
+  // maker_agent_id drives revenue credit at checkout (see
+  // backend/shared/maker-attribution.ts) and is edited in the product modal,
+  // so the tab has to carry it. Its migration
+  // (20260922160000_products_maker_agent_id.sql) must be applied BEFORE this
+  // bundle ships — PostgREST 400s the whole select on an unknown column, and
+  // a blank Products tab reads as data loss (see the 2026-09-08 deploy-skew
+  // note in memory).
   const PRODUCT_COLUMNS =
-    'id, name, description, price, images, category, is_active, is_featured, created_at, updated_at, status, metadata'
+    'id, name, description, price, images, category, is_active, is_featured, created_at, updated_at, status, metadata, maker_agent_id'
 
   // An imported design is NOT a product yet. David 2026-09-08: "the only ones
   // that go into products is the ones that i put through the step flow, they

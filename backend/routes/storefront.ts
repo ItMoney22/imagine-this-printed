@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase.js'
 import { requireStorefrontSecret } from '../middleware/requireStorefrontSecret.js'
 import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
+import { makerStamp, normalizeMakerAgentId } from '../shared/maker-attribution.js'
 
 // Headless checkout API for external storefronts (earth019.com). A trusted
 // storefront server POSTs a mixed cart; ITP resolves catalog prices server-side,
@@ -105,6 +106,14 @@ type ResolvedLine = {
   color?: string
   image?: string
   printFiles?: { front?: string; back?: string } | null
+  /**
+   * Watchtower agent who made this product, read from the product row (never
+   * from the storefront's request body). Drives the `agent_id` stamped into
+   * Stripe metadata so the sale credits the maker's ledger rather than ITP's
+   * default agent — see backend/shared/maker-attribution.ts. Custom
+   * storefront items have no ITP product, hence no maker.
+   */
+  makerAgentId?: string | null
 }
 
 // GET /api/storefront/catalog — sellable ITP products an external storefront can list.
@@ -213,7 +222,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         }
         const { data: product, error } = await supabase
           .from('products')
-          .select('id, name, price, images, is_active, status, metadata')
+          .select('id, name, price, images, is_active, status, metadata, maker_agent_id')
           .eq('id', raw.productId)
           .single()
 
@@ -249,7 +258,8 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
           size,
           color,
           image: Array.isArray(product.images) ? product.images[0] : undefined,
-          printFiles
+          printFiles,
+          makerAgentId: normalizeMakerAgentId((product as any).maker_agent_id)
         })
       } else {
         // Custom storefront item — price is TRUSTED from the authenticated storefront
@@ -364,6 +374,20 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
     const baseCancel = isHttpUrl(cancelUrl) ? cancelUrl : DEFAULT_CANCEL_URL
 
     const successWithParams = withParams(baseSuccess, { order: encodeURIComponent(orderNumber), session_id: '{CHECKOUT_SESSION_ID}' })
+
+    // Whose Watchtower ledger this sale pays. Here the line's unitAmount IS
+    // the charged amount, so the weight is the real money split rather than a
+    // catalog approximation. Custom storefront items are not ITP products and
+    // have no maker, so they weigh in as house — a storefront cart that is
+    // mostly its own art keeps crediting ITP's default agent, which is right.
+    const makerMeta = makerStamp(lines.map(l => ({
+      makerAgentId: l.makerAgentId ?? null,
+      weightCents: l.unitAmount * l.quantity
+    })))
+    if (makerMeta.agent_id) {
+      req.log?.info({ agentId: makerMeta.agent_id, split: makerMeta.maker_split, storefront }, 'maker attribution: stamping storefront checkout')
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: 'payment',
       line_items: lines.map(l => ({
@@ -400,18 +424,23 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
       // (that address is what the rate was quoted against, and it's on the order).
       ...(providedAddress ? {} : { shipping_address_collection: { allowed_countries: ['US'] } }),
       phone_number_collection: { enabled: !providedAddress },
-      metadata: { orderId: order.id, orderNumber, source: storefront },
+      // On the Session for the Dashboard's sake; on the PaymentIntent because
+      // that is the copy that reaches the Charge, which is the only thing the
+      // Watchtower revenue sync reads.
+      metadata: { orderId: order.id, orderNumber, source: storefront, ...makerMeta },
       // This is the bridge to ITP's existing webhook: payment_intent.succeeded ->
       // handleCheckoutOrderPayment marks the order paid + emails the buyer.
       payment_intent_data: {
         description: `Order ${orderNumber} (${storefront})`,
-        metadata: { orderId: order.id, orderNumber, userId: '', itcCreditAmount: '0', itcCreditUSD: '0' }
+        metadata: { orderId: order.id, orderNumber, userId: '', itcCreditAmount: '0', itcCreditUSD: '0', ...makerMeta }
       }
     })
 
     await supabase
       .from('orders')
-      .update({ metadata: { ...order.metadata, stripe_session_id: session.id } })
+      // maker_attribution mirrored onto the order so ITP can answer "who did
+      // this sale pay?" without a Stripe round-trip.
+      .update({ metadata: { ...order.metadata, stripe_session_id: session.id, maker_attribution: makerMeta } })
       .eq('id', order.id)
 
     req.log?.info({

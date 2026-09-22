@@ -21,6 +21,7 @@ import {
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
 import { COLOR_PRESETS, isLightSwatch } from '../../utils/color-presets'
 import { STUDIO_SIZE_KEYS, METAL_ART_PRICES } from '../../../backend/shared/metal-art'
+import { MAKER_AGENTS, makerAgentName } from '../../../backend/shared/maker-attribution'
 import { MockupProgressPanel, type MockupProgress } from '../MockupProgressPanel'
 import { ImageLightbox, type LightboxImage } from './ImageLightbox'
 
@@ -484,6 +485,33 @@ const DetailsTab: React.FC<{
             Active
           </label>
         </div>
+      </div>
+
+      {/* Maker — whose Watchtower ledger a sale of this product credits.
+          Until this was added, every ITP sale credited the account's default
+          agent (rico-fernandez), so Amelia Chan's candle holders paid Rico.
+          The checkout reads this column server-side and stamps it into the
+          Stripe charge as `agent_id`; see backend/shared/maker-attribution.ts.
+          A dropdown, not a text box, because an id Watchtower does not
+          recognise credits NOBODY — worse than leaving it unset. */}
+      <div>
+        <label htmlFor="makerAgentEdit" className="block text-sm font-medium text-muted mb-2">Maker (revenue credit)</label>
+        <select
+          id="makerAgentEdit"
+          value={product.maker_agent_id || ''}
+          onChange={(e) => onField('maker_agent_id', e.target.value || null)}
+          className="w-full bg-bg/50 border border-white/10 rounded-xl px-4 py-2.5 text-text focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary"
+        >
+          <option value="">House (no maker credit)</option>
+          {MAKER_AGENTS.map((agent) => (
+            <option key={agent.id} value={agent.id}>{agent.name}</option>
+          ))}
+        </select>
+        <p className="text-xs text-muted mt-2">
+          {product.maker_agent_id
+            ? `Sales of this product credit ${makerAgentName(product.maker_agent_id)} on the Watchtower ledger.`
+            : 'Sales credit the ITP storefront default. Set a maker when an agent created this product.'}
+        </p>
       </div>
 
       {sizeOptions.length > 0 && (

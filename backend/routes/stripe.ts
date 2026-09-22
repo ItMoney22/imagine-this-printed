@@ -16,6 +16,7 @@ import {
 } from '../utils/email.js'
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
+import { makerStamp, normalizeMakerAgentId, clampMetadataValue, type MakerStamp } from '../shared/maker-attribution.js'
 import { parseTeamTemplate, sanitizeValues } from '../shared/team-template.js'
 import { renderOrGetCached } from '../services/team-plate/plate-store.js'
 import { reviewFlags } from '../services/team-plate/review-flags.js'
@@ -300,6 +301,69 @@ async function personalizationForItems(
   return out
 }
 
+// ---------------------------------------------------------------------------
+// Maker attribution — WHOSE Watchtower ledger this sale pays.
+//
+// The maker is read from the PRODUCTS TABLE, never from `item.product`. The
+// cart's copy of a product is client-supplied (the same reason team templates
+// are re-read from the DB above), so trusting it would let anyone hand a
+// stranger's agent id 3x Watts by editing their own cart before checkout.
+//
+// The weight each line contributes is the CATALOG price times quantity — an
+// attribution weight, not money. See backend/shared/maker-attribution.ts for
+// why that is the right basis and for the multi-maker policy itself.
+//
+// A failure here must never fail checkout: no stamp simply means the charge
+// falls back to ITP's default agent, which is exactly today's behaviour.
+// ---------------------------------------------------------------------------
+export async function makerStampForItems(items: any[] | undefined | null, req: Request): Promise<MakerStamp> {
+  if (!items || items.length === 0) return {}
+  const ids = Array.from(
+    new Set(
+      items
+        .map((i: any) => (i?.product?.id != null ? String(i.product.id) : null))
+        .filter((id): id is string => !!id && UUID_RE.test(id))
+    )
+  )
+  if (ids.length === 0) return {}
+
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, price, maker_agent_id')
+    .in('id', ids)
+  if (error) {
+    // Includes the case where the maker_agent_id column has not been applied
+    // to this database yet (42703) — the frontend and the API deploy
+    // independently, so a build can outrun its migration. Fail open.
+    req.log?.warn({ err: error }, 'maker attribution: product lookup failed — charge will fall back to the default agent')
+    return {}
+  }
+
+  const rows = new Map<string, { price: number; makerAgentId: string | null }>()
+  for (const row of data ?? []) {
+    rows.set(String(row.id), {
+      price: Number((row as any).price) || 0,
+      makerAgentId: normalizeMakerAgentId((row as any).maker_agent_id),
+    })
+  }
+
+  const lines = items.map((item: any) => {
+    const id = item?.product?.id != null ? String(item.product.id) : ''
+    const row = rows.get(id)
+    const qty = Math.max(0, Math.floor(Number(item?.quantity) || 0))
+    return {
+      makerAgentId: row?.makerAgentId ?? null,
+      weightCents: Math.round((row?.price ?? 0) * 100) * qty,
+    }
+  })
+
+  const stamp = makerStamp(lines)
+  if (stamp.agent_id) {
+    req.log?.info({ agentId: stamp.agent_id, split: stamp.maker_split }, 'maker attribution: stamping checkout')
+  }
+  return stamp
+}
+
 // Exported for unit testing: this is where a client-supplied print file URL
 // has to be ignored and the press file re-rendered server-side.
 export async function replaceOrderItems(orderId: string, items: any[] | undefined | null, req: Request) {
@@ -499,6 +563,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
     const serverShippingAmount = pricingResponse.shipping
     const serverTaxAmount = pricingResponse.tax
 
+    // Whose Watchtower ledger this sale pays. Resolved from the products
+    // table, never from the cart's copy of the product.
+    const makerMeta = await makerStampForItems(items, req)
+
     // If we have an existing payment intent and order, update them instead of creating new
     if (existingPaymentIntentId && existingOrderId) {
       try {
@@ -508,7 +576,22 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           metadata: {
             couponCode: couponCode || '',
             discount: serverDiscountAmount.toString(),
-            shippingCost: serverShippingAmount.toString()
+            shippingCost: serverShippingAmount.toString(),
+            // Re-stamped on every update, not just at create. The Charge takes
+            // a ONE-TIME SNAPSHOT of the intent's metadata when it is created
+            // at confirmation (docs.stripe.com/metadata), so whatever the
+            // intent holds at that moment is what the revenue sync will read —
+            // and this draft intent is reused as the customer edits the cart.
+            // Without this, adding or removing an item mid-checkout would pay
+            // the maker of a cart the customer no longer has.
+            //
+            // Stripe's update semantics MERGE keys, so an empty string is the
+            // only way to CLEAR a stamp left by a previous cart. Sending the
+            // keys unconditionally is what makes "was Amelia's, now isn't"
+            // actually take effect.
+            agent_id: makerMeta.agent_id || '',
+            maker_agents: makerMeta.maker_agents || '',
+            maker_split: makerMeta.maker_split || ''
           }
         })
 
@@ -525,6 +608,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           items: snapshotCartItems(items),
           itc_credit_amount: itcCreditAmount || 0,
           itc_credit_usd: itcCreditUSD || 0,
+          // Re-resolved with the cart, same reason as the Stripe stamp above.
+          maker_attribution: makerMeta,
           // Re-snapshotted on every update: a customer who switches from
           // shipping to pickup mid-checkout must not leave the old choice on
           // the order for the crew to act on.
@@ -639,6 +724,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           items: snapshotCartItems(items),
           itc_credit_amount: itcCreditAmount || 0,
           itc_credit_usd: itcCreditUSD || 0,
+          // Mirrored onto the order so ITP can answer "who did this sale pay?"
+          // without a Stripe round-trip, and so a charge whose metadata was
+          // never written (or was cleared) can still be reconciled by hand.
+          maker_attribution: makerMeta,
           shipping: snapshotShippingChoice({
             shippingMethod,
             shippingType,
@@ -675,11 +764,20 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         orderId: order.id,
         orderNumber: orderNumber,
         userId: userId || '',
-        items: JSON.stringify(items?.map((i: any) => ({
+        // clamped: Stripe rejects any metadata value over 500 characters with
+        // a 400, and this JSON grows with the cart — roughly six distinct
+        // products was enough to make the whole checkout call fail. The order
+        // itself keeps the full snapshot in orders.metadata.items either way.
+        items: clampMetadataValue(JSON.stringify(items?.map((i: any) => ({
           id: i.product?.id,
           name: i.product?.name,
           qty: i.quantity
-        })) || []),
+        })) || [])),
+        // Whose ledger this sale pays. Absent when the cart is house goods, so
+        // the revenue sync falls back to ITP's default agent. Empty keys are
+        // dropped rather than sent — on CREATE there is no prior value to
+        // clear, and a blank key in the Dashboard is just noise.
+        ...makerMeta,
         couponCode: couponCode || '',
         discount: serverDiscountAmount.toString(),
         shippingCost: serverShippingAmount.toString(),

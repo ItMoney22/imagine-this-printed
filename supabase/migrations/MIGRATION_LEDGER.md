@@ -7,6 +7,32 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-09-22 — `products.maker_agent_id` APPLIED LIVE (Zero Nine, Watchtower `b505062b`)
+
+- `20260922160000_products_maker_agent_id.sql` **applied to production**
+  2026-09-22 over the session pooler, and **tracked**: a row
+  `('20260922160000', '20260922160000_products_maker_agent_id')` is in
+  `supabase_migrations.schema_migrations`.
+- Verified live after the run, not assumed:
+  `information_schema.columns` → `maker_agent_id | text | YES`;
+  `pg_constraint` → `products_maker_agent_id_slug CHECK ((maker_agent_id IS
+  NULL) OR (maker_agent_id ~ '^[a-z0-9]+(-[a-z0-9]+)*$'))`;
+  `pg_indexes` → `idx_products_maker_agent_id`.
+- The backfill set exactly ONE row: the Gothic Ghost Face Candle Holder
+  (`43d607e5-…`) → `amelia-chan`. "Candlelight Television Humor" does not match
+  `%candle holder%` and was correctly left NULL. Everything else in the
+  catalogue stays NULL (house).
+- **Applied BEFORE the code merges, deliberately.** `src/pages/AdminDashboard.tsx`
+  now selects `maker_agent_id`, and PostgREST 400s an entire select on an
+  unknown column — shipping the bundle first would have blanked the Products
+  tab (the 2026-09-08 Vercel/Render deploy-skew failure mode). DB leads code
+  here; the reverse would be an outage.
+- Idempotent: `ADD COLUMN IF NOT EXISTS`, a guarded constraint add, `CREATE
+  INDEX IF NOT EXISTS`, and a backfill gated on `maker_agent_id IS NULL`. A
+  replay is harmless.
+- **Production is therefore ahead of `main` for this column** until branch
+  `earth/zero-nine/stamp-maker-agent-id-int-b505062b-mucjm1v9` merges.
+
 ## 2026-08-19 — vendor-marketplace bundle MERGED to `main` + tracking rows reconciled (Levi James, Watchtower `c53ca544`)
 
 - Merge commit `9144e7b` brings `16727bf` (vendor-scoped products RLS),

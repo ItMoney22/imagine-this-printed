@@ -4252,3 +4252,89 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+---
+
+## Current request (2026-09-22) — stamp the maker agent into Stripe checkout metadata
+
+Watchtower task `b505062b-0ebd-4499-ba26-8928d8f4ca65`.
+
+Every ITP sale has always credited the wrong agent. The Watchtower revenue
+sync (`david-trinidad-com/src/app/api/revenue/sync` → `creditDecision` in
+`src/lib/stripe-revenue.ts`) reads `metadata.agent_id` /
+`metadata.watchtower_agent` off the **Stripe charge**, and falls back to the
+account's `defaultAgentId` — `rico-fernandez` for ITP — when neither is there.
+ITP never wrote either key, so the fallback was the only path that ever ran.
+Amelia Chan's candle holders sold on 2026-09-21 and paid Rico. Credits book at
+3x to the agent plus 1x to their planet, so this moved real Watts.
+
+### Verified live before writing anything (2026-09-22)
+- The three most recent ITP charges (`ch_3UErazIK5lihoSZt0s1LLY9B`,
+  `py_3UD9n0IK5lihoSZt…`, `ch_3U1wrCIK5lihoSZt…`) carry `orderId`,
+  `orderNumber`, `items`, `shipping*` and **no attribution key at all**.
+- Those same charges prove the thing the design rests on: **PaymentIntent
+  metadata IS copied onto the Charge.** `backend/routes/stripe.ts` only ever
+  sets that metadata on the intent, yet it is all present on the charge.
+  Stripe's docs call it "a one-time snapshot" taken when the Charge is
+  created — which is at CONFIRMATION, so a draft intent that gets updated as
+  the cart changes must be re-stamped on every update, not just at create.
+- `amelia-chan` is a real id in the live `agent_profiles` table. This matters:
+  `creditDecision` returns `unknown_agent` for an id it does not recognise and
+  credits **nobody** — a typo'd stamp is strictly worse than no stamp, because
+  the account default no longer catches it.
+- Metadata limits (docs, re-read): 50 keys, 40-char keys, **500-char values**.
+
+### The multi-maker ruling (the task's open question)
+**Primary maker by revenue share, with the house as a participant.** Biggest
+pot wins; house lines count; a maker-vs-house tie goes to the maker; a
+maker-vs-maker tie goes to the earlier cart line. If the house wins, nothing
+is stamped and the account default applies. Winner-takes-all because the
+ledger credits a charge to ONE agent — but the full breakdown is recorded in
+`maker_split` (basis points, always summing to 10000) so a future split-credit
+feature can go back over the history.
+
+### File shortlist (approved scope — 2026-09-22 maker attribution)
+- `backend/shared/maker-attribution.ts` (new — roster, validation, policy)
+- `backend/shared/maker-attribution.test.ts` (new)
+- `backend/routes/stripe.ts` (`makerStampForItems`, stamp on PI create + update)
+- `backend/routes/stripe.maker-attribution.test.ts` (new)
+- `backend/routes/storefront.ts` (stamp the Checkout Session + payment_intent_data)
+- `src/components/admin/AdminProductEditModal.tsx` (+ `.maker.test.tsx`, new)
+- `src/pages/AdminDashboard.tsx` (select the new column)
+- `src/types/index.ts` (`Product.maker_agent_id`)
+- `supabase/migrations/20260922160000_products_maker_agent_id.sql` (new)
+- `supabase/migrations/MIGRATION_LEDGER.md`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- Added `products.maker_agent_id` (nullable text, slug CHECK, partial index)
+  and **applied it live** ahead of the code, because `AdminDashboard` now
+  selects the column and PostgREST 400s a whole select on an unknown one.
+  Backfilled exactly one row — the Gothic Ghost Face Candle Holder →
+  `amelia-chan`. Tracked in `schema_migrations`.
+- `backend/shared/maker-attribution.ts` owns the roster (38 ids, generated
+  from the live `agent_profiles` table, not typed by hand), the strict
+  validator, the multi-maker policy and a 500-char metadata clamp. 24 tests.
+- `makerStampForItems` in `stripe.ts` resolves makers **from the products
+  table, never from `item.product`** — the cart's copy is client-supplied, so
+  trusting it would let anyone hand a stranger 3x Watts by editing their cart.
+  Weight is catalog price × qty. A lookup failure fails OPEN (no stamp, old
+  behaviour) so attribution can never break checkout. 10 tests.
+- Stamped on PI create, on PI **update** (sending empty strings so Stripe's
+  merge semantics can CLEAR a stamp left by a previous cart), on the
+  storefront Checkout Session and its `payment_intent_data`, and mirrored onto
+  `orders.metadata.maker_attribution` so ITP can answer "who did this sale
+  pay?" without a Stripe round-trip.
+- **Fixed a latent checkout-killer found on the way:** the PI's `items`
+  metadata was an unclamped `JSON.stringify` of the cart. Roughly six distinct
+  products pushes it past Stripe's 500-char ceiling, which is a 400 on
+  `paymentIntents.create` — a checkout that cannot complete. Now clamped; the
+  full snapshot still lives on `orders.metadata.items`.
+- Admin got a Maker dropdown (roster-backed, not free text) in the product
+  edit modal, with a line stating whose ledger a sale credits. 4 tests.
+- **Proven end to end on the live Stripe account:** the real candle-holder row
+  → the real policy → `paymentIntents.create` on ITP's live key → read back
+  `agent_id: "amelia-chan"`, `maker_split: "amelia-chan:10000"` → intent
+  canceled (`amount_received 0`, no money moved). Then fed that exact metadata
+  to `creditDecision` in `david-trinidad-com`: it credits `amelia-chan`, and
+  the real unstamped 2026-09-21 charge metadata still credits Rico — the bug,
+  reproduced and then closed.
