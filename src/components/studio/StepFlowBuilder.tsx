@@ -46,6 +46,10 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
   stateRef.current = state
   const [searchParams, setSearchParams] = useSearchParams()
 
+  // Products we have already tried to adopt during this mount, so a product
+  // that genuinely has no usable image cannot put us in a refresh loop.
+  const adoptAttempted = useRef<Set<string>>(new Set())
+
   const refresh = useCallback(async (opts?: { productId?: string; advance?: boolean }) => {
     const id = opts?.productId ?? stateRef.current.productId
     if (!id) return
@@ -66,7 +70,32 @@ const StepFlowBody: React.FC<{ productId?: string | null }> = ({ productId }) =>
     if (!productId) return
     if (stateRef.current.productId === productId && stateRef.current.product) return
     dispatch({ type: 'SET_LOADING', loading: true })
-    void refresh({ productId, advance: true })
+    void (async () => {
+      await refresh({ productId, advance: true })
+
+      // No design take? The product was made outside the flow. Adopt it —
+      // that is what turns products.images[0] into a real take — then load
+      // again. Without this the Design step renders empty with no explanation
+      // and no way forward, which is indistinguishable from a broken page.
+      const s = stateRef.current
+      const hasDesignTake = s.assets?.some((a: any) => a.kind === 'source' && a.asset_role === 'design' && a.url)
+      const hasImage = Array.isArray(s.product?.images) && s.product.images.length > 0
+      if (!hasDesignTake && hasImage && !adoptAttempted.current.has(productId)) {
+        adoptAttempted.current.add(productId)
+        dispatch({ type: 'SET_LOADING', loading: true })
+        try {
+          await lane.api.adopt(productId)
+          await refresh({ productId, advance: true })
+        } catch (err: any) {
+          dispatch({
+            type: 'SET_ERROR',
+            error:
+              err?.message ||
+              'This product has no design to build from — open it in the design library and bring it into the flow.',
+          })
+        }
+      }
+    })()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [productId])
 
