@@ -42,6 +42,7 @@ import {
   redoShot,
   addModelShot,
   removeModelShot,
+  removeShot,
   approveShot,
   approveShotsBatch,
   resolveStepFlow,
@@ -1183,16 +1184,16 @@ router.post('/:id/step/shots/model', requireAuth, requireStudioAccess, rateLimit
   }
 })
 
-// DELETE /:id/step/shots/:key — remove an ADDED on-person shot (model:<n>).
-// The first one is part of every listing and can only be redone, not dropped.
+// DELETE /:id/step/shots/:key — remove a non-required mockup shot (color:<id>, model:<n>, back, etc.).
+// Core required shots (product, details, hanger, model) can only be redone, not dropped.
 router.delete('/:id/step/shots/:key', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
     const { id, key } = req.params
-    const result = await removeModelShot(id, key as ShotKey)
+    const result = await removeShot(id, key as ShotKey)
     res.json(result)
   } catch (err: any) {
     if (err instanceof StepFlowValidationError) return res.status(400).json({ error: err.message })
-    req.log?.error({ err: err?.message }, '[step-flow] remove model error')
+    req.log?.error({ err: err?.message }, '[step-flow] remove shot error')
     res.status(500).json({ error: err?.message || 'Failed to remove the shot' })
   }
 })

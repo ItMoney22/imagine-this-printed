@@ -3,7 +3,7 @@
 // exercise the presentational/computation logic without the component's
 // network effects. Design doc §14 (metal prints lane).
 import { describe, it, expect } from 'vitest'
-import { canRetryWithFlare, expectedShotKeys, shotLabel } from './MockupStep'
+import { canRetryWithFlare, expectedShotKeys, isNonRequiredShot, shotLabel } from './MockupStep'
 import { engineLabel } from './shared'
 import type { StepFlowMeta } from './types'
 
@@ -124,5 +124,23 @@ describe('canRetryWithFlare', () => {
   // there and bill the flat redo price for a pricier engine.
   it('stays off in a customer lane, where the price of Flare is not settled', () => {
     expect(canRetryWithFlare('product', 'garment', 'black-forest-labs/flux-2-pro', false)).toBe(false)
+  })
+})
+
+describe('isNonRequiredShot', () => {
+  it('core required shots (product, details, model, hanger) are not removable', () => {
+    expect(isNonRequiredShot('product')).toBe(false)
+    expect(isNonRequiredShot('details')).toBe(false)
+    expect(isNonRequiredShot('model')).toBe(false)
+    expect(isNonRequiredShot('hanger')).toBe(false)
+  })
+
+  it('colourways, added models, and other non-required shots are removable', () => {
+    expect(isNonRequiredShot('color:black')).toBe(true)
+    expect(isNonRequiredShot('color:white')).toBe(true)
+    expect(isNonRequiredShot('model:2')).toBe(true)
+    expect(isNonRequiredShot('model:3')).toBe(true)
+    expect(isNonRequiredShot('back')).toBe(true)
+    expect(isNonRequiredShot('scene:4x6')).toBe(true)
   })
 })

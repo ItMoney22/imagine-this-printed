@@ -1199,8 +1199,8 @@ export function createStepFlowApi(base: string, subjectsPath = `${base}/step/sho
         body: JSON.stringify(subjectId ? { subjectId } : {}),
       }),
 
-    /** Drops an ADDED on-person shot (`model:<n>`) and its asset. The first
-     *  on-person shot can only be redone, never removed. */
+    /** Drops a non-required shot (colourway `color:<id>`, added model `model:<n>`, back view, etc.) and its asset.
+     *  Core required shots (product, details, hanger, model) can only be redone, never removed. */
     removeShot: (productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> =>
       stepFlowRequest(`${base}/${productId}/step/shots/${encodeURIComponent(key)}`, {
         method: 'DELETE',

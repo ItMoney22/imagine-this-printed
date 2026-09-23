@@ -161,6 +161,8 @@ const {
   redoShot,
   addModelShot,
   removeModelShot,
+  removeShot,
+  isNonRequiredShotKey,
   approveShot,
   approveShotsBatch,
   resolveStepFlow,
@@ -796,6 +798,137 @@ describe('redoShot', () => {
       expect(roleForShotKey('model' as any)).toBe('mockup_model_1')
       expect(roleForShotKey('model:2' as any)).toBe('mockup_model_2')
       expect(roleForShotKey('model:7' as any)).toBe('mockup_model_7')
+    })
+  })
+
+  describe('removeShot and isNonRequiredShotKey', () => {
+    it('classifies core required shots as non-removable and non-required shots as removable', () => {
+      expect(isNonRequiredShotKey('product')).toBe(false)
+      expect(isNonRequiredShotKey('details')).toBe(false)
+      expect(isNonRequiredShotKey('model')).toBe(false)
+      expect(isNonRequiredShotKey('hanger')).toBe(false)
+      expect(isNonRequiredShotKey('color:black')).toBe(true)
+      expect(isNonRequiredShotKey('color:white')).toBe(true)
+      expect(isNonRequiredShotKey('model:2')).toBe(true)
+      expect(isNonRequiredShotKey('model:5')).toBe(true)
+      expect(isNonRequiredShotKey('back')).toBe(true)
+      expect(isNonRequiredShotKey('scene:4x6')).toBe(true)
+    })
+
+    it('rejects removing core required shots (product, details, model, hanger)', async () => {
+      seedProduct({
+        metadata: {
+          step_flow: {
+            version: 1,
+            idea: 'test',
+            garment: 'tshirt',
+            colors: { primary: 'black', extras: ['white'] },
+            shots: {
+              product: { status: 'done', approved: true },
+              details: { status: 'done', approved: true },
+              model: { status: 'done', approved: true },
+              hanger: { status: 'done', approved: true },
+            },
+            approvals: {},
+          },
+        },
+      })
+
+      await expect(removeShot('p1', 'product')).rejects.toBeInstanceOf(StepFlowValidationError)
+      await expect(removeShot('p1', 'details')).rejects.toBeInstanceOf(StepFlowValidationError)
+      await expect(removeShot('p1', 'model')).rejects.toBeInstanceOf(StepFlowValidationError)
+      await expect(removeShot('p1', 'hanger')).rejects.toBeInstanceOf(StepFlowValidationError)
+    })
+
+    it('deletes an extra colourway shot, clears it from step_flow and colors.extras, and removes asset', async () => {
+      seedProduct({
+        metadata: {
+          colors: ['black', 'white', 'navy'],
+          step_flow: {
+            version: 1,
+            idea: 'test',
+            garment: 'tshirt',
+            colors: { primary: 'black', extras: ['white', 'navy'] },
+            shots: {
+              product: { status: 'done', approved: true },
+              'color:white': { status: 'done', approved: false, assetId: 'asset-white' },
+              'color:navy': { status: 'done', approved: false, assetId: 'asset-navy' },
+            },
+            approvals: {},
+          },
+        },
+      })
+      db.product_assets.push({
+        id: 'asset-white',
+        product_id: 'p1',
+        asset_role: 'mockup_color_white',
+        url: 'https://cdn/white.png',
+      })
+
+      const { step_flow } = await removeShot('p1', 'color:white')
+      expect(step_flow.shots['color:white']).toBeUndefined()
+      expect(step_flow.colors?.extras).toEqual(['navy'])
+
+      const prod = db.products.find((p) => p.id === 'p1')!
+      expect(prod.metadata.step_flow.shots['color:white']).toBeUndefined()
+      expect(prod.metadata.step_flow.colors.extras).toEqual(['navy'])
+      expect(prod.metadata.colors).toEqual(['black', 'navy'])
+
+      // Asset removed from product_assets
+      expect(db.product_assets.find((a) => a.asset_role === 'mockup_color_white')).toBeUndefined()
+    })
+
+    it('deletes a back shot and removes its asset', async () => {
+      seedProduct({
+        metadata: {
+          step_flow: {
+            version: 1,
+            idea: 'test',
+            garment: 'tshirt',
+            colors: { primary: 'black', extras: [] },
+            shots: {
+              product: { status: 'done', approved: true },
+              back: { status: 'done', approved: false, assetId: 'asset-back' },
+            },
+            approvals: {},
+          },
+        },
+      })
+      db.product_assets.push({
+        id: 'asset-back',
+        product_id: 'p1',
+        asset_role: 'mockup_back',
+        url: 'https://cdn/back.png',
+      })
+
+      const { step_flow } = await removeShot('p1', 'back')
+      expect(step_flow.shots.back).toBeUndefined()
+      expect(db.product_assets.find((a) => a.asset_role === 'mockup_back')).toBeUndefined()
+    })
+
+    it('stamps mockups approval if deleting the last unapproved shot leaves all remaining shots approved', async () => {
+      seedProduct({
+        metadata: {
+          step_flow: {
+            version: 1,
+            idea: 'test',
+            garment: 'tshirt',
+            colors: { primary: 'black', extras: ['white'] },
+            shots: {
+              product: { status: 'done', approved: true },
+              hanger: { status: 'done', approved: true },
+              model: { status: 'done', approved: true },
+              details: { status: 'done', approved: true },
+              'color:white': { status: 'done', approved: false },
+            },
+            approvals: {},
+          },
+        },
+      })
+
+      const { step_flow } = await removeShot('p1', 'color:white')
+      expect(step_flow.shots['color:white']).toBeUndefined()
+      expect(step_flow.approvals.mockups).toBeDefined()
     })
   })
 

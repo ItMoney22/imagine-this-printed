@@ -123,6 +123,15 @@ export function canRetryWithFlare(
 /** 'model' and every added `model:<n>` — all the on-person slots. */
 export const isModelShot = (key: ShotKey): boolean => key === 'model' || key.startsWith('model:')
 
+/** True for shots that can be deleted (added models, colourways, back view, scene sizes).
+ *  Core required shots (product, details, model, hanger) can only be redone, not removed. */
+export function isNonRequiredShot(key: ShotKey): boolean {
+  if (key === 'product' || key === 'details' || key === 'model' || key === 'hanger') {
+    return false
+  }
+  return true
+}
+
 /** How the cast chips are grouped. A family/couple is its own row: grouping it
  *  by `audience` would file the family under "Kids" (it carries the youth band
  *  so the child-safety rules apply), which reads as a lie to whoever's picking. */
@@ -347,16 +356,17 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
     }
   }
 
-  /** Drop an added person. The first on-person shot can only be redone. */
-  const handleRemoveModel = async (key: ShotKey) => {
+  /** Delete a non-required shot (colourway, added person, back view). */
+  const handleDelete = async (key: ShotKey) => {
     if (!state.productId) return
     setBusyKey(key)
     setError(null)
     try {
       await lane.api.removeShot(state.productId, key)
+      requestedKeysRef.current.delete(key)
       await refresh()
     } catch (err: any) {
-      setError(err?.message || `Failed to remove ${shotLabel(key)}`)
+      setError(err?.message || `Failed to delete ${shotLabel(key)}`)
     } finally {
       setBusyKey(null)
     }
@@ -581,7 +591,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                       Blocked — the product shot failed
                     </p>
                   )}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
                     {shot.status === 'done' && !shot.approved && (
                       <button
                         type="button"
@@ -600,6 +610,17 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         className="flex-1 inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 rounded-lg bg-card border border-border-subtle text-text hover:bg-card-elevated disabled:opacity-50"
                       >
                         {busy ? <BusyDot className="w-1.5 h-1.5" /> : <RefreshCw className="w-3 h-3" />} Redo
+                      </button>
+                    )}
+                    {isNonRequiredShot(key) && (
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(key)}
+                        disabled={busy}
+                        title={`Delete ${shotLabel(key)}`}
+                        className="inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg bg-card border border-border-subtle text-muted hover:text-red-400 hover:border-red-400/30 disabled:opacity-50"
+                      >
+                        {busy ? <BusyDot className="w-1.5 h-1.5" /> : <Trash2 className="w-3 h-3" />} Delete
                       </button>
                     )}
                     {/* Escape hatch from a flux render the admin doesn't like.
@@ -631,19 +652,6 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                         }`}
                       >
                         <UserRound className="w-3 h-3" /> Who?
-                      </button>
-                    )}
-                    {/* Only an ADDED person can be dropped — the first on-person
-                        shot is part of every listing and is redone, not removed. */}
-                    {isModelShot(key) && key !== 'model' && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveModel(key)}
-                        disabled={busy}
-                        title="Remove this person from the listing"
-                        className="inline-flex items-center justify-center gap-1 text-[11px] font-semibold py-1.5 px-2 rounded-lg text-muted hover:text-red-400 disabled:opacity-50"
-                      >
-                        {busy ? <BusyDot className="w-1.5 h-1.5" /> : <Trash2 className="w-3 h-3" />}
                       </button>
                     )}
                     {canSkip && (

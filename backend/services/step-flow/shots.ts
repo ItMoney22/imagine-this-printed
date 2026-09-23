@@ -283,12 +283,12 @@ async function withStepFlowLock<T>(productId: string, fn: () => Promise<T>): Pro
  */
 async function mergeStepFlow(
   productId: string,
-  mutate: (stepFlow: StepFlowMeta) => StepFlowMeta
+  mutate: (stepFlow: StepFlowMeta, currentMetadata?: any) => StepFlowMeta
 ): Promise<StepFlowMeta> {
   const { data: product } = await supabase.from('products').select('metadata').eq('id', productId).single()
   const meta = product?.metadata || {}
   const stepFlow = getStepFlow({ metadata: meta })
-  const next = mutate(stepFlow)
+  const next = mutate(stepFlow, meta)
   await saveStepFlow(productId, meta, next)
   return next
 }
@@ -644,8 +644,13 @@ async function patchShotState(productId: string, key: ShotKey, patch: Partial<Sh
   return withStepFlowLock(productId, async () => {
     let result!: ShotState
     await mergeStepFlow(productId, (stepFlow) => {
-      const existing: ShotState = stepFlow.shots[key] ?? { approved: false, status: 'queued' }
-      result = { ...existing, ...patch }
+      const existing = stepFlow.shots[key]
+      if (!existing && patch.status !== 'running' && patch.status !== 'queued') {
+        result = { approved: false, status: 'failed', ...patch }
+        return stepFlow
+      }
+      const current: ShotState = existing ?? { approved: false, status: 'queued' }
+      result = { ...current, ...patch }
       return { ...stepFlow, shots: { ...stepFlow.shots, [key]: result } }
     })
     return result
@@ -731,7 +736,8 @@ async function runModelShot(
     // and silently drop whichever shot was written in between.
     await withStepFlowLock(productId, () =>
       mergeStepFlow(productId, (stepFlow) => {
-        const existing: ShotState = stepFlow.shots[key] ?? { approved: false, status: 'queued' }
+        if (!stepFlow.shots[key]) return stepFlow
+        const existing: ShotState = stepFlow.shots[key]
         return {
           ...stepFlow,
           shots: { ...stepFlow.shots, [key]: { ...existing, casting: decision } },
@@ -1174,22 +1180,121 @@ export async function addModelShot(
 /** Etsy shows ten images per listing and the other shots need room too. */
 const MAX_MODEL_SHOTS = 6
 
-/** Drop an added person entirely — the first on-person shot can't be removed. */
-export async function removeModelShot(productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> {
-  if (!isModelKey(key) || key === 'model') {
-    throw new StepFlowValidationError('Only an added on-person shot can be removed')
+/**
+ * True for non-required shot keys that can be removed:
+ * - added models (`model:<n>` where n >= 2)
+ * - extra colourways (`color:<id>`)
+ * - back view of two-sided garments (`back`)
+ * - extra metal art scenes (`scene:<size>`)
+ *
+ * Core required shots (`product`, `details`, `hanger`, `model`) cannot be deleted.
+ */
+export function isNonRequiredShotKey(key: ShotKey): boolean {
+  if (key === 'product' || key === 'details' || key === 'model' || key === 'hanger') {
+    return false
   }
+  return (
+    key.startsWith('color:') ||
+    (isModelKey(key) && key !== 'model') ||
+    key === 'back' ||
+    key.startsWith('scene:')
+  )
+}
+
+/**
+ * Delete a non-required shot key, clearing its `step_flow.shots` record,
+ * updating colors/sizes if applicable, and removing the associated `product_assets` entry.
+ */
+export async function removeShot(productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> {
+  if (!isNonRequiredShotKey(key)) {
+    if (key === 'model') {
+      throw new StepFlowValidationError('Only an added on-person shot can be removed')
+    }
+    throw new StepFlowValidationError(`Core required shot "${key}" cannot be removed`)
+  }
+
   return withStepFlowLock(productId, async () => {
-    const stepFlow = await mergeStepFlow(productId, (sf) => {
+    let removedAssetRole: string | undefined
+    let removedAssetId: string | undefined
+    let removedJobId: string | undefined
+
+    const stepFlow = await mergeStepFlow(productId, (sf, currentMeta) => {
       const shots = { ...sf.shots }
+      const targetShot = shots[key]
+      if (targetShot) {
+        removedAssetId = targetShot.assetId
+        removedJobId = targetShot.jobId
+      }
       delete shots[key]
-      return { ...sf, shots }
+
+      const colors = sf.colors ? { ...sf.colors } : undefined
+      if (key.startsWith('color:') && colors?.extras) {
+        const colorId = key.slice('color:'.length) as ColorId
+        colors.extras = colors.extras.filter((c) => c !== colorId)
+        if (currentMeta && Array.isArray(currentMeta.colors)) {
+          currentMeta.colors = currentMeta.colors.filter((c: string) => c !== colorId)
+        }
+      }
+
+      const sizes = sf.sizes ? [...sf.sizes] : undefined
+      if (key.startsWith('scene:') && sizes) {
+        const sizeKey = key.slice('scene:'.length) as MetalArtSizeKey
+        if (sizes.length <= 1) {
+          throw new StepFlowValidationError('Cannot remove the only size scene from a metal print')
+        }
+        const filteredSizes = sizes.filter((s) => s !== sizeKey)
+        return {
+          ...sf,
+          shots,
+          sizes: filteredSizes,
+          ...(colors ? { colors } : {}),
+        }
+      }
+
+      // Re-evaluate mockups group approval if not yet stamped
+      const approvals = { ...sf.approvals }
+      if (!approvals.mockups) {
+        const trackedKeys = isMetalStepFlow(sf)
+          ? defaultMetalShotKeys(sizes || sf.sizes || [])
+          : colors
+            ? [
+                ...defaultShotKeys(colors),
+                ...((shots as any)?.back ? (['back'] as ShotKey[]) : []),
+                ...(Object.keys(shots) as ShotKey[]).filter((k) => isModelKey(k) && k !== 'model'),
+              ]
+            : []
+        const tracked = trackedKeys.filter((k) => shots[k])
+        const allSettled =
+          tracked.length > 0 &&
+          tracked.every((k) => shots[k]?.approved === true || shots[k]?.status === 'failed' || shots[k]?.skipped === true)
+        if (allSettled) approvals.mockups = new Date().toISOString()
+      }
+
+      return {
+        ...sf,
+        shots,
+        ...(colors ? { colors } : {}),
+        approvals,
+      }
     })
-    // The asset row goes too, or the publish gallery keeps showing a person
-    // the admin just deleted.
-    await supabase.from('product_assets').delete().eq('product_id', productId).eq('asset_role', roleForShotKey(key))
+
+    try {
+      removedAssetRole = roleForShotKey(key, stepFlow.garment)
+    } catch {
+      // ignore
+    }
+
+    if (removedAssetRole) {
+      await supabase.from('product_assets').delete().eq('product_id', productId).eq('asset_role', removedAssetRole)
+    }
+
     return { step_flow: stepFlow }
   })
+}
+
+/** Drop an added person entirely — kept for backwards compatibility, delegates to removeShot. */
+export async function removeModelShot(productId: string, key: ShotKey): Promise<{ step_flow: StepFlowMeta }> {
+  return removeShot(productId, key)
 }
 
 export interface ApproveItem {
