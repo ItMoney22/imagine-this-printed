@@ -553,7 +553,9 @@ async function ensureBackArtworkAsset(
   let backAssetId = existingBack?.id as string | undefined
 
   if (!backAssetId) {
-    const measured = await measureArtwork(backImageUrl).catch(() => null)
+    // measureArtwork lives in the unshipped print-resolution work; until that
+    // lands on origin/main the back row goes in unmeasured (same as before).
+    const measured = null as { width?: number; height?: number; hasAlpha?: boolean } | null
     const { data: backAsset, error: backAssetError } = await supabase
       .from('product_assets')
       .insert({
@@ -850,9 +852,8 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
 
     const { rembgJob } = await selectDesignForFlow(id, asset.id, req.log)
     // Bring the back plate in too, when this product has one — see
-    // ensureBackArtworkAsset. Reads productMetadata (not product.metadata)
-    // so a back image that just got upscaled above is the one adopted.
-    await ensureBackArtworkAsset(id, (productMetadata as any)?.print_artwork?.back_image, product.metadata?.import_source, req.log)
+    // ensureBackArtworkAsset.
+    await ensureBackArtworkAsset(id, (product.metadata as any)?.print_artwork?.back_image, product.metadata?.import_source, req.log)
     res.json({ ok: true, productId: id, assetId: asset.id, alreadyAdopted: false, rembgJob })
   } catch (err: any) {
     if (err instanceof StepFlowNotFoundError) return res.status(404).json({ error: err.message })
