@@ -476,8 +476,35 @@ export async function applyListingVariations(
     ? (props.find(p => p.supports_variations && /primary colou?r/i.test(p.display_name || p.name))
       ?? props.find(p => p.supports_variations && /colou?r/i.test(p.display_name || p.name)))
     : null
-  const sizeProp = props.find(p => p.supports_variations && /^size\b/i.test(p.display_name || p.name))
+  // The size axis. Most taxonomies expose a native "Size"; taxonomy 6617
+  // (Image Transfers) — the transfer tier's own node — does not. Verified live
+  // 2026-09-21 via `etsy-poc.mjs properties --ids 6617 --raw`: its only
+  // variation properties are Primary color (200), Secondary color, Canvas
+  // length, Canvas width, and three generic slots — property_id 513/514/516,
+  // name "Custom1/2/3", display_name "Custom Property", no possible_values and
+  // no scales.
+  //
+  // With no fallback a transfer listing (colors: []) resolved BOTH axes empty
+  // and threw. publishProductToEtsy catches that as best-effort and keeps the
+  // draft, so every transfer went live at a flat $12 with no size axis while
+  // its own description promised "8.5x11 / 11x17 / 13x19 — pick your size at
+  // checkout". TRANSFER_SHEET_SIZES prices 13x19 at $28, so the biggest sheet
+  // was buyable for the smallest sheet's price. Silent, and real money.
+  //
+  // A custom slot is what Etsy intends here: the seller supplies the
+  // property_name, which propertyValue() already sends. We name it "Size".
+  const nativeSizeProp = props.find(p => p.supports_variations && /^size\b/i.test(p.display_name || p.name))
+  const customSizeSlot = nativeSizeProp || !spec.sizes.length
+    ? undefined
+    : props.find(p =>
+      p.supports_variations
+      && p.property_id !== colorProp?.property_id
+      && (/^custom\s*propert/i.test(String(p.display_name || '')) || /^custom\s*\d+$/i.test(String(p.name || ''))))
+  const sizeProp = nativeSizeProp ?? (customSizeSlot ? { ...customSizeSlot, name: 'Size', display_name: 'Size' } : undefined)
   if (!sizeProp && !colorProp) throw new Error(`taxonomy ${taxonomyId} exposes no variation properties`)
+  if (customSizeSlot) {
+    console.log(`[etsy] taxonomy ${taxonomyId} exposes no native Size property — carrying the size axis on custom slot ${customSizeSlot.property_id} ("${customSizeSlot.name}")`)
+  }
 
   // Only attach a scale when at least one of our size labels matches the
   // scale's own value list (letter sizes for apparel); custom labels like

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { apiFetch } from '../lib/api'
+import { isUnpaidDraft as checkoutNeverPaid } from '../lib/order-payment-truth'
 import { Package, ChevronRight, Clock, CheckCircle, Truck, AlertCircle, XCircle, CreditCard, Edit3, FileText } from 'lucide-react'
 
 interface OrderItem {
@@ -169,14 +170,16 @@ export default function MyOrders() {
 
   const getStatusConfig = (order: Order) => {
     // Show draft status for unpaid orders
-    if (order.payment_status !== 'paid') {
+    if (checkoutNeverPaid(order.payment_status)) {
       return statusConfig.draft
     }
     return statusConfig[order.status] || statusConfig.pending
   }
 
-  // Check if order is a draft (unpaid)
-  const isDraftOrder = (order: Order) => order.payment_status !== 'paid'
+  // Check if order is a draft (unpaid). A refunded or disputed order DID take
+  // a payment, so it is a real order with a payment history — not something to
+  // show the customer under "awaiting payment" with a Pay Now button.
+  const isDraftOrder = (order: Order) => checkoutNeverPaid(order.payment_status)
 
   // Filter orders based on selection
   const filteredOrders = orders.filter(order => {
