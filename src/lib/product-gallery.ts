@@ -15,4 +15,11 @@
  * change.
  */
 export type { GalleryAsset } from '../../backend/shared/product-gallery'
-export { ROLE_ORDER, POCKET_ROLE, BACK_ROLE, buildProductGallery } from '../../backend/shared/product-gallery'
+export {
+  ROLE_ORDER,
+  POCKET_ROLE,
+  BACK_ROLE,
+  buildProductGallery,
+  productPrintsOnBack,
+  backArtworkUrl,
+} from '../../backend/shared/product-gallery'

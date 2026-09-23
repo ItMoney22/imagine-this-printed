@@ -184,9 +184,11 @@ async function waitUntil(fn: () => boolean, tries = 50): Promise<void> {
 }
 
 function seedProduct(over: Partial<Row> = {}): Row {
+  const { metadata: overMeta, ...overRest } = over
   const product = {
     id: 'p1',
     category: 't-shirts',
+    ...overRest,
     metadata: {
       step_flow: {
         version: 1,
@@ -197,9 +199,8 @@ function seedProduct(over: Partial<Row> = {}): Row {
         shots: {},
         approvals: {},
       },
-      ...over.metadata,
+      ...overMeta,
     },
-    ...over,
   }
   db.products.push(product)
   return product
@@ -1570,6 +1571,42 @@ describe('back view for two-sided products', () => {
 
   it('maps to the gallery back-view role', () => {
     expect(roleForShotKey('back', 'tee')).toBe('mockup_back')
+  })
+
+  it('queueStepShots retains and processes explicit back shot when product prints on back', async () => {
+    seedProduct({
+      print_locations: ['front_image', 'back_image'],
+      metadata: { print_artwork: { back_image: 'https://cdn/back-art.png' } },
+    })
+    shootOneModelShot.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ url: 'https://cdn/model.png', check: { ok: true } }), 5))
+    )
+
+    const { jobs } = await queueStepShots('p1', 'user-1', ['product', 'hanger', 'model', 'details', 'back'])
+    const keys = jobs.map((j) => j.key)
+    expect(keys).toContain('back')
+
+    const backJob = db.ai_jobs.find((j) => j.input?.stepKey === 'back')
+    expect(backJob).toBeDefined()
+    expect(backJob?.type).toBe('replicate_mockup_v2')
+    expect(backJob?.input?.mockupRole).toBe('mockup_back')
+    expect(backJob?.input?.printPlacement).toBe('back-only')
+    expect(backJob?.input?.design_url).toBe('https://cdn/back-art.png')
+  })
+
+  it('queueStepShots filters out back shot if product does NOT print on back', async () => {
+    seedProduct({
+      print_locations: ['front_image'],
+      metadata: {},
+    })
+    shootOneModelShot.mockImplementation(
+      () => new Promise((resolve) => setTimeout(() => resolve({ url: 'https://cdn/model.png', check: { ok: true } }), 5))
+    )
+
+    const { jobs } = await queueStepShots('p1', 'user-1', ['product', 'hanger', 'model', 'details', 'back'])
+    const keys = jobs.map((j) => j.key)
+    expect(keys).not.toContain('back')
+    expect(db.ai_jobs.some((j) => j.input?.stepKey === 'back')).toBe(false)
   })
 })
 

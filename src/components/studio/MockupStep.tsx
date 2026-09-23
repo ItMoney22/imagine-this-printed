@@ -6,6 +6,7 @@ import { AlertTriangle, Check, Plus, RefreshCw, Sparkles, Trash2, UserRound, X, 
 import { type ShotSubject } from '../../lib/api'
 import { useStudioLane } from './lane'
 import { COLORS } from '../../../backend/shared/catalog-capability'
+import { productPrintsOnBack } from '../../lib/product-gallery'
 import {
   areMockupsResolved,
   getShots,
@@ -26,6 +27,7 @@ import ProgressBar from './ProgressBar'
 const SHOT_EXPECTED_MS: Partial<Record<ShotKey, number>> = {
   product: 35_000,
   hanger: 35_000,
+  back: 35_000,
   model: 45_000,
   details: 8_000,
 }
@@ -48,16 +50,20 @@ const SCENE_LABEL: Record<string, string> = {
 
 /** Every shot key the approved garment/colors — or, for a metal print
  *  (design doc §14), the approved sizes — should have.
- *  Garment: product, hanger, model, details, plus one `color:<id>` per
- *  approved extra color.
+ *  Garment: product, hanger, model, details, back (when printing on back),
+ *  plus one `color:<id>` per approved extra color.
  *  Metal: one `scene:<size>` per approved size, plus details — never
- *  product/hanger/model/color:* (no on-person shot, no garment colors).
+ *  product/hanger/model/back/color:* (no on-person shot, no garment colors).
  *  Used to compute what's still missing so a change after the first mockup
  *  shoot (back to Garments/Sizes, add/change a selection, re-approve) still
  *  gets its shot fired instead of silently never appearing. Exported (same
  *  pattern as IdeaStep's PhraseChips / PrintPrepPanel's RecommendationBadge)
  *  so the metal/garment key sets can be unit-tested directly. */
-export function expectedShotKeys(stepFlow: StepFlowMeta | null, productKind: 'garment' | 'metal'): ShotKey[] {
+export function expectedShotKeys(
+  stepFlow: StepFlowMeta | null,
+  productKind: 'garment' | 'metal',
+  product?: { metadata?: any; print_locations?: string[] | null } | null
+): ShotKey[] {
   if (productKind === 'metal') {
     const sizes = stepFlow?.sizes ?? []
     const keys: ShotKey[] = sizes.map((size) => `scene:${size}` as ShotKey)
@@ -65,6 +71,9 @@ export function expectedShotKeys(stepFlow: StepFlowMeta | null, productKind: 'ga
     return keys
   }
   const keys: ShotKey[] = ['product', 'hanger', 'model', 'details']
+  if (productPrintsOnBack(product)) {
+    keys.push('back')
+  }
   const extras = stepFlow?.colors?.extras ?? []
   for (const colorId of extras) keys.push(`color:${colorId}` as ShotKey)
   return keys
@@ -241,10 +250,8 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   // A back print is the precondition for a team template — that is the plate
   // the name and number are drawn onto.
   const productMeta: any = (state as any).product?.metadata ?? (state as any).productMetadata ?? {}
-  const hasBackPrint =
-    !!productMeta?.print_artwork?.back_image ||
-    productMeta?.print_placement === 'front-back' ||
-    !!(state.stepFlow?.shots as any)?.back
+  const productInfo = state.product ?? (productMeta ? { metadata: productMeta } : null)
+  const hasBackPrint = productPrintsOnBack(productInfo) || !!(state.stepFlow?.shots as any)?.back
   const hasTeamTemplate = !!productMeta?.team_template
 
   const [firing, setFiring] = useState(false)
@@ -282,7 +289,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   // `color:<id>`.
   useEffect(() => {
     if (!state.productId) return
-    const expected = expectedShotKeys(state.stepFlow, state.productKind)
+    const expected = expectedShotKeys(state.stepFlow, state.productKind, productInfo)
     const present = new Set(Object.keys(shots) as ShotKey[])
     const missing = expected.filter((key) => !present.has(key) && !requestedKeysRef.current.has(key))
     if (missing.length === 0) return
@@ -303,7 +310,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
       })
       .finally(() => setFiring(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.productId, state.productKind, state.stepFlow?.colors, state.stepFlow?.sizes, shots])
+  }, [state.productId, state.productKind, state.stepFlow?.colors, state.stepFlow?.sizes, shots, state.product])
 
   // Load the castable subjects for the approved garment so the picker below
   // only ever offers people who are actually valid for this listing (a youth

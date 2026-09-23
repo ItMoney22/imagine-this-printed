@@ -35,6 +35,66 @@ describe('expectedShotKeys', () => {
     const flow = stepFlowMeta({ sizes: ['4x6'], colors: { primary: 'black', extras: ['white'] } })
     expect(expectedShotKeys(flow, 'metal')).toEqual(['scene:4x6', 'details'])
   })
+
+  it('garment: includes back when product has back_image in print_locations', () => {
+    const flow = stepFlowMeta({ colors: { primary: 'black', extras: ['white'] } })
+    const product = { print_locations: ['front_image', 'back_image'], metadata: {} }
+    expect(expectedShotKeys(flow, 'garment', product)).toEqual([
+      'product',
+      'hanger',
+      'model',
+      'details',
+      'back',
+      'color:white',
+    ])
+  })
+
+  it('garment: includes back when metadata.print_artwork.back_image is set', () => {
+    const flow = stepFlowMeta({ colors: { primary: 'black', extras: [] } })
+    const product = { metadata: { print_artwork: { back_image: 'https://cdn/back.png' } } }
+    expect(expectedShotKeys(flow, 'garment', product)).toEqual([
+      'product',
+      'hanger',
+      'model',
+      'details',
+      'back',
+    ])
+  })
+
+  it('garment: includes back when print_placement is front-back or back-only', () => {
+    const flow = stepFlowMeta({ colors: { primary: 'black', extras: [] } })
+    expect(expectedShotKeys(flow, 'garment', { metadata: { print_placement: 'front-back' } })).toEqual([
+      'product',
+      'hanger',
+      'model',
+      'details',
+      'back',
+    ])
+    expect(expectedShotKeys(flow, 'garment', { metadata: { print_placement: 'back-only' } })).toEqual([
+      'product',
+      'hanger',
+      'model',
+      'details',
+      'back',
+    ])
+  })
+
+  it('garment: excludes back when product has front-only print', () => {
+    const flow = stepFlowMeta({ colors: { primary: 'black', extras: [] } })
+    const product = { print_locations: ['front_image'], metadata: {} }
+    expect(expectedShotKeys(flow, 'garment', product)).toEqual([
+      'product',
+      'hanger',
+      'model',
+      'details',
+    ])
+  })
+
+  it('metal: never includes back even if product has back print metadata/locations', () => {
+    const flow = stepFlowMeta({ sizes: ['4x6'] })
+    const product = { print_locations: ['front_image', 'back_image'], metadata: { print_artwork: { back_image: 'https://cdn/b.png' } } }
+    expect(expectedShotKeys(flow, 'metal', product)).toEqual(['scene:4x6', 'details'])
+  })
 })
 
 describe('shotLabel', () => {

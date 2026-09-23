@@ -119,6 +119,32 @@ export const POCKET_ROLE = 'mockup_pocket'
 export const BACK_ROLE = 'mockup_back'
 
 /**
+ * Does this product actually print something on the back?
+ *
+ * Two independent signals, because they mean different things and both are
+ * real: `print_locations` says the back IS an offered placement, and
+ * `metadata.print_artwork.back_image` says WHICH artwork goes there. Either
+ * one alone is enough to justify shooting the back — a product tagged with
+ * back artwork but missing the placement is a data slip, not a reason to omit
+ * the photo.
+ */
+export function productPrintsOnBack(
+  product?: { metadata?: any; print_locations?: string[] | null; print_artwork?: any; print_placement?: string } | null
+): boolean {
+  if (!product) return false
+  const meta = product.metadata || product
+  if (meta.print_artwork?.back_image) return true
+  if (Array.isArray(product.print_locations) && product.print_locations.includes('back_image')) return true
+  return meta.print_placement === 'front-back' || meta.print_placement === 'back-only'
+}
+
+/** The artwork that prints on the back, when one has been tagged. */
+export function backArtworkUrl(product?: { metadata?: any; print_artwork?: any } | null): string | null {
+  if (!product) return null
+  return product.metadata?.print_artwork?.back_image || (product as any).print_artwork?.back_image || null
+}
+
+/**
  * @param order Which role whitelist/ordering to apply — ROLE_ORDER (garments,
  *   the default) or METAL_ROLE_ORDER (metal prints, artwork first). Callers
  *   that know the product kind pass it; `buildProductGalleryFor` picks it

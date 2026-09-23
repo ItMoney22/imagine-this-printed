@@ -19,13 +19,20 @@ import {
   type GarmentId,
 } from '../../shared/catalog-capability.js'
 import { STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../shared/metal-art.js'
-import { BACK_ROLE } from '../../shared/product-gallery.js'
+import {
+  BACK_ROLE,
+  buildProductGallery,
+  METAL_ROLE_ORDER,
+  ROLE_ORDER,
+  productPrintsOnBack,
+  backArtworkUrl,
+  type GalleryAsset,
+} from '../../shared/product-gallery.js'
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
 import { shootOneModelShot, designReferenceForProduct } from '../etsy-model-shots.js'
 import { castForDesign, manualCast, type CastingDecision } from './casting.js'
 import { renderDetailsCard, renderMetalDetailsCard } from './details-card.js'
 import { supportsPrintTrue } from '../print-true-mockup.js'
-import { buildProductGallery, METAL_ROLE_ORDER, ROLE_ORDER, type GalleryAsset } from '../../shared/product-gallery.js'
 import type { StepBrief, StepFlowInspiration } from './brief.js'
 import type { ColorAdvice } from './color-advice.js'
 import type { PrintAdvice, PrintFileResult } from './print-prep.js'
@@ -182,7 +189,13 @@ export interface StepFlowMeta {
 /** Thrown for expected, user-facing validation failures — routers map this to 400. */
 export class StepFlowValidationError extends Error {}
 
-type ProductRow = { id: string; name?: string | null; category: string | null; metadata: any }
+type ProductRow = {
+  id: string
+  name?: string | null
+  category: string | null
+  metadata: any
+  print_locations?: string[] | null
+}
 
 // ---------------------------------------------------------------------------
 // step_flow read/write helpers
@@ -219,7 +232,7 @@ export function getStepFlow(product: { metadata?: any } | null | undefined): Ste
 export async function loadProductRow(productId: string): Promise<ProductRow> {
   const { data, error } = await supabase
     .from('products')
-    .select('id, name, category, metadata')
+    .select('id, name, category, metadata, print_locations')
     .eq('id', productId)
     .single()
   if (error || !data) throw new StepFlowValidationError('Product not found')
@@ -310,27 +323,7 @@ export function defaultShotKeys(
   return [...base, ...extras.map((c) => `color:${c}` as ShotKey)]
 }
 
-/**
- * Does this product actually print something on the back?
- *
- * Two independent signals, because they mean different things and both are
- * real: `print_locations` says the back IS an offered placement, and
- * `metadata.print_artwork.back_image` says WHICH artwork goes there. Either
- * one alone is enough to justify shooting the back — a product tagged with
- * back artwork but missing the placement is a data slip, not a reason to omit
- * the photo.
- */
-export function productPrintsOnBack(product: { metadata?: any; print_locations?: string[] | null }): boolean {
-  const meta = product.metadata || {}
-  if (meta.print_artwork?.back_image) return true
-  if (Array.isArray(product.print_locations) && product.print_locations.includes('back_image')) return true
-  return meta.print_placement === 'front-back' || meta.print_placement === 'back-only'
-}
-
-/** The artwork that prints on the back, when one has been tagged. */
-export function backArtworkUrl(product: { metadata?: any }): string | null {
-  return product.metadata?.print_artwork?.back_image || null
-}
+export { productPrintsOnBack, backArtworkUrl }
 
 /**
  * Metal prints' analog of defaultShotKeys (design doc §14): one size-true
