@@ -4252,3 +4252,12 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## 2026-09-23 — checkout parcel quote scout, task 74650bc6-6038-4f19-97ca-c0d863419a09
+
+### File shortlist (approved scope)
+- Read first: `backend/routes/shipping.ts`, `backend/services/shipping-quote.ts`, `backend/services/order-pricing.ts`, `src/utils/shipping-calculator.ts`; inspect `backend/services/parcel-presets.ts` on `earth/zero-nine/shipping-station` because it is absent here.
+- Codex may edit only repo-root `CLAUDE_TASK.md` and `TASK_NOTES.md`. Implementation files named in `CLAUDE_TASK.md` are a proposed Claude scope, not authorization for Codex to edit them.
+
+### Work log (append-only)
+- 2026-09-23: Scoped Watchtower task 74650bc6-6038-4f19-97ca-c0d863419a09. Confirmed checkout still posts a fixed 10 x 8 x 4 parcel, the preset module exists only on the shipping-station branch in this worktree, and signed quotes bind weight/ZIP but not dimensions. Wrote implementation brief; no application files changed or tests run because AGENTS.md limits this Codex run to task files.

@@ -1,40 +1,43 @@
-# Claude Task Brief
+﻿# Claude Task Brief
 
 ## Request
-- Complete the September 17, 2026 weekly review of the live `ImagineThisPrinted1` Etsy shop.
-- Compare with the September 10 review, capture four fresh screenshots, and email the illustrated report from Mr. Imagine to the WeCare team inbox.
+- Watchtower task `74650bc6-6038-4f19-97ca-c0d863419a09`: estimate checkout parcel dimensions from cart contents and quote Shippo against the smallest suitable preset, with focused tests.
+- This Codex run is a scout and handoff under `AGENTS.md`. It does not implement the checkout change.
 
 ## Repo detection
-- Vite + React + TypeScript storefront with a Node/Express backend and Supabase-backed shared inbox.
-- This request is an external storefront audit and email-delivery run; no Etsy settings or repo implementation code are in scope.
+- Git worktree on `earth/vinny-carbone/estimate-checkout-shippi-74650bc6-mue0mkcx`; React/Vite storefront and Express/TypeScript backend.
+- `backend/routes/shipping.ts` still sends 10 x 8 x 4 inches in `/api/shipping/rates`.
+- `backend/services/parcel-presets.ts` is absent here, but exists on `earth/zero-nine/shipping-station`. Check whether its commit is already merged before copying or rebuilding it. That branch defines two poly mailers and 8 x 6 x 4, 12 x 9 x 4, 14 x 12 x 6, and 16 x 12 x 10 boxes.
+- `AGENTS.md` restricts Codex repo edits to this file and `TASK_NOTES.md`; implementation requires a separately authorized Claude or expanded scope.
 
 ## Relevant files
-- `AGENTS.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\vinny-carbone\estimate-checkout-shippi-74650bc6-mue0mkcx\backend\routes\shipping.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\vinny-carbone\estimate-checkout-shippi-74650bc6-mue0mkcx\backend\services\shipping-quote.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\vinny-carbone\estimate-checkout-shippi-74650bc6-mue0mkcx\backend\services\order-pricing.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\vinny-carbone\estimate-checkout-shippi-74650bc6-mue0mkcx\src\utils\shipping-calculator.ts`
+- `backend/services/parcel-presets.ts` on `earth/zero-nine/shipping-station` (missing locally).
 
 ## Files to edit (STRICT)
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- Do not modify application code, Etsy listings, prices, inventory, or policies.
+- Codex: `D:\watchtower-dispatch-worktrees\imagine-this-printed\vinny-carbone\estimate-checkout-shippi-74650bc6-mue0mkcx\CLAUDE_TASK.md` and `D:\watchtower-dispatch-worktrees\imagine-this-printed\vinny-carbone\estimate-checkout-shippi-74650bc6-mue0mkcx\TASK_NOTES.md` only.
+- Claude implementation scope, once separately authorized: the route, preset module, one small cart-to-parcel estimator service and tests, quote verifier/pricing integration, and storefront request shaping only if cart dimensions or product type are not already sent. Use absolute paths for every created or edited file. No other files without updating the approved shortlist.
 
 ## Plan
-1. Inspect the live shop home, strongest featured listing, an inconsistent listing, and About/policies; retain fresh screenshots outside the repo.
-2. Compare listing count, assortment, pricing, presentation, options, fulfillment details, trust copy, and visible accessibility risks with September 10.
-3. Send the concise report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` with all four screenshots embedded by CID and attached as true PNG files.
-4. Verify a delivered Resend message with four attachments, the outbound record in Mr. Imagine's Sent folder, and four working PNG downloads in the WeCare recipient record.
+1. Verify whether the preset module and any prior checkout estimate fix already landed on another branch. Import the existing preset definitions rather than maintaining a second list.
+2. Inspect cart fields that reach `/api/shipping/rates` and payment intent. Define bounded, documented size/packing heuristics for shirts, hoodies, tumblers, metal art, 3D prints, mixed carts, and missing metadata. Handle quantity, dimensions, rotation, padding, and oversize explicitly. Choose the smallest fitting eligible preset, accounting for mailer versus rigid box.
+3. Share cart weight computation with the existing `computeCartWeightLb` path. Send selected preset dimensions and weight in the Shippo payload. Make fallback estimates conservative for bulky carts.
+4. Bind signed quote validation to the computed parcel or a stable cart/preset fingerprint as well as weight and ZIP. A same-weight bulky cart must not reuse a small-mailer rate token. Ensure issuer and payment verifier compute from equivalent trusted fields.
+5. Add focused estimator and route payload tests for single, multi-item, bulky, mixed, malformed, and same-weight/different-box carts. Optional margin audit is read-only.
 
 ## Acceptance criteria
-- [x] Four fresh screenshots were captured, converted to true PNG encoding, and visually inspected.
-- [x] The comparison covers every requested storefront dimension and prioritizes three next actions.
-- [x] The corrected true-PNG report was delivered and logged in Mr. Imagine's Sent folder with four attachments.
-- [x] Resend reports four inline CID attachments and the WeCare recipient record has four downloadable, PNG-signature-verified image attachments.
-- [x] No Etsy settings, listings, or repo implementation files were changed.
+- Checkout Shippo requests use selected preset dimensions and computed cart weight; no fixed 10 x 8 x 4 dimensions remain in the quote path.
+- Known single items fit their smallest suitable preset; additional or bulky items select larger packaging. No fragile item goes in a mailer.
+- A signed quote for one parcel cannot be replayed for a different estimated parcel at the same weight.
+- Focused tests verify parcel selection, Shippo JSON payloads, and quote validation; backend typecheck passes.
+- No customer-facing deployment is performed as part of this brief.
 
 ## Commands
-- `rg -n "weekly Etsy|September 10, 2026|email_messages|mrimagine" CLAUDE_TASK.md TASK_NOTES.md backend`
-- `git diff --check -- CLAUDE_TASK.md TASK_NOTES.md`
-- `git diff --name-only -- CLAUDE_TASK.md TASK_NOTES.md`
-- `git status --short`
+- `git show earth/zero-nine/shipping-station:backend/services/parcel-presets.ts`
+- `rg -n "parcels:|computeCartWeightLb|verifyShippingQuote|shipping/rates" backend/routes/shipping.ts backend/services/shipping-quote.ts backend/services/order-pricing.ts src/utils/shipping-calculator.ts`
+- `npm run typecheck --prefix backend` (from `backend/package.json`)
+- `npm test -- backend/services/shipping-quote.test.ts` (root `package.json` uses `vitest run`; include new focused test paths)
+- `git diff --check` and `git status --short`
