@@ -4290,3 +4290,10 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   it re-reads after every write, that delete needs the confirm, and that the
   kind filter is client-side. `tsc -p tsconfig.app.json` clean, `eslint` 0
   errors.
+
+## File shortlist (approved scope) — 2026-09-23 Jev merge dispatch
+- Read first: `AGENTS.md`, `CLAUDE.md`, `CLAUDE_TASK.md`, Jev commit `3b67791` diff, `backend/services/presentation-qa-jev.test.ts`, `backend/shared/catalog-capability.ts`, and the benchmark report. Use `package.json` and `backend/package.json` for commands.
+- Codex may edit only `CLAUDE_TASK.md` and `TASK_NOTES.md`. The Jev merge and Render changes require explicit expansion under `AGENTS.md`.
+
+## Work log (append-only) — 2026-09-23 Jev merge dispatch
+- Scouted Watchtower task `6b03f251-d95c-4f2b-8ec5-109bbab63939`: confirmed Jev tip `3b67791`, merge base `ac3ad6e`, current `main` `eac8fedd`, focused test and package commands; wrote the constrained merge/rollout brief. No merge, test run, Render access, flag change, or handoff artifact was performed because `AGENTS.md` permits only the two task files without expanded scope.
