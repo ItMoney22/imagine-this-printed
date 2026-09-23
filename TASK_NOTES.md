@@ -4426,3 +4426,67 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   kind filter is client-side. `tsc -p tsconfig.app.json` clean, `eslint` 0
   errors.
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+
+## Current request (2026-09-23) — tune Jev triage priority + mailbox internal-sender handling (Lucas Blaze, task 09d844e1)
+
+Live verification on prod (task 6ff6495c, dr-dill) found two gaps in the shipped
+Jev triage: (1) a real damaged-print ticket scored priority `low` @0.78 from Jev's
+own model call — only the deterministic `keyword:damaged` floor and the
+category-based elevation saved it; (2) `wecare`'s own ops/new-ticket-alert mail and
+David Trinidad's own mail were labelled `customer_issue`/`newsletter`/`spam`.
+
+### File shortlist (approved scope — 2026-09-23 Jev triage tuning)
+- `backend/lib/jev-triage.ts`
+- `backend/lib/jev-triage.test.ts`
+- `backend/scripts/jev-triage-eval.ts` (re-run only, not edited)
+- `docs/reports/jev-triage-eval-2026-09-23.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- This worktree's branch had diverged from `origin/main` by 8 commits (including
+  the commits that created `backend/lib/jev-triage.ts` itself) and was 33 commits
+  ahead on unrelated unpushed work — `jev-triage.ts` did not exist in this branch
+  at all until merging `origin/main` in. Merged clean except two conflicts:
+  `TASK_NOTES.md` (append-only log, kept both sides) and
+  `src/components/studio/DesignStep.tsx` (kept BOTH the generic "no design yet"
+  panel and the E005 sensitive-refusal panel, gated on `sensitiveRefusal` so
+  exactly one shows).
+- Reworded `SUPPORT_PRIORITY_CRITERIA`: `high` now explicitly names damaged,
+  defective, cracked, peeling, torn, faded, misprinted, wrong item/size/colour and
+  missing-piece tickets (previously only billing/refund/order-missing/bulk were
+  named), and both `high` and `low` now say calm wording never lowers a real
+  defect to `low`.
+- Added `EmailLabel` `internal` + a deterministic `sender:internal` floor in
+  `emailFloor()`: any `@imaginethisprinted.com` sender or an address containing
+  `davidltrinidad` floors to `label: 'internal', needsReply: 'no'` before Jev is
+  asked, so a wrong Jev guess can never override it.
+- 6 new/updated unit tests: a no-keyword-floor damaged-ticket case proving the
+  category-based elevation alone (not the keyword floor) reaches `high`; the
+  `internal` sender floor directly; and that `triageEmails` overrides a
+  confidently-wrong Jev `customer_issue` guess back to `internal`. Full
+  `jev-triage.test.ts`: 29/29 pass.
+- Re-ran `backend/scripts/jev-triage-eval.ts` against the same 77-ticket /
+  141-email / 12-Etsy-note real+synthetic dataset used at first ship (recovered
+  from the original build session's scratchpad, since the dataset lives outside
+  the repo by design): ticket category 100%, priority 94.8% (same 4 pre-existing
+  misses, all sign-in tickets / one synthetic bulk row — none damaged/bulk),
+  damaged/bulk rows below high 0/4, mailbox label 91.5%, **reply-needed kept
+  14/14**, Etsy flag 100%. No regression. Full detail in
+  `docs/reports/jev-triage-eval-2026-09-23.md`. This dataset predates the
+  internal-sender bug and has no rows from our own domain, so that fix is proven
+  by the new unit tests, not this eval.
+- Verified: `npx tsc -p tsconfig.json --noEmit` (backend) clean of any error
+  touching my files (6 pre-existing `rate-limits.ts` `@types/qs` portability
+  errors unrelated to this change, from a cross-worktree node_modules path);
+  `npx tsc -p tsconfig.app.json --noEmit` (frontend) clean; `eslint` on every
+  touched file — 0 errors, only pre-existing `no-explicit-any` warnings; full
+  `npx vitest run`: 1972/1974 pass, the 2 failures are the same pre-existing
+  `etsy-copy-repair.test.ts` model-path assertions documented on prior sessions
+  (also fail on untouched `origin/main`), unrelated to this change.
+- NOT verified live: the `internal` floor was not re-run against the actual
+  `wecare`/`davidt` mailboxes (this worktree has no `backend/.env` / live
+  Supabase or OpenRouter creds committed — the eval run above used a key read
+  directly from the vault for that one script invocation, nothing persisted to
+  disk here). Next pickup should re-run dr-dill's `?triage=1` GETs against prod
+  once this merges and confirm the ops-report / David-Trinidad rows now come back
+  `internal`.
