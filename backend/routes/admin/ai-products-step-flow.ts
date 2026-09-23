@@ -11,6 +11,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
+import { extractPathFromSignedUrl } from '../../services/google-cloud-storage.js'
 import { assertOffered, COLORS, photographableAudiences, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 // The listing copywriter and the casting catalog both live behind the ADMIN
 // Etsy router (routes/admin/etsy.ts, which is requireRole(['admin','manager'])
@@ -561,7 +562,10 @@ async function ensureBackArtworkAsset(
       .insert({
         product_id: productId,
         kind: 'source',
-        path: null,
+        // product_assets.path is NOT NULL — the front insert above gets this
+        // from metadata.gcs_path, which has no back-side equivalent, so derive
+        // it from the GCS object path embedded in the signed URL instead.
+        path: extractPathFromSignedUrl(backImageUrl),
         url: backImageUrl,
         width: measured?.width ?? null,
         height: measured?.height ?? null,
