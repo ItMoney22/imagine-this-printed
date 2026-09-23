@@ -1,40 +1,42 @@
 # Claude Task Brief
 
 ## Request
-- Complete the September 17, 2026 weekly review of the live `ImagineThisPrinted1` Etsy shop.
-- Compare with the September 10 review, capture four fresh screenshots, and email the illustrated report from Mr. Imagine to the WeCare team inbox.
+- Watchtower task `28ab467c-9149-42f2-a780-e5ea9a6077b7`: implement Jev product-kind classification, dry-run comparison, pipeline integration, and tests.
+- `AGENTS.md` restricts Codex output to this brief and `TASK_NOTES.md`; application edits require explicit scope expansion.
 
 ## Repo detection
-- Vite + React + TypeScript storefront with a Node/Express backend and Supabase-backed shared inbox.
-- This request is an external storefront audit and email-delivery run; no Etsy settings or repo implementation code are in scope.
+- Vite/React/TypeScript frontend and Node/TypeScript backend. Root scripts provide test/typecheck/build; backend scripts provide typecheck/build.
+- Actual paths differ from dispatch: tiers is in `backend/shared`, approvals in `backend/routes/admin`, and admin category setter in `backend/services`.
 
 ## Relevant files
-- `AGENTS.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\backend\services\etsy-copy-repair.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\backend\services\etsy-seo-composer.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\backend\routes\admin\user-product-approvals.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\backend\shared\etsy-tiers.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\backend\services\ai-product.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\src\lib\product-kind.ts`
 
 ## Files to edit (STRICT)
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- Do not modify application code, Etsy listings, prices, inventory, or policies.
+- Current Codex scope: `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\CLAUDE_TASK.md` and `D:\watchtower-dispatch-worktrees\imagine-this-printed\dr-dill\implement-jev-product-ki-28ab467c-mue3c3os\TASK_NOTES.md` only.
+- Proposed scope after explicit expansion: the application files above, one shared backend classifier, one catalog dry-run script, and focused adjacent tests. Record exact paths in `TASK_NOTES.md` before editing.
 
 ## Plan
-1. Inspect the live shop home, strongest featured listing, an inconsistent listing, and About/policies; retain fresh screenshots outside the repo.
-2. Compare listing count, assortment, pricing, presentation, options, fulfillment details, trust copy, and visible accessibility risks with September 10.
-3. Send the concise report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` with all four screenshots embedded by CID and attached as true PNG files.
-4. Verify a delivered Resend message with four attachments, the outbound record in Mr. Imagine's Sent folder, and four working PNG downloads in the WeCare recipient record.
+1. Read `jev-decisions` and inspect category data, admin override provenance, deterministic checks, and review-state mechanism.
+2. Build one multi-option Jev evaluator with written descriptions for `hoodie`, `tee`, `youth_tee`, `metal`, `transfer`, `3d`, `tumbler`, `other`; return confidence and provenance. Jev takes no destructive action.
+3. Run a read-only real-catalog dry-run and report Jev-versus-heuristic disagreements, ambiguity, and admin overrides before switching.
+4. Preserve admin categories unconditionally. Route low-confidence items to human review; retain deterministic fallback if Jev is bypassed or offline. Document threshold and rationale.
+5. Integrate four pipelines; test options, precedence, gating, and fallback; run TypeScript checks.
 
 ## Acceptance criteria
-- [x] Four fresh screenshots were captured, converted to true PNG encoding, and visually inspected.
-- [x] The comparison covers every requested storefront dimension and prioritizes three next actions.
-- [x] The corrected true-PNG report was delivered and logged in Mr. Imagine's Sent folder with four attachments.
-- [x] Resend reports four inline CID attachments and the WeCare recipient record has four downloadable, PNG-signature-verified image attachments.
-- [x] No Etsy settings, listings, or repo implementation files were changed.
+- [ ] Real-catalog dry-run produces detailed disagreement report before switching.
+- [ ] Explicit admin category wins; low-confidence rows enter human review.
+- [ ] Deterministic checks remain operational if Jev is unavailable.
+- [ ] Four named pipelines consume shared classification safely.
+- [ ] Focused tests pass and frontend/backend TypeScript checks have zero errors.
 
 ## Commands
-- `rg -n "weekly Etsy|September 10, 2026|email_messages|mrimagine" CLAUDE_TASK.md TASK_NOTES.md backend`
+- `npm test -- --run backend/services/etsy-copy-repair.test.ts backend/services/etsy-seo-composer.test.ts backend/shared/etsy-tiers.test.ts src/lib/product-kind.test.ts`
+- `npm run typecheck`
+- `npm --prefix backend run typecheck`
 - `git diff --check -- CLAUDE_TASK.md TASK_NOTES.md`
-- `git diff --name-only -- CLAUDE_TASK.md TASK_NOTES.md`
 - `git status --short`

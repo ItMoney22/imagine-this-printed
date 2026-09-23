@@ -1,5 +1,12 @@
 # TASK_NOTES
 
+## File shortlist (approved scope — 2026-09-23 Jev product kind scout)
+- Read first: `CLAUDE_TASK.md`, then `backend/services/ai-product.ts`, `src/lib/product-kind.ts`, `backend/services/etsy-copy-repair.ts`, `backend/services/etsy-seo-composer.ts`, `backend/routes/admin/user-product-approvals.ts`, and `backend/shared/etsy-tiers.ts` in this dispatch worktree.
+- Codex may edit only `CLAUDE_TASK.md` and `TASK_NOTES.md` until David explicitly expands `AGENTS.md` scope. Code files above and adjacent tests are proposed for the implementation pass, not yet approved for Codex edits.
+
+## Work log (append-only) — 2026-09-23 Jev product kind scout
+- Scouted actual paths and package commands, identified the `AGENTS.md` scope conflict, and prepared the implementation brief without editing application code or running a catalog dry-run.
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
