@@ -1,5 +1,15 @@
 # TASK_NOTES
 
+## Current request (2026-09-23) — Watchtower 9ac467d7 order live-tracking production verification
+
+Codex scout only: local `origin/main` contains `4d6d652`; no fresh remote, production schema, deployment, worker-log, or UI verification was performed. The 2026-09-11 note says the migration was not applied then. Actual PostgreSQL objects, not only `schema_migrations`, decide whether it is now present. Production migration and any customer-facing go-live await explicit scope expansion under `AGENTS.md`.
+
+### File shortlist (approved scope — 2026-09-23 tracking)
+- Read first: `AGENTS.md`, `CLAUDE.md`, `CLAUDE_TASK.md`, `supabase/migrations/20260911000000_order_live_tracking.sql`, `supabase/migrations/README.md`, and the 2026-09-11 tracking section below.
+- Read as needed for verification: `backend/worker/delivery-tracking-sweep.ts`, `backend/worker/index.ts`, `backend/routes/orders.ts`, `src/components/orders/LiveTrackingPanel.tsx`, `src/pages/OrderStatus.tsx`, `package.json`, `backend/package.json`.
+- Allowed repo edits for Codex: `CLAUDE_TASK.md` and `TASK_NOTES.md` only. No code, SQL-file, beat-log, or other repo edits.
+
+---
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
@@ -4252,3 +4262,6 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## Work log (append-only) — 2026-09-23 tracking scout
+- 2026-09-23 (Codex, Watchtower 9ac467d7-77d3-4cdc-bfc8-860e8cb487ba): Searched tracking entrypoints and migration rules; confirmed the local origin/main reference contains 4d6d652 and the SQL defines nine columns and two indexes. Prepared the production verification brief. Production migration, live worker/UI checks, and fresh remote verification remain undone because AGENTS.md limits Codex to the two task files. Modified only CLAUDE_TASK.md and TASK_NOTES.md.
