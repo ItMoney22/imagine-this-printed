@@ -1,40 +1,40 @@
-# Claude Task Brief
+﻿# Claude Task Brief
 
 ## Request
-- Complete the September 17, 2026 weekly review of the live `ImagineThisPrinted1` Etsy shop.
-- Compare with the September 10 review, capture four fresh screenshots, and email the illustrated report from Mr. Imagine to the WeCare team inbox.
+- Watchtower task `7ea1aa2a-6a88-4353-bf43-e080a2348b45`: finish abandoned-cart recovery service, hourly worker, Resend sender, tests, and admin Orders copy.
+- Correction: commit `524f8549` on `earth/zero-nine/order-payment-truth` already implements these surfaces. Assess and land that existing work before considering any new implementation.
 
 ## Repo detection
-- Vite + React + TypeScript storefront with a Node/Express backend and Supabase-backed shared inbox.
-- This request is an external storefront audit and email-delivery run; no Etsy settings or repo implementation code are in scope.
+- Vite/React/TypeScript storefront, Node/Express backend, Supabase/Postgres, and a Render background worker.
+- Current branch: `earth/zero-nine/implement-abandoned-cart-7ea1aa2a-mue0n06n`; clean before this scout. The existing implementation is on a separate branch.
+- `AGENTS.md` limits Codex's repo writes to this brief and `TASK_NOTES.md`. Its scope-expansion rule requires explicit user confirmation before any implementation or merge work.
 
 ## Relevant files
-- `AGENTS.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
+- Read first: `AGENTS.md`, `CLAUDE.md`, `TASK_NOTES.md`, `backend/lib/abandoned-cart.ts`, `backend/worker/index.ts`, and `backend/package.json`.
+- Inspect existing branch version of `backend/services/abandoned-cart.ts`, `backend/services/abandoned-cart.test.ts`, `backend/worker/ai-jobs-worker.ts`, `backend/utils/email-marketing.ts`, and `src/pages/OrderManagement.tsx` before changing anything.
+- `supabase/migrations/20260728140100_abandoned_cart_reminders.sql` defines stage deduplication.
 
 ## Files to edit (STRICT)
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- Do not modify application code, Etsy listings, prices, inventory, or policies.
+- Currently authorized for Codex: `CLAUDE_TASK.md` and `TASK_NOTES.md` only.
+- Proposed implementation scope after explicit expansion: merge/land the existing `earth/zero-nine/order-payment-truth` branch, then change only files shown by a concrete gap review. Do not create a second abandoned-cart service.
 
 ## Plan
-1. Inspect the live shop home, strongest featured listing, an inconsistent listing, and About/policies; retain fresh screenshots outside the repo.
-2. Compare listing count, assortment, pricing, presentation, options, fulfillment details, trust copy, and visible accessibility risks with September 10.
-3. Send the concise report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` with all four screenshots embedded by CID and attached as true PNG files.
-4. Verify a delivered Resend message with four attachments, the outbound record in Mr. Imagine's Sent folder, and four working PNG downloads in the WeCare recipient record.
+1. Obtain explicit confirmation to expand the `AGENTS.md` repo edit scope before merging or changing implementation files.
+2. Review the existing branch against current main and the task criteria; resolve only actual gaps or conflicts.
+3. Verify missing-email handling, suppression and unsubscribe behavior, first/second stages, dedupe, worker timing, and admin copy through focused tests and typechecks.
+4. Keep customer-facing sending disabled until a separately verified go-live approval; record precise remaining deployment steps.
 
 ## Acceptance criteria
-- [x] Four fresh screenshots were captured, converted to true PNG encoding, and visually inspected.
-- [x] The comparison covers every requested storefront dimension and prioritizes three next actions.
-- [x] The corrected true-PNG report was delivered and logged in Mr. Imagine's Sent folder with four attachments.
-- [x] Resend reports four inline CID attachments and the WeCare recipient record has four downloadable, PNG-signature-verified image attachments.
-- [x] No Etsy settings, listings, or repo implementation files were changed.
+- Existing implementation is integrated once, with no duplicate service.
+- Pending unpaid carts with a usable email can receive first and second reminders at 4h and 24h, within 7 days; missing email and suppressed recipients receive none.
+- Reminder stage records prevent duplicate sends, including overlapping sweeps.
+- Render worker runs the sweep hourly with errors contained; admin copy accurately reflects deployed behavior.
+- Focused tests and backend/frontend typechecks pass; production activation is verified separately.
 
 ## Commands
-- `rg -n "weekly Etsy|September 10, 2026|email_messages|mrimagine" CLAUDE_TASK.md TASK_NOTES.md backend`
+- `git show --stat --oneline 524f8549`
 - `git diff --check -- CLAUDE_TASK.md TASK_NOTES.md`
-- `git diff --name-only -- CLAUDE_TASK.md TASK_NOTES.md`
+- `npm --prefix backend run typecheck`
+- `npm run typecheck`
+- `npx vitest run backend/lib/abandoned-cart.test.ts backend/services/abandoned-cart.test.ts`
 - `git status --short`

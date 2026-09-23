@@ -1,5 +1,24 @@
 # TASK_NOTES
 
+## Current request (2026-09-23) — Watchtower 7ea1aa2a abandoned-cart recovery
+
+Existing commit `524f8549` on `earth/zero-nine/order-payment-truth` contains the service, tests, Resend marketing email, hourly worker call, and admin recovery copy. Current branch lacks those changes. No implementation was changed in this scout because `AGENTS.md` requires explicit scope expansion.
+
+## File shortlist (approved scope — 2026-09-23 abandoned-cart scout)
+
+### Read first
+- `AGENTS.md`, `CLAUDE.md`, `CLAUDE_TASK.md`, `TASK_NOTES.md`
+- `backend/lib/abandoned-cart.ts`, `backend/worker/index.ts`, `backend/package.json`
+- Existing branch versions of `backend/services/abandoned-cart.ts`, `backend/services/abandoned-cart.test.ts`, `backend/worker/ai-jobs-worker.ts`, `backend/utils/email-marketing.ts`, `src/pages/OrderManagement.tsx`
+
+### Edit allowed
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md`
+- Any merge, implementation, test, or UI edit requires explicit expansion of the `AGENTS.md` scope.
+
+---
+
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
@@ -236,6 +255,7 @@ and the Tripo key.
 - No implementation files edited this session.
 
 ### Work log (append-only)
+- 2026-09-23 (Codex, Watchtower 7ea1aa2a): Scouted the clean dispatch branch and existing order-payment-truth commit 524f8549. That branch already has the abandoned-cart service, tests, Resend sender, hourly worker integration, and admin copy. Wrote the integration brief and scope shortlist; implementation and merge remain pending explicit AGENTS.md scope expansion. Modified only CLAUDE_TASK.md and TASK_NOTES.md.
 - 2026-09-01 — Wrote `docs/plans/2026-09-01-photo-to-printable-pipeline-design.md`.
   Audited what exists first: Tripo image→3D, GLB→STL (mm/Z-up/grounded), the
   Saturn print bridge, Etsy tiers and the copyright gate are all live; **Blender
