@@ -83,18 +83,29 @@ export async function measureArtwork(url: string): Promise<ArtworkMeasurement | 
   }
 }
 
+export interface UpscaledBuffer {
+  buffer: Buffer
+  width: number
+  height: number
+}
+
 /**
- * Upscale one image to print resolution and put it back in the bucket as a PNG,
- * with the original's transparency restored.
+ * Run one image through recraft-crisp-upscale and hand back a PNG buffer with
+ * the source's transparency restored. Uploads nothing — the caller decides
+ * where the file lives.
+ *
+ * Split out of upscaleArtwork() so the team-plate pipeline (task 65d98dd9) can
+ * put its press file at a DETERMINISTIC path — its cache key — instead of the
+ * timestamped one below, which would make every cache lookup a miss.
+ *
+ * `sourceBuf` is optional: pass it when the caller already holds the bytes
+ * behind `url` (a freshly generated image) to skip downloading them again.
  */
-export async function upscaleArtwork(
-  url: string,
-  opts: { productId?: string; label?: string } = {}
-): Promise<UpscaledArtwork> {
+export async function upscaleToPng(url: string, sourceBuf?: Buffer): Promise<UpscaledBuffer> {
   const model = getModel(DEFAULT_UPSCALE_MODEL)
   if (!model) throw new Error(`unknown upscale model: ${DEFAULT_UPSCALE_MODEL}`)
 
-  const originalBuf = Buffer.from(await (await fetch(url)).arrayBuffer())
+  const originalBuf = sourceBuf ?? Buffer.from(await (await fetch(url)).arrayBuffer())
   const originalMeta = await sharp(originalBuf).metadata()
 
   const input = buildInput(model, { prompt: '', inputImages: [url] })
@@ -122,18 +133,30 @@ export async function upscaleArtwork(
       .ensureAlpha()
       .composite([{ input: mask, blend: 'dest-in' }])
   }
-  const outBuf = await outPipeline.png({ compressionLevel: 9 }).toBuffer()
+  const buffer = await outPipeline.png({ compressionLevel: 9 }).toBuffer()
+  return { buffer, width: upscaledMeta.width, height: upscaledMeta.height }
+}
+
+/**
+ * Upscale one image to print resolution and put it back in the bucket as a PNG,
+ * with the original's transparency restored.
+ */
+export async function upscaleArtwork(
+  url: string,
+  opts: { productId?: string; label?: string } = {}
+): Promise<UpscaledArtwork> {
+  const up = await upscaleToPng(url)
 
   const slug = opts.label ? `${opts.label}-` : ''
   const folder = opts.productId ? `print-ready/${opts.productId}` : 'print-ready/loose'
   const destination = `${folder}/${slug}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
-  const uploaded = await uploadImageFromBuffer(outBuf, destination, 'image/png')
+  const uploaded = await uploadImageFromBuffer(up.buffer, destination, 'image/png')
 
   return {
     url: uploaded.publicUrl,
     path: uploaded.path,
-    width: upscaledMeta.width,
-    height: upscaledMeta.height,
+    width: up.width,
+    height: up.height,
   }
 }
 

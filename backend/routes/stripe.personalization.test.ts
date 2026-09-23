@@ -46,7 +46,9 @@ const templateFor = (canvasW = 3600) => ({
 const PRODUCT_ID = '11111111-1111-4111-8111-111111111111'
 
 const insertedRows: any[] = []
+const updatedRows: Array<{ id: string; metadata: any }> = []
 const renderCalls: Array<{ values: Record<string, string>; width: number }> = []
+let renderDelayMs = 0
 
 vi.mock('../lib/supabase.js', () => {
   const productRow = { id: PRODUCT_ID, metadata: { team_template: templateFor() } }
@@ -59,6 +61,18 @@ vi.mock('../lib/supabase.js', () => {
         if (table === 'order_items') {
           return {
             delete: () => ({ eq: async () => ({ error: null }) }),
+            select: () => ({
+              eq: async () => ({
+                data: insertedRows.map((r, i) => ({ id: `row-${i}`, metadata: r.metadata })),
+                error: null,
+              }),
+            }),
+            update: (patch: any) => ({
+              eq: async (_col: string, id: string) => {
+                updatedRows.push({ id, metadata: patch.metadata })
+                return { error: null }
+              },
+            }),
             insert: async (rows: any[]) => {
               insertedRows.push(...rows)
               return { error: null }
@@ -71,12 +85,16 @@ vi.mock('../lib/supabase.js', () => {
   }
 })
 
+const pathFor = (values: Record<string, string>) =>
+  `users/team-plates/flare-v1/${Object.entries(values).map(([k, v]) => `${k}=${v}`).join('&')}-press.png`
+
 vi.mock('../services/team-plate/plate-store.js', () => ({
   renderOrGetCached: async (_t: any, values: Record<string, string>, width: number) => {
     renderCalls.push({ values, width })
-    const key = Object.entries(values).map(([k, v]) => `${k}=${v}`).join('&')
-    return { url: 'signed://display-only', path: `users/team-plates/ai-generated/${key}.png`, rendered: true }
+    if (renderDelayMs) await new Promise((r) => setTimeout(r, renderDelayMs))
+    return { url: 'signed://display-only', path: pathFor(values), rendered: true, tier: 'press' }
   },
+  pressPlatePath: (_t: any, values: Record<string, string>) => pathFor(values),
 }))
 
 process.env.SUPABASE_URL ||= 'http://localhost:54321'
@@ -98,7 +116,10 @@ const req: any = { log: { error: vi.fn(), warn: vi.fn() } }
 
 beforeEach(() => {
   insertedRows.length = 0
+  updatedRows.length = 0
   renderCalls.length = 0
+  renderDelayMs = 0
+  delete process.env.TEAM_PLATE_PRESS_WAIT_MS
 })
 
 describe('checkout personalization', () => {
@@ -115,7 +136,8 @@ describe('checkout personalization', () => {
       req
     )
     const meta = insertedRows[0].metadata
-    expect(meta.print_file_path).toBe('users/team-plates/ai-generated/name=SMITH&number=22.png')
+    expect(meta.print_file_path).toBe('users/team-plates/flare-v1/name=SMITH&number=22-press.png')
+    expect(meta.print_file_status).toBe('ready')
     expect(JSON.stringify(meta)).not.toContain('evil.example.com')
   })
 
@@ -154,6 +176,7 @@ describe('checkout personalization', () => {
     expect(meta.personalization).toEqual({ name: 'SMITH', number: '22' })
     expect(meta.print_file_path).toBeNull()
     expect(meta.print_file_error).toBe('GCS down')
+    expect(meta.print_file_status).toBe('failed')
   })
 
   it(`leaves an ordinary product's line untouched`, async () => {
@@ -176,5 +199,31 @@ describe('checkout personalization', () => {
     expect(insertedRows).toHaveLength(2)
     const paths = insertedRows.map((r) => r.metadata.print_file_path)
     expect(new Set(paths).size).toBe(2)
+  })
+
+  it('does not hold checkout hostage to a slow generation: writes the durable path, settles later', async () => {
+    process.env.TEAM_PLATE_PRESS_WAIT_MS = '20'
+    renderDelayMs = 120
+
+    await replaceOrderItems('order-1', [line()], req)
+    const meta = insertedRows[0].metadata
+    expect(meta.print_file_status).toBe('rendering')
+    // The press file's path is deterministic, so it is on the order already —
+    // and it is a gcsPath, never a signed URL.
+    expect(meta.print_file_path).toBe('users/team-plates/flare-v1/name=SMITH&number=22-press.png')
+    expect(meta.print_file_path).not.toMatch(/^https?:|sig=/)
+    expect(updatedRows).toHaveLength(0)
+
+    await new Promise((r) => setTimeout(r, 250))
+    expect(updatedRows).toHaveLength(1)
+    expect(updatedRows[0].metadata.print_file_status).toBe('ready')
+    expect(updatedRows[0].metadata.print_file_path).toBe(meta.print_file_path)
+  })
+
+  it('carries review flags through to the line', async () => {
+    await replaceOrderItems('order-1', [line({ personalization: { name: 'NIKE', number: '1' } })], req)
+    expect(insertedRows[0].metadata.personalization_flags).toEqual([
+      { field: 'name', reason: 'reads "NIKE" — possible trademark' },
+    ])
   })
 })

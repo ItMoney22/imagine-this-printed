@@ -7,12 +7,19 @@
 //
 // A template turns one existing back design into a personalizable one: the
 // fixed art (splatter, halftone, helmet) is stored once with the sample
-// lettering erased, and the customer's name/number are drawn per order as real
-// vector glyphs at full press resolution. See
-// docs/plans/2026-09-21-team-shirt-personalization-design.md for why the
-// per-order lettering is NOT an AI edit (short version: a 12x16in back at 300
-// DPI is 3600x4800px, the gpt-image edit endpoint returns ~1024-1536px, and
-// upscaling invented letterforms is exactly where a 9 stops being a 9).
+// lettering erased, and the customer's name/number are drawn per order.
+//
+// HOW THEY ARE DRAWN CHANGED 2026-09-23 (task 65d98dd9). The v1 engine set
+// real vector glyphs (services/team-plate/legacy-vector, now quarantined). It
+// is replaced by a gpt-image-2.5-flare EDIT of the tagged back artwork that
+// keeps the art and redoes only the name and number, chained into
+// recraft-crisp-upscale for the 300 DPI press file. David 2026-09-22: "it will
+// cost more but will come out the cleanest we will make the $$ back with the
+// sale." The resolution objection in the 09-21 design doc (edit returns
+// ~1024-1536px, a back needs 3600x4800) is answered by the upscaler, measured
+// at 1122x1402 -> 3278x4096 with edges crisp. The field geometry below (zones,
+// fill, strokes) is still authored and now travels to the model as placement
+// and colour HINTS rather than drawing instructions.
 //
 // Lives in backend/shared/ — the established frontend/backend shared-code
 // convention (metal-art.ts, catalog-capability.ts, product-gallery.ts) — so the
@@ -78,6 +85,13 @@ export interface TeamTemplate {
   side: 'back_image' | 'front_image'
   /** product_assets row holding the art with the sample lettering erased. */
   plateAssetId: string
+  /**
+   * product_assets row holding the ORIGINAL back art, sample lettering and all.
+   * This is what the flare edit works from: it shows the model the lettering
+   * style it must reproduce. Null on templates derived before 2026-09-23 —
+   * those fall back to editing the erased plate and describing the style.
+   */
+  sourceAssetId: string | null
   /** product_assets row holding the grunge/halftone mask, or null for clean lettering. */
   distressAssetId: string | null
   canvas: { w: number; h: number; dpi: number }
@@ -212,6 +226,8 @@ export function parseTeamTemplate(input: unknown): TeamTemplate | null {
       version: TEAM_TEMPLATE_VERSION,
       side: raw.side,
       plateAssetId: raw.plateAssetId,
+      sourceAssetId:
+        typeof raw.sourceAssetId === 'string' && raw.sourceAssetId.length > 0 ? raw.sourceAssetId : null,
       distressAssetId: typeof raw.distressAssetId === 'string' ? raw.distressAssetId : null,
       canvas,
       halftone: raw.halftone === true,
@@ -261,6 +277,7 @@ export function templateCacheKey(template: TeamTemplate, values: Record<string, 
   const shape = {
     v: template.version,
     plate: template.plateAssetId,
+    source: template.sourceAssetId,
     distress: template.distressAssetId,
     canvas: template.canvas,
     halftone: template.halftone,

@@ -1,9 +1,15 @@
 // Team shirt personalization — the customer-facing panel.
 //
 // Shown on /product/:id when the product carries a team template. The customer
-// types a name and a number; the back plate re-renders as they type and the
-// picture they approve is literally the file the press receives (same render
-// function, different width — see backend/services/team-plate/render.ts).
+// types a name and a number and presses Preview; the back art is redrawn with
+// their lettering by gpt-image-2.5-flare, and the picture they approve is
+// literally the image the press file is upscaled from (see
+// backend/services/team-plate/generate.ts).
+//
+// PREVIEW ON A PRESS, NOT ON EVERY PAUSE (2026-09-23, task 65d98dd9). The old
+// vector engine re-rendered on each debounced keystroke for free. A new name is
+// now a paid ~20-40s model call, so typing "SMI", pausing, then "SMITH" must
+// not buy two of them. Repeats of the same name are cached server-side.
 //
 // TWO THINGS THIS DELIBERATELY GETS RIGHT
 //
@@ -15,11 +21,10 @@
 //      keystroke, which reads to a customer as a broken store.
 //
 //   2. NO SPINNER. David, 2026-09-02: any waiting UI is a themed animated
-//      progress bar with stage text and elapsed time. Most renders are cached
-//      and return in ~150ms, so the bar is only ever seen on a genuinely new
-//      name.
-import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Type } from 'lucide-react'
+//      progress bar with stage text and elapsed time. A cached name returns in
+//      well under a second; a new one walks the stages below.
+import React, { useCallback, useRef, useState } from 'react'
+import { Type, Wand2 } from 'lucide-react'
 import { apiFetch } from '../lib/api'
 
 export interface TeamTemplateField {
@@ -46,9 +51,15 @@ interface Props {
   onUnsupported: () => void
 }
 
-const DEBOUNCE_MS = 400
-/** A fresh render is ~150ms warm; this is the honest ceiling for a cold one. */
-const EXPECTED_MS = 1500
+/** A new name is one flare edit: ~20-40s. The bar is paced to the slow end. */
+const EXPECTED_MS = 40_000
+
+/** What the customer reads while it works, by share of EXPECTED_MS. */
+const STAGES: Array<{ until: number; text: string }> = [
+  { until: 0.12, text: 'Sending your design to the artist' },
+  { until: 0.75, text: 'Lettering your name and number' },
+  { until: 1, text: 'Matching the paint and texture' },
+]
 
 /** Mirrors backend/shared/team-template.ts sanitizeFieldValue. The server
  *  sanitizes again at preview AND at checkout — this only keeps the input box
@@ -65,12 +76,15 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
   const [busy, setBusy] = useState(false)
   const [elapsed, setElapsed] = useState(0)
   const [error, setError] = useState<string | null>(null)
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Guards against an out-of-order response overwriting a newer preview when
-  // someone types quickly.
+  // The values the current picture was drawn with, so an edited name is
+  // never mistaken for an approved one.
+  const [previewedFor, setPreviewedFor] = useState<string | null>(null)
+  // Guards against an out-of-order response overwriting a newer preview.
   const requestSeq = useRef(0)
 
   const filled = template.fields.every((f) => (values[f.key] ?? '').length > 0)
+  const valuesKey = JSON.stringify(template.fields.map((f) => values[f.key] ?? ''))
+  const stale = previewUrl !== null && previewedFor !== valuesKey
 
   const runPreview = useCallback(
     async (next: Record<string, string>) => {
@@ -86,6 +100,7 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
         })
         if (seq !== requestSeq.current) return
         setPreviewUrl(data.url)
+        setPreviewedFor(JSON.stringify(template.fields.map((f) => next[f.key] ?? '')))
       } catch (err: any) {
         if (seq !== requestSeq.current) return
         // apiFetch throws a plain Error('HTTP 404: ...') with no status
@@ -106,25 +121,16 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
         if (seq === requestSeq.current) setBusy(false)
       }
     },
-    [productId, onUnsupported]
+    [productId, onUnsupported, template.fields]
   )
-
-  // Debounced: one render per pause in typing, not one per keystroke.
-  useEffect(() => {
-    if (!filled) return
-    if (timer.current) clearTimeout(timer.current)
-    timer.current = setTimeout(() => runPreview(values), DEBOUNCE_MS)
-    return () => {
-      if (timer.current) clearTimeout(timer.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(values), filled, runPreview])
 
   const setField = (field: TeamTemplateField, raw: string) => {
     onChange({ ...values, [field.key]: clean(field, raw) })
   }
 
-  const pct = Math.min(95, Math.round((elapsed / EXPECTED_MS) * 100))
+  const share = elapsed / EXPECTED_MS
+  const pct = Math.min(95, Math.round(share * 100))
+  const stage = STAGES.find((s) => share < s.until)?.text ?? 'Almost there — finishing the last details'
 
   return (
     <div className="rounded-xl border border-primary/30 bg-card p-4 space-y-4">
@@ -157,6 +163,18 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
         ))}
       </div>
 
+      {filled && !busy && (!previewUrl || stale) && (
+        <button
+          type="button"
+          onClick={() => runPreview(values)}
+          className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5
+                     font-semibold text-bg transition-transform hover:scale-[1.01] active:scale-[0.99]"
+        >
+          <Wand2 className="w-4 h-4" />
+          {previewUrl ? 'Update my preview' : 'Preview my shirt'}
+        </button>
+      )}
+
       {busy && (
         <div className="space-y-1">
           <div className="h-2 w-full overflow-hidden rounded-full bg-bg">
@@ -166,7 +184,7 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
             />
           </div>
           <p className="text-xs text-muted">
-            Drawing your name on the back… {(elapsed / 1000).toFixed(1)}s
+            {stage}… {(elapsed / 1000).toFixed(1)}s
           </p>
         </div>
       )}
@@ -178,10 +196,12 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
           <img
             src={previewUrl}
             alt="Your personalized back print"
-            className="w-full rounded-lg border border-primary/20 bg-white"
+            className={`w-full rounded-lg border border-primary/20 bg-white transition-opacity ${stale ? 'opacity-40' : ''}`}
           />
           <figcaption className="text-xs text-muted">
-            This is exactly what gets printed.
+            {stale
+              ? 'You changed the lettering — update the preview to see it.'
+              : 'This is exactly what gets printed, at full print resolution.'}
           </figcaption>
         </figure>
       )}

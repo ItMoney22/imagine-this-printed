@@ -24,7 +24,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import opentype from 'opentype.js'
 import type { StringMetrics } from './fit.js'
-import type { FontSpec } from '../../shared/team-template.js'
+import type { FontSpec } from '../../../shared/team-template.js'
 
 export type LoadedFont = opentype.Font
 
@@ -40,7 +40,7 @@ export interface HouseFont {
   note: string
 }
 
-const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../assets/fonts')
+const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../assets/fonts')
 
 /**
  * The house set.

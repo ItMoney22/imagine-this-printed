@@ -39,6 +39,8 @@ interface Template {
   version: number
   side: 'back_image' | 'front_image'
   plateAssetId: string
+  /** The original art the per-order flare edit works from (null on pre-09-23 templates). */
+  sourceAssetId: string | null
   distressAssetId: string | null
   canvas: { w: number; h: number; dpi: number }
   halftone: boolean
@@ -125,6 +127,7 @@ const AdminTeamTemplates: React.FC = () => {
         version: 1,
         side: 'back_image',
         plateAssetId: data.plateAssetId,
+        sourceAssetId: data.sourceAssetId ?? null,
         distressAssetId: data.distressAssetId,
         canvas: data.canvas,
         halftone: false,
