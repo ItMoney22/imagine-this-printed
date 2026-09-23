@@ -1,5 +1,28 @@
 # TASK_NOTES
 
+## Current request (2026-09-23) — Jev IP classification gate (Watchtower c0fbb4a3, Levi James)
+
+Add an LLM (Jev) IP-classification pass on top of the regex copyright gate, keep regex as an
+immutable floor, and sweep the live catalogue.
+
+### File shortlist (approved scope — 2026-09-23 Jev IP gate)
+- `backend/services/jev-ip-gate.ts` (new) + `backend/services/jev-ip-gate.test.ts` (new)
+- `backend/services/etsy-copyright-gate.ts` (read only — the floor is untouched)
+- `backend/worker/etsy-jobs-worker.ts` (last gate before Etsy)
+- `backend/routes/admin/etsy.ts` (candidates panel shows jev_ip)
+- `backend/scripts/jev-ip-sweep.ts` (new, read-only sweep)
+- `docs/reports/jev-ip-sweep-2026-09-23.md` (new)
+- `backend/services/team-plate/review-flags.ts` — read only; customer-typed jersey names, left alone
+  (Jev on a child's surname would be the wrong tool, and it's a flag-only path already)
+
+### Work log (append-only)
+- 2026-09-23: jev-ip-gate.ts — 4-tier choice (clean/generic_theme/likely_ip_reference/definite_brand_or_character),
+  safe-mass bar 0.80, block at definite>=0.80, modes off/shadow(default)/enforce; wired into the Etsy worker and
+  /admin/etsy/candidates. 19 unit tests pass. Live sweep of 2,542 active+draft rows: 17 new blocks, 52 IP flags,
+  73 low-confidence, 0 lane errors, 4s. Report in docs/reports/jev-ip-sweep-2026-09-23.md.
+  Pre-existing unrelated failure: etsy-copy-repair.test.ts (fails identically without these changes).
+
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
