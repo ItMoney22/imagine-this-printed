@@ -4252,3 +4252,10 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+### File shortlist (approved scope — 2026-09-23 Shippo label recovery scout)
+- Read first: `D:\watchtower-dispatch-worktrees\imagine-this-printed\joshua-knight\build-shippo-label-recov-6d36e6ab-mue0mfk7\CLAUDE_TASK.md`, then `D:\watchtower-dispatch-worktrees\imagine-this-printed\joshua-knight\build-shippo-label-recov-6d36e6ab-mue0mfk7\backend\routes\orders.ts` and the Shipping Station version of that route at `earth/zero-nine/shipping-station`; command sources are the two package manifests.
+- Codex may edit only `D:\watchtower-dispatch-worktrees\imagine-this-printed\joshua-knight\build-shippo-label-recov-6d36e6ab-mue0mfk7\CLAUDE_TASK.md` and `D:\watchtower-dispatch-worktrees\imagine-this-printed\joshua-knight\build-shippo-label-recov-6d36e6ab-mue0mfk7\TASK_NOTES.md` under `AGENTS.md`. Implementation scope requires explicit expansion before code edits.
+- After that expansion, proposed tight edit scope: `D:\watchtower-dispatch-worktrees\imagine-this-printed\joshua-knight\build-shippo-label-recov-6d36e6ab-mue0mfk7\backend\routes\orders.ts`, one lookup service/test pair under `D:\watchtower-dispatch-worktrees\imagine-this-printed\joshua-knight\build-shippo-label-recov-6d36e6ab-mue0mfk7\backend\services\`, one backfill script/test pair under `D:\watchtower-dispatch-worktrees\imagine-this-printed\joshua-knight\build-shippo-label-recov-6d36e6ab-mue0mfk7\backend\scripts\`. Add any further file here with rationale before reading/editing.
+
+### Work log (append-only) — 2026-09-23 Shippo label recovery scout
+- Scouted label purchase, auth guard, metadata persistence, package commands and sibling branches; found Shipping Station file route only on unmerged `earth/zero-nine/shipping-station`, then wrote the implementation brief. No Shippo lookup, endpoint, backfill, live order update or file-route verification was performed because `AGENTS.md` limits this Codex run to the two handoff files.
