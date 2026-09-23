@@ -40,6 +40,23 @@
 // OPENAI_VISION_MODEL otherwise. The call NEVER throws — every failure path
 // resolves to the deterministic keyword match below, so a casting outage
 // degrades to the old keyword behaviour instead of blocking a shoot.
+//
+// JEV IN FRONT (David 2026-09-23). The keyword list below guesses, and the
+// vision call guesses in prose. Jev (services/jev.ts) reads the listing's
+// WORDS and answers two typed multi-option questions with a confidence each:
+// which archetype from `listShotSubjects(bands)` should wear it, and who the
+// design is for (`adult` | `youth` | `either`). A confident, self-consistent
+// answer that agrees with the keyword floor casts the shot; anything else is
+// "no opinion" and the old chain (vision → keywords → default) runs exactly as
+// before, with the row flagged `needsReview` so the admin's manual pick is the
+// human check. Designs with no name/idea/tags never reach Jev — it cannot see
+// pixels, so they keep the vision pass.
+//
+// Rollout is STEP_FLOW_CASTING_JEV: 'shadow' (default — Jev runs alongside,
+// its verdict is logged and stored on the decision, the old chain still
+// casts), 'on' (Jev casts when confident), 'off'. Shadow first so Jev is
+// measured against the current method on real listings before it decides
+// anything.
 import OpenAI from 'openai'
 import {
   audienceForGarment,
@@ -49,6 +66,7 @@ import {
   type GarmentId,
 } from '../../shared/catalog-capability.js'
 import { listShotSubjects, type ShotSubject } from '../etsy-model-shots.js'
+import { askJev, readChoice, type JevChoiceQuestion, type JevResult } from '../jev.js'
 
 /** How the design read to Mrs. Imagine — advisory, recorded for the panel and the logs. */
 export interface DesignRead {
@@ -74,8 +92,22 @@ export interface CastingDecision {
   /** One plain sentence for the panel: why this person is wearing this design. */
   reason: string
   /** Where the decision came from, so a bad cast is explainable. */
-  source: 'mrs-imagine' | 'keywords' | 'default' | 'manual'
+  source: 'jev' | 'mrs-imagine' | 'keywords' | 'default' | 'manual'
   read?: DesignRead
+  /**
+   * Who the DESIGN is for, on the three-way scale the mismatch nudge reads:
+   * Jev's answer when it was sure, else derived from Mrs. Imagine's read.
+   * Undefined when nothing had an opinion.
+   */
+  designAudience?: DesignAudience
+  /** Jev's verdict on this listing — present whenever Jev ran (shadow or on). */
+  jev?: JevCastVerdict
+  /**
+   * Set when Jev was switched on but was not sure enough (or contradicted
+   * itself / the keyword floor) to cast, so a fallback decided instead. The
+   * admin's manual pick is the human review for these rows.
+   */
+  needsReview?: string
   /**
    * Set when the DESIGN reads as a different audience than the GARMENT sells
    * to — e.g. a kids' design on an adult tee. The shot still happens (cast
@@ -168,6 +200,166 @@ export function manualCast(subjectId: string, garment: GarmentId): CastingDecisi
     reason: `${subject.label} — you picked this person for the shot.`,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Jev — the typed decision pass over the listing's words.
+// ---------------------------------------------------------------------------
+
+export type DesignAudience = 'adult' | 'youth' | 'either'
+export const DESIGN_AUDIENCE_OPTIONS: readonly DesignAudience[] = ['adult', 'youth', 'either']
+
+export type JevCastingMode = 'off' | 'shadow' | 'on'
+
+export const jevCastingMode = (): JevCastingMode => {
+  const raw = String(process.env.STEP_FLOW_CASTING_JEV ?? '').trim().toLowerCase()
+  return raw === 'on' || raw === 'off' ? raw : 'shadow'
+}
+
+/**
+ * Confidence bars, set by what a wrong answer costs. A wrong adult archetype
+ * is a slightly-off photo (cheap); a CHILD in a photo of an adult design is
+ * the expensive mistake this whole file exists to avoid, so a youth cast needs
+ * a higher bar on the audience answer as well.
+ */
+export const JEV_SUBJECT_MIN_CONFIDENCE = 0.75
+export const JEV_AUDIENCE_MIN_CONFIDENCE = 0.75
+export const JEV_YOUTH_CAST_MIN_CONFIDENCE = 0.85
+
+export interface JevCastVerdict {
+  /** accepted = Jev's pick is usable; the rest are "no opinion", with a reason. */
+  verdict: 'accepted' | 'low-confidence' | 'rejected' | 'unavailable'
+  subjectId?: string
+  subjectConfidence?: number
+  /** Only set when the audience answer cleared its bar. */
+  designAudience?: DesignAudience
+  audienceConfidence?: number
+  /** Why a pick was not used — plain words, for the log and the panel. */
+  note?: string
+  /** 'shadow' when Jev was only being measured and the old chain cast the shot. */
+  mode: JevCastingMode
+}
+
+const AUDIENCE_CRITERIA: Record<DesignAudience, string> = {
+  adult:
+    'Made for grown-ups: adult humour, drinking, dating, work, parenting from the parent side ("mama", "dad"), ' +
+    'horror or gore, heavy metal, mature themes. A child wearing it would look wrong.',
+  youth:
+    'Plainly made FOR children to wear: "kid", "little", "toddler", birthday ages, school grades, cartoon mascots ' +
+    'drawn for kids, "big brother/sister", youth sports leagues. An adult would rarely buy it for themselves.',
+  either:
+    'Genuinely suits anyone: a cute animal, a holiday pun, a sports team, nature, a general slogan. Adults and ' +
+    'kids would both wear it, so nothing about the design picks the age.',
+}
+
+/** The two multi-option questions, with a written description for every option. */
+export function buildJevCastQuestions(subjects: ShotSubject[]): Record<string, JevChoiceQuestion> {
+  const criteria: Record<string, string> = {}
+  for (const s of subjects) {
+    const age = s.audience === 'youth' ? 'a CHILD model' : 'an ADULT model'
+    criteria[s.id] = `${s.label}: ${s.persona}. This is ${age}${s.group ? ' in a group shot' : ''}.`
+  }
+  return {
+    cast_subject: {
+      type: 'choice',
+      instructions:
+        'Which ONE of these models should wear this printed garment in the product photo, so the person makes ' +
+        'sense with the design? Pick the archetype whose look and life fit what the design is about.',
+      criteria,
+    },
+    design_audience: {
+      type: 'choice',
+      instructions: 'Who is this DESIGN itself made for, judged from its words and theme?',
+      criteria: { ...AUDIENCE_CRITERIA },
+    },
+  }
+}
+
+/** Free-form state Jev reads: the listing's words and which sizes it can be photographed in. */
+export function buildJevCastState(
+  opts: { productName?: string; idea?: string; tags?: string[] },
+  bands: GarmentAudience[],
+  garmentLabel: string
+): Record<string, unknown> {
+  const sizes =
+    bands.includes('youth') && bands.includes('adult')
+      ? 'adult and youth (kid) sizes'
+      : bands.includes('youth')
+        ? 'youth (kid) sizes only'
+        : 'adult sizes only'
+  return {
+    garment: garmentLabel,
+    sizes_sold: sizes,
+    product_name: clean(opts.productName, 200) || undefined,
+    design_idea: clean(opts.idea, 400) || undefined,
+    tags: (opts.tags ?? []).map((t) => clean(t, 40)).filter(Boolean).slice(0, 20),
+  }
+}
+
+/**
+ * Turn Jev's two answers into a usable pick — or a reason there isn't one.
+ * Pure and exported for tests. The checks, in order:
+ *   1. the archetype must be one Jev was offered, i.e. castable here;
+ *   2. it must clear the confidence bar;
+ *   3. its age band must agree with Jev's own read of the design (an adult
+ *      for a design Jev calls kids' is a contradiction, not a decision) — and
+ *      a CHILD additionally needs a confident "youth" read of the design AND
+ *      a kids' keyword match in the listing's wording;
+ *   4. the deterministic keyword floor: when the listing's words matched an
+ *      archetype, Jev may pick a different one but never a different AGE BAND.
+ */
+export function evaluateJevCast(
+  result: JevResult | null,
+  subjects: ShotSubject[],
+  keywordFloor: ShotSubject | null,
+  mode: JevCastingMode
+): { verdict: JevCastVerdict; subject: ShotSubject | null } {
+  const subj = readChoice(result, 'cast_subject', subjects.map((s) => s.id))
+  const aud = readChoice(result, 'design_audience', DESIGN_AUDIENCE_OPTIONS)
+  const base: JevCastVerdict = {
+    verdict: 'unavailable',
+    mode,
+    subjectId: subj?.choice,
+    subjectConfidence: subj?.confidence,
+    designAudience: aud && aud.confidence >= JEV_AUDIENCE_MIN_CONFIDENCE ? aud.choice : undefined,
+    audienceConfidence: aud?.confidence,
+  }
+  const no = (verdict: JevCastVerdict['verdict'], note: string) => ({ verdict: { ...base, verdict, note }, subject: null })
+
+  if (!result) return no('unavailable', 'Jev did not answer.')
+  if (!subj) return no('rejected', 'Jev named no archetype castable on this listing.')
+  const subject = subjects.find((s) => s.id === subj.choice)!
+  if (subj.confidence < JEV_SUBJECT_MIN_CONFIDENCE) {
+    return no('low-confidence', `Jev leaned ${subject.label}, but only at ${subj.confidence.toFixed(2)} confidence.`)
+  }
+  if (subject.audience === 'youth') {
+    if (!aud || aud.choice !== 'youth' || aud.confidence < JEV_YOUTH_CAST_MIN_CONFIDENCE) {
+      return no('low-confidence', `Jev picked a child (${subject.label}) without a confident read that the design is for kids.`)
+    }
+    // Jev alone never puts a child in a photo — that is the one mistake this
+    // file must not make, and Jev only reads words. A child is cast only when
+    // the listing's own wording ALSO matched a kids' archetype (the band check
+    // below then holds); otherwise the vision pass, which can actually see the
+    // artwork, decides. On 300 live listings (2026-09-23) this kept the one
+    // youth cast Jev made — a brief that literally says "youth sports design"
+    // — and costs nothing where the wording is plain.
+    if (!keywordFloor) {
+      return no('low-confidence', `Jev picked a child (${subject.label}), but nothing in the listing's wording points at kids.`)
+    }
+  } else if (base.designAudience === 'youth') {
+    return no('rejected', `Jev picked an adult (${subject.label}) but read the design as for kids — it contradicted itself.`)
+  }
+  if (keywordFloor && keywordFloor.audience !== subject.audience) {
+    return no(
+      'rejected',
+      `Jev picked ${subject.label} (${subject.audience}), but the listing's wording matched ${keywordFloor.label} (${keywordFloor.audience}).`
+    )
+  }
+  return { verdict: { ...base, verdict: 'accepted' }, subject }
+}
+
+/** Mrs. Imagine's four-way read, on the three-way design_audience scale. */
+const designAudienceFromRead = (read: DesignRead | undefined): DesignAudience | undefined =>
+  !read ? undefined : read.audience === 'kids' ? 'youth' : read.audience === 'adult' ? 'adult' : 'either'
 
 // ---------------------------------------------------------------------------
 // The vision call.
@@ -309,10 +501,13 @@ export function coerceDesignRead(raw: any): DesignRead | undefined {
  */
 export function mismatchNote(
   read: DesignRead | undefined,
-  bands: GarmentAudience[]
+  bands: GarmentAudience[],
+  designAudience?: DesignAudience
 ): string | undefined {
-  if (!read || bands.includes('youth')) return undefined
-  if (read.audience !== 'kids') return undefined
+  if (bands.includes('youth')) return undefined
+  // Either reader counts: Mrs. Imagine's vision read, or the confident
+  // design_audience that Jev (or that read) resolved to.
+  if (read?.audience !== 'kids' && designAudience !== 'youth') return undefined
   return (
     "This design reads as a kids' design, but this listing sells no youth size, so the photo has to show an " +
     'adult. Add a youth cut to this garment if you want a kid in the picture.'
@@ -337,10 +532,11 @@ export interface CastForDesignOpts {
  * Decide who wears this design. Never throws: every failure degrades to the
  * keyword match, and then to the plainest subject in the garment's OWN band.
  *
- * The vision pass and the keyword pass both see every band this listing sells,
- * so a kids' design on a shirt that also sells youth sizes casts a kid. The
- * final no-signal fallback deliberately does NOT: with nothing to go on, the
- * everyday adult is the answer that never puts a child in a photo by accident.
+ * With STEP_FLOW_CASTING_JEV=on, Jev reads the listing's words first and casts
+ * when it is confident and consistent (see evaluateJevCast); otherwise — and
+ * always for a design with no name, idea or tags — the chain below runs
+ * unchanged. In the default 'shadow' mode Jev runs alongside that chain and
+ * only its verdict is recorded, so the switch-over can be measured first.
  */
 export async function castForDesign(opts: CastForDesignOpts): Promise<CastingDecision> {
   const bands = photographableAudiences(opts.garment)
@@ -348,10 +544,78 @@ export async function castForDesign(opts: CastForDesignOpts): Promise<CastingDec
   const subjects = listShotSubjects(bands)
   const context = [opts.productName, opts.idea, (opts.tags ?? []).join(' ')].filter(Boolean).join(' — ').slice(0, 500)
 
+  const mode = jevCastingMode()
+  // Jev reads words, not pixels: a nameless, tagless design has nothing for it
+  // to read, so it goes straight to the vision pass.
+  const hasWords = Boolean(clean(opts.productName, 200) || clean(opts.idea, 400) || (opts.tags ?? []).some((t) => clean(t, 40)))
+  // Started before the vision call so, in shadow mode, the two run side by side.
+  const jevPass =
+    mode !== 'off' && hasWords
+      ? askJev(buildJevCastState(opts, bands, garmentLabel), buildJevCastQuestions(subjects), { timeoutMs: 5000 }).then(
+          (result) => evaluateJevCast(result, subjects, pickByKeywords(context, bands), mode)
+        )
+      : null
+
+  if (mode === 'on' && jevPass) {
+    const { verdict, subject } = await jevPass
+    if (subject) {
+      return {
+        subjectId: subject.id,
+        label: subject.label,
+        audience: subject.audience,
+        source: 'jev',
+        reason: `${subject.label} fits what this listing is about (Jev, ${Math.round((verdict.subjectConfidence ?? 0) * 100)}% sure).`,
+        designAudience: verdict.designAudience,
+        jev: verdict,
+        mismatch: mismatchNote(undefined, bands, verdict.designAudience),
+      }
+    }
+    const fallback = await castWithoutJev(opts, bands, garmentLabel, subjects, context, verdict.designAudience)
+    const needsReview = `Jev wasn't sure who should wear this (${verdict.note}) — ${fallback.label} was picked by ${
+      fallback.source === 'mrs-imagine' ? "Mrs. Imagine's look at the artwork" : fallback.source === 'keywords' ? 'keyword match' : 'default'
+    }. Check the cast, or pick the model yourself.`
+    console.warn(`[step-flow/casting] review: "${clean(opts.productName, 80)}" — ${needsReview}`)
+    return { ...fallback, jev: verdict, needsReview }
+  }
+
+  const decision = await castWithoutJev(opts, bands, garmentLabel, subjects, context)
+  if (!jevPass) return decision
+  // Shadow: the chain above cast the shot; Jev's verdict is only recorded, so
+  // real listings measure it against the current method before it decides.
+  const { verdict } = await jevPass
+  console.log(
+    `[step-flow/casting] jev-shadow "${clean(opts.productName, 80)}": current=${decision.subjectId}(${decision.source}) ` +
+      `jev=${verdict.subjectId ?? '-'}@${verdict.subjectConfidence?.toFixed(2) ?? '-'} audience=${verdict.designAudience ?? '-'}` +
+      `@${verdict.audienceConfidence?.toFixed(2) ?? '-'} verdict=${verdict.verdict} agree=${verdict.subjectId === decision.subjectId}`
+  )
+  return { ...decision, jev: verdict }
+}
+
+/**
+ * The pre-Jev chain, unchanged: Mrs. Imagine's vision pass when there is an
+ * image, then the keyword match, then the plainest subject in the garment's
+ * OWN band. `jevAudience` is only a confident Jev audience read carried into
+ * the mismatch nudge when the vision pass gave none.
+ *
+ * The vision pass and the keyword pass both see every band this listing sells,
+ * so a kids' design on a shirt that also sells youth sizes casts a kid. The
+ * final no-signal fallback deliberately does NOT: with nothing to go on, the
+ * everyday adult is the answer that never puts a child in a photo by accident.
+ */
+async function castWithoutJev(
+  opts: CastForDesignOpts,
+  bands: GarmentAudience[],
+  garmentLabel: string,
+  subjects: ShotSubject[],
+  context: string,
+  jevAudience?: DesignAudience
+): Promise<CastingDecision> {
   let read: DesignRead | undefined
+  let designAudience: DesignAudience | undefined = jevAudience
   if (opts.designUrl) {
     const raw = await requestCastFromModel(opts.designUrl, context, subjects, bands, garmentLabel)
     read = coerceDesignRead(raw)
+    designAudience = designAudienceFromRead(read) ?? jevAudience
     const wanted = clean(raw?.subjectId, 40)
     const match = subjects.find((s) => s.id === wanted)
     if (match) {
@@ -363,7 +627,8 @@ export async function castForDesign(opts: CastForDesignOpts): Promise<CastingDec
         source: 'mrs-imagine',
         reason: reason || `${match.label} suits this design.`,
         read,
-        mismatch: mismatchNote(read, bands),
+        designAudience,
+        mismatch: mismatchNote(read, bands, designAudience),
       }
     }
     // The model answered but named a subject that isn't castable here (or
@@ -382,7 +647,8 @@ export async function castForDesign(opts: CastForDesignOpts): Promise<CastingDec
       source: 'keywords',
       reason: `Matched the ${byKeyword.label} look from this listing's wording.`,
       read,
-      mismatch: mismatchNote(read, bands),
+      designAudience,
+      mismatch: mismatchNote(read, bands, designAudience),
     }
   }
 
@@ -398,6 +664,7 @@ export async function castForDesign(opts: CastForDesignOpts): Promise<CastingDec
         ? 'Nothing specific to go on, so this is an everyday kid.'
         : 'Nothing specific to go on, so this is an everyday adult.',
     read,
-    mismatch: mismatchNote(read, bands),
+    designAudience,
+    mismatch: mismatchNote(read, bands, designAudience),
   }
 }
