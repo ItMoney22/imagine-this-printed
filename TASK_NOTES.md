@@ -4290,3 +4290,5 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   it re-reads after every write, that delete needs the confirm, and that the
   kind filter is client-side. `tsc -p tsconfig.app.json` clean, `eslint` 0
   errors.
+
+- 2026-09-23 dominic-vane (Watchtower 13e1c509, Render->Fly Step 5): api CNAME confirmed grey-cloud and TTL lowered 300->60; Fly cert issued/active (exp 2026-12-21); TRUST_PROXY_HOPS=2 measured live on Fly (forged XFF ignored). Fly API had been serving unmerged landing-chain code: redeployed from Render's live commit 576b362 via new deploy/fly-cutover (Render-parity Dockerfile). Secrets 57/57 identical on both machines; HTTP parity 13/13; rollback PATCH rehearsed live (1.4s). DNS NOT flipped: the go-live grant 1b935741 expired 09:37Z, so a renewal was filed as approval 2f38cf1a. Runbook: docs/migration/render-to-fly/STEP-5-CUTOVER-AND-ROLLBACK.md.

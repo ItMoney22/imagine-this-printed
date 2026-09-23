@@ -1,0 +1,12 @@
+# Render-parity image: keep the source tree exactly as Render's checkout has it.
+# Only secrets, local build output and VCS metadata are excluded.
+.env
+.env.*
+*.env
+!.env.example
+node_modules
+dist
+.prisma
+.git
+Dockerfile.render-parity
+.dockerignore

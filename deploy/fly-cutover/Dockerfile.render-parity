@@ -1,0 +1,30 @@
+# syntax=docker/dockerfile:1.7
+#
+# Render-parity image for the api.imaginethisprinted.com cutover (task 13e1c509).
+#
+# Approval 1b935741 (option A) made the DNS move hosting-only: Fly must serve the
+# SAME application commit Render serves. The landing-chain Dockerfile (982b0d5)
+# depends on copy-assets.mjs + bundled fonts that origin/main does not have, so
+# this file reproduces Render's native-Node build literally instead:
+#   rootDir backend · npm ci --include=dev · npx prisma generate · npm run build
+#   start: node dist/index.js
+# Build context = `git archive <render commit> backend` (see deploy-api.sh).
+FROM node:22-bookworm-slim
+WORKDIR /app
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+ENV NPM_CONFIG_UPDATE_NOTIFIER=false
+COPY package.json package-lock.json ./
+RUN npm ci --include=dev
+COPY prisma ./prisma
+RUN npx prisma generate
+COPY . .
+RUN npm run build
+ENV NODE_ENV=production
+RUN chown -R node:node /app
+USER node
+# Fail the build, not production, if the generated client or sharp's native binary is missing.
+RUN node -e "require('@prisma/client'); require('sharp'); require('fs').statSync('dist/index.js'); console.log('image self-check OK - prisma, sharp, dist/index.js')"
+EXPOSE 10000
+CMD ["node", "dist/index.js"]
