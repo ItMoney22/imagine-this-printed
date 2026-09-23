@@ -18,7 +18,7 @@
 // 'pending' forever, invisible to the 'queued'-only poll query.
 import { supabase } from '../lib/supabase.js'
 import { publishProductToEtsy, isEtsyEnabled } from '../services/etsy.js'
-import { runCopyrightGate } from '../services/etsy-copyright-gate.js'
+import { runCopyrightGateWithJev, designPromptOf } from '../services/jev-ip-gate.js'
 import { checkGate, submitForQa } from '../services/design-qa-gate.js'
 import { notifyChristina } from '../services/etsy-notify.js'
 import { claimOnce, type ClaimOutcome } from '../lib/webhook-helpers.js'
@@ -135,7 +135,19 @@ async function processOne(rowId: string, productId: string, tier: EtsyTier = 'pr
 
   const tags = String(p.search_keywords || '').split(',').map((t: string) => t.trim()).filter(Boolean)
   const aiGenerated = p?.metadata?.ai_generated === false ? false : true // default to disclosing (policy-safe)
-  const gate = runCopyrightGate({ name: p.meta_title || p.name, description: p.description || p.meta_description, tags, aiGenerated })
+  // Regex denylist first (the floor), then Jev's IP read for paraphrases the
+  // denylist cannot see. In JEV_IP_GATE=shadow (the default) a Jev flag is
+  // only logged; in enforce it holds the listing as 'blocked' for a human.
+  const gate = await runCopyrightGateWithJev({
+    name: p.meta_title || p.name,
+    description: p.description || p.meta_description,
+    tags,
+    aiGenerated,
+    designPrompt: designPromptOf(p.metadata)
+  })
+  if (gate.jevFlagged && gate.pass) {
+    console.log(`[etsy-worker] JEV-SHADOW ${productId}: ${gate.jev?.verdict} — ${gate.jev?.reason}`)
+  }
 
   if (!gate.pass) {
     await supabase
