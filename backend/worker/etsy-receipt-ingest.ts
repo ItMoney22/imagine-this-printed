@@ -26,6 +26,7 @@
 import { supabase } from '../lib/supabase.js'
 import { getShopReceipts, etsyMoneyToDollars, isEtsyEnabled, type EtsyReceipt, type EtsyReceiptTransaction } from '../services/etsy.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
+import { triageEtsyBuyerMessage, type EtsyFlagTriage } from '../lib/jev-triage.js'
 
 const RECEIPT_POLL_INTERVAL = 60_000 // 60s — order ingestion isn't latency-critical; low volume, keeps well under Etsy rate limits
 const WATERMARK_ROW_ID = 1
@@ -102,7 +103,8 @@ function extractVariant(txn: EtsyReceiptTransaction): { size: string | null; col
  */
 export async function ingestReceipt(
   receipt: EtsyReceipt,
-  db: { from: (table: string) => any } = supabase
+  db: { from: (table: string) => any } = supabase,
+  flagBuyerMessage: (message: string | null | undefined, items: string[]) => Promise<EtsyFlagTriage> = triageEtsyBuyerMessage
 ): Promise<IngestResult> {
   if (!receipt.was_paid) return { created: false, orderId: null, reason: 'not_paid_yet' }
   if (!receipt.transactions?.length) return { created: false, orderId: null, reason: 'no_transactions' }
@@ -120,6 +122,17 @@ export async function ingestReceipt(
     .in('listing_id', listingIds)
   if (listingErr) throw new Error(`etsy_listings lookup failed: ${listingErr.message}`)
   const productByListing = new Map<number, string>((listingRows || []).map((r: any) => [r.listing_id, r.product_id]))
+
+  // Flag the buyer's checkout note for the print team: none | personalization
+  // | change_request | problem. Jev decides above a keyword floor; unsure rows
+  // are marked needs_review. Label only — it never blocks or alters the order,
+  // and a failure here must never cost us the sale.
+  let buyerFlag: EtsyFlagTriage | null = null
+  try {
+    buyerFlag = await flagBuyerMessage(receipt.message_from_buyer, receipt.transactions.map((t) => t.title))
+  } catch (e: any) {
+    console.error(`[etsy-receipts] buyer-note flag failed for receipt ${receipt.receipt_id} (order still ingests):`, e?.message)
+  }
 
   const name = (receipt.name || '').trim()
   const [firstName, ...rest] = name.split(' ')
@@ -156,6 +169,15 @@ export async function ingestReceipt(
     metadata: {
       etsy_receipt_id: receipt.receipt_id,
       message_from_buyer: receipt.message_from_buyer ?? null,
+      buyer_message_flag: buyerFlag
+        ? {
+            flag: buyerFlag.flag,
+            needs_review: buyerFlag.needsReview,
+            source: buyerFlag.source,
+            confidence: buyerFlag.confidence ?? null,
+            mode: buyerFlag.mode,
+          }
+        : { flag: null, needs_review: Boolean((receipt.message_from_buyer || '').trim()), source: 'error' },
       items: receipt.transactions.map((t) => ({
         id: productByListing.get(t.listing_id) ?? null,
         name: t.title,

@@ -6,6 +6,7 @@ import {
     sendTicketEscalationEmail,
     sendTicketResolvedEmail
 } from '../../utils/email.js'
+import { sortTicketQueue } from '../../lib/jev-triage.js'
 
 dotenv.config()
 
@@ -180,13 +181,21 @@ export const checkAgentAvailability = async (): Promise<{ available: boolean; co
  */
 router.get('/tickets', requireSupportAccess, async (req: Request, res: Response) => {
     try {
-        const { status, priority, limit = 50, offset = 0 } = req.query
+        const { status, priority, limit = 50, offset = 0, sort = 'triage' } = req.query
+        const from = Number(offset)
+        const to = from + Number(limit) - 1
+        // sort=triage (default): live tickets first, then urgent -> low (set by
+        // Jev triage at intake), then newest. Postgres can't rank the priority
+        // text, so the triage sort pulls the (small) filtered set and pages in
+        // memory; sort=newest keeps the old DB-paged created_at order.
+        const byTriage = sort !== 'newest'
+        const TRIAGE_SORT_CAP = 1000
 
         let query = supabase
             .from('support_tickets')
             .select('*', { count: 'exact' })
             .order('created_at', { ascending: false })
-            .range(Number(offset), Number(offset) + Number(limit) - 1)
+            .range(byTriage ? 0 : from, byTriage ? TRIAGE_SORT_CAP - 1 : to)
 
         if (status) {
             query = query.eq('status', status)
@@ -196,9 +205,11 @@ router.get('/tickets', requireSupportAccess, async (req: Request, res: Response)
             query = query.eq('priority', priority)
         }
 
-        const { data: tickets, count, error } = await query
+        const { data: fetched, count, error } = await query
 
         if (error) throw error
+
+        const tickets = byTriage ? sortTicketQueue(fetched || []).slice(from, to + 1) : fetched
 
         // Fetch user profiles separately
         const userIds = [...new Set(tickets?.filter(t => t.user_id).map(t => t.user_id) || [])]
@@ -909,11 +920,12 @@ router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
             return res.status(404).json({ error: 'Ticket not found' })
         }
 
-        // Update ticket priority
+        // Update ticket priority — escalation only ever raises it: a ticket
+        // intake triage already marked urgent must not be demoted to high.
         await supabase
             .from('support_tickets')
             .update({
-                priority: 'high',
+                priority: ticket.priority === 'urgent' ? 'urgent' : 'high',
                 status: 'waiting',
                 updated_at: new Date().toISOString()
             })

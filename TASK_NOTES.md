@@ -1,5 +1,27 @@
 # TASK_NOTES
 
+## Current request (2026-09-23) — Jev triage for support tickets, shared mailbox, Etsy buyer messages
+
+Watchtower task 2a83afec-05e1-41d0-8618-66d69df33149 (Lucas Blaze). Jev (typesafe/jev-1.13)
+classifies support tickets (category + priority), inbound mail (label + needs_reply) and Etsy
+buyer notes (flag). Rules: multi-option choices with a description per option, confidence gate
+with a human-review fallback, never destructive (no archive/delete), deterministic checks stay
+as the floor, measured against the current method on real rows before switching over.
+
+## File shortlist (approved scope — 2026-09-23 Jev triage)
+Rationale: the previous shortlist was for the Etsy weekly review and does not cover this task.
+- backend/lib/jev.ts (new — typed Jev client, fail-open)
+- backend/lib/jev-triage.ts (new — questions, deterministic floors, combine rules)
+- backend/lib/jev-triage.test.ts (new)
+- backend/routes/support.ts
+- backend/routes/admin/support.ts
+- backend/routes/email.ts
+- backend/worker/etsy-receipt-ingest.ts + .test.ts
+- backend/scripts/jev-triage-eval.ts (new — floor vs Jev vs hand labels on real rows)
+- TASK_NOTES.md
+
+## Work log (append-only) — 2026-09-23 Jev triage
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
@@ -4269,3 +4291,30 @@ rationale before proceeding.)
   `backend/services/step-flow`, `backend/services/etsy-seo-composer.test.ts`,
   and `src/components/studio`.
 - 2026-09-23 (Lucas Blaze, task 5fe3dff9): a1ee512 cherry-picked onto origin/main alone (local main carries ~30 unpushed zero-nine commits that are not mine to deploy); DesignStep conflict resolved by keeping the E005 rephrase panel and dropping the unrelated 'no design yet' panel that depends on the unpushed adopt flow.
+### Work log (append-only) — 2026-09-22 print resolution
+- David built the Spartans tee from the only two files he had (1122x1402 each)
+  and the Step Flow stopped on the print gate: "short edge under the 1200px
+  needed for a 4" print at 300 DPI". The gate was right — 1122px across a 12"
+  front is 93 DPI — but it offered no way forward, and for artwork that came
+  out of a chat there is no bigger file to go find.
+- Added `backend/services/step-flow/print-resolution.ts`: measures every piece
+  of artwork, sends only the under-sized ones to recraft-crisp-upscale (already
+  in the image-flow catalogue, $0.006), in parallel, once each, deduped. The
+  upscaler returns opaque WebP, so the ORIGINAL alpha channel is resampled and
+  composited back with `dest-in` rather than re-cut with rembg.
+- Wired into `/step/adopt` ahead of the gate: both sides of a two-sided product
+  go up, `products.images` / `metadata.print_artwork` / `metadata.image` are
+  rewritten to the print-ready files, and the files David uploaded are kept
+  under `print_artwork.originals`. The design asset's `path` follows the
+  artwork instead of inheriting the original's `gcs_path`.
+- Frontend: `WorkingPanel` in studio/shared.tsx — themed indeterminate bar,
+  stage text and elapsed seconds — shown while adopt runs, held in local state
+  so background polling can't clear it mid-wait. Thirty silent seconds reads as
+  a dead page.
+- PROVEN LIVE on product 568ee288 through the browser: front and back both
+  1122x1402 -> 3278x4096 (273 DPI across a 12" front), alpha preserved
+  (original mean 196.9, restored 197.7), design + watermark + nobg assets all
+  created, gate now passes.
+- 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
+  in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+- 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).

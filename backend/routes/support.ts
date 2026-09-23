@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { sendTicketConfirmationEmail, sendNewSupportTicketEmail } from '../utils/email.js'
+import { triageTicket, describeTicketTriage } from '../lib/jev-triage.js'
 
 dotenv.config()
 
@@ -101,6 +102,17 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
 
     console.log('[Support] Creating ticket from:', email)
 
+    // Jev triage: category + priority from what the customer actually wrote.
+    // Fails open (lane down -> the deterministic floor decides and the ticket
+    // is marked for human triage), never rejects a ticket, and the floor keeps
+    // the old billing -> high rule and lifts damaged/bulk tickets to high.
+    const triage = await triageTicket({
+      subject: String(subject),
+      description: String(description),
+      customerCategory: category,
+      orderId: order_id,
+    })
+
     // Create the support ticket
     const { data: ticket, error: ticketError } = await supabase
       .from('support_tickets')
@@ -109,8 +121,9 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
         email: email || null,
         subject,
         description: `Name: ${name || 'Not provided'}\n\n${description}${order_id ? `\n\nOrder ID: ${order_id}` : ''}`,
-        category,
-        priority: category === 'billing' ? 'high' : 'medium',
+        // Free-text column: the triaged category when there is one, else what the customer picked.
+        category: triage.category ?? category,
+        priority: triage.dbPriority,
         status: 'open'
       })
       .select()
@@ -127,7 +140,8 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
     await createNotification(
       'new_ticket',
       `New Support Ticket: ${subject}`,
-      `From: ${name || 'Contact Form'} (${email})\nCategory: ${category}`,
+      `From: ${name || 'Contact Form'} (${email})\nCategory: ${triage.category ?? category} · Priority: ${triage.priority}` +
+        (triage.needsReview ? '\nNeeds human triage — Jev was not confident.' : ''),
       ticket.id,
       user_id
     )
@@ -140,6 +154,17 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       message: `Contact Email: ${email}\nName: ${name || 'Not provided'}\n\n${description}`,
       is_internal: false
     })
+
+    // How the ticket was triaged, visible only to staff — the audit trail for
+    // the human-review queue (no schema change: support_tickets has no triage column).
+    const { error: triageNoteError } = await supabase.from('ticket_messages').insert({
+      ticket_id: ticket.id,
+      sender_type: 'system',
+      sender_id: null,
+      message: describeTicketTriage(triage),
+      is_internal: true
+    })
+    if (triageNoteError) console.error('[Support] Failed to store triage note:', triageNoteError.message)
 
     // Send confirmation email to customer
     try {
@@ -156,8 +181,8 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
         ticket.id,
         subject,
         description,
-        category === 'billing' ? 'high' : 'medium',
-        category,
+        triage.dbPriority,
+        triage.category ?? category,
         email
       )
       console.log('[Support] Notification email sent to support team')
