@@ -188,6 +188,26 @@ describe('buildCopyQuestions — conforms to the jev-decisions rules', () => {
     expect(String(state.not_made_by_this_shop)).toMatch(/embroidery/)
     expect(String(buildCopyQuestions(input({ category: 'metal-art' })).state.not_made_by_this_shop)).not.toMatch(/sublimation/)
   })
+
+  it('tells the model a "<Garment> — Blank" apparel listing has no design (task e0a39743)', () => {
+    const blankState = buildCopyQuestions(input({ name: 'Classic Tee — Blank', title: 'Classic Unisex Blank Tee — Black', description: 'Soft 100% cotton crew-neck blank, true to size.' })).state
+    expect(String(blankState.product)).toMatch(/BLANK/)
+    expect(String(blankState.product)).toMatch(/NO printed design/)
+  })
+
+  it('does not add the blank fact to a normal printed listing', () => {
+    expect(String(state.product)).not.toMatch(/BLANK/)
+  })
+
+  it('only treats "blank" in the name as a blank on apparel categories', () => {
+    const nonApparel = buildCopyQuestions(input({ category: 'tumblers', name: 'Blank Tumbler 20oz' })).state
+    expect(String(nonApparel.product)).not.toMatch(/BLANK/)
+  })
+
+  it('matches "blank" case-insensitively and as part of a longer name', () => {
+    const hoodie = buildCopyQuestions(input({ category: 'hoodies', name: 'Heavyweight Hoodie — blank', title: 'Heavyweight Blank Hoodie' })).state
+    expect(String(hoodie.product)).toMatch(/BLANK/)
+  })
 })
 
 describe('interpretCopyReview', () => {

@@ -768,19 +768,32 @@ export function findUnfulfillableClaims(
   return hits
 }
 
+/**
+ * A "<Garment> — Blank" listing (see backend/scripts/seed-blanks.ts) is a plain,
+ * undecorated apparel item sold as-is — there is no design to describe. Without
+ * this fact, the copy_class and tag-relevance questions read the absence of any
+ * design language as evasive or filler, which drove blanks into human review
+ * for a reason that was never actually a copy problem (task e0a39743).
+ */
+const isBlankApparel = (input: Pick<PresentationInput, 'category' | 'name'>): boolean =>
+  APPAREL.has(String(input.category ?? '')) && /\bblank\b/i.test(String(input.name ?? ''))
+
 /** The Jev question set for one presentation. Pure, so the wording is testable. */
 export function buildCopyQuestions(
-  input: Pick<PresentationInput, 'category' | 'title' | 'description' | 'tags'>
+  input: Pick<PresentationInput, 'category' | 'name' | 'title' | 'description' | 'tags'>
 ): { state: Record<string, unknown>; questions: Record<string, JevQuestion>; tagKeys: string[] } {
   const category = String(input.category ?? 'unknown')
   const tags = (input.tags ?? []).map(clean).filter(Boolean).slice(0, 20)
   const notOffered = Object.entries(UNFULFILLABLE_PATTERNS)
     .filter(([, r]) => !r.apparelOnly || APPAREL.has(category))
     .map(([, r]) => r.meaning)
+  const baseProduct = CATEGORY_FACTS[category] ?? `A product in the "${category}" category.`
 
   const state = {
     shop: 'Imagine This Printed — a print shop. Everything is made to order.',
-    product: CATEGORY_FACTS[category] ?? `A product in the "${category}" category.`,
+    product: isBlankApparel(input)
+      ? `${baseProduct} THIS SPECIFIC LISTING IS A BLANK: a plain, undecorated garment with NO printed design, graphic or art, sold as-is by colour and size. Copy that describes fit, fabric, colour and sizing instead of a design is correct and complete for a blank — it is not vague, evasive or filler.`
+      : baseProduct,
     not_made_by_this_shop: notOffered.join(', '),
     title: clean(input.title),
     description: String(input.description ?? '').trim().slice(0, 2500),
@@ -952,7 +965,7 @@ export function interpretCopyReview(
 
 /** Ask Jev about one presentation. Null when the mode is off or the lane is down. */
 export async function reviewCopy(
-  input: Pick<PresentationInput, 'category' | 'title' | 'description' | 'tags'>,
+  input: Pick<PresentationInput, 'category' | 'name' | 'title' | 'description' | 'tags'>,
   mode: JevCopyMode = jevCopyMode()
 ): Promise<CopyReview> {
   if (mode === 'off' || !jevEnabled()) return interpretCopyReview(input, null, mode === 'off' ? 'off' : mode)

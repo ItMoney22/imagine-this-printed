@@ -4338,3 +4338,45 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
 - Benchmarked on 120 live rows: 0 false blocks, enforce would save 36/60 (storefront) and 15/60 (etsy)
   vision calls; challenge set 108/108 floor+Jev, 0 escaped. 6 metal-art listings flagged for human review
   describe cut-metal sculpture / a wall clock, not a printed panel.
+
+## Current request (2026-09-23) — teach Jev copy QA about blanks + consolidate Jev client (task e0a39743)
+
+Scope note: this dispatch's own CLAUDE_TASK.md/TASK_NOTES.md file shortlist above still
+describes an unrelated prior Etsy weekly-review task left over in this reused worktree —
+this request came from the Watchtower dispatch brief instead. Actual scope: `backend/services/presentation-qa.ts`,
+`backend/services/jev-ip-gate.ts` (read/refactor), `backend/services/jev.ts` (read-only, already the shared client),
+`backend/scripts/qa-jev-challenge.ts`, `backend/services/presentation-qa-jev.test.ts`.
+
+### Work log (append-only) — 2026-09-23 blanks + Jev client consolidation
+- Prereqs: neither jessica-steele's Jev copy QA branch (728d9207, commit 3b67791) nor
+  levi-james's Jev IP-gate branch (c0fbb4a3, commits d1582dc/db48b2d) had reached `main` or
+  this branch yet — merged both in cleanly (one append-only TASK_NOTES.md conflict, resolved
+  by keeping both sections) so this work builds on top of them.
+- `buildCopyQuestions` now detects a "<Garment> — Blank" apparel listing (name matches
+  `/\bblank\b/i`, category in the apparel set) and states in the Jev `product` fact that the
+  listing is a blank with no printed design, so copy describing only fit/fabric/colour/size
+  reads as complete instead of evasive/filler. Added `name` to the `Pick<PresentationInput>`
+  on `buildCopyQuestions` and `reviewCopy` so the fact has the product name to check.
+- `qa-jev-challenge.ts` had been silently excluding every `%blank%`-named product from its
+  sample (`.not('name', 'ilike', '%blank%')`) — removed that exclusion (the real fix now
+  handles them) and added a blank-specific tally line to the script's output.
+- Live run, `npx tsx --env-file=.env scripts/qa-jev-challenge.ts 20`: sample included 4 real
+  blank listings, 0 of them triggered the "unwarranted human-review" line (previously blanks
+  were part of the "4 of 10 human-review rows" the brief described). Overall floor+Jev held
+  at 180/180 (100%), 0 escaped — no regression on the non-blank variants.
+- `jev-ip-gate.ts`'s `defaultJevFetch` was a second, inline HTTP client (its own JEV_URL,
+  DEFAULT_JEV_MODEL, fetch/AbortController/timeout/JSON handling) duplicating `jev.ts`'s
+  `askJev`. Replaced it with a thin wrapper that calls `askJev(state, questions, { timeoutMs })`
+  and reads `.answers` back out — kept the historical 15s default (vs askJev's 8s) since IP
+  batches run up to 25 listings per call. `JEV_URL`/`DEFAULT_JEV_MODEL` constants removed
+  (grepped: nothing outside this file imported them). Live-smoke-tested (real OpenRouter call,
+  not just the mocked `fetchImpl` tests): a Harry-Potter paraphrase correctly came back
+  `likely_ip_reference`/`review`, a generic lion graphic came back `generic_theme`/`pass`,
+  `probabilities` flowed through intact.
+- Verified: `npx vitest run` → 1550/1553 across 94/95 files (3 failures are the pre-existing
+  `etsy-copy-repair.test.ts` OPENROUTER-env-sensitive failures noted in the 728d9207 handoff —
+  confirmed unrelated here too: `git diff main..HEAD -- backend/services/etsy-copy-repair.ts
+  backend/services/etsy-copy-repair.test.ts` is empty, and the same 3 fail on `main`).
+  `tsc --noEmit`: 0 errors on touched files (only pre-existing node_modules-junction noise in
+  `middleware/rate-limits.ts`, same as 728d9207's report). `eslint`: 0 errors, pre-existing
+  `any` warnings only, none introduced by this change.

@@ -50,16 +50,19 @@ async function main(): Promise<void> {
     .select('id, name, category')
     .eq('status', 'active')
     .in('category', ['shirts', 'hoodies'])
-    .not('name', 'ilike', '%blank%')
     .order('created_at', { ascending: false })
     .limit(n)
   if (error) throw error
 
   const tally: Record<string, { floor: [number, number]; jev: [number, number]; combined: [number, number]; unsure: number; escaped: number }> = {}
   const miss: string[] = []
+  const blankUnsure: string[] = []
+  let blankRows = 0
   let cost = 0
   let calls = 0
   for (const p of data ?? []) {
+    const isBlank = /\bblank\b/i.test(p.name ?? '')
+    if (isBlank) blankRows++
     const base = await buildPresentationInput(p.id, 'storefront')
     for (const variant of variantsOf(base)) {
       const { state, questions } = buildCopyQuestions(variant.input)
@@ -81,6 +84,12 @@ async function main(): Promise<void> {
         const m = review.measured.jev as { copy_class?: string; copy_class_confidence?: number } | string
         miss.push(`${variant.kind.padEnd(24)} ${p.name} -> jev ${typeof m === 'object' ? `${m.copy_class} ${m.copy_class_confidence}` : m}`)
       }
+      // Blanks (task e0a39743): the "original" copy on a real blank listing must
+      // not need a human just because it has no design to describe.
+      if (isBlank && variant.kind === 'original' && review.needsHumanReview) {
+        const m = review.measured.jev as { copy_class?: string; copy_class_confidence?: number } | string
+        blankUnsure.push(`${p.name} -> jev ${typeof m === 'object' ? `${m.copy_class} ${m.copy_class_confidence}` : m}`)
+      }
     }
   }
 
@@ -95,6 +104,8 @@ async function main(): Promise<void> {
   }
   console.log(`${'ALL'.padEnd(26)}${pct(all.floor).padEnd(14)}${pct(all.jev).padEnd(14)}${pct(all.combined).padEnd(14)}${String(all.unsure).padEnd(15)}${all.escaped}`)
   console.log(`\n${calls} Jev calls, $${cost.toFixed(5)} total`)
+  console.log(`\nBlank listings in sample: ${blankRows}. Unwarranted human-review on real blank copy: ${blankUnsure.length}`)
+  if (blankUnsure.length) console.log(`  ${blankUnsure.join('\n  ')}`)
   if (miss.length) console.log(`\nWrong answers (floor+jev):\n  ${miss.join('\n  ')}`)
 }
 

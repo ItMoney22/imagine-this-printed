@@ -25,10 +25,13 @@
 //
 // Fail OPEN on the Jev half only: if the lane is down, the result is exactly
 // the regex gate's, which is what shipped before this module existed.
+//
+// The HTTP call itself (endpoint, headers, timeout, abort, malformed-body
+// handling) lives once in jev.ts's askJev — this module only shapes IP-tier
+// questions and reads the choice back out (task e0a39743, de-duplicating the
+// inline client this file used to carry).
 import { runCopyrightGate, type CopyrightGateInput, type CopyrightGateResult } from './etsy-copyright-gate.js'
-
-export const JEV_URL = 'https://openrouter.ai/api/alpha/decisions'
-export const DEFAULT_JEV_MODEL = 'typesafe/jev-1.13'
+import { askJev, type JevChoiceQuestion } from './jev.js'
 
 /**
  * Below this combined clean+generic probability a listing is NOT auto-accepted;
@@ -122,31 +125,23 @@ export function listingText(input: JevIpInput): string {
   return parts.filter(Boolean).join(' | ')
 }
 
-function question(label: string) {
+function question(label: string): JevChoiceQuestion {
   return { type: 'choice', instructions: `${label}: ${QUESTION_TEXT}`, criteria: IP_CRITERIA }
 }
 
-/** The real transport. Returns null on any failure — callers fail open. */
+/**
+ * The real transport — shapes IP questions into the wire format the state/
+ * questions pair jev.ts's askJev already knows how to send, and reads the
+ * choice answers back out. Batches here run longer than a single copy-QA
+ * question set (up to 25 listings per call), so this keeps the historical
+ * 15s default instead of askJev's 8s one; JEV_TIMEOUT_MS overrides either.
+ * Returns null on any failure — callers fail open.
+ */
 export const defaultJevFetch: JevFetch = async (state, questions) => {
-  const key = process.env.OPENROUTER_API_KEY
-  if (!key) return null
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), Number(process.env.JEV_TIMEOUT_MS) || 15000)
-  try {
-    const res = await fetch(JEV_URL, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: process.env.JEV_MODEL || DEFAULT_JEV_MODEL, state, questions }),
-      signal: controller.signal
-    })
-    if (!res.ok) return null
-    const body = (await res.json()) as { answers?: Record<string, JevChoiceAnswer> }
-    return body && typeof body.answers === 'object' && body.answers ? body.answers : null
-  } catch {
-    return null
-  } finally {
-    clearTimeout(timer)
-  }
+  const result = await askJev(state, questions as Record<string, JevChoiceQuestion>, {
+    timeoutMs: Number(process.env.JEV_TIMEOUT_MS) || 15000
+  })
+  return result ? (result.answers as unknown as Record<string, JevChoiceAnswer>) : null
 }
 
 /** Turn one raw Jev answer into a gated decision. Pure — this is what the tests pin. */
