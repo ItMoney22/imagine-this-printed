@@ -21,6 +21,7 @@ import { composeEtsyPack, saveEtsyPackEdits } from '../../services/etsy-seo-comp
 import { startModelShots, reshootModelShot, setModelShots, listShotSubjects, ShotCastError } from '../../services/etsy-model-shots.js'
 import { photographableAudiences } from '../../shared/catalog-capability.js'
 import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
+import { classifyIpCached, combine, designPromptOf, jevIpMode, type JevIpInput } from '../../services/jev-ip-gate.js'
 import { checkGate } from '../../services/design-qa-gate.js'
 import { supabase } from '../../lib/supabase.js'
 import { type EtsyTier, isEtsyTier, tiersForCategory } from '../../shared/etsy-tiers.js'
@@ -174,19 +175,34 @@ router.get('/candidates', async (_req: Request, res: Response) => {
       .in('product_id', (products ?? []).map(p => p.id))
     const sourceFileProductIds = new Set((sourceAssets ?? []).map(a => a.product_id))
 
-    const results = (products ?? [])
-      .filter(p => {
-        const states = tierStates.get(p.id) ?? {}
-        return tiersForCategory(p.category).some(t => isOpenState(states[t]))
-      })
+    const open = (products ?? []).filter(p => {
+      const states = tierStates.get(p.id) ?? {}
+      return tiersForCategory(p.category).some(t => isOpenState(states[t]))
+    })
+
+    // Regex gate per row, then ONE Jev call for every row the regex passed
+    // (cached by listing text, so the panel's polling does not re-ask).
+    const ipMode = jevIpMode()
+    const gateInputs = new Map<string, JevIpInput>()
+    const regexGates = new Map<string, ReturnType<typeof runCopyrightGate>>()
+    for (const p of open) {
+      const input: JevIpInput = {
+        name: p.meta_title || p.name,
+        description: p.description || p.meta_description,
+        tags: String(p.search_keywords || '').split(',').map(t => t.trim()).filter(Boolean),
+        aiGenerated: (p as any).metadata?.ai_generated === false ? false : true,
+        designPrompt: designPromptOf((p as any).metadata)
+      }
+      gateInputs.set(p.id, input)
+      regexGates.set(p.id, runCopyrightGate(input))
+    }
+    const jevDecisions = ipMode === 'off'
+      ? {}
+      : await classifyIpCached(Object.fromEntries([...gateInputs].filter(([id]) => regexGates.get(id)!.pass)))
+
+    const results = open
       .map(p => {
-        const tags = String(p.search_keywords || '').split(',').map(t => t.trim()).filter(Boolean)
-        const gate = runCopyrightGate({
-          name: p.meta_title || p.name,
-          description: p.description || p.meta_description,
-          tags,
-          aiGenerated: (p as any).metadata?.ai_generated === false ? false : true
-        })
+        const gate = combine(regexGates.get(p.id)!, jevDecisions[p.id], ipMode)
         return {
           id: p.id,
           name: p.name,
@@ -202,6 +218,9 @@ router.get('/candidates', async (_req: Request, res: Response) => {
           has_source_file: sourceFileProductIds.has(p.id),
           gate_pass: gate.pass,
           gate_reasons: gate.reasons,
+          // Jev's IP read (shadow by default — see jev-ip-gate.ts). Present
+          // even when not enforced so the panel can show what it WOULD hold.
+          jev_ip: gate.jev ? { mode: ipMode, verdict: gate.jev.verdict, tier: gate.jev.tier, safe_probability: gate.jev.safeProbability, reason: gate.jev.reason } : null,
           etsy_pack: (p as any).metadata?.etsy_pack ?? null,
           etsy_shots: (p as any).metadata?.etsy_shots ?? null,
           created_at: p.created_at
