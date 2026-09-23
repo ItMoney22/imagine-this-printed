@@ -43,6 +43,7 @@ import type {
   AssignableUser,
   FeaturedProduct,
   EmailSuppression,
+  EmailTriage,
 } from '../lib/email-api'
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -64,6 +65,64 @@ function formatFileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// ─── Jev triage badges (Watchtower 2a83afec / 98d10929) ────────────────────
+// `?triage=1` on the messages list annotates each inbound message with a
+// label + needs_reply. Reorder already happens server-side — this is just
+// the visual layer, and it hides itself entirely when triage is absent
+// (older cache, sent folder, or the lane is off).
+
+const TRIAGE_LABEL_TEXT: Record<string, string> = {
+  sales_lead: 'Sales lead',
+  customer_issue: 'Customer issue',
+  supplier: 'Supplier',
+  etsy_notification: 'Etsy notification',
+  newsletter: 'Newsletter',
+  spam: 'Spam',
+}
+
+/** Small pill for the triage label. Renders nothing when there is no label. */
+export const TriageLabelChip: React.FC<{ label: EmailTriage['label'] }> = ({ label }) => {
+  if (!label) return null
+  const tone =
+    label === 'sales_lead'
+      ? 'bg-emerald-500/10 text-emerald-600'
+      : label === 'customer_issue'
+        ? 'bg-amber-500/10 text-amber-600'
+        : label === 'spam'
+          ? 'bg-red-500/10 text-red-500'
+          : 'bg-text/10 text-muted'
+  return (
+    <span className={`inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium whitespace-nowrap ${tone}`}>
+      {TRIAGE_LABEL_TEXT[label] ?? label}
+    </span>
+  )
+}
+
+/** Reply-urgency indicator. Silent for 'no' — nothing to flag. */
+export const NeedsReplyBadge: React.FC<{ triage?: EmailTriage | null }> = ({ triage }) => {
+  if (!triage || triage.needs_reply === 'no') return null
+  if (triage.needs_reply === 'today') {
+    return (
+      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold bg-primary/10 text-primary whitespace-nowrap">
+        Reply today
+      </span>
+    )
+  }
+  if (triage.needs_reply === 'this_week') {
+    return (
+      <span className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-accent/10 text-accent whitespace-nowrap">
+        Reply this week
+      </span>
+    )
+  }
+  // 'unsure' — Jev had no confident answer; flagged for a human, not hidden.
+  return (
+    <span className="inline-block px-1.5 py-0.5 rounded-full text-[10px] font-medium bg-text/10 text-muted whitespace-nowrap">
+      Needs review
+    </span>
+  )
 }
 
 function escapeHtml(str: string): string {
@@ -1593,7 +1652,10 @@ const AdminEmail: React.FC = () => {
       setMobileView('message')
       try {
         const { message } = await emailApi.getMessage(msg.id)
-        setOpenMessage(message)
+        // GET /messages/:id doesn't carry triage (only the ?triage=1 list
+        // route does) — reuse what the list row already has so the reading
+        // pane doesn't lose the badge it showed a moment ago.
+        setOpenMessage(msg.triage ? { ...message, triage: msg.triage } : message)
         // mark read in local state
         setMessages(prev =>
           prev.map(m => (m.id === msg.id ? { ...m, is_read: true } : m))
@@ -2046,6 +2108,12 @@ const AdminEmail: React.FC = () => {
                     >
                       {msg.subject || '(no subject)'}
                     </p>
+                    {msg.triage && (msg.triage.label || msg.triage.needs_reply !== 'no') && (
+                      <div className="flex items-center gap-1 mt-1 flex-wrap">
+                        <TriageLabelChip label={msg.triage.label} />
+                        <NeedsReplyBadge triage={msg.triage} />
+                      </div>
+                    )}
                   </button>
                 )
               })
@@ -2082,9 +2150,16 @@ const AdminEmail: React.FC = () => {
                   Back
                 </button>
 
-                <h2 className="text-lg font-semibold text-text mb-3">
+                <h2 className="text-lg font-semibold text-text mb-1">
                   {openMessage.subject || '(no subject)'}
                 </h2>
+
+                {openMessage.triage && (openMessage.triage.label || openMessage.triage.needs_reply !== 'no') && (
+                  <div className="flex items-center gap-1.5 mb-2 flex-wrap">
+                    <TriageLabelChip label={openMessage.triage.label} />
+                    <NeedsReplyBadge triage={openMessage.triage} />
+                  </div>
+                )}
 
                 {/* meta */}
                 <div className="space-y-1 text-xs text-muted">

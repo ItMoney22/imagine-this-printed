@@ -59,9 +59,33 @@ export interface EmailMessage {
   is_read: boolean;
   is_archived: boolean;
   created_at: string;
+  /** Only present on a `?triage=1` list response; absent on the sent folder. */
+  triage?: EmailTriage | null;
 }
 
 export type EmailFolder = 'inbox' | 'sent' | 'archived';
+
+// Jev mailbox triage (backend/lib/jev-triage.ts, Watchtower 2a83afec). Opt-in
+// via `?triage=1` on the messages list — annotates each inbound message and
+// reorders reply-today first. Never present on the sent folder.
+export const EMAIL_TRIAGE_LABELS = [
+  'sales_lead',
+  'customer_issue',
+  'supplier',
+  'etsy_notification',
+  'newsletter',
+  'spam',
+] as const;
+export type EmailTriageLabel = (typeof EMAIL_TRIAGE_LABELS)[number];
+
+/** 'unsure' = Jev had no confident answer; treated as needing a reply so nothing is hidden. */
+export type EmailNeedsReply = 'today' | 'this_week' | 'no' | 'unsure';
+
+export interface EmailTriage {
+  label: EmailTriageLabel | null;
+  needs_reply: EmailNeedsReply;
+  needs_review: boolean;
+}
 
 /** An address we no longer send to (hard bounce or spam complaint). */
 export interface EmailSuppression {
@@ -141,13 +165,16 @@ export const emailApi = {
 
   listMessages: (
     mailboxId: string,
-    opts: { folder?: EmailFolder; search?: string; before?: string; limit?: number } = {}
+    opts: { folder?: EmailFolder; search?: string; before?: string; limit?: number; triage?: boolean } = {}
   ): Promise<{ messages: EmailMessage[]; mailbox: Pick<Mailbox, 'id' | 'address' | 'display_name'> }> => {
     const params = new URLSearchParams();
     if (opts.folder) params.set('folder', opts.folder);
     if (opts.search) params.set('search', opts.search);
     if (opts.before) params.set('before', opts.before);
     if (opts.limit) params.set('limit', String(opts.limit));
+    // Jev triage: label + needs_reply per message, reply-today sorted first.
+    // On by default; the backend ignores it for the sent folder anyway.
+    if (opts.triage !== false) params.set('triage', '1');
     const qs = params.toString();
     return apiFetch(`/api/email/mailboxes/${mailboxId}/messages${qs ? `?${qs}` : ''}`);
   },

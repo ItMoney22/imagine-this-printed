@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Check, X, Search, Filter, MessageSquare, Clock, AlertCircle, RefreshCw, UserCheck, UserX, PhoneCall, PhoneOff, Users } from 'lucide-react'
 import axios from 'axios'
@@ -35,6 +35,74 @@ interface TicketMessage {
     message?: string
     created_at: string
     is_internal: boolean
+}
+
+// Jev triage note (Watchtower 2a83afec / backend/lib/jev-triage.ts). support_tickets
+// has no triage column, so the only record of how a ticket was classified is the
+// internal system message `describeTicketTriage()` writes at intake — e.g.
+// "[Jev triage · mode on] category=refund_request (jev), priority=high (jev)"
+// followed by "NEEDS HUMAN TRIAGE (low_confidence) — ..." or "Confident — ...".
+// Read from `messages` (already fetched for the ticket detail panel) rather than
+// adding a second request; tickets created before this shipped, or with
+// JEV_TRIAGE=off, simply have no note and the badge stays hidden.
+interface JevTriageNote {
+    mode: string
+    category: string
+    categorySource: string
+    priority: string
+    prioritySource: string
+    needsReview: boolean
+    reviewReason: string | null
+}
+
+const JEV_TRIAGE_HEADER_RE = /^\[Jev triage(?: · mode (\w+))?\] category=(\S+) \((\w+)\), priority=(\w+) \((\w+)\)/
+
+export function findJevTriageNote(messages: TicketMessage[]): JevTriageNote | null {
+    const note = [...messages].reverse().find(
+        m => m.is_internal && (m.content || m.message || '').trimStart().startsWith('[Jev triage')
+    )
+    if (!note) return null
+    const text = note.content || note.message || ''
+    const header = text.match(JEV_TRIAGE_HEADER_RE)
+    if (!header) return null
+    const reasonMatch = text.match(/NEEDS HUMAN TRIAGE \(([^)]+)\)/)
+    return {
+        mode: header[1] || 'on',
+        category: header[2],
+        categorySource: header[3],
+        priority: header[4],
+        prioritySource: header[5],
+        needsReview: text.includes('NEEDS HUMAN TRIAGE'),
+        reviewReason: reasonMatch ? reasonMatch[1] : null,
+    }
+}
+
+const REVIEW_REASON_TEXT: Record<string, string> = {
+    jev_unavailable: 'Jev was unavailable',
+    low_confidence: 'Jev was not confident',
+    shadow: 'shadow mode — floor decided',
+}
+
+/** Renders nothing when there is no Jev triage note for the ticket. */
+export const JevTriageBadge: React.FC<{ note: JevTriageNote | null }> = ({ note }) => {
+    if (!note) return null
+    if (note.needsReview) {
+        return (
+            <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-amber-500/10 text-amber-600"
+                title={note.reviewReason ? REVIEW_REASON_TEXT[note.reviewReason] || note.reviewReason : undefined}
+            >
+                <AlertCircle size={11} />
+                Needs Triage
+            </span>
+        )
+    }
+    return (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-green-500/10 text-green-600">
+            <Check size={11} />
+            Triaged
+        </span>
+    )
 }
 
 interface OnlineAgent {
@@ -370,6 +438,8 @@ const AdminSupport: React.FC = () => {
         }
     }
 
+    const jevTriageNote = useMemo(() => findJevTriageNote(messages), [messages])
+
     const getStatusColor = (status: string) => {
         switch (status) {
             case 'open': return 'text-blue-400 border-blue-400/30'
@@ -481,7 +551,8 @@ const AdminSupport: React.FC = () => {
                                         {ticket.user?.first_name ? `${ticket.user.first_name} ${ticket.user.last_name || ''}` : ticket.email || 'Anonymous'}
                                     </span>
                                 </div>
-                                <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${getPriorityColor(ticket.priority)}`}>
+                                <span className={`inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded uppercase font-bold ${getPriorityColor(ticket.priority)}`}>
+                                    {ticket.priority === 'urgent' && <AlertCircle size={10} />}
                                     {ticket.priority}
                                 </span>
                             </div>
@@ -503,6 +574,7 @@ const AdminSupport: React.FC = () => {
                                             LIVE
                                         </span>
                                     )}
+                                    <JevTriageBadge note={jevTriageNote} />
                                 </div>
                                 <div className="flex items-center gap-4 text-xs text-white/50 mt-1">
                                     <span>ID: {selectedTicket.id.slice(0, 8)}</span>

@@ -166,6 +166,46 @@ const FileButton: React.FC<{ url: string | null; label: string; tone?: 'solid' |
   )
 }
 
+/**
+ * Etsy buyer-note triage (backend/lib/jev-triage.ts, Watchtower 2a83afec),
+ * written to orders.metadata.buyer_message_flag by the receipt ingest worker.
+ * 'none' and a missing flag both mean "nothing to act on" and render nothing —
+ * only personalization / change_request / problem are worth a badge.
+ */
+interface BuyerMessageFlag {
+  flag: 'none' | 'personalization' | 'change_request' | 'problem' | null
+  needs_review?: boolean
+  source?: 'jev' | 'floor' | 'error'
+  confidence?: number | null
+}
+
+const BUYER_FLAG_TEXT: Record<string, string> = {
+  personalization: 'Personalization in note',
+  change_request: 'Buyer requested a change',
+  problem: 'Buyer flagged a problem',
+}
+
+/** Renders nothing when the order has no (or a 'none') buyer message flag. */
+export const BuyerMessageFlagBadge: React.FC<{ metadata: any; className?: string }> = ({ metadata, className = '' }) => {
+  const bf: BuyerMessageFlag | undefined = metadata?.buyer_message_flag
+  const flag = bf?.flag
+  if (!flag || flag === 'none') return null
+  const tone =
+    flag === 'problem'
+      ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
+      : flag === 'change_request'
+        ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300'
+        : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
+  return (
+    <span
+      className={`inline-flex items-center text-[11px] px-1.5 py-0.5 rounded font-semibold ${tone} ${className}`}
+      title={bf?.needs_review ? 'Jev was not confident — worth a human read' : undefined}
+    >
+      {BUYER_FLAG_TEXT[flag] ?? flag}
+    </span>
+  )
+}
+
 const renderReversalStep = (label: string, step?: { ok: boolean; skipped: boolean; reason?: string }) => {
   if (!step) return null
   const status = step.ok ? (step.skipped ? 'Skipped' : 'Reversed') : 'Failed'
@@ -988,6 +1028,10 @@ const OrderManagement: React.FC = () => {
                             )}
                           </div>
                         )}
+                        {/* Etsy buyer note triage (Jev, Watchtower 2a83afec) —
+                            surfaces a change request or problem before the
+                            crew presses print. Renders nothing when absent. */}
+                        <BuyerMessageFlagBadge metadata={order.metadata} className="mt-1" />
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         {isUnpaidDraft(order) ? (
@@ -1169,6 +1213,24 @@ const OrderManagement: React.FC = () => {
                   </div>
                 </div>
               </div>
+
+              {/* Etsy buyer note triage (Jev, Watchtower 2a83afec) — the full
+                  note plus what Jev flagged in it. Renders nothing when the
+                  order has no buyer_message_flag (non-Etsy orders, or the
+                  flag came back 'none'). */}
+              {selectedOrder.metadata?.buyer_message_flag?.flag &&
+                selectedOrder.metadata.buyer_message_flag.flag !== 'none' && (
+                  <div className="mb-6 rounded-xl border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <BuyerMessageFlagBadge metadata={selectedOrder.metadata} />
+                    </div>
+                    {selectedOrder.metadata?.message_from_buyer && (
+                      <p className="text-sm text-text whitespace-pre-wrap">
+                        "{selectedOrder.metadata.message_from_buyer}"
+                      </p>
+                    )}
+                  </div>
+                )}
 
               {/* PRODUCTION — what to actually make. This modal used to show a
                   line-item COUNT and nothing else: no design, no size, no
