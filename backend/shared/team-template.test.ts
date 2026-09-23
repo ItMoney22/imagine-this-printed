@@ -40,6 +40,7 @@ const TEMPLATE: TeamTemplate = {
   version: 1,
   side: 'back_image',
   plateAssetId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+  sourceAssetId: null,
   distressAssetId: null,
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,
@@ -145,6 +146,19 @@ describe('sanitizeValues', () => {
 })
 
 describe('templateCacheKey', () => {
+  it('changes when the source art the flare edit works from changes', () => {
+    const values = { name: 'SMITH', number: '22' }
+    const withSource = { ...TEMPLATE, sourceAssetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }
+    expect(templateCacheKey(withSource, values)).not.toBe(templateCacheKey(TEMPLATE, values))
+  })
+
+  it('round-trips sourceAssetId through the parser, and reads a missing one as null', () => {
+    const withSource = { ...TEMPLATE, sourceAssetId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' }
+    expect(parseTeamTemplate(withSource)?.sourceAssetId).toBe(withSource.sourceAssetId)
+    const { sourceAssetId: _omit, ...legacy } = TEMPLATE
+    expect(parseTeamTemplate(legacy)?.sourceAssetId).toBeNull()
+  })
+
   it('is stable for the same values', () => {
     const a = templateCacheKey(TEMPLATE, { name: 'SMITH', number: '22' })
     const b = templateCacheKey(TEMPLATE, { number: '22', name: 'SMITH' })

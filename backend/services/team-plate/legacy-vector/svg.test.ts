@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { buildFieldSvg, buildLayerSvg } from './svg.js'
 import { loadFont } from './fonts.js'
-import type { TeamField } from '../../shared/team-template.js'
+import type { TeamField } from '../../../shared/team-template.js'
 
 const FIELD: TeamField = {
   key: 'name',

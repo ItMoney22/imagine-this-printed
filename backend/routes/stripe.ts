@@ -17,7 +17,7 @@ import {
 import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
 import { parseTeamTemplate, sanitizeValues } from '../shared/team-template.js'
-import { renderOrGetCached } from '../services/team-plate/plate-store.js'
+import { renderOrGetCached, pressPlatePath } from '../services/team-plate/plate-store.js'
 import { reviewFlags } from '../services/team-plate/review-flags.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
@@ -248,16 +248,62 @@ function snapshotCartItems(items: any[] | undefined | null) {
 // A render failure must NEVER fail checkout — money is already moving. The
 // values are recorded either way and the line carries print_file_error, so the
 // team sees the problem instead of pressing a blank.
+//
+// NOR MAY A SLOW RENDER STALL IT (task 65d98dd9). The press file is now a
+// gpt-image-2.5-flare edit + recraft-crisp-upscale: ~30s when the customer
+// already previewed (upscale only), ~60-90s cold — past Cloudflare's 100s
+// origin timeout once the rest of this request is added. So the render gets
+// PRESS_WAIT_MS; past that the line is written with the press file's durable
+// path (it is deterministic — knowable before the file exists) and
+// print_file_status 'rendering', and settlePressFile() flips it to 'ready' or
+// 'failed' when the generation lands.
 // ---------------------------------------------------------------------------
+const PRESS_WAIT_MS = 20_000
+/** Overridable so the late-settle path can be tested without a 20s wait. */
+function pressWaitMs(): number {
+  const n = Number(process.env.TEAM_PLATE_PRESS_WAIT_MS)
+  return Number.isFinite(n) && n > 0 ? n : PRESS_WAIT_MS
+}
+
 interface LinePersonalization {
   values: Record<string, string>
   path: string | null
+  /** 'rendering' = path is where the file WILL be; settlePressFile finishes the row. */
+  status: 'ready' | 'rendering' | 'failed'
   error?: string
   /** Reasons a human should look before this is pressed. Flags, never blocks. */
   flags?: Array<{ field: string; reason: string }>
 }
 
+/**
+ * Finish a line written while its press file was still generating. Matched on
+ * the durable path, not a row id: replaceOrderItems deletes and re-inserts the
+ * rows on every cart change, so the id seen at write time may be gone.
+ */
+async function settlePressFile(
+  orderId: string,
+  path: string,
+  outcome: { ok: true } | { ok: false; error: string },
+  req: Request
+): Promise<void> {
+  const { data, error } = await supabase.from('order_items').select('id, metadata').eq('order_id', orderId)
+  if (error) {
+    req.log?.error({ err: error, orderId }, 'team-plate: could not read order_items to settle a press file')
+    return
+  }
+  for (const row of data ?? []) {
+    const meta = (row.metadata ?? {}) as Record<string, any>
+    if (meta.print_file_path !== path || meta.print_file_status !== 'rendering') continue
+    const next = outcome.ok
+      ? { ...meta, print_file_status: 'ready', print_file_error: null }
+      : { ...meta, print_file_status: 'failed', print_file_path: null, print_file_error: outcome.error }
+    const { error: upErr } = await supabase.from('order_items').update({ metadata: next }).eq('id', row.id)
+    if (upErr) req.log?.error({ err: upErr, orderId, path }, 'team-plate: press file settle failed')
+  }
+}
+
 async function personalizationForItems(
+  orderId: string,
   items: any[],
   req: Request
 ): Promise<Map<number, LinePersonalization>> {
@@ -288,12 +334,33 @@ async function personalizationForItems(
       // Flags a human should see before pressing. It never refuses the
       // order: a child really named Dick must not hit an error at the till.
       const flags = reviewFlags(template, values)
+      const render = renderOrGetCached(template, values, template.canvas.w)
+      let timer: ReturnType<typeof setTimeout> | undefined
+      const budget = new Promise<'timeout'>((resolve) => {
+        timer = setTimeout(() => resolve('timeout'), pressWaitMs())
+      })
       try {
-        const plate = await renderOrGetCached(template, values, template.canvas.w)
-        out.set(index, { values, path: plate.path, flags })
+        const first = await Promise.race([render, budget])
+        if (first === 'timeout') {
+          const path = pressPlatePath(template, values)
+          out.set(index, { values, path, status: 'rendering', flags })
+          // Keeps running after this request answers. Attached here so a late
+          // failure is recorded on the order, never an unhandled rejection.
+          render.then(
+            () => settlePressFile(orderId, path, { ok: true }, req),
+            (err: any) => {
+              req.log?.error({ err, productId: id }, 'team-plate: press render failed after checkout')
+              return settlePressFile(orderId, path, { ok: false, error: err?.message ?? 'render failed' }, req)
+            }
+          ).catch(() => {})
+        } else {
+          out.set(index, { values, path: first.path, status: 'ready', flags })
+        }
       } catch (err: any) {
         req.log?.error({ err, productId: id }, 'team-plate: press render failed at checkout')
-        out.set(index, { values, path: null, error: err?.message ?? 'render failed', flags })
+        out.set(index, { values, path: null, status: 'failed', error: err?.message ?? 'render failed', flags })
+      } finally {
+        clearTimeout(timer)
       }
     })
   )
@@ -304,7 +371,7 @@ async function personalizationForItems(
 // has to be ignored and the press file re-rendered server-side.
 export async function replaceOrderItems(orderId: string, items: any[] | undefined | null, req: Request) {
   if (!items || items.length === 0) return
-  const personalized = await personalizationForItems(items, req)
+  const personalized = await personalizationForItems(orderId, items, req)
   const rows = items.map((item: any, itemIndex: number) => {
     const rawId = item.product?.id != null ? String(item.product.id) : null
     const qty = item.quantity || 1
@@ -344,6 +411,7 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
         personalization: personalized.get(itemIndex)?.values ?? null,
         print_file_path: personalized.get(itemIndex)?.path ?? null,
         print_file_error: personalized.get(itemIndex)?.error ?? null,
+        print_file_status: personalized.get(itemIndex)?.status ?? null,
         personalization_flags: personalized.get(itemIndex)?.flags?.length
           ? personalized.get(itemIndex)!.flags
           : null

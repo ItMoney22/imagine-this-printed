@@ -18,7 +18,7 @@
 //
 // There is also no <text> element anywhere in the output, by construction —
 // see fonts.ts for why that matters on Render.
-import type { TeamField } from '../../shared/team-template.js'
+import type { TeamField } from '../../../shared/team-template.js'
 import { archPlacements, fitToZone, widestNumberString } from './fit.js'
 import { loadFont, measureWith, type LoadedFont } from './fonts.js'
 

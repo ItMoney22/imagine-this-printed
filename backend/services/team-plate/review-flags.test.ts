@@ -6,6 +6,7 @@ const TEMPLATE: TeamTemplate = {
   version: 1,
   side: 'back_image',
   plateAssetId: 'p',
+  sourceAssetId: null,
   distressAssetId: null,
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,

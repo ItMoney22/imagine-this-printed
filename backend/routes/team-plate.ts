@@ -7,9 +7,10 @@
 // come from the server side, and the only thing the caller supplies is a short
 // string that is stripped to [A-Z0-9 '-] before it reaches a glyph.
 //
-// It is rate-limited because it does image work, and cached because the same
-// name and number is a very common request (a coach ordering a roster will hit
-// the same shirt fifteen times).
+// It is rate-limited because every NEW name and number is a paid
+// gpt-image-2.5-flare edit (task 65d98dd9 — the vector engine it replaced was
+// free to run), and cached because the same name and number is a very common
+// request (a coach ordering a roster will hit the same shirt fifteen times).
 import express, { type Request, type Response } from 'express'
 import rateLimit from 'express-rate-limit'
 import sharp from 'sharp'
@@ -18,21 +19,30 @@ import { requireAuth } from '../middleware/supabaseAuth.js'
 import { requireAdmin } from '../middleware/requireAdmin.js'
 import { uploadFile } from '../services/gcs-storage.js'
 import { parseTeamTemplate, sanitizeValues, TEAM_TEMPLATE_VERSION } from '../shared/team-template.js'
-import { renderOrGetCached, forgetTemplateLayers } from '../services/team-plate/plate-store.js'
-import { HOUSE_FONTS, loadFont, missingGlyphs } from '../services/team-plate/fonts.js'
+import { renderOrGetCached } from '../services/team-plate/plate-store.js'
+// Ids and labels only — the admin picker still offers a face as a style hint.
+// Nothing here draws with the quarantined vector engine.
+import { HOUSE_FONTS } from '../services/team-plate/legacy-vector/fonts.js'
 import { deriveZonesAndDistress, erasePlate, eyedropColours } from '../services/team-plate/authoring.js'
 
 const router = express.Router()
 
-/** Preview width. Big enough to judge lettering on a phone, small enough to be free. */
+/**
+ * Any width under the template canvas asks for the PREVIEW tier (the flare
+ * base, ~1152x1536); plate-store.ts no longer resizes per width.
+ */
 const PREVIEW_WIDTH = 900
 
+// A preview miss costs a flare edit (~20-40s, real money) on a PUBLIC route.
+// The panel now previews on a button press instead of on every keystroke, so a
+// real customer needs a handful; a roster coach re-hitting cached names is
+// cheap but still counted, which is why this is not tighter.
 const previewLimiter = rateLimit({
-  windowMs: 60_000,
-  limit: 60,
+  windowMs: 15 * 60_000,
+  limit: 20,
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many previews, give it a second.' },
+  message: { error: 'That is a lot of previews — give it a few minutes and try again.' },
 })
 
 /**
@@ -89,6 +99,7 @@ router.post('/preview', previewLimiter, async (req: Request, res: Response): Pro
       values: clean,
       width: PREVIEW_WIDTH,
       cached: !plate.rendered,
+      tier: plate.tier,
     })
   } catch (err: any) {
     req.log?.error({ err }, 'team-plate preview failed')
@@ -117,7 +128,7 @@ async function loadProduct(productId: string) {
 
 async function saveLayerAsset(
   productId: string,
-  role: 'team_plate_back' | 'team_distress_back',
+  role: 'team_plate_back' | 'team_distress_back' | 'team_source_back',
   buffer: Buffer
 ): Promise<string> {
   const meta = await sharp(buffer).metadata()
@@ -214,15 +225,20 @@ router.post(
       const { zones, distress } = await deriveZonesAndDistress(original, plate, canvas)
       const colours = await Promise.all(zones.map((zone) => eyedropColours(original, zone)))
 
-      const [plateAssetId, distressAssetId] = await Promise.all([
+      // The ORIGINAL (sample lettering and all) is saved too: it is what the
+      // per-order flare edit works from, because showing the model the
+      // lettering style beats describing it.
+      const [plateAssetId, distressAssetId, sourceAssetId] = await Promise.all([
         saveLayerAsset(productId, 'team_plate_back', plate),
         saveLayerAsset(productId, 'team_distress_back', distress),
+        saveLayerAsset(productId, 'team_source_back', original),
       ])
 
       return res.json({
         canvas: { ...canvas, dpi: 300 },
         plateAssetId,
         distressAssetId,
+        sourceAssetId,
         modelId,
         // One suggested field per zone, top to bottom: on a team shirt that is
         // the name and then the number. Both are editable before saving.
@@ -256,11 +272,9 @@ router.get(
  * PUT /api/team-plate/:productId/template
  * Body: { template }
  *
- * Validates before saving, and checks glyph coverage HERE rather than per
- * order: whether a face can set an alphabet is a property of the font, so
- * checking once puts the warning in front of someone who can still pick a
- * different face. It warns, it does not block — the operator may know the
- * customers for this shirt.
+ * Validates before saving. The glyph-coverage warning the vector engine needed
+ * is gone with it: the lettering is drawn by the image model now, which has no
+ * font file to run out of glyphs.
  */
 router.put(
   '/:productId/template',
@@ -277,31 +291,10 @@ router.put(
       if (!product) return res.status(404).json({ error: 'Product not found' })
 
       const warnings: string[] = []
-      for (const field of template.fields) {
-        try {
-          const font = await loadFont(field.font)
-          const alphabet =
-            field.type === 'number'
-              ? '0123456789'
-              : "ABCDEFGHIJKLMNOPQRSTUVWXYZ'- "
-          const missing = missingGlyphs(font, alphabet)
-          if (missing.length > 0) {
-            warnings.push(
-              `${field.label}: ${field.font.family} cannot set ${missing.join(' ')} — those would print as empty boxes.`
-            )
-          }
-        } catch (err: any) {
-          warnings.push(`${field.label}: ${err?.message ?? 'font could not be loaded'}`)
-        }
-      }
 
       const metadata = { ...(product.metadata ?? {}), team_template: template }
       const { error } = await supabase.from('products').update({ metadata }).eq('id', productId)
       if (error) return res.status(500).json({ error: error.message })
-
-      // Layers may have been replaced by a re-derive; drop the in-process
-      // buffers so the next render picks up the new ones.
-      forgetTemplateLayers(template)
 
       return res.json({ template, warnings })
     } catch (err: any) {
@@ -316,7 +309,8 @@ router.put(
  * Body: { template, values }
  *
  * Renders a template that has NOT been saved yet, so the authoring screen can
- * show the side-by-side while the operator is still nudging boxes.
+ * show the side-by-side while the operator is still nudging boxes. Each new
+ * proof is a flare edit — admin-only, so not rate-limited.
  */
 router.post(
   '/:productId/proof',

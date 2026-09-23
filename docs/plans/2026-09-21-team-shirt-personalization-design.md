@@ -1,5 +1,16 @@
 # Team shirt personalization — design
 
+> **SUPERSEDED IN PART — 2026-09-23 (task 65d98dd9).** Per-order lettering is no
+> longer drawn as vector glyphs. David 2026-09-22: "just have gpt2.5 flare just
+> redo the design keeping things intact and just redoin the name and number."
+> The resolution objection below is answered by `recraft-crisp-upscale`
+> (live: flare base 1232x1536 -> upscale 3285x4096 -> press 3600x4498, edges
+> crisp). The pipeline is `backend/services/team-plate/generate.ts` +
+> `plate-store.ts`; the vector engine is quarantined in
+> `backend/services/team-plate/legacy-vector/`. Templates, zones, review flags
+> and the checkout trust boundary described here are unchanged.
+
+
 **Date:** 2026-09-21
 **Author:** zero-nine (Earth)
 **Status:** approved by David, ready to implement

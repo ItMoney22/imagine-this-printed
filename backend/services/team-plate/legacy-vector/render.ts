@@ -11,7 +11,7 @@
 // when pressing). A preview that ran it would put the screen dots on the
 // product page. See print-prep.ts.
 import sharp from 'sharp'
-import type { TeamTemplate } from '../../shared/team-template.js'
+import type { TeamTemplate } from '../../../shared/team-template.js'
 import { buildLayerSvg } from './svg.js'
 
 export interface PlateSource {
