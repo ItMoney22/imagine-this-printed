@@ -201,7 +201,10 @@ export default function AdminPrintMaterials() {
                 <tr key={item.id} className={`border-b card-border ${!item.is_active ? 'opacity-50' : ''}`}>
                   <td className="py-2 pr-3">
                     <span className="inline-flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full border border-white/20 shrink-0" style={{ backgroundColor: item.hex }} />
+                      {/* card-border (var(--border)) not border-white/20: a white
+                          spool's swatch was invisible against the light theme's
+                          white card — seen live on #ffffff, 2026-09-22. */}
+                      <span className="w-5 h-5 rounded-full card-border shrink-0" style={{ backgroundColor: item.hex }} />
                       <span className="font-medium text-text">{item.color_name}</span>
                       <span className="text-xs text-muted">{item.hex}</span>
                     </span>

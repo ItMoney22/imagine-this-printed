@@ -4252,3 +4252,41 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### Work log (append-only) — 2026-09-22 print_materials applied + stocked (Watchtower c89e511c)
+
+Scope note: this dispatch is a production migration + inventory task, so the
+file shortlist above (which belongs to an earlier request) does not describe it.
+Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
+`src/components/AdminPrintMaterials.tsx` (one-line swatch border),
+`src/components/AdminPrintMaterials.test.tsx` (new), `TASK_NOTES.md`.
+
+- `20260819230000_print_materials.sql` had been on `main` since 2026-08-19 but
+  was never applied, so the Admin "Filament & Paint" tab and every toy order's
+  filament/paint plan were dark for a month — silently, because
+  `matchMaterials()` swallows a missing relation and returns `null`. Dry run
+  confirmed `table absent` with every other PLAN entry already LIVE; applied
+  with `--apply --track`; verified read-only (15 columns, both CHECKs, the
+  4-column UNIQUE, the kind/active index, RLS on with zero policies) and the
+  `20260819230000` tracking row.
+- Seeded 13 rows through the deployed admin route. The 4 filament rows are
+  REAL: read live off the two A1s' AMS via the Watchtower `printers` table —
+  Bambu Lab PLA Matte `#757575` (genuine RFID tag), Unbranded PLA `#ffffff`
+  (wet-suspected batch), `#000000` (qty 2, loaded on both machines) and
+  `#f65973`. The 9 paint rows are placeholders at `qty_on_hand = 0` so the
+  matcher (which filters `qty_on_hand > 0`) cannot claim paint the shop does
+  not own.
+- CRUD proven against production: GET, GET `?kind=filament`, POST, duplicate
+  POST → 409, bad hex → 400, PUT, DELETE. The real `matchMaterials()` run
+  against the seeded stock produced a 3-of-4 plan plus an honest
+  `NO STOCK MATCH for #0000ff — restock needed`.
+- Looked at the live tab in a browser: all 13 rows render with correct swatches.
+  The white spool's swatch was invisible — the swatch used `border-white/20`,
+  which is white-on-white in the light theme. Swapped to `card-border`
+  (`var(--border)`), so it reads in both themes.
+- New `src/components/AdminPrintMaterials.test.tsx`: 8 tests pinning that the
+  tab reads from `/api/admin/print-materials` and never the browser Supabase
+  client (RLS-on/no-policies would give it a silent empty grid forever), that
+  it re-reads after every write, that delete needs the confirm, and that the
+  kind filter is client-side. `tsc -p tsconfig.app.json` clean, `eslint` 0
+  errors.
