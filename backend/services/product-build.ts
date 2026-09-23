@@ -24,12 +24,20 @@ import { uploadImageFromBuffer } from './google-cloud-storage.js'
 /**
  * Gallery contract slot: a watermarked copy of the chosen design for
  * storefront display — the raw design never ships unprotected. Exactly one
- * per product (replaces any prior design_watermarked asset).
+ * per product (replaces any prior design_watermarked asset) — or, for the
+ * back plate of a two-sided product (`opts.side: 'back'`), exactly one
+ * `design_watermarked_back` (see ensureBackArtworkAsset,
+ * routes/admin/ai-products-step-flow.ts, and ROLE_ORDER,
+ * shared/product-gallery.ts, which is what makes this role visible in the
+ * storefront gallery at all).
  */
 export async function createWatermarkedDesignAsset(
   productId: string,
   sourceAsset: { id: string; url: string },
+  opts: { side?: 'front' | 'back' } = {},
 ): Promise<void> {
+  const side = opts.side === 'back' ? 'back' : 'front'
+  const assetRole = side === 'back' ? 'design_watermarked_back' : 'design_watermarked'
   try {
     const watermarked = await addWatermark(sourceAsset.url)
     const { data: product } = await supabase
@@ -38,32 +46,33 @@ export async function createWatermarkedDesignAsset(
       .eq('id', productId)
       .single()
     const slug = product?.slug || productId.substring(0, 8)
-    const gcsPath = `graphics/${slug}/watermarked/${slug}-design-watermarked-${Date.now()}.png`
+    const gcsPath = `graphics/${slug}/watermarked/${slug}-design-watermarked${side === 'back' ? '-back' : ''}-${Date.now()}.png`
     const { publicUrl, path } = await uploadImageFromBuffer(watermarked, gcsPath, 'image/png')
 
     await supabase
       .from('product_assets')
       .delete()
       .eq('product_id', productId)
-      .eq('asset_role', 'design_watermarked')
+      .eq('asset_role', assetRole)
 
     const { error } = await supabase.from('product_assets').insert({
       product_id: productId,
       kind: 'design_preview',
       path,
       url: publicUrl,
-      asset_role: 'design_watermarked',
+      asset_role: assetRole,
       is_primary: false,
-      display_order: 4,
+      display_order: side === 'back' ? 5 : 4,
       metadata: {
         parent_asset_id: sourceAsset.id,
         watermarked_at: new Date().toISOString(),
+        side,
       },
     })
     if (error) throw new Error(error.message)
-    console.log('[product-build] 🔒 Watermarked design asset created for product:', productId)
+    console.log(`[product-build] 🔒 Watermarked ${side} design asset created for product:`, productId)
   } catch (err: any) {
-    console.error('[product-build] ⚠️ Watermarked design asset failed:', err.message)
+    console.error(`[product-build] ⚠️ Watermarked ${side} design asset failed:`, err.message)
   }
 }
 

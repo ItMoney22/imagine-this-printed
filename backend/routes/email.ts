@@ -23,6 +23,7 @@ import {
 } from '../services/email-resend.js';
 import { uploadFile } from '../services/gcs-storage.js';
 import { listSuppressions, recordSuppression } from '../services/email-suppression.js';
+import { sortByReplyUrgency, triageEmails, wantsSummary, type EmailTriage } from '../lib/jev-triage.js';
 
 const router = Router();
 
@@ -407,12 +408,23 @@ router.get('/mailboxes/:id/messages', requireAuth, async (req: Request, res: Res
     if (error) throw error;
 
     // Strip attachment payloads from list responses (keep names/sizes)
-    const messages = (data || []).map((m: any) => ({
+    let messages = (data || []).map((m: any) => ({
       ...m,
       attachments: (m.attachments || []).map((a: any) => ({
         filename: a.filename, content_type: a.content_type, size: a.size,
       })),
     }));
+
+    // Opt-in Jev triage (?triage=1): adds a label + needs_reply to each inbound
+    // message and reorders reply-today first. It only ever REORDERS — every
+    // message is still returned, nothing is archived or hidden.
+    if (req.query.triage === '1' && folder !== 'sent') {
+      const triage = await triageMessageRows(messages);
+      messages = sortByReplyUrgency(messages, (m: any) => triage.get(m.id)).map((m: any) => ({
+        ...m,
+        triage: publicTriage(triage.get(m.id)),
+      }));
+    }
 
     res.json({ messages, mailbox: { id: mailbox.id, address: mailbox.address, display_name: mailbox.display_name } });
   } catch (error) {
@@ -611,6 +623,66 @@ function messageBodyText(m: { text_body?: string | null; html_body?: string | nu
   return text.slice(0, cap);
 }
 
+// ---------------------------------------------------------------------------
+// Jev mailbox triage — label + needs_reply per inbound message.
+// Messages never change once received, so a CONFIDENT answer is cached per id;
+// rows Jev did not answer (lane down, unsure) are not cached and retry later.
+// ---------------------------------------------------------------------------
+
+const TRIAGE_CACHE_MAX = 5000;
+const triageCache = new Map<string, EmailTriage>();
+
+interface TriageRow {
+  id: string;
+  from_address: string;
+  from_name?: string | null;
+  subject?: string | null;
+  text_body?: string | null;
+  html_body?: string | null;
+}
+
+async function triageMessageRows(rows: TriageRow[]): Promise<Map<string, EmailTriage>> {
+  const out = new Map<string, EmailTriage>();
+  const todo = rows.filter((r) => {
+    const hit = triageCache.get(r.id);
+    if (hit) out.set(r.id, hit);
+    return !hit;
+  });
+  if (!todo.length) return out;
+
+  // List rows carry no body; fetch just the bodies Jev needs.
+  const missingBody = todo.filter((r) => r.text_body === undefined && r.html_body === undefined).map((r) => r.id);
+  const bodies = new Map<string, { text_body?: string | null; html_body?: string | null }>();
+  if (missingBody.length) {
+    const { data } = await supabase.from('email_messages').select('id, text_body, html_body').in('id', missingBody);
+    for (const b of data || []) bodies.set(b.id, b);
+  }
+
+  for (let i = 0; i < todo.length; i += 40) {
+    const chunk = todo.slice(i, i + 40);
+    const triaged = await triageEmails(chunk.map((r) => ({
+      id: r.id,
+      from_address: r.from_address,
+      from_name: r.from_name,
+      subject: r.subject,
+      body: messageBodyText({ ...r, ...bodies.get(r.id) }, 400),
+    })));
+    for (const [id, tr] of triaged) {
+      out.set(id, tr);
+      if (tr.mode === 'on' && tr.jev && !tr.needsReview) {
+        if (triageCache.size >= TRIAGE_CACHE_MAX) triageCache.delete(triageCache.keys().next().value as string);
+        triageCache.set(id, tr);
+      }
+    }
+  }
+  return out;
+}
+
+function publicTriage(tr: EmailTriage | undefined) {
+  if (!tr) return { label: null, needs_reply: 'unsure', needs_review: true };
+  return { label: tr.label, needs_reply: tr.needsReply, needs_review: tr.needsReview };
+}
+
 const MR_IMAGINE_SYSTEM_PROMPT =
   'You are Mr. Imagine, the friendly purple mascot and inbox sidekick at Imagine This Printed. ' +
   'You help employees understand and handle their email. Your answers are read aloud by text-to-speech, ' +
@@ -671,24 +743,48 @@ router.post('/assistant', requireAuth, async (req: Request, res: Response) => {
     } else {
       const { data: recent } = await supabase
         .from('email_messages')
-        .select('from_address, from_name, subject, created_at, is_read, text_body, html_body')
+        .select('id, from_address, from_name, subject, created_at, is_read, text_body, html_body')
         .eq('mailbox_id', mailbox.id)
         .eq('direction', 'inbound')
         .eq('is_archived', false)
         .order('created_at', { ascending: false })
-        .limit(20);
+        .limit(40);
       if (!recent || recent.length === 0) {
         res.json({ reply: `Your ${mailbox.address} inbox is empty right now — nothing to catch up on!` });
         return;
       }
+      // Jev gates the digest: only mail that needs a reply (today, this week,
+      // or unsure — an unsure row is never hidden) goes to the summarizer,
+      // reply-today first. Everything skipped stays in the inbox untouched and
+      // is counted below so the summary never pretends it isn't there.
+      const triage = await triageMessageRows(recent);
+      const needsReply = sortByReplyUrgency(recent.filter((m) => wantsSummary(triage.get(m.id) ?? { needsReply: 'unsure' })), (m) => triage.get(m.id)).slice(0, 20);
+      const skipped = recent.filter((m) => !wantsSummary(triage.get(m.id) ?? { needsReply: 'unsure' }));
+      const skippedByLabel = skipped.reduce<Record<string, number>>((acc, m) => {
+        const label = (triage.get(m.id)?.label ?? 'other').replace(/_/g, ' ');
+        acc[label] = (acc[label] || 0) + 1;
+        return acc;
+      }, {});
+      const skippedNote = skipped.length
+        ? `${skipped.length} other recent message(s) need no reply and were left in the inbox: ` +
+          Object.entries(skippedByLabel).map(([label, n]) => `${n} ${label}`).join(', ') + '.'
+        : '';
+      if (!needsReply.length) {
+        // Nothing to summarize — no model call.
+        res.json({ reply: `Nothing in your ${mailbox.address} inbox needs a reply right now. ${skippedNote}`.trim() });
+        return;
+      }
       context =
-        `RECENT INBOX for ${mailbox.address} (newest first, ${recent.length} messages):\n\n` +
-        recent
-          .map((m, i) =>
-            `${i + 1}. ${m.is_read ? '' : '[UNREAD] '}From ${m.from_name || m.from_address} — "${m.subject}" (${m.created_at})\n` +
-            `   ${messageBodyText(m, 240)}`
-          )
-          .join('\n');
+        `RECENT INBOX for ${mailbox.address} — the ${needsReply.length} message(s) that need a reply, most urgent first:\n\n` +
+        needsReply
+          .map((m, i) => {
+            const t = triage.get(m.id);
+            const tag = t ? ` [${t.label ? t.label.replace(/_/g, ' ') : 'unlabelled'}; reply ${t.needsReply === 'unsure' ? 'maybe' : t.needsReply.replace(/_/g, ' ')}]` : '';
+            return `${i + 1}. ${m.is_read ? '' : '[UNREAD] '}From ${m.from_name || m.from_address} — "${m.subject}" (${m.created_at})${tag}\n` +
+              `   ${messageBodyText(m, 240)}`;
+          })
+          .join('\n') +
+        (skippedNote ? `\n\n${skippedNote}` : '');
     }
 
     const { default: OpenAI } = await import('openai');

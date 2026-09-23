@@ -203,6 +203,65 @@ export function getDesignCandidates(state: Pick<StepFlowState, 'assets'>): Desig
     }))
 }
 
+/** Job types the Design step's own generation (single-model and the
+ *  admin/creator multi-model fan-out) runs under. */
+const DESIGN_JOB_TYPES = new Set(['replicate_image', 'replicate_image_v2'])
+
+/**
+ * The newest design-generation job that failed outright — used to offer a
+ * rephrase path when there is NO successful take to show for it (`
+ * getDesignCandidates` came back empty). Without this, a first-attempt
+ * refusal (the image model's own safety filter, not a server/network error)
+ * left the Design step showing the generic "No design on this product yet"
+ * panel with no explanation and, since Tweak is only offered once a
+ * candidate exists to tweak from, no way to even retry with different wording.
+ */
+export function getFailedDesignJob(state: Pick<StepFlowState, 'jobs'>): StepFlowJob | undefined {
+  return [...state.jobs]
+    .filter((j) => DESIGN_JOB_TYPES.has(j.type) && j.status === 'failed')
+    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))[0]
+}
+
+/**
+ * Replicate's content-safety refusal — documented in this codebase as error
+ * code E005 (see docs/FLUX2_SINGLE_CALL_GRADING_REPORT.md and
+ * scripts/ab-mockup-flux2.mjs's "flagged as sensitive (E005)") — surfaces as
+ * ordinary prose inside `job.error`, not a structured field: e.g. `replicate
+ * black-forest-labs/flux-2-pro failed: NSFW content detected in the
+ * generated image` or `...flagged as sensitive (E005)`. Matched loosely on
+ * purpose and kept provider-agnostic (also covers OpenAI-style "content
+ * policy" refusals) — providers reword this without warning, a false
+ * negative here just falls back to the generic failure panel, but a false
+ * positive would wrongly tell someone their idea was flagged.
+ */
+export function isSensitivePromptError(message: string | null | undefined): boolean {
+  if (!message) return false
+  return /e005|flagged as sensitive|sensitive content|nsfw|content polic|safety system|content moderation/i.test(message)
+}
+
+// A handful of generically high-risk words worth stripping outright — never
+// an attempt to guess what specifically tripped a given refusal.
+const GENERICALLY_RISKY_WORDS = /\b(gun|knife|blood|gore|nude|naked|sexy|violent|weapon|drugs?|kill(?:ing)?)\b/gi
+
+/**
+ * A generic, non-judgemental first pass at softening a design prompt the
+ * image model's safety filter refused (Replicate's E005 / an NSFW-worded
+ * refusal). Deliberately does NOT try to guess what specifically tripped the
+ * refusal — providers' safety filters false-positive on plenty of ordinary
+ * prompts (see FANOUT_EXCLUDE / the flux-2-pro E005 notes in
+ * backend/services/image-flow) — it only strips a short list of generically
+ * risky words and appends a neutral "wholesome, family-friendly" framing
+ * clause that nudges the SAME idea toward a safer read. This is a starting
+ * point loaded into an editable textarea, never applied silently — the
+ * user's own rewrite is still the real fix for anything this doesn't catch.
+ */
+export function softenDesignPrompt(prompt: string): string {
+  const stripped = prompt.replace(GENERICALLY_RISKY_WORDS, '').replace(/\s{2,}/g, ' ').trim()
+  const base = stripped || prompt.trim()
+  if (/wholesome|family[- ]friendly/i.test(base)) return base
+  return `${base}, wholesome and family-friendly, non-offensive, playful cartoon style`
+}
+
 function jobStatusToShotStatus(status: StepFlowJob['status']): ShotState['status'] | null {
   switch (status) {
     case 'succeeded':

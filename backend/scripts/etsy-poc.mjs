@@ -211,6 +211,13 @@ async function cmdProperties() {
   if (!ids.length) { console.error('Required: --ids 482,1853'); process.exit(1) }
   for (const id of ids) {
     const res = await api(`/application/seller-taxonomy/nodes/${id}/properties`)
+    if (hasFlag('raw')) {
+      // The full payload, for building a real-shape test fixture. The summary
+      // line hides property_id / possible_values / scales, which is exactly
+      // what a variation bug turns on.
+      console.log(JSON.stringify(res, null, 2))
+      continue
+    }
     const varies = (res.results || []).filter(p => p.supports_variations)
     const names = varies.map(p => `${p.display_name || p.name}${p.scales?.length ? ' [scaled]' : ''}`)
     console.log(`${String(id).padStart(6)}  variation props: ${names.join(', ') || '(NONE)'}`)
