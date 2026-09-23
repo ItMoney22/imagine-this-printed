@@ -30,6 +30,59 @@ interface CreatorProduct {
     username: string
     email: string
   }
+  /** Jev pre-sort (backend/services/jev-approval-presort.ts). A suggestion only — never acted on. */
+  jev_presort?: JevPresort | null
+}
+
+type PresortVerdict = 'approve' | 'needs_fix' | 'reject_quality' | 'reject_ip'
+
+interface JevPresort {
+  recommendation: PresortVerdict | null
+  confidence: number | null
+  reasonCode: string
+  reasonCodes: string[]
+  rationale: string
+  source: 'floor' | 'jev' | 'none'
+  lowConfidence: boolean
+}
+
+type QueueSort = 'jev' | 'created'
+
+const PRESORT_LABEL: Record<PresortVerdict, string> = {
+  approve: 'Suggest: approve',
+  needs_fix: 'Suggest: needs a fix',
+  reject_quality: 'Suggest: reject (quality)',
+  reject_ip: 'Suggest: reject (IP)',
+}
+
+// Token-only styling: approve leans primary, rejects lean accent, no-opinion stays muted.
+const PRESORT_TONE: Record<PresortVerdict | 'none', string> = {
+  approve: 'border-primary text-primary',
+  needs_fix: 'border-secondary text-secondary',
+  reject_quality: 'border-accent text-accent',
+  reject_ip: 'border-accent text-accent',
+  none: 'border-border text-muted',
+}
+
+/** The Jev pre-sort line on a queue card: verdict chip, how sure, and why. */
+const PresortBadge: React.FC<{ presort: JevPresort }> = ({ presort }) => {
+  const tone = PRESORT_TONE[presort.recommendation ?? 'none']
+  const label = presort.recommendation ? PRESORT_LABEL[presort.recommendation] : 'No suggestion: needs a careful read'
+  const sure = presort.confidence != null ? `${Math.round(presort.confidence * 100)}%` : null
+  return (
+    <div className="mt-3 rounded-lg border border-border-subtle bg-bg p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${tone}`}>
+          {label}
+        </span>
+        {sure && presort.recommendation && (
+          <span className="text-xs text-muted">{presort.source === 'floor' ? 'rule check' : `Jev ${sure} sure`}</span>
+        )}
+        <code className="text-xs text-muted">{presort.reasonCode}</code>
+      </div>
+      <p className="mt-1 text-xs text-text-secondary">{presort.rationale}</p>
+    </div>
+  )
 }
 
 // Available shirt colors and sizes
@@ -102,6 +155,11 @@ interface ApprovalConfig {
 export const AdminCreatorProductsTab: React.FC = () => {
   const toast = useToast()
   const [products, setProducts] = useState<CreatorProduct[]>([])
+  // null = whatever the server defaults to (newest first until JEV_PRESORT=on).
+  const [queueSort, setQueueSort] = useState<QueueSort | null>(null)
+  // Vercel and Render deploy independently: an older API has no pre-sort, so
+  // the order toggle only shows once the API proves it understands ?sort.
+  const [presortAvailable, setPresortAvailable] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
@@ -115,13 +173,17 @@ export const AdminCreatorProductsTab: React.FC = () => {
 
   useEffect(() => {
     loadPendingProducts()
-  }, [])
+  }, [queueSort])
 
   const loadPendingProducts = async () => {
     try {
       setLoading(true)
-      const response = await api.get('/api/admin/user-products/pending')
+      const response = await api.get('/api/admin/user-products/pending', {
+        params: queueSort ? { sort: queueSort } : undefined,
+      })
       setProducts(response.data.products || [])
+      setPresortAvailable(!!response.data.presort)
+      if (!queueSort && response.data.presort?.sort) setQueueSort(response.data.presort.sort)
       setError(null)
     } catch (err: any) {
       console.error('Failed to load pending products:', err)
@@ -255,19 +317,35 @@ export const AdminCreatorProductsTab: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-text">Creator Products</h2>
           <p className="text-sm text-muted">
             User-submitted designs pending approval ({products.length} pending)
           </p>
         </div>
-        <button
-          onClick={loadPendingProducts}
-          className="px-4 py-2 bg-card hover:bg-gray-100 border border-gray-200 rounded-lg text-sm"
-        >
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          {presortAvailable && (
+          <div className="inline-flex rounded-lg border border-border overflow-hidden text-sm" role="group" aria-label="Queue order">
+            {([['jev', 'Jev triage'], ['created', 'Newest']] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setQueueSort(key)}
+                aria-pressed={queueSort === key}
+                className={`px-3 py-2 transition-colors ${queueSort === key ? 'bg-primary text-bg' : 'bg-card text-text hover:bg-bg'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          )}
+          <button
+            onClick={loadPendingProducts}
+            className="px-4 py-2 bg-card hover:bg-gray-100 border border-gray-200 rounded-lg text-sm"
+          >
+            Refresh
+          </button>
+        </div>
       </div>
 
       {products.length === 0 ? (
@@ -315,6 +393,8 @@ export const AdminCreatorProductsTab: React.FC = () => {
                       })()}
                     </div>
                   </div>
+
+                  {product.jev_presort && <PresortBadge presort={product.jev_presort} />}
 
                   <p className="mt-2 text-sm text-text">{product.description}</p>
 

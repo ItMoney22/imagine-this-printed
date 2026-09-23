@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { sendEmail, sendProductApprovalEmail } from '../../utils/email.js'
 import { generateSeoPackForProduct } from '../../services/seo-pack.js'
+import { presortMode, presortProducts, sortByPresort, type PresortResult } from '../../services/jev-approval-presort.js'
 
 const router = Router()
 
@@ -37,7 +38,8 @@ router.get('/pending', requireAuth, requireAdmin, async (req: Request, res: Resp
       .from('products')
       .select(`
         *,
-        product_assets (id, url, kind, is_primary, display_order)
+        product_assets (id, url, kind, is_primary, display_order),
+        product_tags (tag)
       `)
       .eq('metadata->>user_submitted', 'true')
       .eq('status', 'pending_approval')
@@ -66,7 +68,26 @@ router.get('/pending', requireAuth, requireAdmin, async (req: Request, res: Resp
       return creatorId ? { ...product, creator: creatorMap.get(creatorId) ?? null } : product
     })
 
-    res.json({ products: productsWithCreators })
+    // Jev pre-sort: a suggested verdict + confidence + reason code per item.
+    // Read-only — it annotates and orders; it never changes a status. Fails
+    // open to the deterministic floor if the Jev lane is down or slow.
+    const mode = presortMode()
+    let presort: Record<string, PresortResult> = {}
+    try {
+      presort = await presortProducts(productsWithCreators, { mode })
+    } catch (err: any) {
+      console.error('[admin-approvals] ⚠️ Jev pre-sort failed (queue served unsorted):', err?.message)
+    }
+    const annotated = productsWithCreators.map((p: any) => ({ ...p, jev_presort: presort[p.id] ?? null }))
+    // ?sort=jev | ?sort=created override; otherwise JEV_PRESORT=on makes Jev order
+    // the default and shadow (the default until benchmarked) keeps newest-first.
+    const sortParam = String(req.query.sort || '')
+    const sortBy = sortParam === 'jev' || sortParam === 'created' ? sortParam : (mode === 'on' ? 'jev' : 'created')
+
+    res.json({
+      products: sortBy === 'jev' ? sortByPresort(annotated) : annotated,
+      presort: { mode, sort: sortBy },
+    })
   } catch (error: any) {
     console.error('[admin-approvals] ❌ Error:', error)
     res.status(500).json({ error: error.message })
