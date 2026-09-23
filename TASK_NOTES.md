@@ -4313,3 +4313,42 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   kind filter is client-side. `tsc -p tsconfig.app.json` clean, `eslint` 0
   errors.
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+
+### Work log (append-only) — 2026-09-23 Jev Etsy buyer-note eval on real receipts (Watchtower 7f91312c)
+
+Scope note: this dispatch is a continuation of task 2a83afec's Etsy triage, so
+the file shortlist above (which belongs to an earlier, unrelated request) does
+not describe it. Files touched: `backend/lib/jev-triage.ts`,
+`backend/lib/jev-triage.test.ts`, `backend/scripts/jev-triage-eval.ts`,
+`docs/reports/jev-triage-eval-2026-09-23-etsy-followup.md`, `TASK_NOTES.md`.
+
+- Cherry-picked `b278fe8` (task 2a83afec, unmerged on
+  `earth/lucas-blaze/implement-jev-triage-for-2a83afec-mue1eia1`) onto this
+  branch to get `backend/lib/jev-triage.ts` at all — it didn't exist on `main`
+  yet. One conflict, in this file's own append-only log; resolved by keeping
+  both entries.
+- Queried prod `orders` directly (service role): **zero** rows with
+  `source='etsy'` — not just zero with a buyer note, zero Etsy orders at all.
+  `etsy_connection.scopes` confirms why: `listings_r listings_w shops_r shops_w`,
+  no `transactions_r`; `receipts_watermark` is still `0`. Same blocker as board
+  task c93b557e (open) — did not file a duplicate approval.
+- With no real rows to hand-label, built a harder 30-row synthetic Etsy eval
+  (`ETSY_SYNTHETIC_FALLBACK` in `jev-triage-eval.ts`, used automatically when
+  `data.etsy` is empty) and used it to pressure-test `etsyFlagFloor()`. Found
+  and fixed two real bugs: bare `urgent`/`asap` false-positived `problem` on
+  negated text ("Not urgent, ..."), and the personalization label regex missed
+  the common no-space `"Name:Ava"` / `"Number:7"` format. Both covered by new
+  unit tests. Full details + eval numbers:
+  `docs/reports/jev-triage-eval-2026-09-23-etsy-followup.md`.
+- Live eval run (real Jev call, `typesafe/jev-1.13`, $0.00065): 100% final
+  accuracy, 1.00 precision/recall on all 4 classes across the 30 synthetic
+  rows. Floor alone 83.3% — confirms Jev is still carrying real weight, not
+  just the floor doing all the work.
+- Regression check: `jev-triage.test.ts` 28/28, `etsy-receipt-ingest.test.ts`
+  7/7, full suite 1521 passed / 3 failed (all 3 pre-existing
+  `etsy-copy-repair.test.ts` failures, unrelated, already known-fixed on
+  unmerged `6a32a2a`). `tsc --noEmit` clean except pre-existing unrelated
+  `@types/qs` errors in `middleware/rate-limits.ts`.
+- Filed a follow-up Watchtower task to re-run this eval against real notes once
+  c93b557e clears (a populated `data.etsy[]` takes priority over the synthetic
+  fallback automatically — no code change needed to pick it up).

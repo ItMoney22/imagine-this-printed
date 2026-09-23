@@ -482,9 +482,21 @@ const ETSY_RANK: Record<EtsyFlag, number> = { none: 0, personalization: 1, chang
 
 // Deliberately narrow: this is a MINIMUM, so a broad word like "mistake" ("I
 // clicked black by mistake" is a change request) would drag Jev's right answer up.
-const RE_ETSY_PROBLEM = /\b(damaged|never (arrived|received)|refund|upset|disappointed|urgent|asap|by (friday|monday|saturday|sunday|tuesday|wednesday|thursday|tomorrow))\b/i
+//
+// Tuned 2026-09-23 (task 7f91312c) against a hand-built edge-case set (real
+// production has zero Etsy orders yet — see jev-triage-eval.ts's synthetic
+// fallback and the eval report for why):
+//   - "urgent"/"asap" used to fire even when negated ("Not urgent, just..."),
+//     which is a real false positive: the floor is a MINIMUM Jev cannot lower,
+//     so a negated word silently locked a `none` note to `problem`.
+//   - The personalization label pattern required a literal space before the
+//     colon ("Name: Ava"), which real buyer notes almost never have
+//     ("Name:Ava" / "Names: Ava and Ben" / "Number:7" all missed).
+const RE_ETSY_PROBLEM = /\b(damaged|never (arrived|received)|refund|upset|disappointed|by (friday|monday|saturday|sunday|tuesday|wednesday|thursday|tomorrow))\b/i
+const RE_ETSY_URGENCY = /\burgent\b|\basap\b/i
+const RE_NEGATED_URGENCY = /\b(not|no|nothing|isn'?t|wasn'?t|never)\s+(\w+\s+){0,2}(urgent|asap)\b/i
 const RE_ETSY_CHANGE = /\b(change (the|my)|instead of|switch (to|the)|different (size|colou?r)|wrong (size|colou?r) (selected|chosen)|cancel|new address|ship to)\b/i
-const RE_ETSY_PERSONAL = /\b(personali[sz]|name(s)? (on|should|is|:)|put ["'“]|initials|monogram|number \d+|jersey (name|number)|text (should|to) (say|read))\b/i
+const RE_ETSY_PERSONAL = /\b(personali[sz]|name(s)?\s*(:|on\b|should\b|is\b)|put ["'“]|initials|monogram|number\s*:?\s*\d+|jersey (name|number)|text (should|to) (say|read))/i
 
 export interface EtsyFlagFloor {
   flag?: EtsyFlag
@@ -494,7 +506,7 @@ export interface EtsyFlagFloor {
 export function etsyFlagFloor(message: string | null | undefined): EtsyFlagFloor {
   const m = (message || '').trim()
   if (!m) return { flag: 'none', rules: ['empty_message'] }
-  if (RE_ETSY_PROBLEM.test(m)) return { flag: 'problem', rules: ['keyword:problem'] }
+  if (RE_ETSY_PROBLEM.test(m) || (RE_ETSY_URGENCY.test(m) && !RE_NEGATED_URGENCY.test(m))) return { flag: 'problem', rules: ['keyword:problem'] }
   if (RE_ETSY_CHANGE.test(m)) return { flag: 'change_request', rules: ['keyword:change'] }
   if (RE_ETSY_PERSONAL.test(m)) return { flag: 'personalization', rules: ['keyword:personalization'] }
   return { rules: [] }

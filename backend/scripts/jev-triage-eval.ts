@@ -13,6 +13,18 @@
 // "old" = what production did before Jev: the customer-picked category and
 // `billing ? high : medium` for tickets; summarize every inbox email; no Etsy
 // flag at all.
+//
+// Etsy buyer notes (task 7f91312c, 2026-09-23): re-checked whether production
+// has any real Etsy orders with a buyer note yet — it has ZERO (not "zero with
+// a note" — zero Etsy orders at all: `orders` has no `source='etsy'` rows).
+// Receipt ingest is still blocked on the `transactions_r` re-consent (task
+// c93b557e). When `data.etsy` is missing or empty, evalEtsy() below falls back
+// to ETSY_SYNTHETIC_FALLBACK — a harder, hand-built 30-row set (vs. the
+// original 12) that is safe to commit because none of it is real customer
+// text. It exists to pressure-test the floor keywords, not to stand in for
+// real-world label distribution. Re-run against real notes once ingest flows
+// (see docs/reports/jev-triage-eval-2026-09-23.md and the follow-up task filed
+// alongside this dataset) — a populated `data.etsy` always takes priority.
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import {
@@ -29,11 +41,54 @@ import {
   triageTicket,
   wantsSummary,
   type EmailInput,
+  type EtsyFlag,
   type TicketInput,
 } from '../lib/jev-triage.js'
 import { askJev, type JevAnswers, type JevChoiceQuestion } from '../lib/jev.js'
 
 interface Row<I, L> { source: string; input: I; label: L }
+
+// Hand-labeled, entirely synthetic (no real customer text) — safe to commit.
+// 8 none / 8 personalization / 7 change_request / 7 problem. A few rows are
+// deliberately adversarial against the deterministic floor:
+//   - "Not urgent..." / "Nothing urgent..." used to false-positive `problem`
+//     via the bare "urgent" keyword (fixed alongside this dataset).
+//   - "Names:Ava and Ben" / "Name: Ava, Number: 7" used to miss `personalization`
+//     because the old regex required a space before the colon (fixed).
+//   - Three rows ("wedding date", "make it say", "birthday in 3 days") carry
+//     no floor keyword at all, so they only pass if Jev's raw read is right.
+const ETSY_SYNTHETIC_FALLBACK: { source: string; message: string; items: string[]; label: EtsyFlag }[] = [
+  { source: 'synthetic', message: "Thank you so much, can't wait to get this!", items: ['Custom Tee'], label: 'none' },
+  { source: 'synthetic', message: "This is a gift for my sister's birthday :)", items: ['Hoodie'], label: 'none' },
+  { source: 'synthetic', message: 'You guys are the best, appreciate it!', items: ['Custom Tee'], label: 'none' },
+  { source: 'synthetic', message: '😍😍😍 obsessed already', items: ['Poster'], label: 'none' },
+  { source: 'synthetic', message: 'Not urgent, just wanted to say I loved my last order!', items: ['Custom Tee'], label: 'none' },
+  { source: 'synthetic', message: 'Nothing urgent, just wanted to say thanks for the quick shipping last time!', items: ['Hoodie'], label: 'none' },
+  { source: 'synthetic', message: 'So happy with my last order, ordering more soon!', items: ['Custom Tee'], label: 'none' },
+  { source: 'synthetic', message: '   ', items: ['Custom Tee'], label: 'none' },
+  { source: 'synthetic', message: "Please put 'Coach Dan' on the back", items: ['Jersey'], label: 'personalization' },
+  { source: 'synthetic', message: 'Name: Ava, Number: 7', items: ['Jersey'], label: 'personalization' },
+  { source: 'synthetic', message: 'Can you monogram the initials J.T.M. on the pocket?', items: ['Towel'], label: 'personalization' },
+  { source: 'synthetic', message: 'Names:Ava and Ben', items: ['Ornament'], label: 'personalization' },
+  { source: 'synthetic', message: 'the name on it should be Sam', items: ['Mug'], label: 'personalization' },
+  { source: 'synthetic', message: "For the jersey - name 'Rodriguez' number 22", items: ['Jersey'], label: 'personalization' },
+  { source: 'synthetic', message: 'put our wedding date 06.14.2026 under the design', items: ['Sign'], label: 'personalization' },
+  { source: 'synthetic', message: "make it say 'Est. 2027' please", items: ['Custom Tee'], label: 'personalization' },
+  { source: 'synthetic', message: 'Can I switch the color to navy instead of black?', items: ['Hoodie'], label: 'change_request' },
+  { source: 'synthetic', message: 'Please change size to XL, I ordered L by mistake', items: ['Custom Tee'], label: 'change_request' },
+  { source: 'synthetic', message: 'I need to update my shipping address to 123 Elm St', items: ['Custom Tee'], label: 'change_request' },
+  { source: 'synthetic', message: 'Can you cancel this order, I found it cheaper elsewhere', items: ['Poster'], label: 'change_request' },
+  { source: 'synthetic', message: 'Wrong size selected, need medium not small', items: ['Custom Tee'], label: 'change_request' },
+  { source: 'synthetic', message: "Actually I'd like 2 instead of 1, can you add another?", items: ['Custom Tee'], label: 'change_request' },
+  { source: 'synthetic', message: 'Sorry, can you cancel the personalization and just ship it blank?', items: ['Jersey'], label: 'change_request' },
+  { source: 'synthetic', message: "This never arrived and it's been 3 weeks, I'm really upset", items: ['Custom Tee'], label: 'problem' },
+  { source: 'synthetic', message: "The shirt I got is damaged, there's a hole in it", items: ['Custom Tee'], label: 'problem' },
+  { source: 'synthetic', message: 'I need this by Friday for a funeral, is that possible?', items: ['Hoodie'], label: 'problem' },
+  { source: 'synthetic', message: 'This is not what I ordered, please help ASAP', items: ['Custom Tee'], label: 'problem' },
+  { source: 'synthetic', message: "My daughter's birthday is in 3 days, will this make it in time?", items: ['Hoodie'], label: 'problem' },
+  { source: 'synthetic', message: "I'm so disappointed this took so long to ship, but I still love it!", items: ['Custom Tee'], label: 'problem' },
+  { source: 'synthetic', message: "Please rush this, it's urgent, needed by tomorrow for a work event", items: ['Custom Tee'], label: 'problem' },
+]
 
 const args = process.argv.slice(2)
 const path = args.find((a) => !a.startsWith('--'))
@@ -143,8 +198,18 @@ async function evalEmails() {
 }
 
 async function evalEtsy() {
-  const rows: { source: string; message: string; items: string[]; label: string }[] = data.etsy || []
+  const real: { source: string; message: string; items: string[]; label: EtsyFlag }[] = data.etsy || []
+  const usingSynthetic = real.length === 0
+  const rows = usingSynthetic ? ETSY_SYNTHETIC_FALLBACK : real
   const tally = { n: rows.length, floor: 0, final: 0, jevRaw: 0, answered: 0, reviewed: 0, problemsMissed: 0, problems: 0 }
+  const classes: EtsyFlag[] = ['none', 'personalization', 'change_request', 'problem']
+  // confusion[actual][predicted]
+  const confusion: Record<EtsyFlag, Record<EtsyFlag, number>> = {
+    none: { none: 0, personalization: 0, change_request: 0, problem: 0 },
+    personalization: { none: 0, personalization: 0, change_request: 0, problem: 0 },
+    change_request: { none: 0, personalization: 0, change_request: 0, problem: 0 },
+    problem: { none: 0, personalization: 0, change_request: 0, problem: 0 },
+  }
   const misses: unknown[] = []
   for (const r of rows) {
     const floor = etsyFlagFloor(r.message)
@@ -154,14 +219,29 @@ async function evalEtsy() {
     if (tr.flag === r.label) tally.final++
     if (tr.needsReview) tally.reviewed++
     if (r.label === 'problem') { tally.problems++; if (tr.flag !== 'problem' && !tr.needsReview) tally.problemsMissed++ }
-    if (tr.flag !== r.label) misses.push({ message: r.message, want: r.label, got: tr.flag, review: tr.needsReview, jev: tr.jev })
+    confusion[r.label][tr.flag]++
+    if (tr.flag !== r.label) misses.push({ message: r.message, want: r.label, got: tr.flag, review: tr.needsReview, jev: tr.jev, floor: floor.flag ?? 'none' })
   }
   void combineEtsyFlag; void ETSY_FLAG_CRITERIA
-  console.log(`\n== ETSY BUYER NOTES (${tally.n} rows, all synthetic — prod has no Etsy orders with a buyer note yet) ==`)
+  console.log(`\n== ETSY BUYER NOTES (${tally.n} rows${usingSynthetic ? ', SYNTHETIC FALLBACK — prod has 0 Etsy orders total (blocked on task c93b557e, transactions_r scope)' : `, ${rows.filter((r) => r.source !== 'synthetic').length} real`}) ==`)
   console.log(`flag  old n/a (no flag existed) | floor ${pct(tally.floor, tally.n)} | jev raw ${pct(tally.jevRaw, tally.answered)} | final ${pct(tally.final, tally.n)}`)
   console.log(`problems silently missed (wrong flag AND not sent to review): ${tally.problemsMissed}/${tally.problems}; sent to review ${tally.reviewed}`)
+  console.log('confusion (rows = actual, cols = predicted):')
+  console.log(['        '.padEnd(17), ...classes.map((c) => c.slice(0, 12).padEnd(13))].join(''))
+  for (const actual of classes) {
+    console.log([actual.padEnd(17), ...classes.map((pred) => String(confusion[actual][pred]).padEnd(13))].join(''))
+  }
+  const perClass = classes.map((c) => {
+    const tp = confusion[c][c]
+    const totalActual = classes.reduce((s, a) => s + confusion[c][a], 0)
+    const totalPredicted = classes.reduce((s, a) => s + confusion[a][c], 0)
+    const recall = totalActual ? tp / totalActual : NaN
+    const precision = totalPredicted ? tp / totalPredicted : NaN
+    return { class: c, precision: isNaN(precision) ? 'n/a' : precision.toFixed(2), recall: isNaN(recall) ? 'n/a' : recall.toFixed(2), support: totalActual }
+  })
+  console.log('per-class precision/recall:', JSON.stringify(perClass))
   if (misses.length) console.log('misses:', JSON.stringify(misses, null, 1))
-  report.etsy = { tally, misses }
+  report.etsy = { tally, usingSynthetic, confusion, perClass, misses }
 }
 
 await evalTickets()

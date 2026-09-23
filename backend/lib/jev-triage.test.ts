@@ -228,6 +228,20 @@ describe('Etsy buyer notes', () => {
     expect(etsyFlagFloor('Thanks so much!')).toEqual({ rules: [] })
   })
 
+  it('floor: negated urgency is not a problem — a bare keyword match would have locked it there, above what Jev can lower', () => {
+    expect(etsyFlagFloor('Not urgent, just wanted to say I loved my last order!')).toEqual({ rules: [] })
+    expect(etsyFlagFloor('Nothing urgent, just checking in')).toEqual({ rules: [] })
+    expect(etsyFlagFloor('This is urgent, please help')).toMatchObject({ flag: 'problem' })
+    expect(etsyFlagFloor("Please rush this, it's urgent, needed by tomorrow")).toMatchObject({ flag: 'problem' })
+  })
+
+  it('floor: a colon-attached label ("Name:Ava", "Number:7") still reads as personalization', () => {
+    expect(etsyFlagFloor('Name: Ava, Number: 7')).toMatchObject({ flag: 'personalization' })
+    expect(etsyFlagFloor('Names:Ava and Ben')).toMatchObject({ flag: 'personalization' })
+    expect(etsyFlagFloor('Number:7')).toMatchObject({ flag: 'personalization' })
+    expect(etsyFlagFloor('I bought a name brand shirt')).toEqual({ rules: [] }) // unrelated "name" must not trip it
+  })
+
   it('empty note: no call, flag none, no review', async () => {
     const calls: any[] = []
     const tr = await triageEtsyBuyerMessage('  ', ['Tee'], fakeJev({}, calls))
