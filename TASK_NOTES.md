@@ -4252,3 +4252,13 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## Current request (2026-09-23) — Pluto shipping-label print agent
+
+### File shortlist (approved scope)
+- Read first: `AGENTS.md`, `CLAUDE.md`, `CLAUDE_TASK.md`, `TASK_NOTES.md`; inspect `README.md` and `backend/package.json` only for API base and commands.
+- Unmerged contract reference: `backend/routes/print-station.ts` and `backend/services/print-station.ts` on `earth/zero-nine/shipping-station`.
+- Allowed edits for this Codex run: `CLAUDE_TASK.md` and `TASK_NOTES.md` only. Agent code, tests, service files, and `.beats.log` need an explicit repo-scope expansion.
+
+### Work log (append-only)
+- 2026-09-23 — Scouted Watchtower task d2ae8c07-ed4a-49af-b426-36a196dc777b. The shipping-station API exists only on unmerged branch `earth/zero-nine/shipping-station`; production `https://api.imaginethisprinted.com/api/print-station/` returned 404. Recorded the blocked gate, API contract, recovery/printing assumptions, and acceptance checks in `CLAUDE_TASK.md`; no agent implementation or Pluto printer test was started.
