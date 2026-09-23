@@ -4252,3 +4252,41 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### Work log (append-only) — 2026-09-23 merge taxonomy 6617 fix to main
+- Task: merge `earth/zero-nine/fix-etsy-transfer-listin-93ef1eb3-mubkh0y1`
+  (commit d7a42cd — Custom Property slot fallback for Etsy taxonomy 6617,
+  which has no native Size property) into main and push to origin.
+- Verified d7a42cd's full lineage: it sits on top of two other unpushed
+  commits (32be443 "an abandoned checkout is not a pending order", 0047354
+  the 2026-09-17 weekly Etsy review notes), neither of which existed yet on
+  origin/main (6522e57). Confirmed via `git patch-id` that neither had
+  already landed under a different hash before merging.
+- Built the merge against `origin/main` directly (not the shared checkout's
+  local `main`, which carries 32 additional unpushed commits out of scope
+  for this task) so the push stayed limited to exactly this branch's
+  changes. Clean merge, zero conflicts (9 files touched, none overlapping
+  main's divergent history).
+- Verified: `etsy-variations.test.ts` + `etsy-update.test.ts` 36/36 green,
+  including the taxonomy 6617 fallback suite and the taxonomy 482
+  native-Size/Color regression pin. Full backend `vitest run`: 1363/1365
+  green — the 2 failures are in `etsy-copy-repair.test.ts`, a file this
+  merge never touched (byte-identical to origin/main before and after),
+  confirmed pre-existing and out of scope.
+- Backend `tsc --noEmit`: 6 pre-existing errors, all in
+  `middleware/rate-limits.ts` (untouched by this merge, a `@types/qs`
+  cross-worktree path-portability artifact, not a code defect) — zero
+  errors in any file this branch changed. `eslint` on every changed file:
+  0 errors, 71 pre-existing `no-explicit-any`/style warnings consistent
+  with the rest of the codebase.
+- Pushed merge commit `baf6de6` directly to `origin/main`
+  (`6522e57..baf6de6`), confirmed live via `git fetch` + `git log`. This
+  is a production deploy (Render API+worker, Vercel) — in scope, since
+  "merge cleanly and push to origin" was this task's explicit deliverable.
+- NOTE for the next sync: the shared checkout's local `main` (currently
+  ac3ad6e) does NOT yet have d7a42cd — it still needs `origin/main`
+  (baf6de6) merged/pulled in to pick up the taxonomy 6617 fix. Everything
+  else in baf6de6 (32be443, 0047354) was already present in local main.
+- Live backfill for already-published flat-$12 transfer listings remains
+  separately tracked under approval task 8c4f1e13-7c70-4d70-8212-832a1b680fc6
+  (not touched here — this merge only changes how NEW listings publish).
