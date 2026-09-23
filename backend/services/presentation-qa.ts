@@ -26,6 +26,8 @@ import OpenAI from 'openai'
 import { checkMockup, coverageIsExempt } from './mockup-qa.js'
 import { measureImages, measureOpacity, type ImageMetricsResult, type OpacityResult } from './image-metrics.js'
 import { MAX_TAGS, MAX_TITLE_LEN } from './etsy-listing-fields.js'
+import { NOT_OFFERED } from '../shared/catalog-capability.js'
+import { askJev, confidenceOf, jevEnabled, pickChoice, readScore, type JevQuestion, type JevResult } from './jev.js'
 
 const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
 const VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-5.6-terra'
@@ -82,6 +84,8 @@ export interface PresentationVerdict {
   warningCount: number
   model: string
   durationMs: number
+  /** What the Jev copy pass said and whether it let the vision call be skipped. */
+  copyReview?: CopyReviewSummary
 }
 
 // ---------------------------------------------------------------------------
@@ -646,6 +650,353 @@ export function checkSeo(input: Pick<PresentationInput, 'channel' | 'title' | 'd
 }
 
 // ---------------------------------------------------------------------------
+// (d2) COPY TRUTH — does the copy promise something ITP cannot make?
+//
+// Two layers, same shape as the rest of the gate: a deterministic floor that
+// always runs and a model read on top.
+//
+//   FLOOR  narrow phrases naming a NOT_OFFERED product or decoration. Never
+//          overruled — Jev can add findings, it cannot clear one. Even "not
+//          embroidered" blocks: the listing then ranks for embroidery searches
+//          and the buyer who clicked for that is the one who returns it.
+//   JEV    one decisions call grading the whole package: a four-way copy
+//          class, a title-quality score and a relevance score per tag. Only a
+//          CONFIDENT unfulfillable_claim / wrong_product_noun blocks; everything
+//          else is a warning, and an unsure answer is routed to a human.
+//
+// PRESENTATION_QA_JEV:
+//   shadow (default)  Jev runs and its answers are recorded on the seo
+//                     criterion's `measured.jev`, but it changes no verdict and
+//                     never skips the vision call. This is the benchmark mode —
+//                     backend/scripts/qa-jev-benchmark.ts compares it to the
+//                     current gate on live rows before anyone flips it.
+//   enforce           Jev findings join the verdict, and the vision call is
+//                     skipped when the submission is already certain to fail.
+//   off               Jev is not called at all.
+//
+// WHY THE VISION CALL IS NOT SKIPPED ON "COPY LOOKS FINE": the vision reviewer
+// grades the PHOTO — realism, placement, typography, a background panel — and
+// Jev reads only text. A confident "the copy is fine" says nothing about a
+// melted hand in the primary shot, and this gate is fail-closed, so skipping
+// vision there would either pass an unchecked photo or fail every good listing
+// as unverified. What Jev CAN decide is that a submission is already going
+// back for rework; paying for a photo review of a presentation that has to be
+// resubmitted anyway is the waste, and that is the call it gates.
+// ---------------------------------------------------------------------------
+export type JevCopyMode = 'off' | 'shadow' | 'enforce'
+export const jevCopyMode = (): JevCopyMode => {
+  const raw = String(process.env.PRESENTATION_QA_JEV ?? 'shadow').toLowerCase()
+  return raw === 'off' || raw === 'enforce' ? raw : 'shadow'
+}
+/** A Jev answer that BLOCKS a listing must clear this — being wrong holds a good listing back. */
+export const JEV_BLOCK_CONFIDENCE = Number(process.env.QA_JEV_BLOCK_CONFIDENCE || 0.85)
+/** A Jev answer that only WARNS needs this. Under it, the copy goes to a human. */
+export const JEV_WARN_CONFIDENCE = Number(process.env.QA_JEV_WARN_CONFIDENCE || 0.75)
+
+export const COPY_CLASSES = ['copy_ok', 'filler', 'wrong_product_noun', 'unfulfillable_claim'] as const
+export type CopyClass = typeof COPY_CLASSES[number]
+
+/** Rubric rungs, lowest first — the answer is a float index 0-3. */
+export const TAG_RELEVANCE_RUBRIC = [
+  'unrelated or misleading: names a different product, subject or audience than this listing',
+  'generic filler: would fit almost any listing in the shop and ranks for nothing',
+  'related but broad: true of this listing but shared with thousands of others',
+  'specific buyer phrase: what a shopper looking for THIS design on THIS product would type'
+]
+export const TITLE_QUALITY_RUBRIC = [
+  'misleading or unreadable: keyword soup, names the wrong product, or says nothing about the design',
+  'weak: generic enough to belong to any listing in the category',
+  'decent: names the design and the product but reads flat',
+  'strong: names the design, one or two honest descriptors and the product type in readable words'
+]
+
+/** What ITP actually ships per category, stated for the model so it can tell
+ *  a design SUBJECT ("Sherman tank") from a product claim ("tank top"). */
+const CATEGORY_FACTS: Record<string, string> = {
+  shirts: 'A unisex crew-neck t-shirt (adult and youth sizes), printed with a DTF (direct-to-film) transfer. It is not embroidered, not sublimated, and not a polo or a tank top.',
+  hoodies: 'A pullover hooded sweatshirt printed with a DTF (direct-to-film) transfer. It is not embroidered, not sublimated, not a zip-up polo or a tank.',
+  'dtf-transfers': 'A ready-to-press DTF transfer sheet the buyer heat-presses onto their own garment. It is NOT a finished garment and nothing is embroidered.',
+  tumblers: 'A printed drinkware tumbler.',
+  'metal-art': 'A glossy aluminium wall panel with a dye-sublimated print. Sublimation IS correct for this product; it is not clothing.',
+  '3d-prints': 'A physical 3D-printed object.',
+  '3d-models': 'A downloadable 3D model file, not a physical object.'
+}
+const APPAREL = new Set(['shirts', 'hoodies'])
+
+/**
+ * The deterministic floor. Every NOT_OFFERED entry has a pattern (a test holds
+ * that), and each pattern names the PRODUCT or DECORATION, never the bare word:
+ * "tank" alone is a Sherman on a history tee, "polo" alone is Marco Polo.
+ * Apparel-only entries are skipped elsewhere — metal art really is sublimated.
+ */
+export const UNFULFILLABLE_PATTERNS: Record<typeof NOT_OFFERED[number], { pattern: RegExp; apparelOnly: boolean; label: string; meaning: string }> = {
+  polo: { pattern: /\bpolo\s+(shirt|tee|top)s?\b|\bpolos\b/i, apparelOnly: true, label: 'polo shirt', meaning: 'polo or collared shirts' },
+  tank: {
+    pattern: /\btank\s*-?\s*tops?\b|\b(muscle|racerback|workout)\s+tanks?\b|\bsleeveless\b/i,
+    apparelOnly: true,
+    label: 'tank top',
+    meaning: 'tank tops or any sleeveless cut'
+  },
+  embroidery: { pattern: /\bembroider(ed|y|ies)\b/i, apparelOnly: false, label: 'embroidery', meaning: 'embroidery or any stitched-thread design' },
+  'sublimation-garment': {
+    pattern: /\b(dye[-\s]?)?sublimat(ed|ion)\b/i,
+    apparelOnly: true,
+    label: 'sublimation printing',
+    meaning: 'sublimation or all-over dye printing on clothing'
+  }
+}
+
+export interface UnfulfillableHit { offer: string; label: string; field: 'title' | 'description' | 'tags'; match: string }
+
+export function findUnfulfillableClaims(
+  input: Pick<PresentationInput, 'category' | 'title' | 'description' | 'tags'>
+): UnfulfillableHit[] {
+  const apparel = APPAREL.has(String(input.category ?? ''))
+  const fields: Array<[UnfulfillableHit['field'], string]> = [
+    ['title', String(input.title ?? '')],
+    ['description', String(input.description ?? '')],
+    ['tags', (input.tags ?? []).join(' | ')]
+  ]
+  const hits: UnfulfillableHit[] = []
+  for (const [offer, rule] of Object.entries(UNFULFILLABLE_PATTERNS)) {
+    if (rule.apparelOnly && !apparel) continue
+    for (const [field, text] of fields) {
+      const m = rule.pattern.exec(text)
+      if (m) hits.push({ offer, label: rule.label, field, match: m[0] })
+    }
+  }
+  return hits
+}
+
+/** The Jev question set for one presentation. Pure, so the wording is testable. */
+export function buildCopyQuestions(
+  input: Pick<PresentationInput, 'category' | 'title' | 'description' | 'tags'>
+): { state: Record<string, unknown>; questions: Record<string, JevQuestion>; tagKeys: string[] } {
+  const category = String(input.category ?? 'unknown')
+  const tags = (input.tags ?? []).map(clean).filter(Boolean).slice(0, 20)
+  const notOffered = Object.entries(UNFULFILLABLE_PATTERNS)
+    .filter(([, r]) => !r.apparelOnly || APPAREL.has(category))
+    .map(([, r]) => r.meaning)
+
+  const state = {
+    shop: 'Imagine This Printed — a print shop. Everything is made to order.',
+    product: CATEGORY_FACTS[category] ?? `A product in the "${category}" category.`,
+    not_made_by_this_shop: notOffered.join(', '),
+    title: clean(input.title),
+    description: String(input.description ?? '').trim().slice(0, 2500),
+    tags: tags.map((t, i) => `t${i}: ${t}`).join(' | ')
+  }
+
+  const questions: Record<string, JevQuestion> = {
+    copy_class: {
+      type: 'choice',
+      instructions:
+        'Read the title, description and tags together. Which ONE describes the listing copy? A word that names ' +
+        'the DESIGN\'S SUBJECT (a Sherman tank, Marco Polo) is not a product claim.',
+      criteria: {
+        copy_ok: 'The copy honestly describes the product this shop makes, in specific words about this design.',
+        filler: 'The copy is generic keyword padding — it could be pasted onto any listing and says almost nothing about this design.',
+        wrong_product_noun: 'The copy calls the product something it is not — a mug, poster, sticker, hoodie or sweatshirt when it is a t-shirt, or the reverse.',
+        unfulfillable_claim: `The copy promises a product or decoration this shop does not make (${notOffered.join(', ')}), so a buyer would receive something different from what was described.`
+      }
+    },
+    title_quality: {
+      type: 'score',
+      instructions: 'How good is the title as a search-result headline for this exact product?',
+      criteria: TITLE_QUALITY_RUBRIC
+    }
+  }
+  const tagKeys: string[] = []
+  tags.forEach((t, i) => {
+    const key = `tag_${i}`
+    tagKeys.push(key)
+    questions[key] = {
+      type: 'score',
+      instructions: `How relevant is tag t${i} ("${t}") to this exact listing?`,
+      criteria: TAG_RELEVANCE_RUBRIC
+    }
+  })
+  return { state, questions, tagKeys }
+}
+
+export interface CopyReview {
+  /** Findings to fold into the seo criterion (floor findings always; Jev ones only when enforced). */
+  findings: Finding[]
+  /** Findings Jev WOULD add in enforce mode — recorded in shadow for the benchmark. */
+  jevFindings: Finding[]
+  measured: Record<string, unknown>
+  copyClass: CopyClass | null
+  /** Confident enough in a blocking class to fail the listing on it. */
+  jevBlocks: boolean
+  needsHumanReview: boolean
+}
+
+/** Turn Jev's answers + the floor into findings. Pure — no network. */
+export function interpretCopyReview(
+  input: Pick<PresentationInput, 'category' | 'title' | 'description' | 'tags'>,
+  jev: JevResult | null,
+  mode: JevCopyMode
+): CopyReview {
+  const findings: Finding[] = []
+  const jevFindings: Finding[] = []
+  const hits = findUnfulfillableClaims(input)
+
+  if (hits.length) {
+    const labels = [...new Set(hits.map(h => h.label))]
+    findings.push({
+      severity: 'block',
+      issue: `The copy offers ${labels.join(' and ')}, which ITP does not make: ${hits.map(h => `"${h.match}" in the ${h.field}`).join(', ')}.`,
+      fix: 'Remove it from the title, description and tags — even as a negation. The listing would rank for searches it cannot fulfil, and those buyers are the returns.',
+      evidence: { source: 'deterministic', hits, not_offered: [...NOT_OFFERED] }
+    })
+  }
+
+  const measured: Record<string, unknown> = { unfulfillable_hits: hits.length, jev_mode: mode }
+  if (!jev) {
+    measured.jev = mode === 'off' ? 'off' : 'unavailable'
+    return { findings, jevFindings, measured, copyClass: null, jevBlocks: false, needsHumanReview: false }
+  }
+
+  const answers = jev.answers
+  const tags = (input.tags ?? []).map(clean).filter(Boolean).slice(0, 20)
+  const rawClass = (answers.copy_class as { choice?: string } | undefined)?.choice
+  const classConfidence = confidenceOf(answers, 'copy_class')
+  const blockingClass = pickChoice(answers, 'copy_class', ['unfulfillable_claim', 'wrong_product_noun'] as const, JEV_BLOCK_CONFIDENCE)
+  const warnClass = pickChoice(answers, 'copy_class', COPY_CLASSES, JEV_WARN_CONFIDENCE)
+  const copyClass = blockingClass ?? warnClass ?? null
+  let needsHumanReview = false
+
+  if (blockingClass === 'unfulfillable_claim') {
+    jevFindings.push({
+      severity: 'block',
+      issue: 'The copy promises a product or decoration ITP does not make.',
+      fix: `Rewrite it to describe what ships: ${CATEGORY_FACTS[String(input.category ?? '')] ?? 'the product as it is actually made.'}`,
+      evidence: { source: 'jev', class: blockingClass, confidence: classConfidence, not_offered: [...NOT_OFFERED] }
+    })
+  } else if (blockingClass === 'wrong_product_noun') {
+    jevFindings.push({
+      severity: 'block',
+      issue: 'The copy calls this product something it is not.',
+      fix: `Name the product as it ships: ${CATEGORY_FACTS[String(input.category ?? '')] ?? 'the right product type.'}`,
+      evidence: { source: 'jev', class: blockingClass, confidence: classConfidence }
+    })
+  } else if (warnClass === 'filler') {
+    jevFindings.push({
+      severity: 'warn',
+      issue: 'The copy reads as generic keyword padding that could sit on any listing.',
+      fix: 'Say what is specific to this design — its subject, its style, who it is for.',
+      evidence: { source: 'jev', class: warnClass, confidence: classConfidence }
+    })
+  } else if (!warnClass) {
+    // Under the bar is "no opinion", never a default: a person reads it.
+    needsHumanReview = true
+    jevFindings.push({
+      severity: 'warn',
+      issue: `The copy reviewer was unsure about this copy (leaned ${rawClass ?? 'nowhere'} at ${Math.round(classConfidence * 100)}% confidence).`,
+      fix: 'A person should read the title and description once and confirm they describe what actually ships.',
+      evidence: { source: 'jev', review: 'human', leaned: rawClass ?? null, confidence: classConfidence }
+    })
+  }
+
+  const titleScore = readScore(answers, 'title_quality', JEV_WARN_CONFIDENCE)
+  if (titleScore !== undefined && Math.round(titleScore) <= 1) {
+    jevFindings.push({
+      severity: 'warn',
+      issue: `The title reads as ${Math.round(titleScore) === 0 ? 'misleading or unreadable' : 'generic'} (scored ${titleScore.toFixed(1)} of 3).`,
+      fix: 'Lead with the design name, add one or two honest descriptors, end with the product type.',
+      evidence: { source: 'jev', title_score: titleScore, confidence: confidenceOf(answers, 'title_quality') }
+    })
+  }
+
+  const tagScores: Array<{ tag: string; score: number | null; confidence: number }> = tags.map((tag, i) => {
+    const s = (answers[`tag_${i}`] as { score?: number } | undefined)?.score
+    return { tag, score: typeof s === 'number' ? s : null, confidence: confidenceOf(answers, `tag_${i}`) }
+  })
+  const weakTags = tags.filter((_, i) => {
+    const s = readScore(answers, `tag_${i}`, JEV_WARN_CONFIDENCE)
+    return s !== undefined && Math.round(s) <= 1
+  })
+  if (weakTags.length) {
+    jevFindings.push({
+      severity: 'warn',
+      issue: `${weakTags.length} tag(s) are unrelated or generic for this listing: ${weakTags.join(', ')}.`,
+      fix: 'Swap each for a 2-3 word phrase a shopper looking for THIS design would type.',
+      evidence: { source: 'jev', weak_tags: weakTags }
+    })
+  }
+
+  const enforce = mode === 'enforce'
+  measured.jev = {
+    model: jev.model,
+    cost_usd: jev.usage.cost,
+    input_tokens: jev.usage.input_tokens,
+    duration_ms: jev.durationMs,
+    copy_class: rawClass ?? null,
+    copy_class_confidence: classConfidence,
+    title_score: (answers.title_quality as { score?: number } | undefined)?.score ?? null,
+    title_confidence: confidenceOf(answers, 'title_quality'),
+    tag_scores: tagScores,
+    needs_human_review: needsHumanReview,
+    ...(enforce ? {} : { shadow_findings: jevFindings.map(f => `${f.severity}: ${f.issue}`) })
+  }
+
+  return {
+    findings: enforce ? [...findings, ...jevFindings] : findings,
+    jevFindings,
+    measured,
+    copyClass,
+    jevBlocks: Boolean(blockingClass),
+    needsHumanReview
+  }
+}
+
+/** Ask Jev about one presentation. Null when the mode is off or the lane is down. */
+export async function reviewCopy(
+  input: Pick<PresentationInput, 'category' | 'title' | 'description' | 'tags'>,
+  mode: JevCopyMode = jevCopyMode()
+): Promise<CopyReview> {
+  if (mode === 'off' || !jevEnabled()) return interpretCopyReview(input, null, mode === 'off' ? 'off' : mode)
+  const { state, questions } = buildCopyQuestions(input)
+  return interpretCopyReview(input, await askJev(state, questions), mode)
+}
+
+export interface CopyReviewSummary {
+  mode: JevCopyMode
+  copyClass: CopyClass | null
+  needsHumanReview: boolean
+  /** The vision call was not made. */
+  visionSkipped: boolean
+  /** Shadow mode: the vision call WOULD have been skipped under enforce. */
+  visionWouldSkip: boolean
+  /** Why vision was (or would have been) skipped. */
+  skipReason: string | null
+  jevCostUsd: number
+}
+
+/**
+ * Should the expensive vision reviewer run? Only when its answer can still
+ * change the outcome. A submission that already carries a certain blocking
+ * finding — a deterministic one, or a CONFIDENT Jev block — is going back for
+ * rework whatever the photo review says, and will be reviewed again when it
+ * returns. Anything short of certain runs vision exactly as before.
+ */
+export function decideVision(
+  alreadyBlocking: Array<{ criterion: CriterionId; issue: string }>,
+  copy: Pick<CopyReview, 'jevBlocks'>,
+  mode: JevCopyMode
+): { run: boolean; wouldSkip: boolean; reason: string | null } {
+  if (mode === 'off') return { run: true, wouldSkip: false, reason: null }
+  const certain = alreadyBlocking.length > 0 || copy.jevBlocks
+  const reason = certain
+    ? alreadyBlocking.length
+      ? `already blocked on ${[...new Set(alreadyBlocking.map(b => b.criterion))].join(', ')}`
+      : 'the copy reviewer is confident the copy must be rewritten'
+    : null
+  // Deterministic blocks alone never skip in shadow — shadow changes nothing.
+  return { run: mode !== 'enforce' || !certain, wouldSkip: certain, reason }
+}
+
+// ---------------------------------------------------------------------------
 // (e) PRICING SANITY
 // ---------------------------------------------------------------------------
 export function checkPricing(input: Pick<PresentationInput, 'category' | 'price' | 'costFloor'>): CriterionVerdict {
@@ -710,7 +1061,9 @@ export function checkPrintBackground(
   opacity: OpacityResult | null,
   vision: VisionRead | null,
   garment: boolean,
-  placement?: string | null
+  placement?: string | null,
+  /** The vision call was deliberately skipped — see decideVision(). */
+  visionDeferred = false
 ): CriterionVerdict {
   if (!garment) {
     return {
@@ -828,7 +1181,7 @@ export function checkPrintBackground(
   }
 
   // Fail-closed: with neither read available there is no evidence either way.
-  if (!vision && !opacity?.ok) return unverifiedVerdict('The print background')
+  if (!vision && !opacity?.ok) return visionDeferred ? deferredVerdict('The print background') : unverifiedVerdict('The print background')
 
   measured.vision_checked = Boolean(vision)
   const blocking = findings.filter(f => f.severity === 'block')
@@ -973,6 +1326,25 @@ const unverifiedVerdict = (what: string): CriterionVerdict => ({
   measured: { verified: false }
 })
 
+/**
+ * Vision was SKIPPED on purpose because the submission is already failing on
+ * something certain. Not a pass (ok: false) and not an infrastructure alarm
+ * either — a warning, so the rework feed does not send anyone chasing an
+ * outage. It can never turn a pass into a fail: it is only produced when a
+ * blocking finding already exists.
+ */
+const deferredVerdict = (what: string): CriterionVerdict => ({
+  ok: false,
+  unverified: true,
+  summary: `${what} review deferred until the blocking problems are fixed.`,
+  findings: [{
+    severity: 'warn',
+    issue: `${what} was not reviewed this round — the submission is already blocked, so the photo review was held back to save a vision call.`,
+    fix: 'Fix the blocking items and resubmit; the photo review runs on the next submission.'
+  }],
+  measured: { verified: false, deferred: true }
+})
+
 // ---------------------------------------------------------------------------
 // The gate.
 // ---------------------------------------------------------------------------
@@ -1001,22 +1373,46 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
   const garment = isGarment(input.category)
   const placementForCoverage = garment ? input.placement : NO_PLACEMENT
 
-  const [metrics, vision, fidelity, opacity] = await Promise.all([
+  // Stage 1 — everything cheap or already-committed, in parallel: the numeric
+  // photo measurements, the source-artwork opacity, the fidelity comparison,
+  // and the Jev copy pass (sub-second, fractions of a cent).
+  const mode = jevCopyMode()
+  const [metrics, fidelity, opacity, copy] = await Promise.all([
     measureImages(urls),
-    primary ? readPresentation(primary, input.placement, garment) : Promise.resolve(null),
     primary && input.designUrl
       ? checkMockup(input.designUrl, primary, placementForCoverage, input.printSizeInches)
       : Promise.resolve(null),
     // The SOURCE artwork, not a mockup — this asks whether the file that goes to
     // the printer has a background, which no render of it can answer.
-    input.designUrl ? measureOpacity(input.designUrl) : Promise.resolve(null)
+    input.designUrl ? measureOpacity(input.designUrl) : Promise.resolve(null),
+    reviewCopy(input, mode)
   ])
 
+  // Stage 2 — the deterministic floor, unchanged, plus the copy findings.
   const mockupQuality = checkMockupQuality(metrics, urls.length, shotTemplatesFrom(urls), garment)
   const sharpness = checkSharpness(metrics)
   const seo = checkSeo(input)
+  if (copy.findings.length) {
+    seo.findings.push(...copy.findings)
+    const blocking = seo.findings.filter(f => f.severity === 'block')
+    seo.ok = blocking.length === 0
+    if (blocking.length) seo.summary = `${blocking.length} SEO/copy problem(s) that would hurt or block the listing.`
+  }
+  seo.measured = { ...(seo.measured ?? {}), ...copy.measured }
   const pricing = checkPricing(input)
-  const printBackground = checkPrintBackground(opacity, vision, garment, input.placement)
+
+  // Stage 3 — the expensive vision read, only when it can change the outcome.
+  const alreadyBlocking: Array<{ criterion: CriterionId; issue: string }> = []
+  for (const [id, v] of [['mockup_quality', mockupQuality], ['image_sharpness', sharpness], ['seo', seo], ['pricing', pricing]] as const) {
+    for (const f of v.findings) if (f.severity === 'block') alreadyBlocking.push({ criterion: id, issue: f.issue })
+  }
+  if (fidelity && !fidelity.ok) alreadyBlocking.push({ criterion: 'design_placement', issue: fidelity.reason || 'fidelity' })
+  const gate = decideVision(alreadyBlocking, copy, mode)
+  const visionDeferred = Boolean(primary) && !gate.run
+  const vision = primary && gate.run ? await readPresentation(primary, input.placement, garment) : null
+  const missingVision = (what: string) => (visionDeferred ? deferredVerdict(what) : unverifiedVerdict(what))
+
+  const printBackground = checkPrintBackground(opacity, vision, garment, input.placement, visionDeferred)
 
   // Realism rides on the mockup_quality criterion: both answer "is this a photo
   // we can put in front of a shopper".
@@ -1030,9 +1426,9 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
     mockupQuality.ok = false
     mockupQuality.summary = vision.realismIssue || 'The primary photo does not read as real.'
   } else if (!vision && primary) {
-    const unverified = unverifiedVerdict('Photo realism')
+    const unverified = missingVision('Photo realism')
     mockupQuality.findings.push(...unverified.findings)
-    if (VISION_REQUIRED) { mockupQuality.ok = false; mockupQuality.unverified = true }
+    if (VISION_REQUIRED || visionDeferred) { mockupQuality.ok = false; mockupQuality.unverified = true }
   }
 
   // --- placement -----------------------------------------------------------
@@ -1045,7 +1441,7 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
       measured: {}
     }
   } else if (!vision && !fidelity) {
-    placement = unverifiedVerdict('Design placement')
+    placement = missingVision('Design placement')
   } else {
     const findings: Finding[] = []
     if (fidelity && !fidelity.ok) {
@@ -1101,7 +1497,7 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
       measured: {}
     }
   } else if (!vision) {
-    typography = unverifiedVerdict('Typography legibility')
+    typography = missingVision('Typography legibility')
   } else if (!vision.hasText) {
     typography = { ok: true, summary: 'The design has no text.', findings: [], measured: { has_text: false } }
   } else if (!vision.typographyOk) {
@@ -1151,6 +1547,15 @@ export async function runPresentationQa(input: PresentationInput): Promise<Prese
     blockingCount,
     warningCount: rework.length - blockingCount,
     model: openai ? VISION_MODEL : 'deterministic-only',
-    durationMs: Date.now() - started
+    durationMs: Date.now() - started,
+    copyReview: {
+      mode,
+      copyClass: copy.copyClass,
+      needsHumanReview: copy.needsHumanReview,
+      visionSkipped: visionDeferred,
+      visionWouldSkip: Boolean(primary) && gate.wouldSkip,
+      skipReason: gate.reason,
+      jevCostUsd: Number((copy.measured.jev as { cost_usd?: number } | undefined)?.cost_usd ?? 0)
+    }
   }
 }
