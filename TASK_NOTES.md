@@ -4252,3 +4252,12 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## Watchtower 553190bc-9dd2-416d-8c58-e4c0d7b702cf — ITC atomic balance (2026-09-23)
+
+### File shortlist (approved scope)
+- Read first: `CLAUDE_TASK.md`, `AGENTS.md`, `CLAUDE.md`, `supabase/migrations/README.md`, `supabase/migrations/MIGRATION_LEDGER.md`, `supabase/migrations/20260428_decrement_itc_atomic.sql`, `supabase/migrations/20260810_lock_wallet_balance.sql`, `backend/routes/wallet.ts`, `backend/services/order-refunds.ts`, `backend/worker/ai-jobs-worker.ts`.
+- Codex may edit only `CLAUDE_TASK.md` and `TASK_NOTES.md` under `AGENTS.md`. The requested migration, helper, route/service/worker changes, and tests require explicit scope expansion. Proposed code scope and commands are in `CLAUDE_TASK.md`.
+
+### Work log (append-only)
+- 2026-09-23 — Scouted wallet mutation paths and repo commands. Found the existing debit-only migration, ledger warning that its RPC was absent at last audit, wallet fallback, and additional writers beyond the dispatch list. Replaced `CLAUDE_TASK.md` with the implementation brief; made no code, schema, or live-system changes because `AGENTS.md` restricts this run to the two task files.
