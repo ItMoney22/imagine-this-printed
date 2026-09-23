@@ -4252,3 +4252,13 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### Render -> Fly Step 3/6: secrets parity (dominic-vane, 2026-09-23, Watchtower c4cbd8d0)
+Scope (added with rationale): `docs/FLY_SECRETS_PARITY.md` (the name diff + proof), `scripts/fly/*.mjs`
+(re-runnable parity/claim probes; hashes computed at run time, nothing secret committed), `TASK_NOTES.md`.
+- Re-diffed live Render against the Fly runtime by sha256 inside the machines. API is 57/57 identical and worker is 46/46 identical, and every check passes.
+  Removed 4 dead vars from Fly that nothing on main reads (BREVO_API_KEY, BREVO_SENDER_EMAIL, BREVO_SENDER_NAME, REPLICATE_REMBG_MODEL_ID).
+  Caught OPENROUTER_API_KEY being rotated on Render at 11:30Z mid-run and synced it to Fly by stdin.
+  Supabase ref/role guard, JWT-secret HMAC and live auth calls all pass (Supabase, Stripe, Resend, Replicate, OpenAI, OpenRouter, Shippo, Etsy).
+  A one-off worker-image machine claimed a real tagged ai_jobs row via claimQueuedJob() (second claim refused), then deleted it.
+  The worker's own machines stay stopped with the new secrets staged, so they apply on the cutover deploy.
