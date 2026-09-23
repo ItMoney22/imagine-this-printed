@@ -99,6 +99,14 @@ describe('combine — regex is a floor', () => {
     expect(r.reasons).toEqual([])
   })
 
+  it("enforce level 'ip' holds IP tiers but leaves the low-confidence safe-leaning tail advisory", () => {
+    const lowSafe = decide(answer('clean', 0.55, { clean: 0.55, generic_theme: 0.1, likely_ip_reference: 0.35 }))
+    expect(lowSafe.verdict).toBe('review')
+    expect(combine(regexPass, lowSafe, 'enforce', 'ip').pass).toBe(true)
+    expect(combine(regexPass, lowSafe, 'enforce', 'all').pass).toBe(false)
+    expect(combine(regexPass, flagged, 'enforce', 'ip').pass).toBe(false)
+  })
+
   it('an unavailable lane fails open to the regex result', () => {
     const r = combine(regexPass, decide(undefined), 'enforce')
     expect(r.pass).toBe(true)

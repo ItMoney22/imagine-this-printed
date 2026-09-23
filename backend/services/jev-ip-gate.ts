@@ -241,10 +241,26 @@ export async function classifyIpCached(
   return out
 }
 
+/**
+ * What `enforce` holds: `all` = every non-pass verdict; `ip` = only verdicts
+ * where Jev actually picked an IP tier, leaving the low-confidence "leans safe"
+ * tail advisory (it is mostly 'Keep Calm and …' riffs). JEV_IP_ENFORCE.
+ */
+export type JevEnforceLevel = 'all' | 'ip'
+export function jevEnforceLevel(): JevEnforceLevel {
+  return process.env.JEV_IP_ENFORCE === 'ip' ? 'ip' : 'all'
+}
+
 /** Fold a Jev decision into a regex gate result. The regex result can only get stricter. */
-export function combine(regex: CopyrightGateResult, jev: JevIpDecision | undefined, mode: JevIpMode): JevGateResult {
+export function combine(
+  regex: CopyrightGateResult,
+  jev: JevIpDecision | undefined,
+  mode: JevIpMode,
+  level: JevEnforceLevel = jevEnforceLevel()
+): JevGateResult {
   const jevFlagged = !!jev && jev.verdict !== 'pass' && jev.verdict !== 'unavailable'
-  const enforced = mode === 'enforce' && jevFlagged
+  const ipTier = jev?.tier === 'likely_ip_reference' || jev?.tier === 'definite_brand_or_character'
+  const enforced = mode === 'enforce' && jevFlagged && (level === 'all' || ipTier)
   return {
     ...regex,
     pass: regex.pass && !enforced,

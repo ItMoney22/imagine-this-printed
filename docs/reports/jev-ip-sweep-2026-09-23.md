@@ -40,6 +40,8 @@ side by side. Read-only — nothing in the database was changed. Re-run with
 | clean+generic probability ≥ 0.80 | pass |
 | no answer / lane down | fail open to the regex result |
 
+`JEV_IP_ENFORCE=ip` limits enforce to rows where Jev picked an IP tier (low-confidence tail stays advisory).
+
 Mode is `JEV_IP_GATE` = `shadow` (default: computed + logged + shown on the candidates
 panel, does not change pass/fail) · `enforce` (review/block hold the Etsy listing as
 `blocked`) · `off`. Bar override: `JEV_IP_SAFE_CONFIDENCE`.
