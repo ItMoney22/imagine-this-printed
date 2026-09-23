@@ -14,7 +14,9 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor, isTumblerProduct } from '../lib/product-kind'
+import TumblerSizeGuideModal, { TumblerSizeGuideTrigger } from '../components/TumblerSizeGuideModal'
+import TumblerQuickSpecs from '../components/TumblerQuickSpecs'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
@@ -55,6 +57,7 @@ const ProductPage: React.FC = () => {
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedSize, setSelectedSize] = useState<string>('')
+  const [isSizeGuideOpen, setIsSizeGuideOpen] = useState(false)
   const [selectedColor, setSelectedColor] = useState<string>('')
   const [selectedPrintLocation, setSelectedPrintLocation] = useState<string>('')
   // Garment quality tier (printed apparel only) — defaults to the standard
@@ -138,6 +141,11 @@ const ProductPage: React.FC = () => {
           // real, buyable price (the "from" price) instead of an empty pick.
           if (productKindOf(mappedProduct) === 'metal') {
             setSelectedSize(metalSizeOptions(mappedProduct)[0])
+          } else if (isTumblerProduct(mappedProduct)) {
+            const choices = sizeChoicesFor(mappedProduct)
+            if (choices.length > 0) {
+              setSelectedSize(choices[0])
+            }
           }
           // Single-option products have nothing to choose — auto-select so the
           // cart still carries a print_location without showing a selector
@@ -327,8 +335,9 @@ const ProductPage: React.FC = () => {
   }
 
   // Determine product kind so the page renders type-appropriate options:
-  // apparel (shirt sizes + DTF tools), metal wall art (print sizes + finish),
-  // or 3D prints (size tiers). Mirrors AdminCreatorProductsTab.productKind.
+  // apparel (shirt sizes + DTF tools), tumblers (drinkware sizing + UV-DTF),
+  // metal wall art (print sizes + finish), or 3D prints (size tiers).
+  const isTumbler = isTumblerProduct(product)
   const productKind: 'metal' | '3d' | 'apparel' = (() => {
     const c = (product.category || '').toLowerCase()
     const t = String(product.metadata?.product_template || '').toLowerCase()
@@ -336,7 +345,7 @@ const ProductPage: React.FC = () => {
     if (c.includes('3d') || c.includes('toy') || t.includes('3d') || t.includes('toy')) return '3d'
     return 'apparel'
   })()
-  const isApparel = productKind === 'apparel'
+  const isApparel = productKind === 'apparel' && !isTumbler
   // The sizes this listing actually offers. Empty = a one-size product (a 3D
   // print with no explicit tiers), which hides the picker below and drops the
   // "please select a size" gate — it used to demand a choice between four
@@ -681,9 +690,18 @@ const ProductPage: React.FC = () => {
           </div>
 
           <div>
-            <h3 className="text-lg font-semibold mb-2 text-text font-serif italic">{isBlank ? 'The Shirt' : 'The Vision'}</h3>
+            <h3 className="text-lg font-semibold mb-2 text-text font-serif italic">{isBlank ? 'The Shirt' : isTumbler ? 'The Drinkware' : 'The Vision'}</h3>
             <p className="text-muted leading-relaxed italic border-l-2 border-primary/30 pl-4">"{product.description}"</p>
           </div>
+
+          {/* Tumbler Quick Specs & Fit Panel */}
+          {isTumbler && (
+            <TumblerQuickSpecs
+              product={product}
+              selectedSize={selectedSize}
+              onOpenSizeGuide={() => setIsSizeGuideOpen(true)}
+            />
+          )}
 
           {/* Blank garment spec sheet — David 2026-09-02: "make sure it has the
               stats". House name only; the manufacturer appears solely on the
@@ -767,8 +785,8 @@ const ProductPage: React.FC = () => {
               if (displaySizes.length === 0) return null
               // Plus-size upcharge is apparel-only - metal/3D sizes never qualify,
               // and blanks carry their real per-size price instead.
-              const hasPlusSizes = isApparel && !isBlank && displaySizes.some(s => !isYouthSize(s) && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
-              const sizeLabel = productKind === 'metal' ? 'Print Size' : productKind === '3d' ? 'Size' : 'Size'
+              const hasPlusSizes = isApparel && !isBlank && !isTumbler && displaySizes.some(s => !isYouthSize(s) && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
+              const sizeLabel = productKind === 'metal' ? 'Print Size' : isTumbler ? 'Capacity / Size' : productKind === '3d' ? 'Size' : 'Size'
 
               // Shirts and hoodies sell the adult cut AND the youth cut on the
               // same listing (David 2026-09-07). They're split into two labelled
@@ -783,8 +801,8 @@ const ProductPage: React.FC = () => {
               const renderSizeButtons = (sizes: string[]) => (
                 <div className="flex flex-wrap gap-2">
                     {sizes.map(size => {
-                      const isYouth = isApparel && !isBlank && isYouthSize(size)
-                      const isPlusSize = isApparel && !isBlank && !isYouth && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                      const isYouth = isApparel && !isBlank && !isTumbler && isYouthSize(size)
+                      const isPlusSize = isApparel && !isBlank && !isTumbler && !isYouth && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                       const isSelected = selectedSize === size
                       // Blank garments: the real price for this size (in the
                       // selected colour group) lives on the button itself.
@@ -827,17 +845,22 @@ const ProductPage: React.FC = () => {
 
               return (
                 <div className="mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <label className="block text-sm font-medium text-text">{sizeLabel}</label>
-                    {hasPlusSizes && (
-                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                        2XL+ = +$2.50
-                      </span>
-                    )}
-                    {splitBands && (
-                      <span className="text-xs bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full">
-                        Youth = -${YOUTH_SIZE_DISCOUNT_DOLLARS.toFixed(2)}
-                      </span>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <label className="block text-sm font-medium text-text">{sizeLabel}</label>
+                      {hasPlusSizes && (
+                        <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
+                          2XL+ = +$2.50
+                        </span>
+                      )}
+                      {splitBands && (
+                        <span className="text-xs bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full">
+                          Youth = -${YOUTH_SIZE_DISCOUNT_DOLLARS.toFixed(2)}
+                        </span>
+                      )}
+                    </div>
+                    {isTumbler && (
+                      <TumblerSizeGuideTrigger onClick={() => setIsSizeGuideOpen(true)} />
                     )}
                   </div>
                   {splitBands ? (
@@ -1056,9 +1079,9 @@ const ProductPage: React.FC = () => {
 
             <div className="space-y-3">
 
-              {/* DTF/apparel-only customization. Metal wall art and 3D prints
-                  are finished pieces — no upload-your-own or sheet placement. */}
-              {isApparel && (
+              {/* Customization upload / sheet placement for apparel and tumblers (UV-DTF).
+                  Metal wall art and 3D prints are finished pieces. */}
+              {(isApparel || isTumbler) && (
                 <>
                   <input
                     type="file"
@@ -1257,6 +1280,17 @@ const ProductPage: React.FC = () => {
           }}
         />
       </div>
+
+      {/* Tumbler Size & Dimension Guide Modal */}
+      {isTumbler && (
+        <TumblerSizeGuideModal
+          isOpen={isSizeGuideOpen}
+          onClose={() => setIsSizeGuideOpen(false)}
+          product={product}
+          currentSelectedSize={selectedSize}
+          onSelectSize={(size) => setSelectedSize(size)}
+        />
+      )}
     </div>
   )
 }

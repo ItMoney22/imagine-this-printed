@@ -21,7 +21,8 @@ import {
   unitBasePrice,
   startingPrice,
   hasPriceRange,
-  metalSizeOptions
+  metalSizeOptions,
+  isTumblerProduct
 } from './product-kind'
 import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 import type { Product } from '../types'
@@ -160,6 +161,18 @@ describe('sizeChoicesFor', () => {
   it('does not put youth sizes on metal or 3D listings', () => {
     expect(sizeChoicesFor(p({ category: 'metal-art' }))).not.toContain('YM')
     expect(sizeChoicesFor(p({ category: '3d-prints', sizes: ['small', 'large'] }))).toEqual(['small', 'large'])
+  })
+
+  it('handles tumbler products with drinkware capacity instead of shirt sizes', () => {
+    expect(isTumblerProduct(p({ category: 'tumblers' }))).toBe(true)
+    expect(isTumblerProduct(p({ metadata: { product_template: 'tumblers' } }))).toBe(true)
+    expect(isTumblerProduct(p({ category: 'shirts' }))).toBe(false)
+    expect(isTumblerProduct(null)).toBe(false)
+
+    // Unspecified sizes fall back to flagship 20 oz
+    expect(sizeChoicesFor(p({ category: 'tumblers' }))).toEqual(['20 oz'])
+    // Explicit sizes are honoured without appending shirt sizes
+    expect(sizeChoicesFor(p({ category: 'tumblers', sizes: ['20 oz', '30 oz'] }))).toEqual(['20 oz', '30 oz'])
   })
 })
 

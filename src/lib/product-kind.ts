@@ -276,6 +276,14 @@ export function garmentIdOf(product: Pick<Product, 'category' | 'metadata'>): st
   return normalizeGarment(product?.metadata?.product_type) ?? normalizeGarment(product?.category ?? null)
 }
 
+/** True when a product is classified as a tumbler / drinkware piece. */
+export function isTumblerProduct(product?: Pick<Product, 'category' | 'metadata'> | null): boolean {
+  if (!product) return false
+  const c = String(product.category || '').toLowerCase()
+  const t = String((product.metadata as any)?.product_template || (product.metadata as any)?.category || (product as any)?.product_type || '').toLowerCase()
+  return c.includes('tumbler') || t.includes('tumbler')
+}
+
 /**
  * The sizes a product page/card should actually offer, and therefore whether a
  * size must be picked before add-to-cart. ONE answer shared by ProductPage and
@@ -296,6 +304,12 @@ export function sizeChoicesFor(
     Array.isArray(column) && column.length > 0 ? column
     : Array.isArray(legacy) && legacy.length > 0 ? legacy
     : null
+
+  // Tumblers: return explicit sizes when configured (e.g. ['20 oz', '30 oz']),
+  // defaulting to the flagship ['20 oz'] rather than leaking adult/youth shirt sizes.
+  if (isTumblerProduct(product)) {
+    return stored && stored.length > 0 ? stored : ['20 oz']
+  }
 
   // Printed apparel ALSO sells the youth cut of the same garment on the same
   // listing (David 2026-09-07: "all of our shirts and hoodies available in
