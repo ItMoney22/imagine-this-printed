@@ -1,5 +1,27 @@
 # TASK_NOTES
 
+## Current request (2026-09-23) — Jev triage for support tickets, shared mailbox, Etsy buyer messages
+
+Watchtower task 2a83afec-05e1-41d0-8618-66d69df33149 (Lucas Blaze). Jev (typesafe/jev-1.13)
+classifies support tickets (category + priority), inbound mail (label + needs_reply) and Etsy
+buyer notes (flag). Rules: multi-option choices with a description per option, confidence gate
+with a human-review fallback, never destructive (no archive/delete), deterministic checks stay
+as the floor, measured against the current method on real rows before switching over.
+
+## File shortlist (approved scope — 2026-09-23 Jev triage)
+Rationale: the previous shortlist was for the Etsy weekly review and does not cover this task.
+- backend/lib/jev.ts (new — typed Jev client, fail-open)
+- backend/lib/jev-triage.ts (new — questions, deterministic floors, combine rules)
+- backend/lib/jev-triage.test.ts (new)
+- backend/routes/support.ts
+- backend/routes/admin/support.ts
+- backend/routes/email.ts
+- backend/worker/etsy-receipt-ingest.ts + .test.ts
+- backend/scripts/jev-triage-eval.ts (new — floor vs Jev vs hand labels on real rows)
+- TASK_NOTES.md
+
+## Work log (append-only) — 2026-09-23 Jev triage
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it
@@ -4252,3 +4274,4 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+- 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
