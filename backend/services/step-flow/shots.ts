@@ -653,6 +653,97 @@ async function patchShotState(productId: string, key: ShotKey, patch: Partial<Sh
 }
 
 /**
+ * Keeps `products.images` and `products.metadata.superseded_images` in sync
+ * when a mockup or model shot completes. If a previous URL is replaced,
+ * it is swapped out in `products.images` and appended to `metadata.superseded_images`
+ * so the old superseded photo never lingers on the storefront or in Etsy payloads.
+ */
+export async function syncProductImagesOnShotDone(
+  productId: string,
+  key: ShotKey,
+  newUrl: string,
+  previousUrl?: string
+): Promise<void> {
+  const { data: prod } = await supabase
+    .from('products')
+    .select('id, images, metadata, category')
+    .eq('id', productId)
+    .maybeSingle()
+  if (!prod) return
+
+  const metadata = (prod as any).metadata || {}
+  const superseded: string[] = Array.isArray(metadata.superseded_images)
+    ? [...metadata.superseded_images]
+    : []
+  if (previousUrl && previousUrl !== newUrl && !superseded.includes(previousUrl)) {
+    superseded.push(previousUrl)
+  }
+
+  const currentImages: string[] = Array.isArray(prod.images) ? prod.images : []
+  let updatedImages: string[]
+
+  if (previousUrl && currentImages.includes(previousUrl)) {
+    updatedImages = currentImages.map((u) => (u === previousUrl ? newUrl : u))
+  } else if (currentImages.length > 0) {
+    const { data: assets } = await supabase
+      .from('product_assets')
+      .select('id, url, asset_role, kind, display_order, created_at, is_primary')
+      .eq('product_id', productId)
+    if (assets && assets.length > 0) {
+      const isMetal = prod.category === 'metal-art'
+      updatedImages = buildProductGallery(assets, isMetal ? METAL_ROLE_ORDER : ROLE_ORDER)
+    } else {
+      updatedImages = currentImages
+    }
+  } else {
+    updatedImages = currentImages
+  }
+
+  const supersededSet = new Set(superseded)
+  updatedImages = [...new Set(updatedImages.filter((u) => !supersededSet.has(u)))]
+
+  await supabase
+    .from('products')
+    .update({
+      images: updatedImages,
+      metadata: { ...metadata, superseded_images: superseded },
+    })
+    .eq('id', productId)
+}
+
+/**
+ * Removes a deleted shot's URL from `products.images` and records it in `metadata.superseded_images`.
+ */
+export async function removeProductImage(productId: string, removedUrl: string): Promise<void> {
+  const { data: prod } = await supabase
+    .from('products')
+    .select('id, images, metadata')
+    .eq('id', productId)
+    .maybeSingle()
+  if (!prod) return
+
+  const metadata = (prod as any).metadata || {}
+  const superseded: string[] = Array.isArray(metadata.superseded_images)
+    ? [...metadata.superseded_images]
+    : []
+  if (removedUrl && !superseded.includes(removedUrl)) {
+    superseded.push(removedUrl)
+  }
+
+  const currentImages: string[] = Array.isArray(prod.images) ? prod.images : []
+  const updatedImages = currentImages.filter((u) => u !== removedUrl)
+
+  await supabase
+    .from('products')
+    .update({
+      images: updatedImages,
+      metadata: { ...metadata, superseded_images: superseded },
+    })
+    .eq('id', productId)
+}
+
+
+/**
  * Mark one shot failed because the render that owned it never finished —
  * called by the stalled-shot sweep (worker/step-flow-stall-sweep.ts) after a
  * process death stranded it. Returns whether anything actually changed.
@@ -777,6 +868,7 @@ async function runModelShot(
     await patchShotState(productId, key, {
       status: 'done', assetId: asset.id, url: asset.url, error: undefined, note: check.degraded,
     })
+    await syncProductImagesOnShotDone(productId, key, asset.url, replaceUrl)
   } catch (err: any) {
     const message = err?.message || 'Model shot failed'
     console.error(`[step-flow/shots] "${key}" model shot failed:`, message)
@@ -948,8 +1040,12 @@ async function buildShotJob(
         await patchShotState(product.id, key, { status: 'queued', jobId: undefined, approved: false, error: undefined })
         return { jobId: null, status: 'queued' }
       }
+      const priorUrl = stepFlow.shots[key]?.url
       const { patch } = await renderDetailsShot(product, stepFlow)
       await patchShotState(product.id, key, { ...patch, jobId: undefined, approved: false })
+      if (patch.url && patch.url !== priorUrl) {
+        await syncProductImagesOnShotDone(product.id, key, patch.url, priorUrl)
+      }
       return { jobId: null, status: patch.status as ShotState['status'] }
     }
 
@@ -980,8 +1076,12 @@ async function buildShotJob(
       await patchShotState(product.id, key, { status: 'queued', jobId: undefined, approved: false, error: undefined })
       return { jobId: null, status: 'queued' }
     }
+    const priorUrl = stepFlow.shots[key]?.url
     const { patch } = await renderDetailsShot(product, stepFlow)
     await patchShotState(product.id, key, { ...patch, jobId: undefined, approved: false })
+    if (patch.url && patch.url !== priorUrl) {
+      await syncProductImagesOnShotDone(product.id, key, patch.url, priorUrl)
+    }
     return { jobId: null, status: patch.status as ShotState['status'] }
   }
 
@@ -1180,14 +1280,19 @@ export async function removeModelShot(productId: string, key: ShotKey): Promise<
     throw new StepFlowValidationError('Only an added on-person shot can be removed')
   }
   return withStepFlowLock(productId, async () => {
+    let removedUrl: string | undefined
     const stepFlow = await mergeStepFlow(productId, (sf) => {
       const shots = { ...sf.shots }
+      removedUrl = shots[key]?.url
       delete shots[key]
       return { ...sf, shots }
     })
     // The asset row goes too, or the publish gallery keeps showing a person
     // the admin just deleted.
     await supabase.from('product_assets').delete().eq('product_id', productId).eq('asset_role', roleForShotKey(key))
+    if (removedUrl) {
+      await removeProductImage(productId, removedUrl)
+    }
     return { step_flow: stepFlow }
   })
 }
@@ -1349,8 +1454,12 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         // upload — several seconds). Only the result write is locked, so a
         // slow render can never hold up, or get clobbered by, a concurrent
         // approve/redo/model-shot completion on this same product.
+        const priorUrl = state.url
         const { patch } = await renderDetailsShot(product, stepFlow)
         await patchShotState(product.id, key, { ...patch, jobId: undefined })
+        if (patch.url && patch.url !== priorUrl) {
+          await syncProductImagesOnShotDone(product.id, key, patch.url, priorUrl)
+        }
         touched = true
       } catch (err: any) {
         // "Not ready yet" (no source asset) is expected while mockups are
@@ -1389,7 +1498,11 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         .filter((a) => a.asset_role === role && a.url)
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       if (candidates[0]) {
+        const priorUrl = state.url
         await patchShotState(product.id, key, { status: 'done', assetId: candidates[0].id, url: candidates[0].url })
+        if (candidates[0].url && candidates[0].url !== priorUrl) {
+          await syncProductImagesOnShotDone(product.id, key, candidates[0].url, priorUrl)
+        }
       } else {
         // MUST-FIX #11: the job says it succeeded but nothing landed in its
         // asset_role slot — never leave the shot spinning forever.

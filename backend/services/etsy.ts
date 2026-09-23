@@ -15,7 +15,13 @@
 import { createHash, randomBytes } from 'crypto'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
-import { METAL_ART_SIZES } from '../shared/metal-art.js'
+import { METAL_ART_SIZES, isMetalProductRow } from '../shared/metal-art.js'
+import {
+  buildProductGallery,
+  ETSY_ROLE_ORDER,
+  METAL_ROLE_ORDER,
+  type GalleryAsset
+} from '../shared/product-gallery.js'
 import {
   normalizeGarment,
   sizesForGarment,
@@ -573,6 +579,76 @@ export function resolveListingCopy(
   return { ...copy, pack }
 }
 
+/**
+ * Resolves the image URLs for an Etsy listing upload.
+ *
+ * Rules:
+ * 1. Only active, approved mockup shots are sent; superseded / replaced photos
+ *    are strictly excluded.
+ * 2. Lifestyle model shots lead as hero (rank 1, upload order) for garments,
+ *    followed by flat mockups (ghost mannequin, flat lay, hanger, back view,
+ *    details card, extra colors, mascot, pocket, and watermarked artwork).
+ * 3. Metal prints lead with watermarked artwork (METAL_ROLE_ORDER), followed
+ *    by size scenes and details card.
+ * 4. Deduplicated and capped at MAX_IMAGES (10).
+ */
+export async function resolveEtsyListingImages(
+  product: { id: string; category?: string | null; images?: string[] | null; metadata?: any },
+  assets?: GalleryAsset[]
+): Promise<string[]> {
+  const metadata = (product as any)?.metadata || {}
+  const isMetal = isMetalProductRow(product) || product.category === 'metal-art'
+  const supersededSet = new Set<string>(
+    Array.isArray(metadata.superseded_images) ? metadata.superseded_images : []
+  )
+
+  let assetRows = assets
+  if (!assetRows) {
+    const { data: dbAssets } = await supabase
+      .from('product_assets')
+      .select('id, url, asset_role, kind, display_order, created_at, is_primary')
+      .eq('product_id', product.id)
+    assetRows = (dbAssets || []) as GalleryAsset[]
+  }
+
+  // Active model shots from etsy_shots metadata (validated URL + passing fidelity check)
+  const etsyShots = metadata.etsy_shots
+  const rawShots: unknown[] = Array.isArray(etsyShots?.images) ? etsyShots.images : []
+  const activeShotImages: string[] = rawShots.filter((u: unknown, i: number) => {
+    if (typeof u !== 'string' || !/^https?:\/\//.test(u)) return false
+    if (supersededSet.has(u)) return false
+    if (etsyShots?.checks && etsyShots.checks[i]?.ok === false) return false
+    return true
+  }) as string[]
+
+  const hasMockupAssets = (assetRows || []).some(
+    (a) => a.url && (a.kind === 'mockup' || a.asset_role)
+  )
+
+  if (hasMockupAssets) {
+    if (isMetal) {
+      const gallery = buildProductGallery(assetRows!, METAL_ROLE_ORDER)
+      return gallery.filter((u) => !supersededSet.has(u)).slice(0, MAX_IMAGES)
+    }
+
+    const gallery = buildProductGallery(assetRows!, ETSY_ROLE_ORDER)
+    const combined = [...new Set([...activeShotImages, ...gallery])]
+    return combined.filter((u) => !supersededSet.has(u)).slice(0, MAX_IMAGES)
+  }
+
+  // Fallback for listings without product_assets (legacy listings or unit test mocks)
+  const rawProductImages: string[] = Array.isArray(product.images)
+    ? product.images.filter((u: unknown): u is string => typeof u === 'string' && /^https?:\/\//.test(u))
+    : []
+
+  const cleanProductImages = rawProductImages.filter((u) => !supersededSet.has(u))
+  const combined = isMetal
+    ? cleanProductImages
+    : [...new Set([...activeShotImages, ...cleanProductImages])]
+
+  return combined.filter((u) => !supersededSet.has(u)).slice(0, MAX_IMAGES)
+}
+
 // Publish one ITP product to Etsy: draft listing + image uploads (+ optional
 // activate). Sync state and errors land in etsy_listings either way.
 export async function publishProductToEtsy(productId: string, opts: EtsyPublishOptions = {}): Promise<EtsyPublishResult> {
@@ -720,11 +796,8 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     // Upload up to 10 images, sequentially (rate-limit friendly). First success
     // becomes the hero image (rank 1, upload order) — model shots (etsy_shots,
     // generated in the admin review queue) lead, then the flat mockups.
-    const shotImages: string[] = Array.isArray((product as any).metadata?.etsy_shots?.images)
-      ? (product as any).metadata.etsy_shots.images.filter((u: unknown) => typeof u === 'string' && /^https?:\/\//.test(u))
-      : []
-    const productImages: string[] = Array.isArray(product.images) ? product.images : []
-    const images: string[] = [...new Set([...shotImages, ...productImages])].slice(0, MAX_IMAGES)
+    // Superseded / replaced photos are strictly excluded.
+    const images: string[] = await resolveEtsyListingImages(product)
     for (const url of images) {
       try {
         const imgRes = await fetch(url)

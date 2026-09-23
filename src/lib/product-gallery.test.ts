@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildProductGallery } from './product-gallery'
+import { buildProductGallery, buildEtsyGallery } from './product-gallery'
 
 // ---------------------------------------------------------------------------
 // ROLE_ORDER is a WHITELIST, not a sort. A mockup role missing from it is
@@ -154,3 +154,27 @@ describe('buildProductGallery', () => {
     expect(out).toEqual(['new-navy.png'])
   })
 })
+
+describe('buildEtsyGallery', () => {
+  it('places model shot as hero for garments', () => {
+    const out = buildEtsyGallery({ category: 't-shirts' }, [
+      asset('mockup_ghost_mannequin', 'ghost.png'),
+      asset('mockup_flat_lay', 'flat.png'),
+      asset('mockup_model_1', 'model1.png'),
+      asset('mockup_hanger', 'hanger.png'),
+      asset('design_watermarked', 'wm.png'),
+    ])
+    expect(out).toEqual(['model1.png', 'ghost.png', 'flat.png', 'hanger.png', 'wm.png'])
+  })
+
+  it('places watermarked artwork as hero for metal prints', () => {
+    const out = buildEtsyGallery({ category: 'metal-art' }, [
+      asset('mockup_metal_8x10', 'scene8x10.png'),
+      asset('mockup_metal_4x6', 'scene4x6.png'),
+      asset('design_watermarked', 'wm.png'),
+      asset('mockup_details', 'details.png'),
+    ])
+    expect(out).toEqual(['wm.png', 'scene8x10.png', 'scene4x6.png', 'details.png'])
+  })
+})
+

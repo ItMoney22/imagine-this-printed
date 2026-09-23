@@ -1863,7 +1863,15 @@ async function reshootOne(productId: string, userId: string, index: number, cast
     const at = index < images.length ? index : images.length
     images[at] = url
     castLabels[at] = plan.label
-    checks[at] = check
+    const priorUrl = current.images[at]
+    if (priorUrl && priorUrl !== url) {
+      const meta = (fresh as any)?.metadata || {}
+      const supersededList = Array.isArray(meta.superseded_images) ? [...meta.superseded_images] : []
+      if (!supersededList.includes(priorUrl)) {
+        supersededList.push(priorUrl)
+        await supabase.from('products').update({ metadata: { ...meta, superseded_images: supersededList } }).eq('id', productId)
+      }
+    }
 
     await saveShotsState(productId, {
       status: 'done',
@@ -2039,11 +2047,19 @@ export async function shootOneModelShot(
     stepModel[images.length - 1] = true
   }
 
+  const supersededList: string[] = Array.isArray(metadata.superseded_images)
+    ? [...metadata.superseded_images]
+    : []
+  if (opts.replaceUrl && !supersededList.includes(opts.replaceUrl)) {
+    supersededList.push(opts.replaceUrl)
+  }
+
   const { error: updErr } = await supabase
     .from('products')
     .update({
       metadata: {
         ...metadata,
+        superseded_images: supersededList,
         etsy_shots: {
           ...(current ?? { status: 'done', images: [] }),
           // Create fresh as 'done' (a single awaited shot is already a

@@ -113,6 +113,25 @@ export const METAL_ROLE_ORDER = [
   ...ROLE_ORDER.filter((r) => r !== 'design_watermarked'),
 ] as const
 
+/**
+ * Role order for Etsy listings (services/etsy.ts).
+ * Lifestyle model shots lead as hero (rank 1), followed by flat mockups
+ * (ghost mannequin, flat lay, hanger, back view, details card, extra colors,
+ * mascot, pocket, and watermarked artwork).
+ */
+export const ETSY_ROLE_ORDER = [
+  MODEL_ROLE_WILDCARD,
+  'mockup_ghost_mannequin',
+  'mockup_flat_lay',
+  'mockup_hanger',
+  'mockup_back',
+  'mockup_details',
+  COLOR_ROLE_WILDCARD,
+  'mockup_mr_imagine',
+  'mockup_pocket',
+  'design_watermarked',
+] as const
+
 /** Gallery index of the pocket-scale shot, so a placement pick can jump to it. */
 export const POCKET_ROLE = 'mockup_pocket'
 /** Gallery role of the back-side render on two-sided (front-back) products. */
@@ -193,4 +212,16 @@ export function buildProductGalleryFor(
   assets: GalleryAsset[]
 ): string[] {
   return buildProductGallery(assets, isMetalProductRow(row) ? METAL_ROLE_ORDER : ROLE_ORDER)
+}
+
+/**
+ * buildProductGallery tailored for Etsy listings:
+ * - Garments: lifestyle model shots lead as hero (rank 1).
+ * - Metal prints: watermarked artwork leads (panel is the art), followed by size scenes and details.
+ */
+export function buildEtsyGallery(
+  row: { category?: unknown; metadata?: any } | null | undefined,
+  assets: GalleryAsset[]
+): string[] {
+  return buildProductGallery(assets, isMetalProductRow(row) ? METAL_ROLE_ORDER : ETSY_ROLE_ORDER)
 }

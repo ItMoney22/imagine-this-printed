@@ -15,4 +15,4 @@
  * change.
  */
 export type { GalleryAsset } from '../../backend/shared/product-gallery'
-export { ROLE_ORDER, POCKET_ROLE, BACK_ROLE, buildProductGallery } from '../../backend/shared/product-gallery'
+export { ROLE_ORDER, METAL_ROLE_ORDER, ETSY_ROLE_ORDER, POCKET_ROLE, BACK_ROLE, buildProductGallery, buildProductGalleryFor, buildEtsyGallery } from '../../backend/shared/product-gallery'
