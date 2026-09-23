@@ -1,40 +1,38 @@
-# Claude Task Brief
+﻿# Claude Task Brief
 
 ## Request
-- Complete the September 17, 2026 weekly review of the live `ImagineThisPrinted1` Etsy shop.
-- Compare with the September 10 review, capture four fresh screenshots, and email the illustrated report from Mr. Imagine to the WeCare team inbox.
+- Watchtower 9ff3919c-9e3f-434a-8d51-de7ee2e1f555: verify the live Etsy draft count before auditing the former 55-draft batch.
+- The old batch was deleted on 2026-09-08. On 2026-09-23, Etsy API returned **6 current drafts and 14 active listings** for ImagineThisPrinted1 (shop 67055923). The six drafts were created later and are a separate cohort.
 
 ## Repo detection
-- Vite + React + TypeScript storefront with a Node/Express backend and Supabase-backed shared inbox.
-- This request is an external storefront audit and email-delivery run; no Etsy settings or repo implementation code are in scope.
+- Vite/React/TypeScript storefront with Node backend and Etsy Open API integration.
+- Read-only Etsy API audit; no application implementation or Etsy mutation authorized in this request.
 
 ## Relevant files
-- `AGENTS.md`
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- `backend/routes/email.ts`
-- `backend/services/email-resend.ts`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\AGENTS.md`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\CLAUDE.md`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\backend\scripts\etsy-poc.mjs` (OAuth token and shop identity reference)
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\TASK_NOTES.md`
 
 ## Files to edit (STRICT)
-- `CLAUDE_TASK.md`
-- `TASK_NOTES.md`
-- Do not modify application code, Etsy listings, prices, inventory, or policies.
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\CLAUDE_TASK.md`
+- `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\TASK_NOTES.md`
+- No other repo files, listing copy, Etsy state, prices, or images may be changed under this brief.
 
 ## Plan
-1. Inspect the live shop home, strongest featured listing, an inconsistent listing, and About/policies; retain fresh screenshots outside the repo.
-2. Compare listing count, assortment, pricing, presentation, options, fulfillment details, trust copy, and visible accessibility risks with September 10.
-3. Send the concise report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` with all four screenshots embedded by CID and attached as true PNG files.
-4. Verify a delivered Resend message with four attachments, the outbound record in Mr. Imagine's Sent folder, and four working PNG downloads in the WeCare recipient record.
+1. Preserve the Etsy API count and six-listing punch list in the Watchtower handoff for this task.
+2. Give David the labeled six-draft primary-image contact sheet at `E:\memory\watchtower\artifacts\etsy-current-six-primary-images-2026-09-23.png`.
+3. Note that the obsolete 55-draft follow-on chain is already archived; keep the six current drafts separate.
+4. File a scoped follow-up for the six current drafts. Four have unsupported or contradictory copy; one has no primary image. Keep all edits and publishing blocked pending David's approval.
 
 ## Acceptance criteria
-- [x] Four fresh screenshots were captured, converted to true PNG encoding, and visually inspected.
-- [x] The comparison covers every requested storefront dimension and prioritizes three next actions.
-- [x] The corrected true-PNG report was delivered and logged in Mr. Imagine's Sent folder with four attachments.
-- [x] Resend reports four inline CID attachments and the WeCare recipient record has four downloadable, PNG-signature-verified image attachments.
-- [x] No Etsy settings, listings, or repo implementation files were changed.
+- [x] Live Etsy API identifies ImagineThisPrinted1 and returns draft=6, active=14.
+- [x] All six current drafts have title/description/tag capability checks; method and substrate are considered together.
+- [x] A labeled image sheet exists, including a missing-image cell for listing 4580221283.
+- [x] No Etsy listing was changed or published.
+- [x] Former 55-draft follow-on tasks eaf5d6ed, d17ec548, and 99706f4c were verified archived.
 
 ## Commands
-- `rg -n "weekly Etsy|September 10, 2026|email_messages|mrimagine" CLAUDE_TASK.md TASK_NOTES.md backend`
+- `node backend/scripts/etsy-poc.mjs whoami` (from the repo's documented PoC; refreshes the saved Etsy token if expired).
 - `git diff --check -- CLAUDE_TASK.md TASK_NOTES.md`
-- `git diff --name-only -- CLAUDE_TASK.md TASK_NOTES.md`
 - `git status --short`

@@ -4252,3 +4252,12 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## 2026-09-23 — Etsy 55-draft audit re-scoped by live count
+
+### File shortlist (approved scope)
+- Read first: `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\AGENTS.md`, `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\CLAUDE_TASK.md`, `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\backend\scripts\etsy-poc.mjs`.
+- Allowed repo edits: `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\CLAUDE_TASK.md` and `D:\watchtower-dispatch-worktrees\imagine-this-printed\jessica-steele\step-1-7-audit-55-etsy-d-9ff3919c-mue0jumg\TASK_NOTES.md` only.
+
+### Work log (append-only)
+- Verified Etsy API shop 67055923 has 6 newer drafts and 14 active listings, so the original 55-draft audit/publish/consolidation batch is obsolete; audited the six current drafts read-only, made a labeled primary-image sheet outside the repo, and recorded a scoped remediation proposal in the Watchtower handoff without changing Etsy listings.
