@@ -45,7 +45,10 @@ export default function AdminPrintMaterials() {
   const [showAdd, setShowAdd] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [editing, setEditing] = useState<PrintMaterial | null>(null)
-  const [editQty, setEditQty] = useState('')
+  const [editForm, setEditForm] = useState({
+    brand: '', material: '', color_name: '', hex: '', qty_on_hand: '',
+    reorder_threshold: '', cost_per_unit: '', grams_per_unit: '', supplier: '', notes: ''
+  })
   const [processing, setProcessing] = useState(false)
 
   useEffect(() => { void fetchItems() }, [])
@@ -96,17 +99,32 @@ export default function AdminPrintMaterials() {
     }
   }
 
-  const handleSaveQty = async () => {
+  const handleSaveEdit = async () => {
     if (!editing) return
+    if (!editForm.brand.trim() || !editForm.material.trim() || !editForm.color_name.trim()) {
+      setError('Brand, material and color name are required')
+      return
+    }
     setProcessing(true)
     setError(null)
     try {
-      await api.put(`/api/admin/print-materials/${editing.id}`, { qty_on_hand: Number(editQty) || 0 })
-      flash(`${editing.color_name} quantity updated`)
+      await api.put(`/api/admin/print-materials/${editing.id}`, {
+        brand: editForm.brand.trim(),
+        material: editForm.material.trim(),
+        color_name: editForm.color_name.trim(),
+        hex: editForm.hex.trim(),
+        qty_on_hand: Number(editForm.qty_on_hand) || 0,
+        reorder_threshold: Number(editForm.reorder_threshold) || 0,
+        cost_per_unit: editForm.cost_per_unit === '' ? null : Number(editForm.cost_per_unit),
+        grams_per_unit: editForm.grams_per_unit === '' ? null : Number(editForm.grams_per_unit),
+        supplier: editForm.supplier.trim() || null,
+        notes: editForm.notes.trim() || null
+      })
+      flash(`${editForm.color_name} updated`)
       setEditing(null)
       await fetchItems()
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to update quantity')
+      setError(err.response?.data?.error || 'Failed to update material')
     } finally {
       setProcessing(false)
     }
@@ -225,9 +243,24 @@ export default function AdminPrintMaterials() {
                   </td>
                   <td className="py-2 text-right whitespace-nowrap">
                     <button
-                      onClick={() => { setEditing(item); setEditQty(String(item.qty_on_hand)); setError(null) }}
+                      onClick={() => {
+                        setEditing(item)
+                        setEditForm({
+                          brand: item.brand,
+                          material: item.material,
+                          color_name: item.color_name,
+                          hex: item.hex,
+                          qty_on_hand: String(item.qty_on_hand),
+                          reorder_threshold: String(item.reorder_threshold),
+                          cost_per_unit: item.cost_per_unit != null ? String(item.cost_per_unit) : '',
+                          grams_per_unit: item.grams_per_unit != null ? String(item.grams_per_unit) : '',
+                          supplier: item.supplier || '',
+                          notes: item.notes || ''
+                        })
+                        setError(null)
+                      }}
                       className="p-1.5 text-muted hover:text-primary"
-                      title="Edit quantity"
+                      title="Edit material"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -334,30 +367,82 @@ export default function AdminPrintMaterials() {
         </div>
       )}
 
-      {/* Edit qty modal */}
+      {/* Edit material modal */}
       {editing && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setEditing(null)} />
-          <div className="relative z-10 bg-card border card-border rounded-xl shadow-2xl w-full max-w-xs p-6">
-            <h3 className="text-lg font-semibold text-text mb-3">
-              {editing.brand} — {editing.color_name}
-            </h3>
-            <label className="text-sm text-text block">
-              Quantity on hand
-              <input
-                type="number"
-                min="0"
-                value={editQty}
-                onChange={e => setEditQty(e.target.value)}
-                className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text"
-                autoFocus
-              />
-            </label>
-            <div className="flex gap-2 mt-4">
-              <button onClick={() => setEditing(null)} className="flex-1 py-2 rounded-md border card-border text-muted text-sm hover:bg-text/5">Cancel</button>
-              <button onClick={handleSaveQty} disabled={processing} className="flex-1 py-2 rounded-md bg-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">
-                {processing ? 'Saving…' : 'Save'}
-              </button>
+          <div className="relative z-10 bg-card border card-border rounded-xl shadow-2xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-text capitalize">Edit {editing.kind}</h3>
+              <button onClick={() => setEditing(null)} className="text-muted hover:text-text"><X className="w-5 h-5" /></button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm text-text">
+                  Brand
+                  <input value={editForm.brand} onChange={e => setEditForm(f => ({ ...f, brand: e.target.value }))}
+                    placeholder="Bambu / Polymaker / Apple Barrel" className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" autoFocus />
+                </label>
+                <label className="text-sm text-text">
+                  Material
+                  <input value={editForm.material} onChange={e => setEditForm(f => ({ ...f, material: e.target.value }))}
+                    placeholder="PLA / PETG / acrylic" className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+                </label>
+              </div>
+              <label className="text-sm text-text block">
+                Color name
+                <input value={editForm.color_name} onChange={e => setEditForm(f => ({ ...f, color_name: e.target.value }))}
+                  className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+              </label>
+              <label className="text-sm text-text block">
+                Color (matching key)
+                <span className="mt-1 flex items-center gap-2">
+                  <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(editForm.hex) ? editForm.hex : '#000000'}
+                    onChange={e => setEditForm(f => ({ ...f, hex: e.target.value }))} className="h-9 w-14 rounded cursor-pointer border card-border bg-bg" />
+                  <input value={editForm.hex} onChange={e => setEditForm(f => ({ ...f, hex: e.target.value }))}
+                    className="flex-1 px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+                </span>
+              </label>
+              <div className="grid grid-cols-3 gap-3">
+                <label className="text-sm text-text">
+                  Qty on hand
+                  <input type="number" min="0" value={editForm.qty_on_hand} onChange={e => setEditForm(f => ({ ...f, qty_on_hand: e.target.value }))}
+                    className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+                </label>
+                <label className="text-sm text-text">
+                  Reorder at
+                  <input type="number" min="0" value={editForm.reorder_threshold} onChange={e => setEditForm(f => ({ ...f, reorder_threshold: e.target.value }))}
+                    className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+                </label>
+                <label className="text-sm text-text">
+                  Cost/unit
+                  <input type="number" min="0" step="0.01" value={editForm.cost_per_unit} onChange={e => setEditForm(f => ({ ...f, cost_per_unit: e.target.value }))}
+                    className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+                </label>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm text-text">
+                  {editing.kind === 'filament' ? 'Grams per spool' : 'ml per bottle'}
+                  <input type="number" min="0" value={editForm.grams_per_unit} onChange={e => setEditForm(f => ({ ...f, grams_per_unit: e.target.value }))}
+                    className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+                </label>
+                <label className="text-sm text-text">
+                  Supplier
+                  <input value={editForm.supplier} onChange={e => setEditForm(f => ({ ...f, supplier: e.target.value }))}
+                    className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+                </label>
+              </div>
+              <label className="text-sm text-text block">
+                Notes
+                <textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))}
+                  rows={2} className="mt-1 w-full px-2 py-1.5 rounded-md border card-border bg-bg text-text" />
+              </label>
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setEditing(null)} className="flex-1 py-2 rounded-md border card-border text-muted text-sm hover:bg-text/5">Cancel</button>
+                <button onClick={handleSaveEdit} disabled={processing} className="flex-1 py-2 rounded-md bg-primary text-white text-sm font-medium hover:opacity-90 disabled:opacity-50">
+                  {processing ? 'Saving…' : 'Save'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
