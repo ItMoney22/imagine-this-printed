@@ -25,6 +25,19 @@
 //      verdicts ride in the payload but the queue keeps its old order unless
 //      the caller asks for ?sort=jev. `on` makes Jev order the default; `off`
 //      skips the Jev calls (the floor still runs — it costs nothing).
+//   7. Jev cannot see the artwork — the DECISIONS endpoint is text-only, so a
+//      benchmark-perfect design brief can still be a design nobody would print
+//      (2026-09-23 benchmark: 2 false approvals, both rejected by a human for
+//      an image problem the text never mentioned). The image half of the floor
+//      closes that hole with the SAME deterministic, non-AI measurements
+//      presentation-qa.ts already grades go-live listings with
+//      (checkPrintBackground, checkSharpness): a design already stamped
+//      qa_gate-failed on an image criterion, or one whose own artwork measures
+//      as an opaque/checkerboard background or as blurry/upscaled, floors to
+//      reject_quality — same as the trademark and no-artwork floor, and
+//      likewise unverified (image unreachable, or none to measure) is FAIL
+//      OPEN, never a hit, because presort's contract is "no evidence, no
+//      opinion", not presentation-qa's "no evidence, no pass".
 //
 // Fail OPEN: Jev down, slow, or garbled → items get `jev_unavailable` and the
 // floor alone decides, which is exactly the queue as it was before.
@@ -36,6 +49,8 @@ import {
   type JevFetch,
   type JevIpDecision
 } from './jev-ip-gate.js'
+import { measureImage, measureOpacity, type ImageMetricsResult, type OpacityResult } from './image-metrics.js'
+import { checkPrintBackground, checkSharpness } from './presentation-qa.js'
 
 export const PRESORT_VERDICTS = ['approve', 'needs_fix', 'reject_quality', 'reject_ip'] as const
 export type PresortVerdict = (typeof PRESORT_VERDICTS)[number]
@@ -87,6 +102,9 @@ export type ReasonCode =
   | 'floor_no_artwork'
   | 'floor_missing_title'
   | 'floor_missing_generations'
+  | 'floor_qa_gate_image_fail'
+  | 'floor_image_background'
+  | 'floor_image_sharpness'
   | 'jev_ip_block'
   | 'jev_ip_review'
   | 'jev_approve'
@@ -130,6 +148,28 @@ export interface PresortItem {
   /** Deterministic facts computed from the row (see toPresortItem). */
   hasArtwork: boolean
   missingGenerations: string[]
+  /** Best URL of the actual print artwork (never a mockup render) for image
+   *  measurement — same dtf > nobg > source > gallery order design-qa-gate.ts
+   *  resolves it in, minus the extra DB round trip (product_assets already
+   *  rode along on the pending-queue row). Null when nothing qualifies. Good
+   *  enough for SHARPNESS, which is a property of the file regardless of
+   *  processing stage — NOT for the background check, see backgroundUrl. */
+  imageUrl: string | null
+  /** dtf > nobg only — background removal already ran. A raw 'source' or
+   *  gallery image legitimately has no alpha yet (gpt-image-2 refuses
+   *  background:'transparent' outright, so an opaque first draft is the
+   *  NORMAL pre-processing state, not a defect — 2026-09-23 live check:
+   *  scoring it against print_background turned 2 approved, unprocessed
+   *  submissions into false rejects). Null until removal has actually run. */
+  backgroundUrl: string | null
+  /** Same apparel/metal/3d call the generation-completeness check above makes —
+   *  reused rather than presentation-qa's isGarment(category), because
+   *  products.category is normally unset until THIS approval sets it. */
+  isGarment: boolean
+  placement: string | null
+  /** products.metadata.qa_gate, if this design already went through the full
+   *  presentation QA gate (e.g. a resubmission after a prior rejection). */
+  qaGate: Record<string, any> | null
 }
 
 interface JevChoiceAnswer {
@@ -180,6 +220,18 @@ export function toPresortItem(product: any): PresortItem {
   const metaTags = Array.isArray(meta.tags) ? meta.tags : []
   const tags = [...new Set([...tagRows, ...metaTags].filter((t): t is string => typeof t === 'string' && !!t.trim()))]
 
+  // Same priority order buildPresentationInput (design-qa-gate.ts) resolves the
+  // print artwork in: the file that actually goes to the printer, never a
+  // photograph of the finished product.
+  const artworkOfKind = (k: string): string | null => {
+    const hit = productAssets.find((a: any) => a?.kind === k && typeof a?.url === 'string')
+    return (hit?.url as string) ?? null
+  }
+  const galleryArtwork = images[0] && !/\/mockups?\//i.test(String(images[0])) && !/\bmockup[-_]?\d*\.[a-z]+/i.test(String(images[0]))
+    ? images[0] : null
+  const backgroundUrl = artworkOfKind('dtf') ?? artworkOfKind('nobg') ?? null
+  const imageUrl = backgroundUrl ?? artworkOfKind('source') ?? galleryArtwork ?? null
+
   return {
     id: String(product?.id),
     name: product?.name ?? null,
@@ -187,7 +239,12 @@ export function toPresortItem(product: any): PresortItem {
     tags,
     designPrompt: designPromptOf(meta),
     hasArtwork,
-    missingGenerations
+    missingGenerations,
+    imageUrl,
+    backgroundUrl,
+    isGarment: kind === 'apparel',
+    placement: meta.print_placement ?? null,
+    qaGate: meta.qa_gate && typeof meta.qa_gate === 'object' ? meta.qa_gate : null
   }
 }
 
@@ -233,6 +290,124 @@ export function runFloor(item: PresortItem): FloorHit[] {
   return hits.sort((a, b) => sev(b) - sev(a))
 }
 
+/** Criteria from presentation-qa.ts's six-criterion review that grade the
+ *  IMAGE itself, not the copy or price — the half a text-only triage cannot
+ *  see. seo/pricing are deliberately excluded: a stamp that only failed those
+ *  says nothing about whether the design is sellable. */
+const IMAGE_QA_CRITERIA = new Set(['print_background', 'mockup_quality', 'image_sharpness', 'design_placement', 'typography'])
+
+/**
+ * A design that already failed the full presentation QA gate (e.g. a
+ * resubmission after a prior rejection) on an image criterion — free, no
+ * fetch, the stamp already rode along on the row. Passed/overridden stamps,
+ * and failures that were only about copy or price, say nothing here.
+ */
+function qaGateImageHit(item: PresortItem): FloorHit | null {
+  if (!item.qaGate) return null
+  for (const stamp of Object.values(item.qaGate)) {
+    const s = stamp as any
+    if (!s || s.status !== 'failed' || !Array.isArray(s.failures)) continue
+    const imageFailure = s.failures.find((f: unknown) => IMAGE_QA_CRITERIA.has(String(f).split(':')[0].trim()))
+    if (imageFailure) {
+      return {
+        verdict: 'reject_quality',
+        code: 'floor_qa_gate_image_fail',
+        rationale: `Already failed presentation QA on the image (score ${s.score}): ${imageFailure}`
+      }
+    }
+  }
+  return null
+}
+
+/** url -> measured. Image bytes at a given URL never change in this system
+ *  (a re-render gets a new URL), so this only needs to survive one request
+ *  burst — same TTL as the Jev caches below, for one consistent knob. Kept as
+ *  two maps because imageUrl and backgroundUrl are frequently different files. */
+const sharpnessCache = new Map<string, { at: number; metrics: ImageMetricsResult }>()
+const opacityCache = new Map<string, { at: number; opacity: OpacityResult }>()
+const IMAGE_CACHE_TTL_MS = 6 * 60 * 60 * 1000
+
+/** Swappable so tests never hit the network — same shape as JevFetch's role
+ *  for the text half. Defaults to the real image-metrics.ts functions. */
+export interface ImageMeasureFns {
+  measureImage: (url: string) => Promise<ImageMetricsResult>
+  measureOpacity: (url: string) => Promise<OpacityResult>
+}
+const defaultImageMeasureFns: ImageMeasureFns = { measureImage, measureOpacity }
+
+async function cachedSharpness(url: string, fns: ImageMeasureFns): Promise<ImageMetricsResult> {
+  const now = Date.now()
+  const cached = sharpnessCache.get(url)
+  if (cached && now - cached.at < IMAGE_CACHE_TTL_MS) return cached.metrics
+  const metrics = await fns.measureImage(url)
+  sharpnessCache.set(url, { at: now, metrics })
+  return metrics
+}
+
+async function cachedOpacity(url: string, fns: ImageMeasureFns): Promise<OpacityResult> {
+  const now = Date.now()
+  const cached = opacityCache.get(url)
+  if (cached && now - cached.at < IMAGE_CACHE_TTL_MS) return cached.opacity
+  const opacity = await fns.measureOpacity(url)
+  opacityCache.set(url, { at: now, opacity })
+  return opacity
+}
+
+/**
+ * Measure the artwork itself with the SAME calibrated, non-AI checks
+ * presentation-qa.ts grades go-live listings with — an opaque or painted-
+ * checkerboard background, or a blurry/upscaled file. `unverified` (image
+ * missing or unreachable) is never a hit: presort fails OPEN on missing
+ * evidence, unlike presentation-qa's fail-CLOSED go-live gate.
+ */
+async function measuredImageHit(item: PresortItem, fns: ImageMeasureFns): Promise<FloorHit | null> {
+  // backgroundUrl (dtf/nobg only) — a raw, pre-removal source is routinely
+  // opaque (see the field comment on PresortItem) and would swamp the queue
+  // with false rejects, so this check simply has no opinion until then.
+  if (item.backgroundUrl) {
+    const opacity = await cachedOpacity(item.backgroundUrl, fns)
+    const background = checkPrintBackground(opacity, null, item.isGarment, item.placement)
+    if (!background.unverified && !background.ok) {
+      const issue = background.findings.find(f => f.severity === 'block')?.issue ?? background.summary
+      return { verdict: 'reject_quality', code: 'floor_image_background', rationale: issue }
+    }
+  }
+
+  // Sharpness is a file property, not a processing-stage one — a raw source
+  // image is just as validly blurry or crisp as a processed one.
+  if (item.imageUrl) {
+    const metrics = await cachedSharpness(item.imageUrl, fns)
+    const sharpness = checkSharpness([metrics])
+    if (!sharpness.unverified && !sharpness.ok) {
+      const issue = sharpness.findings.find(f => f.severity === 'block')?.issue ?? sharpness.summary
+      return { verdict: 'reject_quality', code: 'floor_image_sharpness', rationale: issue }
+    }
+  }
+
+  return null
+}
+
+export function resetImageQaCache(): void {
+  sharpnessCache.clear()
+  opacityCache.clear()
+}
+
+/**
+ * The image half of the floor, one entry per item that has something to add.
+ * Async (real fetches) so it runs alongside the Jev calls in presortProducts,
+ * never inside the synchronous runFloor. A stamped gate failure short-circuits
+ * the fresh measurement — no point re-fetching what already failed a review.
+ */
+export async function runImageFloor(items: PresortItem[], opts: { fns?: ImageMeasureFns } = {}): Promise<Map<string, FloorHit[]>> {
+  const fns = opts.fns ?? defaultImageMeasureFns
+  const out = new Map<string, FloorHit[]>()
+  await Promise.all(items.map(async item => {
+    const hit = qaGateImageHit(item) ?? (await measuredImageHit(item, fns).catch(() => null))
+    if (hit) out.set(item.id, [hit])
+  }))
+  return out
+}
+
 /** The one line Jev reads for an item. Clipped — title, tags and prompt carry the signal. */
 export function itemText(item: PresortItem): string {
   const parts = [
@@ -274,7 +449,11 @@ const pct = (n: number) => `${Math.round(n * 100)}%`
 
 /**
  * Fold floor + IP gate + triage into one result. Precedence:
- *   - floor hits are absolute: sure by definition, and nothing softens them;
+ *   - floor hits are absolute: sure by definition, and nothing softens them —
+ *     this includes the image checks (see runImageFloor), which ride in on
+ *     `floor` alongside the trademark/artwork/title checks and are combined
+ *     here exactly the same way, so a design a text-only triage would approve
+ *     still floors to reject_quality on a measured background or sharpness hit;
  *   - Jev can add a STRICTER verdict (IP block, or a sure triage answer);
  *   - the most severe candidate wins, the floor winning ties;
  *   - an IP "review" (the gate is unsure) outranks any softer Jev suggestion,
@@ -361,6 +540,7 @@ const CACHE_TTL_MS = 6 * 60 * 60 * 1000
 
 export function resetPresortCache(): void {
   triageCache.clear()
+  resetImageQaCache()
 }
 
 /** One triage question per item, batched through the shared Jev transport. Missing keys = no answer. */
@@ -411,7 +591,7 @@ function withBudget<T>(p: Promise<T>, ms: number, fallback: T): Promise<T> {
  */
 export async function presortProducts(
   products: any[],
-  opts: { fetchImpl?: JevFetch; mode?: PresortMode; budgetMs?: number } = {}
+  opts: { fetchImpl?: JevFetch; mode?: PresortMode; budgetMs?: number; imageFns?: ImageMeasureFns } = {}
 ): Promise<Record<string, PresortResult>> {
   const mode = opts.mode ?? presortMode()
   // One transport for both questions, so an injected fetch covers the IP gate too.
@@ -421,6 +601,7 @@ export async function presortProducts(
 
   let ipDecisions: Record<string, JevIpDecision> = {}
   let triageAnswers: Record<string, JevChoiceAnswer | undefined> = {}
+  let imageFloors = new Map<string, FloorHit[]>()
   if (mode !== 'off' && items.length) {
     // The IP gate is only worth asking when the floor has not already blocked on IP.
     const ipInputs = Object.fromEntries(
@@ -429,16 +610,20 @@ export async function presortProducts(
         .map(i => [i.id, { name: i.name ?? undefined, description: i.description ?? undefined, tags: i.tags, designPrompt: i.designPrompt }])
     )
     const budget = opts.budgetMs ?? PRESORT_BUDGET_MS
-    ;[ipDecisions, triageAnswers] = await Promise.all([
+    // Skip measuring artwork the floor has already rejected for having none.
+    const imageItems = items.filter(i => i.hasArtwork || i.qaGate)
+    ;[ipDecisions, triageAnswers, imageFloors] = await Promise.all([
       withBudget(classifyIpCached(ipInputs, { fetchImpl }), budget, {} as Record<string, JevIpDecision>),
-      withBudget(askTriage(items, { fetchImpl }), budget, {} as Record<string, JevChoiceAnswer | undefined>)
+      withBudget(askTriage(items, { fetchImpl }), budget, {} as Record<string, JevChoiceAnswer | undefined>),
+      withBudget(runImageFloor(imageItems, { fns: opts.imageFns }), budget, new Map<string, FloorHit[]>())
     ])
   }
 
   const out: Record<string, PresortResult> = {}
   for (const item of items) {
+    const floor = [...floors.get(item.id)!, ...(imageFloors.get(item.id) ?? [])]
     out[item.id] = combinePresort(
-      floors.get(item.id)!,
+      floor,
       ipDecisions[item.id],
       mode === 'off' ? { verdict: null, status: 'unavailable' } : gateTriage(triageAnswers[item.id]),
       { jevOff: mode === 'off' }

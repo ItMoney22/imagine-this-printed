@@ -1,43 +1,28 @@
 {
   "summary": {
-    "ranAt": "2026-09-23T11:55:10.040Z",
+    "ranAt": "2026-09-23T12:34:59.974Z",
     "rowsUserSubmitted": 13,
     "humanDecided": 11,
     "coverage": "5/11 got a suggestion (rest were low-confidence / no opinion)",
-    "keepVsRejectAgreement": "3/5",
-    "exactVerdictAgreement": "1/5",
-    "falseApprovals": 2,
-    "jevMs": 391
+    "keepVsRejectAgreement": "4/5",
+    "exactVerdictAgreement": "2/5",
+    "falseApprovals": 1,
+    "jevMs": 1244
   },
   "lines": [
-    {
-      "id": "be8bf287-ed47-4e25-9113-cbd5f0249c9a",
-      "name": "TEST DO NOT APPROVE - Product Creator E2E 2026-08-19T16:37 — T-Shirt",
-      "human": "pending",
-      "suggestion": "reject_quality",
-      "confidence": 0.99,
-      "reasonCode": "jev_reject_quality",
-      "reasonCodes": [
-        "floor_missing_title",
-        "jev_reject_quality"
-      ],
-      "band": "reject_quality",
-      "agree": null,
-      "rationale": "Title is missing or a placeholder (\"TEST DO NOT APPROVE - Product Creator E2E 2026-08-19T16:37 — T-Shirt\"). Jev suggests reject quality (99% sure)."
-    },
     {
       "id": "e387149e-ae76-4a61-877d-8005896a8c99",
       "name": "Walk By Faith",
       "human": "approve",
       "suggestion": null,
-      "confidence": 0.39,
+      "confidence": 0.58,
       "reasonCode": "jev_low_confidence",
       "reasonCodes": [
         "jev_low_confidence"
       ],
       "band": "needs_human",
       "agree": null,
-      "rationale": "Jev was not sure enough to suggest a verdict (39%, bar 75%)."
+      "rationale": "Jev was not sure enough to suggest a verdict (58%, bar 75%)."
     },
     {
       "id": "a75cb324-f872-473b-b5eb-0dc75572f054",
@@ -58,21 +43,21 @@
       "name": "Sinister Circus Spectacle",
       "human": "approve",
       "suggestion": null,
-      "confidence": 0.59,
+      "confidence": 0.56,
       "reasonCode": "jev_low_confidence",
       "reasonCodes": [
         "jev_low_confidence"
       ],
       "band": "needs_human",
       "agree": null,
-      "rationale": "Jev was not sure enough to suggest a verdict (59%, bar 75%)."
+      "rationale": "Jev was not sure enough to suggest a verdict (56%, bar 75%)."
     },
     {
       "id": "e4e10a98-30cb-4094-b6f2-324175eeecf7",
       "name": "Custom Semi-Realistic Design Shirt",
       "human": "approve",
       "suggestion": "needs_fix",
-      "confidence": 0.95,
+      "confidence": 0.96,
       "reasonCode": "jev_needs_fix",
       "reasonCodes": [
         "floor_missing_generations",
@@ -80,14 +65,14 @@
       ],
       "band": "needs_fix",
       "agree": true,
-      "rationale": "Missing halftone, DTF print-ready — approving now saves it as incomplete. Jev suggests needs fix (95% sure)."
+      "rationale": "Missing halftone, DTF print-ready — approving now saves it as incomplete. Jev suggests needs fix (96% sure)."
     },
     {
       "id": "6169d739-ac25-45ac-acb5-2c62cf589c0d",
       "name": "Snack Attack Lion Tee",
       "human": "reject_quality",
       "suggestion": "approve",
-      "confidence": 0.76,
+      "confidence": 0.78,
       "reasonCode": "jev_approve",
       "reasonCodes": [
         "floor_missing_generations",
@@ -95,14 +80,14 @@
       ],
       "band": "approve",
       "agree": false,
-      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev suggests approve (76% sure)."
+      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev suggests approve (78% sure)."
     },
     {
       "id": "afded4b5-4348-41fc-8927-9b3a83f58cd1",
       "name": "Epic Black Tee Design",
       "human": "approve",
       "suggestion": "needs_fix",
-      "confidence": 0.82,
+      "confidence": 0.79,
       "reasonCode": "jev_needs_fix",
       "reasonCodes": [
         "floor_missing_generations",
@@ -110,14 +95,14 @@
       ],
       "band": "needs_fix",
       "agree": true,
-      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev suggests needs fix (82% sure)."
+      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev suggests needs fix (79% sure)."
     },
     {
       "id": "9caa74f5-b753-4817-844c-914163e54c62",
       "name": "Warfare Mouse Cyberpunk Tee",
       "human": "approve",
       "suggestion": null,
-      "confidence": 0.72,
+      "confidence": 0.68,
       "reasonCode": "jev_low_confidence",
       "reasonCodes": [
         "floor_missing_generations",
@@ -125,14 +110,14 @@
       ],
       "band": "needs_human",
       "agree": null,
-      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev was not sure enough to suggest a verdict (72%, bar 75%)."
+      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev was not sure enough to suggest a verdict (68%, bar 75%)."
     },
     {
       "id": "656a012e-f90a-45ae-ae2e-ba58c1a4c6ae",
       "name": "Majestic Roar: Lion in Full Glory",
       "human": "approve",
       "suggestion": null,
-      "confidence": 0.66,
+      "confidence": 0.69,
       "reasonCode": "jev_low_confidence",
       "reasonCodes": [
         "floor_missing_generations",
@@ -140,14 +125,14 @@
       ],
       "band": "needs_human",
       "agree": null,
-      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev was not sure enough to suggest a verdict (66%, bar 75%)."
+      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev was not sure enough to suggest a verdict (69%, bar 75%)."
     },
     {
       "id": "21979f67-140d-42a1-9488-a70efb96b88d",
       "name": "Jungle Mischief: Monkeys & Gorilla Gathering",
       "human": "reject_quality",
       "suggestion": null,
-      "confidence": 0.64,
+      "confidence": 0.56,
       "reasonCode": "jev_low_confidence",
       "reasonCodes": [
         "floor_missing_generations",
@@ -155,29 +140,30 @@
       ],
       "band": "needs_human",
       "agree": null,
-      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev was not sure enough to suggest a verdict (64%, bar 75%)."
+      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev was not sure enough to suggest a verdict (56%, bar 75%)."
     },
     {
       "id": "aebf7a33-52aa-4939-ab4c-00d3fb6970cd",
       "name": "Retro Synthwave Sunset Tee Design",
       "human": "reject_quality",
-      "suggestion": "approve",
-      "confidence": 0.81,
-      "reasonCode": "jev_approve",
+      "suggestion": "reject_quality",
+      "confidence": 1,
+      "reasonCode": "floor_image_background",
       "reasonCodes": [
         "floor_missing_generations",
+        "floor_image_background",
         "jev_approve"
       ],
-      "band": "approve",
-      "agree": false,
-      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev suggests approve (81% sure)."
+      "band": "reject_quality",
+      "agree": true,
+      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. The artwork has no transparent area — 100% of its outer edge is solid ink, so it prints as a rectangle on the garment. Jev suggests approve (81% sure)."
     },
     {
       "id": "3d5cf461-132f-45ae-9b39-2eaf09e03f1d",
       "name": "Dominic the Donkey - The Festive Friend",
       "human": "reject_quality",
       "suggestion": null,
-      "confidence": 0.31,
+      "confidence": 0.3,
       "reasonCode": "jev_ip_review",
       "reasonCodes": [
         "floor_missing_generations",
@@ -186,7 +172,7 @@
       ],
       "band": "needs_human",
       "agree": null,
-      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev leans clean but only 58% sure it is safe (bar 80%). Needs a human look. Jev was not sure enough to suggest a verdict (31%, bar 75%)."
+      "rationale": "Missing mockup, halftone, DTF print-ready — approving now saves it as incomplete. Jev leans clean but only 60% sure it is safe (bar 80%). Needs a human look. Jev was not sure enough to suggest a verdict (30%, bar 75%)."
     }
   ]
 }

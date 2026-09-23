@@ -6,13 +6,26 @@ import {
   presortProducts,
   resetPresortCache,
   runFloor,
+  runImageFloor,
   sortByPresort,
   toPresortItem,
   TRIAGE_CRITERIA,
   PRESORT_VERDICTS,
-  MIN_CONFIDENCE
+  MIN_CONFIDENCE,
+  type ImageMeasureFns
 } from './jev-approval-presort.js'
 import { resetJevIpCache, type JevFetch } from './jev-ip-gate.js'
+import type { ImageMetricsResult, OpacityResult } from './image-metrics.js'
+
+/** Fast, network-free stand-in for image-metrics.ts, so presortProducts's
+ *  image floor never makes a real fetch in a test. Reads as a clean,
+ *  print-ready file unless a test overrides one or both functions. */
+const cleanImageFns: ImageMeasureFns = {
+  measureImage: async (url): Promise<ImageMetricsResult> =>
+    ({ url, ok: true, width: 2048, height: 2048, shortEdge: 2048, longEdge: 2048, format: 'png', bytes: 500_000, sharpness: 900, edgeEnergy: 40 }),
+  measureOpacity: async (url): Promise<OpacityResult> =>
+    ({ url, ok: true, hasAlphaChannel: true, transparentFraction: 0.35, opaqueBorderFraction: 0.05, checkerboardBackground: false, borderMeanLuma: 40, borderPattern: null })
+}
 
 // A pending row with everything a finished apparel design carries, so the
 // floor stays quiet unless a test takes something away.
@@ -105,6 +118,112 @@ describe('deterministic floor', () => {
   it('orders multiple hits most severe first', () => {
     const hits = runFloor(toPresortItem(complete({ name: 'Nike', images: [], product_assets: [], metadata: {} })))
     expect(hits.map(h => h.verdict)).toEqual(['reject_ip', 'reject_quality'])
+  })
+})
+
+describe('image floor (runImageFloor) — the half a text-only triage cannot see', () => {
+  it('a clean, measured design trips nothing', async () => {
+    const hits = await runImageFloor([toPresortItem(complete())], { fns: cleanImageFns })
+    expect(hits.size).toBe(0)
+  })
+
+  it('a painted-checkerboard / opaque background floors to reject_quality, not a Jev opinion', async () => {
+    const badBackground: ImageMeasureFns = {
+      measureImage: cleanImageFns.measureImage,
+      measureOpacity: async (url): Promise<OpacityResult> =>
+        ({ url, ok: true, hasAlphaChannel: true, transparentFraction: 0.01, opaqueBorderFraction: 0.97, checkerboardBackground: true, borderMeanLuma: 230, borderPattern: { clusterLow: 40, clusterHigh: 235, separation: 195, spread: 1.2, alternations: 40 } })
+    }
+    // kind: 'dtf' — background removal has run, so an opaque/checkerboard
+    // result here is a real defect, not the normal pre-processing state a
+    // raw 'source' file is in (see backgroundUrl's field comment).
+    const processed = complete({ id: 'bg', product_assets: [{ id: 'a1', url: 'https://cdn/bg.png', kind: 'dtf' }] })
+    const hits = await runImageFloor([toPresortItem(processed)], { fns: badBackground })
+    expect(hits.get('bg')).toMatchObject([{ verdict: 'reject_quality', code: 'floor_image_background' }])
+  })
+
+  it('a raw, unprocessed source image with no alpha yet is NOT a background hit — that is the normal pre-removal state', async () => {
+    const opaqueSource: ImageMeasureFns = {
+      measureImage: cleanImageFns.measureImage,
+      measureOpacity: async (url): Promise<OpacityResult> =>
+        ({ url, ok: true, hasAlphaChannel: false, transparentFraction: 0, opaqueBorderFraction: 1, checkerboardBackground: false, borderMeanLuma: 255, borderPattern: null })
+    }
+    // complete()'s only asset is kind: 'source' — background removal has not run.
+    const hits = await runImageFloor([toPresortItem(complete({ id: 'raw' }))], { fns: opaqueSource })
+    expect(hits.size).toBe(0)
+  })
+
+  it('a blurry / upscaled artwork floors to reject_quality on sharpness', async () => {
+    const blurry: ImageMeasureFns = {
+      measureImage: async (url): Promise<ImageMetricsResult> =>
+        ({ url, ok: true, width: 2000, height: 2000, shortEdge: 2000, longEdge: 2000, format: 'png', bytes: 100_000, sharpness: 40, edgeEnergy: 5 }),
+      measureOpacity: cleanImageFns.measureOpacity
+    }
+    const hits = await runImageFloor([toPresortItem(complete({ id: 'blur' }))], { fns: blurry })
+    expect(hits.get('blur')).toMatchObject([{ verdict: 'reject_quality', code: 'floor_image_sharpness' }])
+  })
+
+  it('fails OPEN when the image cannot be measured — no evidence is no opinion, never a hit', async () => {
+    const unreachable: ImageMeasureFns = {
+      measureImage: async (url) => ({ url, ok: false, error: 'ECONNREFUSED' }),
+      measureOpacity: async (url) => ({ url, ok: false, error: 'ECONNREFUSED' })
+    }
+    const hits = await runImageFloor([toPresortItem(complete())], { fns: unreachable })
+    expect(hits.size).toBe(0)
+  })
+
+  it('an item with no resolvable artwork URL is skipped without measuring anything', async () => {
+    const fns: ImageMeasureFns = {
+      measureImage: vi.fn(cleanImageFns.measureImage),
+      measureOpacity: vi.fn(cleanImageFns.measureOpacity)
+    }
+    const noArt = toPresortItem(complete({ images: [], product_assets: [], metadata: { user_submitted: true } }))
+    const hits = await runImageFloor([noArt], { fns })
+    expect(hits.size).toBe(0)
+    expect(fns.measureImage).not.toHaveBeenCalled()
+  })
+
+  it('a design already failed on an image criterion in a prior QA submission floors WITHOUT re-measuring', async () => {
+    const fns: ImageMeasureFns = {
+      measureImage: vi.fn(cleanImageFns.measureImage),
+      measureOpacity: vi.fn(cleanImageFns.measureOpacity)
+    }
+    const stamped = complete({
+      id: 'stamped',
+      metadata: {
+        user_submitted: true, mockup_url: 'https://cdn/p1-mock.png', assets: { clean: 'c', halftone: 'h', dtf: 'd' },
+        qa_gate: { storefront: { status: 'failed', score: 40, failures: ['print_background: opaque background'] } }
+      }
+    })
+    const hits = await runImageFloor([toPresortItem(stamped)], { fns })
+    expect(hits.get('stamped')).toMatchObject([{ verdict: 'reject_quality', code: 'floor_qa_gate_image_fail' }])
+    expect(fns.measureImage).not.toHaveBeenCalled()
+  })
+
+  it('a QA failure that was only about copy/price (seo, pricing) says nothing here — falls through to measurement', async () => {
+    const stamped = complete({
+      id: 'copyonly',
+      metadata: {
+        user_submitted: true, mockup_url: 'https://cdn/p1-mock.png', assets: { clean: 'c', halftone: 'h', dtf: 'd' },
+        qa_gate: { storefront: { status: 'failed', score: 60, failures: ['seo: title too short'] } }
+      }
+    })
+    const hits = await runImageFloor([toPresortItem(stamped)], { fns: cleanImageFns })
+    expect(hits.size).toBe(0)
+  })
+
+  it('end to end: Jev is fooled by a good text brief, the image floor is not', async () => {
+    const { fetchImpl } = fakeJev({ 'Retro Sunset Surfer': sure('approve', 0.97) })
+    const badBackground: ImageMeasureFns = {
+      measureImage: cleanImageFns.measureImage,
+      measureOpacity: async (url): Promise<OpacityResult> =>
+        ({ url, ok: true, hasAlphaChannel: false, transparentFraction: 0, opaqueBorderFraction: 1, checkerboardBackground: false, borderMeanLuma: 250, borderPattern: null })
+    }
+    // Processed (dtf) artwork, so the opaque read is a real defect, not the
+    // normal pre-background-removal state.
+    const processed = complete({ product_assets: [{ id: 'a1', url: 'https://cdn/p1.png', kind: 'dtf' }] })
+    const presort = await presortProducts([processed], { fetchImpl, mode: 'shadow', imageFns: badBackground })
+    expect(presort.p1).toMatchObject({ recommendation: 'reject_quality', reasonCode: 'floor_image_background' })
+    expect(presort.p1.reasonCodes).toContain('jev_approve')
   })
 })
 
@@ -209,7 +328,7 @@ describe('presortProducts (end to end with a fake Jev)', () => {
       'shirt design cool awesome best': sure('needs_fix', 0.88),
       'asdf test': sure('reject_quality', 0.99)
     })
-    const presort = await presortProducts(products, { fetchImpl, mode: 'shadow' })
+    const presort = await presortProducts(products, { fetchImpl, mode: 'shadow', imageFns: cleanImageFns })
 
     expect(presort.good).toMatchObject({ recommendation: 'approve', reasonCode: 'jev_approve' })
     expect(presort.tm).toMatchObject({ recommendation: 'reject_ip', reasonCode: 'floor_trademark' })
@@ -225,20 +344,20 @@ describe('presortProducts (end to end with a fake Jev)', () => {
 
   it('does not ask the Jev IP gate about an item the denylist already blocked', async () => {
     const { fetchImpl, calls } = fakeJev({ 'Batman Sunset': sure('approve') })
-    await presortProducts([complete({ id: 'tm', name: 'Batman Sunset' })], { fetchImpl, mode: 'shadow' })
+    await presortProducts([complete({ id: 'tm', name: 'Batman Sunset' })], { fetchImpl, mode: 'shadow', imageFns: cleanImageFns })
     const ipCalls = calls.filter(c => Object.values(c.questions).some((q: any) => 'likely_ip_reference' in q.criteria))
     expect(ipCalls).toHaveLength(0)
   })
 
   it('fails open when the Jev transport throws or hangs: floor only, flagged for a human', async () => {
     const throwing: JevFetch = async () => { throw new Error('down') }
-    const r1 = await presortProducts([complete({ id: 'a' }), complete({ id: 'b', name: 'Nike Air' })], { fetchImpl: throwing, mode: 'shadow' })
+    const r1 = await presortProducts([complete({ id: 'a' }), complete({ id: 'b', name: 'Nike Air' })], { fetchImpl: throwing, mode: 'shadow', imageFns: cleanImageFns })
     expect(r1.a).toMatchObject({ recommendation: null, reasonCode: 'jev_unavailable', lowConfidence: true })
     expect(r1.b).toMatchObject({ recommendation: 'reject_ip', reasonCode: 'floor_trademark' })
 
     resetPresortCache(); resetJevIpCache()
     const hanging: JevFetch = () => new Promise(() => {})
-    const r2 = await presortProducts([complete({ id: 'a' })], { fetchImpl: hanging, mode: 'shadow', budgetMs: 30 })
+    const r2 = await presortProducts([complete({ id: 'a' })], { fetchImpl: hanging, mode: 'shadow', budgetMs: 30, imageFns: cleanImageFns })
     expect(r2.a.reasonCode).toBe('jev_unavailable')
   })
 
@@ -259,9 +378,9 @@ describe('presortProducts (end to end with a fake Jev)', () => {
 
   it('caches answers so a refresh does not re-ask Jev', async () => {
     const { fetchImpl, calls } = fakeJev({ 'Retro Sunset Surfer': sure('approve') })
-    await presortProducts([complete()], { fetchImpl, mode: 'shadow' })
+    await presortProducts([complete()], { fetchImpl, mode: 'shadow', imageFns: cleanImageFns })
     const first = calls.length
-    await presortProducts([complete()], { fetchImpl, mode: 'shadow' })
+    await presortProducts([complete()], { fetchImpl, mode: 'shadow', imageFns: cleanImageFns })
     expect(calls.length).toBe(first)
   })
 })

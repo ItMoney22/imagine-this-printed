@@ -57,6 +57,19 @@ vi.mock('../../services/jev-ip-gate.js', async (orig) => {
   return { ...real, defaultJevFetch: (s: any, q: any) => jevFetch(s, q) }
 })
 
+// The image half of the floor (jev-approval-presort.ts's runImageFloor) reads
+// off image-metrics.ts directly, so it needs the same network-free stand-in
+// the Jev transport gets above — otherwise every row's artwork gets a real
+// fetch attempt. A clean file: nothing here should ever produce a floor hit.
+vi.mock('../../services/image-metrics.js', () => ({
+  measureImage: vi.fn(async (url: string) => ({
+    url, ok: true, width: 2048, height: 2048, shortEdge: 2048, longEdge: 2048, format: 'png', bytes: 500_000, sharpness: 900, edgeEnergy: 40
+  })),
+  measureOpacity: vi.fn(async (url: string) => ({
+    url, ok: true, hasAlphaChannel: true, transparentFraction: 0.35, opaqueBorderFraction: 0.05, checkerboardBackground: false, borderMeanLuma: 40, borderPattern: null
+  }))
+}))
+
 const router = (await import('./user-product-approvals.js')).default
 const { resetPresortCache } = await import('../../services/jev-approval-presort.js')
 const { resetJevIpCache } = await import('../../services/jev-ip-gate.js')
