@@ -4290,3 +4290,28 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   it re-reads after every write, that delete needs the confirm, and that the
   kind filter is client-side. `tsc -p tsconfig.app.json` clean, `eslint` 0
   errors.
+
+## Current request (2026-09-23) — Jev copy QA + unfulfillable-claims gate (task 728d9207)
+
+### File shortlist (approved scope — 2026-09-23 Jev copy QA)
+- `backend/services/presentation-qa.ts` (section d2 copy truth; vision call reordered last)
+- `backend/services/jev.ts` (new — typed Jev decisions client, fails open)
+- `backend/services/presentation-qa-jev.test.ts` (new)
+- `backend/scripts/qa-jev-benchmark.ts`, `backend/scripts/qa-jev-challenge.ts` (new, read-only)
+- `docs/reports/jev-copy-qa-benchmark-2026-09-23.md` (new)
+- Read-only: `backend/shared/catalog-capability.ts` (NOT_OFFERED lives in shared/, not services/ as the brief said)
+
+### Work log (append-only) — 2026-09-23 Jev copy QA
+- Added the unfulfillable-claim floor (polo / tank+sleeveless / embroidery / sublimation, apparel-only where
+  metal art legitimately sublimates) and a Jev pass: 4-way copy_class choice, 0-3 title rubric, 0-3 per-tag
+  rubric, confidence-gated (block 0.85, warn 0.75, under = human review). Findings fold into the `seo`
+  criterion so the admin panel + autofix copy lane pick them up with no UI/schema change.
+- Reordered runPresentationQa: measurements + fidelity + opacity + Jev in parallel -> deterministic
+  checks -> vision only if the outcome is still open. Vision is NOT skipped on "copy looks fine" (it grades
+  the photo; the gate is fail-closed) — deviation from the brief, reasoning in the report.
+- PRESENTATION_QA_JEV defaults to `shadow`. 26 new tests; full suite 121 files / 1940 tests green (with the
+  dispatch shell's inherited OPENROUTER_API_KEY unset — etsy-copy-repair.test.ts fails 3 with it set,
+  pre-existing and unrelated).
+- Benchmarked on 120 live rows: 0 false blocks, enforce would save 36/60 (storefront) and 15/60 (etsy)
+  vision calls; challenge set 108/108 floor+Jev, 0 escaped. 6 metal-art listings flagged for human review
+  describe cut-metal sculpture / a wall clock, not a printed panel.
