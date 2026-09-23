@@ -1,0 +1,5856 @@
+{
+  "summary": {
+    "products": 300,
+    "answered": 300,
+    "accepted": 54,
+    "lowConfidence": 241,
+    "rejected": 5,
+    "medianSubjectConfidence": 0.61,
+    "keywordMatched": 121,
+    "keywordOnlyWouldDefault": 179,
+    "jevAcceptedWhereKeywordsHadNothing": 18,
+    "agreeWithKeywordExact": 28,
+    "acceptedWithKeyword": 36,
+    "recordedCasts": 13,
+    "recordedAcceptedByJev": 5,
+    "agreeWithRecordedExact": 5,
+    "agreeWithRecordedBand": 5,
+    "youthCasts": 1,
+    "designAudience": {
+      "no opinion": 185,
+      "either": 78,
+      "adult": 25,
+      "youth": 12
+    },
+    "costUsd": 0.0166,
+    "seconds": 10
+  },
+  "rows": [
+    {
+      "id": "568ee288-77a2-4dbd-8be9-f60740408d97",
+      "name": "Spartans Warrior Legacy Helmet Tee",
+      "idea": "Spartans Warrior Legacy Helmet Tee",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": {
+        "subjectId": "gym",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.42,
+        "audienceConfidence": 0.64,
+        "note": "Jev leaned sporty kid, but only at 0.42 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f9118796-fe4e-4f28-9b8b-103498ae2ffa",
+      "name": "Pumpkins Pitchforks Alien Hijinks Retro Chicken T-Shirt | Unisex Graphic Tee",
+      "idea": "Create an original retro night-scene T-shirt graphic of cheerful backyard chickens posing for a snapshot as a mysterious glowing airship hovers over a pumpkin patch, paired with entirely new humorous headline text.",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": {
+        "subjectId": "country",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.73,
+        "designAudience": "either",
+        "audienceConfidence": 0.93,
+        "note": "Jev leaned country, but only at 0.73 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e9abb92b-613f-4a53-b271-178593ae79ff",
+      "name": "Vintage Cross & Dad Crest Badge (No Text) - Square DTF",
+      "idea": "A vintage-inspired cross-and-crest badge with a humorous, respectful dad saying underneath that signals faith without being preachy.",
+      "garment": "tshirt",
+      "keyword": "dad",
+      "keywordBand": "adult",
+      "recorded": {
+        "subjectId": "dad",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.99,
+        "designAudience": "adult",
+        "audienceConfidence": 0.87
+      },
+      "jevCast": "dad",
+      "jevBand": "adult"
+    },
+    {
+      "id": "bed03ccb-b711-4d75-8bf7-e313010407f0",
+      "name": "Not a Drill Dad Duties Warning Badge Unisex Graphic Tee",
+      "idea": "A clean, bold “This Is Not a …” style warning graphic where the punchline changes for dad (e.g., drill, drill-thing, or dad duties) with a small doodle of the implied object.",
+      "garment": "tshirt",
+      "keyword": "dad",
+      "keywordBand": "adult",
+      "recorded": {
+        "subjectId": "dad",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 1,
+        "designAudience": "adult",
+        "audienceConfidence": 0.98
+      },
+      "jevCast": "dad",
+      "jevBand": "adult"
+    },
+    {
+      "id": "b5b6efb3-7afd-419f-9f52-30d615f68ad4",
+      "name": "Merry Christmas Emblem Festive Graphic T-Shirt | Unisex Holiday Tee",
+      "idea": "a great chirstmas tshirt with great saying",
+      "garment": "tshirt",
+      "keyword": "family",
+      "keywordBand": "youth",
+      "recorded": {
+        "subjectId": "classic",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "any"
+      },
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "family",
+        "subjectConfidence": 0.38,
+        "designAudience": "either",
+        "audienceConfidence": 1,
+        "note": "Jev leaned family, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "051e8aec-1b12-4b3a-8823-be3f35a9c608",
+      "name": "Dope Car Crew Silhouette Badge",
+      "idea": "a dope car shirt for car people",
+      "garment": "tshirt",
+      "keyword": "family",
+      "keywordBand": "youth",
+      "recorded": {
+        "subjectId": "streetwear",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "teen"
+      },
+      "jev": {
+        "verdict": "rejected",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.96,
+        "audienceConfidence": 0.47,
+        "note": "Jev picked streetwear (adult), but the listing's wording matched family (youth)."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5651547f-e1c0-43f4-8175-cc2485f56914",
+      "name": "Midnight Misfits Moon Portrait (Distressed Monochrome)",
+      "idea": "Create an original faded-charcoal tee with a distressed monochrome portrait of four invented midnight misfits in sunglasses, arranged beneath a cratered moon with small bats and swirling fog.",
+      "garment": "hoodie",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": {
+        "subjectId": "goth",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "goth",
+        "subjectConfidence": 0.85,
+        "audienceConfidence": 0.24
+      },
+      "jevCast": "goth",
+      "jevBand": "adult"
+    },
+    {
+      "id": "92dd5bb9-1c20-4239-8b34-1733a1ce6391",
+      "name": "Crazy Witch Halloween Graphic",
+      "idea": "halloween theme shirt that has a crazy witch",
+      "garment": "tshirt",
+      "keyword": "goth",
+      "keywordBand": "adult",
+      "recorded": {
+        "subjectId": "goth",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.42,
+        "audienceConfidence": 0.68,
+        "note": "Jev leaned playful kid, but only at 0.42 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b4cb3371-ffb0-4c4a-9f71-c7ce2dd66ed7",
+      "name": "Too Cute To Spook Ghost T-Shirt | Halloween Unisex Tee",
+      "idea": "a halloween kid friendly design",
+      "garment": "tshirt",
+      "keyword": "kid",
+      "keywordBand": "youth",
+      "recorded": {
+        "subjectId": "student",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "kids"
+      },
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.94,
+        "designAudience": "youth",
+        "audienceConfidence": 0.82,
+        "note": "Jev picked a child (playful kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9d92b405-bbf1-492a-82b8-a349e02e6116",
+      "name": "Spooky Hoot Ghost Owl T-Shirt | Halloween Unisex Tee | halloween unisex t-shirt",
+      "idea": "An illustration of a woodland creature, perhaps a squirrel or an owl, dressed in a sheet ghost costume and cool shades, holding a carved squash, set against a softly blurred autumnal forest at dusk.",
+      "garment": "tshirt",
+      "keyword": "goth",
+      "keywordBand": "adult",
+      "recorded": {
+        "subjectId": "streetwear",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "any"
+      },
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.76,
+        "designAudience": "either",
+        "audienceConfidence": 0.97,
+        "note": "Jev picked a child (playful kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e8c4751a-59e8-4440-a34e-522f723c923f",
+      "name": "Witch Better Have My Candy",
+      "idea": "Witch Better Have My Candy",
+      "garment": "tshirt",
+      "keyword": "goth",
+      "keywordBand": "adult",
+      "recorded": {
+        "subjectId": "goth",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "teen"
+      },
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.49,
+        "audienceConfidence": 0.4,
+        "note": "Jev leaned playful kid, but only at 0.49 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "756db3ed-b975-493c-b52e-30bd36794086",
+      "name": "Resting Witch Face",
+      "idea": "Resting Witch Face",
+      "garment": "tshirt",
+      "keyword": "goth",
+      "keywordBand": "adult",
+      "recorded": {
+        "subjectId": "goth",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "goth",
+        "subjectConfidence": 0.96,
+        "audienceConfidence": 0.3
+      },
+      "jevCast": "goth",
+      "jevBand": "adult"
+    },
+    {
+      "id": "3a2bc1ae-5cbf-4dc6-918a-73aba98dd9f4",
+      "name": "Bad Witch Vibes",
+      "idea": "Bad Witch Vibes",
+      "garment": "tshirt",
+      "keyword": "goth",
+      "keywordBand": "adult",
+      "recorded": {
+        "subjectId": "goth",
+        "source": "mrs-imagine",
+        "band": "adult",
+        "read": "adult"
+      },
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "goth",
+        "subjectConfidence": 0.99,
+        "audienceConfidence": 0.47
+      },
+      "jevCast": "goth",
+      "jevBand": "adult"
+    },
+    {
+      "id": "4de08ec3-03dd-4b69-adcb-6a2eb3d75c3d",
+      "name": "We Build Character Animal Critter Checklist Sign",
+      "idea": "A playful classroom sign featuring an animal critter and the phrase “We Build Character” with little checkmarks for everyday classroom moments.",
+      "garment": "tshirt",
+      "keyword": "teacher",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "rejected",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 0.88,
+        "designAudience": "youth",
+        "audienceConfidence": 0.88,
+        "note": "Jev picked an adult (teacher) but read the design as for kids — it contradicted itself."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c51e12f0-c098-4df9-ab4b-fe392d3aeec0",
+      "name": "Centered Clean Car Silhouette Graphic",
+      "idea": "i want a shirt for someone who likes cars",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.43,
+        "designAudience": "either",
+        "audienceConfidence": 0.97,
+        "note": "Jev leaned dad, but only at 0.43 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "43d607e5-e8e1-4b57-a52f-110a5cd6a1c3",
+      "name": "Gothic Ghost Face Candle Holder",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "rejected",
+        "mode": "on",
+        "subjectId": "goth",
+        "subjectConfidence": 0.98,
+        "designAudience": "adult",
+        "audienceConfidence": 0.8,
+        "note": "Jev picked goth (adult), but the listing's wording matched playful kid (youth)."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "56d895e7-5f8a-4c59-911c-a49a423c59d0",
+      "name": "Unleashed Power Athlete Hoodie | Dynamic Sports Graphic",
+      "idea": "Create a dynamic youth sports design featuring a generic young athlete in a helmet and uniform, surrounded by energetic, textured text for a team name like 'Thunderbolts' or 'Gators', with lightning bolts and abstract splatter effects in a vibrant color scheme like electric blue and silver, all set against a dark, dramatic background.",
+      "garment": "hoodie",
+      "keyword": "kid-sporty",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 1,
+        "designAudience": "youth",
+        "audienceConfidence": 1
+      },
+      "jevCast": "kid-sporty",
+      "jevBand": "youth"
+    },
+    {
+      "id": "8e1a18a5-de2b-4e74-938e-aefd030e8c5e",
+      "name": "Mystic Circle Distressed Graphic T-Shirt | Unisex Crewneck Tee",
+      "idea": "An original design depicting a group of five fantastical figures in long robes and pointed hats, holding hands in a magical circle under a luminous celestial body, surrounded by ancient, gnarled trees, rendered in a distressed, high-contrast style.",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "goth",
+        "subjectConfidence": 0.87,
+        "audienceConfidence": 0.62
+      },
+      "jevCast": "goth",
+      "jevBand": "adult"
+    },
+    {
+      "id": "5f60fbd0-8b3b-4be7-a5d8-52d96f724ee3",
+      "name": "Gnome Abduction Funny Sci-Fi T-Shirt | Unisex Alien Tee",
+      "idea": "An original design depicting a mischievous alien spaceship abducting an oversized garden gnome from a suburban backyard, with a speech bubble from an unseen observer asking about garden decorations and the gnome replying, 'Just getting a head start on my travels!'",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.48,
+        "audienceConfidence": 0.44,
+        "note": "Jev leaned dad, but only at 0.48 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "212b53fa-59cb-4699-9e01-238742647fef",
+      "name": "Beam Me Up Retro Sci-Fi T-Shirt | Unisex Pop Art Tee",
+      "idea": "An original design featuring a retro-styled person looking up at a fantastical flying vehicle, with a group of diverse characters below, accompanied by text expressing a humorous desire for an otherworldly adventure.",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.2,
+        "audienceConfidence": 0.69,
+        "note": "Jev leaned playful kid, but only at 0.20 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c46cde94-3b92-45cf-adeb-dea2553c2e26",
+      "name": "Heavyweight Garment-Dyed Tee — Blank",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.76,
+        "designAudience": "either",
+        "audienceConfidence": 0.99
+      },
+      "jevCast": "classic",
+      "jevBand": "adult"
+    },
+    {
+      "id": "274d05c2-22a4-4db6-92bb-cf6927d539c0",
+      "name": "Premium Retail-Fit Tee — Blank",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.89,
+        "designAudience": "either",
+        "audienceConfidence": 0.99
+      },
+      "jevCast": "classic",
+      "jevBand": "adult"
+    },
+    {
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "name": "Soft Ring-Spun Tee — Blank",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.89,
+        "designAudience": "either",
+        "audienceConfidence": 1
+      },
+      "jevCast": "classic",
+      "jevBand": "adult"
+    },
+    {
+      "id": "9d2df3cd-1986-4d05-9d80-4be9c4245ef0",
+      "name": "Classic Heavy Cotton Tee — Blank",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.96,
+        "designAudience": "either",
+        "audienceConfidence": 1
+      },
+      "jevCast": "classic",
+      "jevBand": "adult"
+    },
+    {
+      "id": "385df0ea-b6de-4d45-88b7-e33feb7ed821",
+      "name": "Stoic Samurai Cherry Blossom Tee",
+      "idea": "an samuri kneeling womdering who will be his next victem near blossm",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.23,
+        "designAudience": "adult",
+        "audienceConfidence": 0.92,
+        "note": "Jev leaned streetwear, but only at 0.23 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "8317bae1-95b1-4914-9fa3-18d6f0a4e63c",
+      "name": "Golden Gate Sunset Symphony Metal Print | Aluminum Wall Art",
+      "idea": "the golden gate bridge on a stunnng abstract way with a sunset that really hits the bridge",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.94,
+        "audienceConfidence": 0.36
+      },
+      "jevCast": "artsy",
+      "jevBand": "adult"
+    },
+    {
+      "id": "30ffceac-0ea0-4b50-a746-faa02197e5fd",
+      "name": "Misty Mountain Lake at Sunrise Metal Art",
+      "idea": "misty mountain lake at sunrise, painterly realism",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.77,
+        "designAudience": "either",
+        "audienceConfidence": 0.97
+      },
+      "jevCast": "artsy",
+      "jevBand": "adult"
+    },
+    {
+      "id": "bec29f2d-e4f1-4322-9c51-59fe906ba95d",
+      "name": "Hip-Hop Gorilla Swag T-Shirt | Streetwear Graphic Tee",
+      "idea": "hip hop gorilla",
+      "garment": "tshirt",
+      "keyword": "streetwear",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 1,
+        "audienceConfidence": 0.24
+      },
+      "jevCast": "streetwear",
+      "jevBand": "adult"
+    },
+    {
+      "id": "6e964ed3-59e8-4bfc-a204-f94a015c9c50",
+      "name": "Mic Drop Monkey Tee",
+      "idea": "hip-hop street monkey",
+      "garment": "tshirt",
+      "keyword": "streetwear",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.97,
+        "audienceConfidence": 0.13
+      },
+      "jevCast": "streetwear",
+      "jevBand": "adult"
+    },
+    {
+      "id": "4c0ea310-088b-45cf-b8e4-a4fb7f731872",
+      "name": "Neon Koi Galaxy T-Shirt | Cosmic Fish Graphic Tee",
+      "idea": "neon koi fish swimming through a galaxy",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.3,
+        "designAudience": "either",
+        "audienceConfidence": 0.89,
+        "note": "Jev leaned streetwear, but only at 0.30 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "98e96cf4-6f49-4355-b95c-044825a19b0c",
+      "name": "Rustic Pine Forest Metal Wall Art for Cabin Decor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.91,
+        "audienceConfidence": 0.32
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "1a6f7d3a-ab19-4143-a0c9-ca44781355f3",
+      "name": "Oxidized Metal Bonsai Tree of Life Wall Art Decor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.89,
+        "audienceConfidence": 0.27
+      },
+      "jevCast": "artsy",
+      "jevBand": "adult"
+    },
+    {
+      "id": "11047bd5-a5f3-4a79-9412-8412da9616d4",
+      "name": "Smart Frog Math Teacher Shirt - Education Humor Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "teacher",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 1,
+        "audienceConfidence": 0.49
+      },
+      "jevCast": "teacher",
+      "jevBand": "adult"
+    },
+    {
+      "id": "5e19cb2a-8dff-425c-8043-28c2d351d384",
+      "name": "Retro Magic Wand Tee - Believe in Your Own Power",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.75,
+        "audienceConfidence": 0.53,
+        "note": "Jev picked a child (playful kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a119050d-e75e-4b77-aada-020a5be4479d",
+      "name": "Witty Brain Tee: Abstract Neuron Smirk Graphic",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.81,
+        "audienceConfidence": 0.34
+      },
+      "jevCast": "studious",
+      "jevBand": "adult"
+    },
+    {
+      "id": "6c0ea780-646f-42e4-a5af-363d604ac0fc",
+      "name": "You Are The Magic Hat Retro Positive Affirmation Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.58,
+        "audienceConfidence": 0.72,
+        "note": "Jev leaned playful kid, but only at 0.58 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "156c477d-d93d-43d3-a96c-fe8f9ceff5d1",
+      "name": "Abstract Mind Tee - Monochrome Brain Thought Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.64,
+        "audienceConfidence": 0.34,
+        "note": "Jev leaned studious, but only at 0.64 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b30b944c-e9bb-4e0a-af24-1724bd2a593b",
+      "name": "Grammar Enthusiast Tee: Capital Letters & Periods.",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 0.59,
+        "audienceConfidence": 0.51,
+        "note": "Jev leaned teacher, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "20f4670d-ca9b-4654-8456-8393df4685f8",
+      "name": "Vintage Brain Illustration Tee - Intellectual Humor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.95,
+        "audienceConfidence": 0.51
+      },
+      "jevCast": "studious",
+      "jevBand": "adult"
+    },
+    {
+      "id": "0f787865-7bd9-4cdf-914a-3decf2c3eaaf",
+      "name": "Daily Shitstorm Survivor Club Tee - Muted Emblem",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.28,
+        "designAudience": "adult",
+        "audienceConfidence": 0.86,
+        "note": "Jev leaned streetwear, but only at 0.28 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "da5f2311-c718-4a2c-833c-67164af6027f",
+      "name": "Retro Football Champion 1986 Trophy Graphic Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-sporty",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.44,
+        "designAudience": "either",
+        "audienceConfidence": 0.77,
+        "note": "Jev leaned sporty kid, but only at 0.44 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "3174dde7-19cd-4d82-8b4d-3cebddc31a60",
+      "name": "Cute Cartoon Apple & Books Teacher Appreciation Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "teacher",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 1,
+        "audienceConfidence": 0.3
+      },
+      "jevCast": "teacher",
+      "jevBand": "adult"
+    },
+    {
+      "id": "5e709831-ee65-4242-8e01-71dd6b74a5ec",
+      "name": "Powered by Coffee & Chaos Funny Mom Life Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "mom",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "mom",
+        "subjectConfidence": 1,
+        "designAudience": "adult",
+        "audienceConfidence": 0.99
+      },
+      "jevCast": "mom",
+      "jevBand": "adult"
+    },
+    {
+      "id": "66e16fd3-a46e-4523-8953-67943e1980db",
+      "name": "Pixel Pilot Vintage Arcade Gamer Graphic Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "studious",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.37,
+        "audienceConfidence": 0.58,
+        "note": "Jev leaned streetwear, but only at 0.37 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "868b54ed-1568-473e-a508-5e850fdd965b",
+      "name": "Grumpy Cat Cowboy Hat Hoodie - Funny Feline Friend",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.41,
+        "designAudience": "either",
+        "audienceConfidence": 0.92,
+        "note": "Jev leaned playful kid, but only at 0.41 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e456639a-52c7-4daf-b71a-1b7b2ef8ae6a",
+      "name": "Rustic Forest & Stag Metal Wall Clock Art",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.72,
+        "audienceConfidence": 0.32,
+        "note": "Jev leaned country, but only at 0.72 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a9f6bc38-2069-441f-a553-25407f4de193",
+      "name": "Michigan Great Lakes Metal Wall Art - Industrial State Map",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.6,
+        "audienceConfidence": 0.36,
+        "note": "Jev leaned dad, but only at 0.60 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "62fd31a0-97e7-4261-9a3a-0d324ca9bc37",
+      "name": "Dancing Kokopelli Metal Wall Art - Southwestern Decor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.76,
+        "audienceConfidence": 0.4
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "095d4606-322b-4007-833e-2fc7cbf85326",
+      "name": "Wonderland Silhouette Metal Wall Art - Alice & Cheshire Cat",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.44,
+        "audienceConfidence": 0.52,
+        "note": "Jev leaned playful kid, but only at 0.44 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d5aaf50d-5508-40a7-9613-28610e41bc02",
+      "name": "Tree of Life Metal Wall Art - Celtic Symbolism Decor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.63,
+        "audienceConfidence": 0.31,
+        "note": "Jev leaned artsy, but only at 0.63 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "0e11e915-0b90-4f1d-88eb-734250eba86c",
+      "name": "Professor Frog Math Teacher Whimsical Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "teacher",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 0.91,
+        "audienceConfidence": 0.23
+      },
+      "jevCast": "teacher",
+      "jevBand": "adult"
+    },
+    {
+      "id": "c714b84f-6361-4ae2-9cf5-9e9fb0f018d0",
+      "name": "Grumpy Bear Teacher Shirt for Elementary Educators",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "teacher",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 1,
+        "designAudience": "adult",
+        "audienceConfidence": 0.9
+      },
+      "jevCast": "teacher",
+      "jevBand": "adult"
+    },
+    {
+      "id": "08666029-f536-482e-977b-e5c6c80e9d42",
+      "name": "Cowgirl Ghost Spirit Tee: Western Halloween Vibe",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "rejected",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.94,
+        "designAudience": "either",
+        "audienceConfidence": 0.78,
+        "note": "Jev picked country (adult), but the listing's wording matched playful kid (youth)."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e2ba91d7-7bc6-4f8d-a14a-777c0b547ec5",
+      "name": "Minimalist Sarcastic Brain Humor T-Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.59,
+        "audienceConfidence": 0.58,
+        "note": "Jev leaned studious, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "07418a96-d9fa-4201-bd81-770336888f96",
+      "name": "Elegant Fern Silhouette Metal Wall Art for Nature Lovers",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.86,
+        "audienceConfidence": 0.69
+      },
+      "jevCast": "artsy",
+      "jevBand": "adult"
+    },
+    {
+      "id": "b5d3f1f4-9b59-495a-9098-21ade6049d93",
+      "name": "Classic American Muscle Car Sunset Highway Metal Art",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.33,
+        "audienceConfidence": 0.64,
+        "note": "Jev leaned dad, but only at 0.33 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a634a0e1-0cde-431c-adfe-d8b4aa409543",
+      "name": "Celtic Knot Tree of Life Metal Wall Art Decor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.63,
+        "audienceConfidence": 0.4,
+        "note": "Jev leaned artsy, but only at 0.63 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c504dc03-ce6c-4ae2-a8ab-ebfbd5bbd7d6",
+      "name": "Iced Coffee Skeleton Hand Flat Graphic Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "goth",
+        "subjectConfidence": 0.44,
+        "audienceConfidence": 0.63,
+        "note": "Jev leaned goth, but only at 0.44 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fc799b31-f992-4c9c-ad21-222b7a85574e",
+      "name": "Retro Cowgirl Ghost Tee - Spooky Western Charm",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "goth",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.93,
+        "audienceConfidence": 0.57
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "08977529-c4ec-4029-b303-716eb5ba4567",
+      "name": "Chaos Coordinator Mom Life T-Shirt - Whimsical Crown",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "mom",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "mom",
+        "subjectConfidence": 1,
+        "designAudience": "adult",
+        "audienceConfidence": 0.99
+      },
+      "jevCast": "mom",
+      "jevBand": "adult"
+    },
+    {
+      "id": "8b56f229-d962-45ef-b257-af35d0068355",
+      "name": "Bruh Capital Letters & Periods Teacher Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "teacher",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 1,
+        "audienceConfidence": 0.68
+      },
+      "jevCast": "teacher",
+      "jevBand": "adult"
+    },
+    {
+      "id": "630ed1e4-d269-4e58-9e95-60336c79a385",
+      "name": "Vintage Brain Anatomy Tee - Witty & Retro Style",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.64,
+        "audienceConfidence": 0.27,
+        "note": "Jev leaned studious, but only at 0.64 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "8f825ff0-35aa-4db7-a925-fa4cac06156f",
+      "name": "Yearning Emoji Pixel Art Tee - Nostalgic Internet Style",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "student",
+        "subjectConfidence": 0.38,
+        "audienceConfidence": 0.28,
+        "note": "Jev leaned student, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e8cd654e-df94-4edf-94fb-ef3a93dff98e",
+      "name": "Abstract Metal Woman Bust Wall Art - Modern Sculpture",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.98,
+        "audienceConfidence": 0.69
+      },
+      "jevCast": "artsy",
+      "jevBand": "adult"
+    },
+    {
+      "id": "13a5adb4-b879-4009-9fff-a7bc16205309",
+      "name": "Timeless Forest Roman Numeral Metal Wall Art",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.4,
+        "audienceConfidence": 0.43,
+        "note": "Jev leaned artsy, but only at 0.40 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a214945e-f451-4977-943b-33adedb90bbb",
+      "name": "Kokopelli Trio Metal Wall Art: Southwestern Desert Dance",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.6,
+        "audienceConfidence": 0.6,
+        "note": "Jev leaned country, but only at 0.60 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7497b7be-c789-47d8-a338-e2fc5d144a66",
+      "name": "Whimsical Fairy Garden Gate Metal Wall Art Print",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.39,
+        "audienceConfidence": 0.71,
+        "note": "Jev leaned artsy, but only at 0.39 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e13154eb-9b3f-41ab-9835-47fc47ec7a81",
+      "name": "Celtic Tree of Life Metal Wall Art - Interconnected Roots",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.71,
+        "audienceConfidence": 0.63,
+        "note": "Jev leaned artsy, but only at 0.71 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "92b2c805-fee9-45af-87e6-ca17c7258864",
+      "name": "Punctuation Perfection Tee: Grammar Enthusiast Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 0.5,
+        "audienceConfidence": 0.56,
+        "note": "Jev leaned teacher, but only at 0.50 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "eec0d8c4-d8b9-44f0-83e5-14895f54abcd",
+      "name": "Retro Y2K Brain Swirls Aesthetic Tee for Her",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.24,
+        "audienceConfidence": 0.72,
+        "note": "Jev leaned artsy, but only at 0.24 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fcef5ea0-822f-4fd8-b9bd-84acbe536ba4",
+      "name": "Wise Froggy Teacher Tee - Math & Learning Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "teacher",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "teacher",
+        "subjectConfidence": 0.99,
+        "audienceConfidence": 0.09
+      },
+      "jevCast": "teacher",
+      "jevBand": "adult"
+    },
+    {
+      "id": "57407022-e5d7-43cd-a6aa-a272e7c11b5d",
+      "name": "Skeletal Iced Coffee Grunge Aesthetic T-Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "goth",
+        "subjectConfidence": 0.79,
+        "designAudience": "adult",
+        "audienceConfidence": 0.85
+      },
+      "jevCast": "goth",
+      "jevBand": "adult"
+    },
+    {
+      "id": "c6421291-525f-4ed4-9ad6-d015e9b74862",
+      "name": "Midnight Owl Mama and Baby Gift Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "mom",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "family",
+        "subjectConfidence": 0.48,
+        "audienceConfidence": 0.62,
+        "note": "Jev leaned family, but only at 0.48 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4ecb90c1-ee12-47a5-a9ff-3858668bd762",
+      "name": "Guilty Raccoon Pizza Snack Graphic Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.74,
+        "designAudience": "either",
+        "audienceConfidence": 0.79,
+        "note": "Jev leaned playful kid, but only at 0.74 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "6c12fed9-74a7-432d-8651-4740740aef52",
+      "name": "Retro Cherry Roller Skate Shirt for Playful Moms",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "skater",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "mom",
+        "subjectConfidence": 0.97,
+        "designAudience": "adult",
+        "audienceConfidence": 0.98
+      },
+      "jevCast": "mom",
+      "jevBand": "adult"
+    },
+    {
+      "id": "19d0d6a4-951c-42b3-ae63-473177400c06",
+      "name": "Shadow Raptor Toy Charm",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.64,
+        "audienceConfidence": 0.51,
+        "note": "Jev leaned playful kid, but only at 0.64 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5eac6a81-6521-472a-a287-9ca15292280c",
+      "name": "Toy: Robo Rascal",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.91,
+        "designAudience": "youth",
+        "audienceConfidence": 0.8,
+        "note": "Jev picked a child (playful kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "bb5cfb7c-3273-4ba9-8612-407d754c57e7",
+      "name": "Toy: The Wizard Beast",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.64,
+        "audienceConfidence": 0.46,
+        "note": "Jev leaned playful kid, but only at 0.64 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "15b3c352-657e-42ca-8f6c-49bcbc9f1041",
+      "name": "Retro Sunrise Trail Runner Badge Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.5,
+        "designAudience": "either",
+        "audienceConfidence": 0.81,
+        "note": "Jev leaned sporty kid, but only at 0.50 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "79ba5381-f606-434a-b45a-644ca277ecc4",
+      "name": "Sunrise Ridge Trail Runner Vintage Race Day Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.91,
+        "audienceConfidence": 0.41
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "4c3f723f-1286-4eeb-bf41-ddaf10c440a2",
+      "name": "Retro Largemouth Bass Tackle Box Badge Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.68,
+        "audienceConfidence": 0.63,
+        "note": "Jev leaned dad, but only at 0.68 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "94323f18-9f93-48e0-84e0-94c246d62c5b",
+      "name": "Smug Tabby Cat Vet Tech Clinic Team Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-sporty",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.23,
+        "audienceConfidence": 0.28,
+        "note": "Jev leaned classic, but only at 0.23 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "093058fc-9da4-4e65-b3b2-372b852b1f05",
+      "name": "Sunrise Ridge Trail Runner Vintage Race Day Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.87,
+        "audienceConfidence": 0.46
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "b5f68900-2b98-454b-b41d-2fc0211c3d9f",
+      "name": "I CHART THEREFORE I AM | Nurse Nerd Humor Chart Graphic",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "mom",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.37,
+        "designAudience": "adult",
+        "audienceConfidence": 0.9,
+        "note": "Jev leaned studious, but only at 0.37 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "603b228f-bc5a-4296-9211-44c6ee2e1e70",
+      "name": "Zero plucks given — Retro Sassy Turkey Thanksgiving (Copy)",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.14,
+        "audienceConfidence": 0.38,
+        "note": "Jev leaned dad, but only at 0.14 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f09a7d64-a385-4a6c-9c75-aa8db0c5c569",
+      "name": "Leftovers Are for Quitters ",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.61,
+        "audienceConfidence": 0.49,
+        "note": "Jev leaned gym, but only at 0.61 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "2c96bcf6-0bd4-45ba-b7ad-2d8dff1398f9",
+      "name": "Zero plucks given — Retro Sassy Turkey Thanksgiving",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.13,
+        "audienceConfidence": 0.36,
+        "note": "Jev leaned playful kid, but only at 0.13 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "47fec69e-73af-4eb2-a18d-adac0cadeb48",
+      "name": "Let’s Get Basted Thanksgiving Retro Turkey Poster",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.24,
+        "audienceConfidence": 0.7,
+        "note": "Jev leaned dad, but only at 0.24 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "37de52b0-c2eb-4b6a-be1a-1ad7a8e95025",
+      "name": "Let's Get Basted Thanksgiving Retro Turkey",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.25,
+        "designAudience": "either",
+        "audienceConfidence": 0.88,
+        "note": "Jev leaned dad, but only at 0.25 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "bd6d9286-da82-416a-87b9-9a77257ce0a2",
+      "name": "Let’s Get Basted Retro Thanksgiving Turkey Poster",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.2,
+        "audienceConfidence": 0.64,
+        "note": "Jev leaned dad, but only at 0.20 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b95721f2-f41f-427e-994f-df446313a167",
+      "name": "Let’s Get Basted Retro Thanksgiving Turkey Pun",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.57,
+        "designAudience": "either",
+        "audienceConfidence": 0.89,
+        "note": "Jev leaned dad, but only at 0.57 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "538f6773-55b0-40ad-ac10-844cc88460d8",
+      "name": "Let’s Get Basted — Retro Turkey Pun Poster (Black Print)",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.45,
+        "audienceConfidence": 0.62,
+        "note": "Jev leaned dad, but only at 0.45 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "0e99f314-e27e-45fa-b181-78602ca1d7d5",
+      "name": "Retro Turkey: Stretchy Pants, Tolerable Family",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "family",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "family",
+        "subjectConfidence": 0.71,
+        "audienceConfidence": 0.24,
+        "note": "Jev leaned family, but only at 0.71 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f7c11b4b-7a33-4db7-8dc0-02689bca6d22",
+      "name": "Just Here To Nap Thanksgiving Retro Turkey Poster",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.47,
+        "audienceConfidence": 0.74,
+        "note": "Jev leaned dad, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b09d60b9-9902-42b9-8cb9-b7ae1946f78a",
+      "name": "Thanksgiving Sarcasm: Stretchy Pants & Tolerable Family",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "family",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.47,
+        "designAudience": "adult",
+        "audienceConfidence": 0.83,
+        "note": "Jev leaned dad, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b81988c2-4f58-4279-84cd-601222ab1cf4",
+      "name": "Just Here To Nap Thanksgiving Snoring Turkey Retro Poster",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.54,
+        "audienceConfidence": 0.73,
+        "note": "Jev leaned dad, but only at 0.54 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "82eb70ef-964c-432e-a442-61657b606c78",
+      "name": "Neon Y2K Glitch Boo Crew Glow Up Ghost Candy",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.32,
+        "audienceConfidence": 0.27,
+        "note": "Jev leaned streetwear, but only at 0.32 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "2d464485-0913-4fec-8ad2-99f253dadf21",
+      "name": "Little Neon Boo Crew Glitch Ghost Candy Bucket (Neon Y2K)",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.61,
+        "designAudience": "youth",
+        "audienceConfidence": 0.91,
+        "note": "Jev leaned playful kid, but only at 0.61 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b1e50c74-fe9d-48bd-a0fa-cbe4d53cc22b",
+      "name": "Little Neon Boo Crew Y2K Glitch Ghost Candy Bucket",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.67,
+        "designAudience": "youth",
+        "audienceConfidence": 0.88,
+        "note": "Jev leaned playful kid, but only at 0.67 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "079ff49e-984a-4302-94d9-76eaf96df48f",
+      "name": "Little Neon Boo Crew Glitch Ghost Candy Pixel Neon Y2K",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.56,
+        "designAudience": "youth",
+        "audienceConfidence": 0.84,
+        "note": "Jev leaned playful kid, but only at 0.56 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c1e800bc-ffd5-4176-969c-3b5f910b4d06",
+      "name": "Trail Bound Retro Mountain Sunrise Badge",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.2,
+        "designAudience": "either",
+        "audienceConfidence": 0.87,
+        "note": "Jev leaned sporty kid, but only at 0.20 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9bbb5b29-9e21-484e-b08a-e37998cc9d77",
+      "name": "King of the Roar Roaring Lion Front Graphic",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.65,
+        "audienceConfidence": 0.34,
+        "note": "Jev leaned playful kid, but only at 0.65 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "31740c4c-f7fa-4dfb-b77e-1ea5a6cb8550",
+      "name": "Create a split-panel graphic tee design: left panel shows an abstract street-sce",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "streetwear",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.92,
+        "audienceConfidence": 0.4
+      },
+      "jevCast": "streetwear",
+      "jevBand": "adult"
+    },
+    {
+      "id": "3bb5ac84-d998-4eb0-9bff-b72c9808b062",
+      "name": "Design an oversized hoodie back graphic featuring a bold starburst at center wit",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.81,
+        "designAudience": "either",
+        "audienceConfidence": 0.82
+      },
+      "jevCast": "streetwear",
+      "jevBand": "adult"
+    },
+    {
+      "id": "2ba56b13-d2c5-4d95-be19-a873ca508e1d",
+      "name": "Create a DTF transfer with a retro badge shape containing a generic heart icon a",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "couple",
+        "subjectConfidence": 0.26,
+        "designAudience": "either",
+        "audienceConfidence": 0.99,
+        "note": "Jev leaned couple, but only at 0.26 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9210e87f-a8be-45de-8bcd-ccef78cb8064",
+      "name": "Create a streetwear-inspired back print design featuring stacked typographic bar",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "streetwear",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 1,
+        "audienceConfidence": 0.26
+      },
+      "jevCast": "streetwear",
+      "jevBand": "adult"
+    },
+    {
+      "id": "dd498c7c-21d8-4df6-9a73-f706d58f2964",
+      "name": "Create an abstract Y2K aesthetic hoodie back design: a simple angel-inspired sil",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.45,
+        "audienceConfidence": 0.48,
+        "note": "Jev leaned streetwear, but only at 0.45 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7c998c80-04a0-484d-9575-3bc4b39a2a55",
+      "name": "Design a wraparound tumbler graphic featuring micro-typography blocks and a clea",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.47,
+        "audienceConfidence": 0.45,
+        "note": "Jev leaned artsy, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fe0e81ee-6899-4803-85bf-38baa178115d",
+      "name": "Design a retro colorblock graphic with abstract 'map-like' contour lines and a s",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.58,
+        "designAudience": "either",
+        "audienceConfidence": 0.89,
+        "note": "Jev leaned artsy, but only at 0.58 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d19fd418-0bf1-417f-aaa1-ca6d705161ff",
+      "name": "Create a high-contrast DTF transfer artwork of a clean minimal badge: a generic",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.49,
+        "designAudience": "either",
+        "audienceConfidence": 0.99,
+        "note": "Jev leaned artsy, but only at 0.49 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9d58d8b5-d828-4971-bdaa-318059bb5647",
+      "name": "Good Vibes Only Halo Spark",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.59,
+        "designAudience": "either",
+        "audienceConfidence": 0.99,
+        "note": "Jev leaned playful kid, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "cae5f766-d958-4619-b057-7d1dff897bab",
+      "name": "Walk It Build It Ship It Grid Quote Tile Pattern",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.24,
+        "audienceConfidence": 0.29,
+        "note": "Jev leaned streetwear, but only at 0.24 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "cd03bd0e-26f4-49ad-b358-9800f58b2782",
+      "name": "Neon City Tactical Soldier Crossover (Cinematic, Edgy)",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.51,
+        "designAudience": "adult",
+        "audienceConfidence": 0.91,
+        "note": "Jev leaned streetwear, but only at 0.51 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "cdd1e046-a150-4f02-a197-b00a25c3e5ec",
+      "name": "Hysterical Aliens Joke Bubbles vs Confused Human",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.38,
+        "audienceConfidence": 0.42,
+        "note": "Jev leaned playful kid, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5121974b-3266-44d1-953a-66fc475381d8",
+      "name": "Alien Pointing Toward Hovercraft Light Beam Metal Panel Art",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "artsy",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "artsy",
+        "subjectConfidence": 0.62,
+        "audienceConfidence": 0.33,
+        "note": "Jev leaned artsy, but only at 0.62 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "26ec65e3-1d60-4421-add8-2cb45fd178d8",
+      "name": "Graffiti Roaring Lion Face",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "streetwear",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.84,
+        "audienceConfidence": 0.38
+      },
+      "jevCast": "streetwear",
+      "jevBand": "adult"
+    },
+    {
+      "id": "1d62a898-cc99-49da-815f-6167653c3845",
+      "name": "Y2K Nostalgia Photo Frame Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.37,
+        "audienceConfidence": 0.32,
+        "note": "Jev leaned streetwear, but only at 0.37 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "652cedb8-e5f0-4449-b3d6-58ff6b526c11",
+      "name": "First Day Energy Back-to-School Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.67,
+        "designAudience": "youth",
+        "audienceConfidence": 0.89,
+        "note": "Jev leaned playful kid, but only at 0.67 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d467c2b6-07ee-4856-8c24-fb7624f97a3d",
+      "name": "Customizable School Icon Design Template",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid",
+        "subjectConfidence": 0.31,
+        "audienceConfidence": 0.64,
+        "note": "Jev leaned kid, but only at 0.31 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c2af2166-8e36-4318-8e91-04a10a47e8cf",
+      "name": "LEVEL UP ACADEMY T-Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "student",
+        "subjectConfidence": 0.38,
+        "audienceConfidence": 0.27,
+        "note": "Jev leaned student, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f5d5998d-42fe-45c5-8aa9-144fcbec644d",
+      "name": "Golden Senior Sparkle Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "grandpa",
+        "subjectConfidence": 0.8,
+        "audienceConfidence": 0.65
+      },
+      "jevCast": "grandpa",
+      "jevBand": "adult"
+    },
+    {
+      "id": "bb7bd4f1-ba41-4890-aeea-118fcbed8a88",
+      "name": "Ember Warrior Graphic Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.4,
+        "audienceConfidence": 0.48,
+        "note": "Jev leaned streetwear, but only at 0.40 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "15c6e672-83c3-42e9-a75d-743d6e837209",
+      "name": "Gridiron Glory: Youth Chiefs Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "rejected",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.97,
+        "designAudience": "youth",
+        "audienceConfidence": 0.95,
+        "note": "Jev picked sporty kid (youth), but the listing's wording matched student (adult)."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5c9f94a4-140d-46b0-b99f-074b4fc27645",
+      "name": "Y2K Vibe Geometric Burst",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.7,
+        "audienceConfidence": 0.33,
+        "note": "Jev leaned streetwear, but only at 0.70 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "1331c048-4765-4379-81ae-dcd180ddd1d6",
+      "name": "Du bist gut genug Retro Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.19,
+        "designAudience": "either",
+        "audienceConfidence": 0.76,
+        "note": "Jev leaned playful kid, but only at 0.19 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "3fd9bf21-ddad-4e9d-9371-5491d310aef6",
+      "name": "Alien Directive Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "streetwear",
+        "subjectConfidence": 0.39,
+        "audienceConfidence": 0.51,
+        "note": "Jev leaned streetwear, but only at 0.39 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e387149e-ae76-4a61-877d-8005896a8c99",
+      "name": "Walk By Faith",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.25,
+        "designAudience": "either",
+        "audienceConfidence": 0.87,
+        "note": "Jev leaned classic, but only at 0.25 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fb44e3db-d755-41bc-96a2-a5be20bee408",
+      "name": "Leave Your Game at Home",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.38,
+        "audienceConfidence": 0.24,
+        "note": "Jev leaned sporty kid, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c42526d2-97b3-44dc-99a7-09395401bdb4",
+      "name": "Hit Like A Girl",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.47,
+        "audienceConfidence": 0.7,
+        "note": "Jev leaned sporty kid, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "0f498c85-ecdb-4569-9702-7b15a79000bd",
+      "name": "Mommy Called, Game Missing",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "mom",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid",
+        "subjectConfidence": 0.21,
+        "audienceConfidence": 0.08,
+        "note": "Jev leaned kid, but only at 0.21 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "51e54a3b-0334-46e9-8608-e7c424491546",
+      "name": "Hit Like A Girl Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.33,
+        "designAudience": "either",
+        "audienceConfidence": 0.78,
+        "note": "Jev leaned sporty kid, but only at 0.33 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "37431704-2771-4c64-8b50-f87efad4bc8c",
+      "name": "Expect Greatness Volleyball Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.97,
+        "audienceConfidence": 0.41,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d7703775-81b9-463e-be5a-74a5af6b481e",
+      "name": "Expect Greatness in Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.98,
+        "audienceConfidence": 0.56,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d578534b-eab0-44af-89d1-4b4df9062aba",
+      "name": "Hit On Us, Can't Score",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.53,
+        "audienceConfidence": 0.17,
+        "note": "Jev leaned sporty kid, but only at 0.53 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "6a85e03b-8ba3-4650-a1d0-3dec5c9c58b8",
+      "name": "Winning Mindset Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.89,
+        "designAudience": "either",
+        "audienceConfidence": 0.87,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f593f05b-270d-4a7c-b9b8-2d7fe67fca98",
+      "name": "Hit on Us, Can't Score",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.66,
+        "audienceConfidence": 0.27,
+        "note": "Jev leaned sporty kid, but only at 0.66 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7922b75e-3495-4d8c-99aa-5d3f6d28fc83",
+      "name": "Winning is Not Everything",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.86,
+        "audienceConfidence": 0.55,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "35427ce6-ceb8-4dba-9954-d081d784ebe1",
+      "name": "Serve and Conquer",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.8,
+        "designAudience": "either",
+        "audienceConfidence": 0.82,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "ff62a775-656d-4eb8-9664-b18a285d2d9b",
+      "name": "Heart or Face Volleyball Spirit",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.86,
+        "designAudience": "either",
+        "audienceConfidence": 0.78,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "904664c9-9c87-4412-bb6d-85b6db24af3d",
+      "name": "Jump Up, Game On!",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.95,
+        "audienceConfidence": 0.56,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "95b03a27-b38e-47fa-9b51-98898c33b274",
+      "name": "Volleyball: Invented by Men",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.47,
+        "audienceConfidence": 0.52,
+        "note": "Jev leaned gym, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f32ab3ba-3842-4bfd-9b4f-7d533498818a",
+      "name": "Heart or Face Volleyball Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.78,
+        "designAudience": "either",
+        "audienceConfidence": 0.91,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "25072949-2cec-4025-8044-8b81729ef3ed",
+      "name": "Volleyball Evolution",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.7,
+        "designAudience": "either",
+        "audienceConfidence": 0.96,
+        "note": "Jev leaned sporty kid, but only at 0.70 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f58da2f4-3e50-492b-ad4a-f1990a0f7312",
+      "name": "Volleyball Legacy: Men & Women",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "couple",
+        "subjectConfidence": 0.46,
+        "audienceConfidence": 0.65,
+        "note": "Jev leaned couple, but only at 0.46 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "98f2fa57-b0ec-45ca-8ceb-5686c2a3d21d",
+      "name": "Go Get Success in Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.96,
+        "audienceConfidence": 0.66,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fbdf2955-b397-441b-8fcc-d1fae7af226b",
+      "name": "Volleyball Legacy",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.75,
+        "designAudience": "either",
+        "audienceConfidence": 0.97,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e348c75c-57d7-4bc2-8930-d060090a58bf",
+      "name": "Preparedness Equals Victory",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.64,
+        "audienceConfidence": 0.44,
+        "note": "Jev leaned dad, but only at 0.64 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "abdc4c68-f047-40b2-b6bb-e1f16d37f239",
+      "name": "Success Through Failure",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "student",
+        "subjectConfidence": 0.24,
+        "audienceConfidence": 0.73,
+        "note": "Jev leaned student, but only at 0.24 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "da430d0b-16dd-4b01-bfde-a65d59b82756",
+      "name": "Victory in Preparation",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.47,
+        "designAudience": "either",
+        "audienceConfidence": 0.81,
+        "note": "Jev leaned gym, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "6202bed5-ec44-4929-8c5c-bad1e852af14",
+      "name": "No Elevators in Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.76,
+        "audienceConfidence": 0.67,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "834cf3d1-abd0-4bfc-b4bb-39f8ab586b9b",
+      "name": "Discipline & Devotion",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.53,
+        "audienceConfidence": 0.3,
+        "note": "Jev leaned studious, but only at 0.53 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5a270374-66d9-4bb5-a866-9f25100fb92a",
+      "name": "House of Elevators",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.36,
+        "designAudience": "either",
+        "audienceConfidence": 0.86,
+        "note": "Jev leaned classic, but only at 0.36 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "6c7d2504-7b12-4fb8-99a6-14be5e6accc8",
+      "name": "Devotion to the Sport",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "gym",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.49,
+        "designAudience": "either",
+        "audienceConfidence": 0.94,
+        "note": "Jev leaned sporty kid, but only at 0.49 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "11260fce-550d-4b4d-80c0-1f153fec7072",
+      "name": "School for Volleyball Lovers",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.8,
+        "designAudience": "either",
+        "audienceConfidence": 0.93,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d085ce96-97f6-49e8-815a-612507c6c6bb",
+      "name": "School for Volleyball Lovers",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.73,
+        "designAudience": "either",
+        "audienceConfidence": 0.92,
+        "note": "Jev leaned sporty kid, but only at 0.73 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "890f18ee-6536-49e7-8feb-563447fa49bd",
+      "name": "Winning Volleyball Wisdom",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.93,
+        "audienceConfidence": 0.62,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e428f586-8eb0-4b39-8c5b-bffcff538ab4",
+      "name": "Success Is A Journey Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.94,
+        "designAudience": "either",
+        "audienceConfidence": 0.76,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "947fff3f-160f-444a-9a02-d08baae37d62",
+      "name": "Six W's of Volleyball Success",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.92,
+        "audienceConfidence": 0.65,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d1e79601-975f-4c88-b70c-6f80409a9036",
+      "name": "Cinderella Volleyball Challenge",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.97,
+        "audienceConfidence": 0.49,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e2a6ff33-7a8c-4977-9e8c-34e7c7163006",
+      "name": "Success is a Journey",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.22,
+        "designAudience": "either",
+        "audienceConfidence": 0.96,
+        "note": "Jev leaned gym, but only at 0.22 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e612d318-bf17-42cd-b30f-e15d4dd6cea4",
+      "name": "Cinderella Can't Get This Ball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.35,
+        "audienceConfidence": 0.13,
+        "note": "Jev leaned sporty kid, but only at 0.35 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "51ba4ae9-d1da-475c-90c8-f421fdfc09a4",
+      "name": "Play Hard, Win Harder",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.95,
+        "audienceConfidence": 0.44,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b295ee0f-3ddf-4e8d-84b1-7b88f2bccaa7",
+      "name": "Discover Your Limits",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.89,
+        "designAudience": "either",
+        "audienceConfidence": 0.85
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "171640f6-811e-468d-b883-a884c4601bb0",
+      "name": "Passion Over Skill",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.3,
+        "audienceConfidence": 0.72,
+        "note": "Jev leaned gym, but only at 0.30 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5ec09769-4535-4dcf-b97c-660549c85a03",
+      "name": "Discover What You Cannot Do",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.13,
+        "audienceConfidence": 0.3,
+        "note": "Jev leaned studious, but only at 0.13 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9abfdc29-f77d-49b1-9edf-e0ce8b2dcf2a",
+      "name": "Aim High Volleyball Spirit",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.96,
+        "audienceConfidence": 0.59,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "570f4458-8d92-4550-89cf-558f1bc6c364",
+      "name": "Shoot for the Moon Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.97,
+        "audienceConfidence": 0.67,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f9fdbed4-1ae8-4c90-8cef-a2dbb48021b9",
+      "name": "Aim High and Serve Strong",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.5,
+        "audienceConfidence": 0.61,
+        "note": "Jev leaned sporty kid, but only at 0.50 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f4b128c1-75e0-4b50-8ed4-47b9141f337c",
+      "name": "Reach for the Net",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.79,
+        "designAudience": "either",
+        "audienceConfidence": 0.75,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "daf28ea4-7ee1-438d-9427-5fec117d6a1c",
+      "name": "Pass Set Crush Volleyball Spirit",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.86,
+        "designAudience": "either",
+        "audienceConfidence": 0.75,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7ed043a7-9941-4b91-b1b5-cf73747a4ee5",
+      "name": "Pride Over Pain Volleyball Shirt",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.66,
+        "designAudience": "either",
+        "audienceConfidence": 0.79,
+        "note": "Jev leaned sporty kid, but only at 0.66 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "0846f6ea-3a4e-4bad-bc09-cbd22b433f9a",
+      "name": "Pass Set Crush Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.89,
+        "designAudience": "either",
+        "audienceConfidence": 0.75,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fbecc6d9-9f9a-4c4a-9f0f-67656d23282f",
+      "name": "Pride in the Game",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.92,
+        "audienceConfidence": 0.68,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "00a67a4f-5582-44f5-b874-b04745df80bd",
+      "name": "Seize the Volleyball Opportunity",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.8,
+        "designAudience": "either",
+        "audienceConfidence": 0.9,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e621d643-6f73-444b-9164-8253ac4fd8b4",
+      "name": "Seize the Volleyball Moment",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.86,
+        "designAudience": "either",
+        "audienceConfidence": 0.92,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e283c525-1cdc-4f7d-bb1c-c3f652e7b193",
+      "name": "Teamwork Makes the Dream Work",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.42,
+        "designAudience": "either",
+        "audienceConfidence": 0.95,
+        "note": "Jev leaned sporty kid, but only at 0.42 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "028fc0af-feb4-4cb4-b018-f147b35b2c3f",
+      "name": "Quitters Never Win",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.85,
+        "audienceConfidence": 0.73
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "16cc6b2b-866f-47ae-b4eb-b9be2c558e92",
+      "name": "One Finger Power",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.23,
+        "audienceConfidence": 0.72,
+        "note": "Jev leaned playful kid, but only at 0.23 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fe133195-2444-4da1-8170-0f31c0bba341",
+      "name": "Quitters Never Win",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.87,
+        "designAudience": "either",
+        "audienceConfidence": 0.75
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "b55e87cd-0d15-4277-bde4-eabf98170a10",
+      "name": "Quitters Never Win",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.86,
+        "designAudience": "either",
+        "audienceConfidence": 0.77
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "0afc36c0-d622-4938-8e30-3db280dd0729",
+      "name": "Spandex and Game Vibes",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.38,
+        "audienceConfidence": 0.66,
+        "note": "Jev leaned gym, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "046c25c8-59e9-4a47-aea5-42ce622fd0be",
+      "name": "Quitters Never Win",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.84,
+        "audienceConfidence": 0.72
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "78e168f4-3c05-48ef-a2a5-15488f388d49",
+      "name": "Let the Racket Do the Talking",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.63,
+        "designAudience": "either",
+        "audienceConfidence": 0.91,
+        "note": "Jev leaned sporty kid, but only at 0.63 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "678b86a3-470f-4744-9cf3-135f8f367f54",
+      "name": "Spandex Tight Volleyball Vibes",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.59,
+        "designAudience": "either",
+        "audienceConfidence": 0.84,
+        "note": "Jev leaned gym, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "abee1d0d-d423-4c5c-ad9c-b6fc6b0dff85",
+      "name": "Racket Talks Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.9,
+        "designAudience": "either",
+        "audienceConfidence": 0.76,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a48fbd60-3d70-4b54-8519-604aaa6802a7",
+      "name": "Team Spirit Unleashed",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-sporty",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.62,
+        "designAudience": "either",
+        "audienceConfidence": 0.99,
+        "note": "Jev leaned sporty kid, but only at 0.62 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "70a7d78c-7afb-42db-bdc4-dba589aa67f2",
+      "name": "Learn and Play Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.93,
+        "audienceConfidence": 0.41,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "2a993fb5-9905-43f1-9937-f1c96360f5d2",
+      "name": "Learn After Knowing It All",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.55,
+        "audienceConfidence": 0.28,
+        "note": "Jev leaned studious, but only at 0.55 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "baeb7e8b-94ba-4c0f-ac81-6183d0f6d209",
+      "name": "Heart Over Size in Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.92,
+        "designAudience": "either",
+        "audienceConfidence": 0.76,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9c3b7335-e6dd-484a-bb87-8cc55fb85237",
+      "name": "Credit in Volleyball Teamwork",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.89,
+        "designAudience": "either",
+        "audienceConfidence": 0.77,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "3a394d94-4658-49fe-890b-37ecd7d62ca8",
+      "name": "Heart Over Size",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "couple",
+        "subjectConfidence": 0.32,
+        "designAudience": "either",
+        "audienceConfidence": 0.86,
+        "note": "Jev leaned couple, but only at 0.32 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "be8986b9-d337-40e3-b092-aa3cf5aa3b47",
+      "name": "Try Your Best in Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.98,
+        "audienceConfidence": 0.37,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "3b921b04-1452-460e-9caf-3eec89f90d3d",
+      "name": "Game On Until It's Over",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.8,
+        "designAudience": "either",
+        "audienceConfidence": 0.85,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a0722aa4-5bfd-4d0a-a9a7-e057b95e6801",
+      "name": "Try Hard, Play Harder",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.92,
+        "audienceConfidence": 0.42,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c535ce71-1f10-4850-bb29-66e37a8e61a0",
+      "name": "Soft Serve Volleyball Humor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.72,
+        "designAudience": "either",
+        "audienceConfidence": 0.89,
+        "note": "Jev leaned sporty kid, but only at 0.72 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4b07cd15-4b89-4f85-8eef-094a2b11c7a7",
+      "name": "Game On, Yogi Style",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.59,
+        "designAudience": "either",
+        "audienceConfidence": 0.8,
+        "note": "Jev leaned sporty kid, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4a51c49b-daf5-4ff9-a78a-375c062c381c",
+      "name": "Soft Serve Volleyball Fun",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.86,
+        "audienceConfidence": 0.6,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "da6bc00d-f24b-41a4-a937-2f8cce31b774",
+      "name": "Win Late with Sacrifice",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.42,
+        "audienceConfidence": 0.56,
+        "note": "Jev leaned gym, but only at 0.42 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "665ef527-3b3f-4458-8a65-ee0464893126",
+      "name": "Bang and Hang Volleyball Spirit",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.73,
+        "audienceConfidence": 0.44,
+        "note": "Jev leaned sporty kid, but only at 0.73 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b526e836-cfc9-4aa2-aa90-38ea5b7bf6d5",
+      "name": "Win Late, Sacrifice Early",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.5,
+        "audienceConfidence": 0.55,
+        "note": "Jev leaned gym, but only at 0.50 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "669b1555-69d2-43ae-b754-3827957a9eb5",
+      "name": "Volleyball Isn't Football",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-sporty",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.91,
+        "audienceConfidence": 0.66,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "0e466e32-9b9d-4b11-826e-2a58a33bb0b6",
+      "name": "Hang with Volleyball Skills",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.95,
+        "audienceConfidence": 0.74,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "da27d228-5d62-4a33-ad91-3079b14cbd2f",
+      "name": "Volleyball is Not Football",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-sporty",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.89,
+        "audienceConfidence": 0.7,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9b65b69c-8de3-486d-bfa3-36d8ad5becb1",
+      "name": "Just Need the Ball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.89,
+        "audienceConfidence": 0.66,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5b38cede-b52d-4e34-9f1e-7d02cd3baa5e",
+      "name": "Just Need the Ball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.87,
+        "audienceConfidence": 0.7,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "fb3b2c86-96f3-44db-a84a-8f2ccc647262",
+      "name": "Go Hard or Go Home",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.98,
+        "audienceConfidence": 0.66
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "9eb1d239-1df5-4117-a4ae-64f686a2e1b0",
+      "name": "Measure Your Potential",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.57,
+        "audienceConfidence": 0.61,
+        "note": "Jev leaned sporty kid, but only at 0.57 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "1d9f3342-2264-43fa-b7d2-bab483d3ae90",
+      "name": "Go Hard or Go Home",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.98,
+        "audienceConfidence": 0.73
+      },
+      "jevCast": "gym",
+      "jevBand": "adult"
+    },
+    {
+      "id": "fffd8eec-c9db-4588-888c-7dc61d116411",
+      "name": "Opportunity to Measure Yourself",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "family",
+        "subjectConfidence": 0.22,
+        "audienceConfidence": 0.72,
+        "note": "Jev leaned family, but only at 0.22 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c723022d-1daf-40d1-8865-70ee2d4eb010",
+      "name": "Champions Never Complain",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.53,
+        "designAudience": "either",
+        "audienceConfidence": 0.91,
+        "note": "Jev leaned gym, but only at 0.53 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "ce22b2af-9597-464e-9943-d5507258cfeb",
+      "name": "Champions Play On",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.93,
+        "audienceConfidence": 0.63,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f8fb9502-2879-4d96-983c-59f20a1c4472",
+      "name": "Champions Get Better Daily",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.55,
+        "designAudience": "either",
+        "audienceConfidence": 0.94,
+        "note": "Jev leaned gym, but only at 0.55 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "10602b26-9275-4f4b-a9b8-49f2bd283b68",
+      "name": "Knock Grandma Off the Bleachers",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "grandma",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.5,
+        "audienceConfidence": 0.04,
+        "note": "Jev leaned sporty kid, but only at 0.50 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "65abb191-7ab4-4a3b-857d-163494c86683",
+      "name": "Champions Keep Playing",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.94,
+        "designAudience": "either",
+        "audienceConfidence": 0.84,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7f0eb620-2b32-42a5-a089-3317ccc53c9e",
+      "name": "Block Like a Boss",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.72,
+        "audienceConfidence": 0.25,
+        "note": "Jev leaned sporty kid, but only at 0.72 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "88c0f029-33fe-4c19-9f2d-841eb4ade998",
+      "name": "Ignite Your Volleyball Passion",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.77,
+        "designAudience": "either",
+        "audienceConfidence": 0.95,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "3e9960aa-c263-42ad-9f65-24bf6d2e570e",
+      "name": "Play Outdoor Volleyball",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.88,
+        "designAudience": "either",
+        "audienceConfidence": 0.9,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "8b2a0edb-983f-466f-ab4e-5722ef84f39f",
+      "name": "Be Unforgettable on the Court",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.93,
+        "audienceConfidence": 0.59,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5de242b1-a924-472b-b4b0-59fe894b99f6",
+      "name": "Break Records Through Adversity",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.51,
+        "designAudience": "either",
+        "audienceConfidence": 0.78,
+        "note": "Jev leaned gym, but only at 0.51 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7d9d93f3-0f0b-4622-ba78-af00beb088e6",
+      "name": "Play Outdoors, Not Indoors",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.72,
+        "audienceConfidence": 0.25,
+        "note": "Jev leaned sporty kid, but only at 0.72 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4b3b4933-c4f0-47ae-a01f-4001d0cf92d6",
+      "name": "Break Records, Not Spirits",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.49,
+        "audienceConfidence": 0.18,
+        "note": "Jev leaned sporty kid, but only at 0.49 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "577ee675-33ea-47b1-a3ff-436d6fc1bff2",
+      "name": "Easy Game, Hard Practice",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.71,
+        "audienceConfidence": 0.58,
+        "note": "Jev leaned sporty kid, but only at 0.71 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "30121303-d8b0-4708-9aa7-f4fefc22caa5",
+      "name": "Never Doubt My Volleyball Skills",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.8,
+        "designAudience": "either",
+        "audienceConfidence": 0.85,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "6aec3fa7-cce1-481f-b458-ddefb3d0e618",
+      "name": "Never Had Doubts",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.44,
+        "designAudience": "either",
+        "audienceConfidence": 0.81,
+        "note": "Jev leaned classic, but only at 0.44 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4b1c1846-d7cc-42f1-9e2c-0d87b4c3a6af",
+      "name": "Setter's Skill Shine",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.78,
+        "audienceConfidence": 0.64,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9a79583c-0276-4ea8-9c9f-cf7ce4d8304c",
+      "name": "Practice Makes Perfect",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.35,
+        "designAudience": "either",
+        "audienceConfidence": 0.86,
+        "note": "Jev leaned sporty kid, but only at 0.35 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "05fb07b1-5457-416e-a6da-8c9839e9703e",
+      "name": "Setter Skills on Point",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.75,
+        "audienceConfidence": 0.49,
+        "note": "Jev picked a child (sporty kid) without a confident read that the design is for kids."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "0bff0269-2a2a-4a47-825a-7d7b0ac8224e",
+      "name": "Truck Lover's Joy",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.38,
+        "designAudience": "either",
+        "audienceConfidence": 0.86,
+        "note": "Jev leaned country, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "bffab5bd-1800-45e3-ab2e-7517cad46f2c",
+      "name": "World's Best Trucker",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.56,
+        "audienceConfidence": 0.63,
+        "note": "Jev leaned dad, but only at 0.56 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "aafc6a85-6723-449e-ac01-1f8493d537e7",
+      "name": "Ultimate Trucker Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.39,
+        "audienceConfidence": 0.72,
+        "note": "Jev leaned country, but only at 0.39 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "3004af1f-5e9c-4dca-babf-1ed6f1e763ee",
+      "name": "Buy a Truck, Find Happiness",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.74,
+        "audienceConfidence": 0.34,
+        "note": "Jev leaned country, but only at 0.74 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b9656368-f663-4217-83d1-f84b8838f680",
+      "name": "Best Truck Driver Award",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.44,
+        "designAudience": "adult",
+        "audienceConfidence": 0.84,
+        "note": "Jev leaned dad, but only at 0.44 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4f2645f0-e2d5-4b36-899b-db4728fe0177",
+      "name": "Superhero Truck Driver",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.45,
+        "audienceConfidence": 0.23,
+        "note": "Jev leaned dad, but only at 0.45 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d5cb02ea-30e0-4200-b384-18dfc00255ed",
+      "name": "Ultimate Truck Driver Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.49,
+        "audienceConfidence": 0.63,
+        "note": "Jev leaned country, but only at 0.49 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a860e54d-c92e-459b-a52d-ea2a99c3fd2b",
+      "name": "Unmedicated Trucker Alert",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.38,
+        "audienceConfidence": 0.42,
+        "note": "Jev leaned dad, but only at 0.38 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "242a8b32-5d55-489d-8266-b5a5238a28be",
+      "name": "Truck Driver Superhero Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.55,
+        "audienceConfidence": 0.28,
+        "note": "Jev leaned dad, but only at 0.55 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "37dbdc61-bc5e-4760-8cfb-1b1348a4b04f",
+      "name": "Unmedicated Trucker Warning",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.2,
+        "audienceConfidence": 0.38,
+        "note": "Jev leaned dad, but only at 0.20 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "c7639a02-fd02-4336-a8f4-0ec2b088f05f",
+      "name": "Classic Trucker Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.33,
+        "designAudience": "either",
+        "audienceConfidence": 0.76,
+        "note": "Jev leaned classic, but only at 0.33 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "67167f6b-7fbe-4b90-9696-b579ee45c33a",
+      "name": "Truckers Since 1895",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.31,
+        "audienceConfidence": 0.34,
+        "note": "Jev leaned dad, but only at 0.31 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "abaa28af-0c45-428a-bcec-57dcbdd2ecee",
+      "name": "Truckers Pride Since 1895",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.34,
+        "audienceConfidence": 0.35,
+        "note": "Jev leaned dad, but only at 0.34 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e74755f4-39b1-4a65-8193-70062027479d",
+      "name": "California Trucker Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.16,
+        "audienceConfidence": 0.64,
+        "note": "Jev leaned classic, but only at 0.16 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "434337bf-6f8b-49df-9a8a-39329734d96e",
+      "name": "California Trucker Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.22,
+        "audienceConfidence": 0.71,
+        "note": "Jev leaned classic, but only at 0.22 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f9ec7164-985b-4f03-82e0-5c3d668f6a5f",
+      "name": "Drive America Trucker Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.53,
+        "audienceConfidence": 0.51,
+        "note": "Jev leaned country, but only at 0.53 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f6ef5f34-2d41-4ecc-9257-ebe153ec0296",
+      "name": "This Is How I Roll",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "skater",
+        "subjectConfidence": 0.47,
+        "audienceConfidence": 0.72,
+        "note": "Jev leaned skater, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "31b62126-9084-4f63-b3c6-4018a783362f",
+      "name": "Road Warrior Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "tattooed",
+        "subjectConfidence": 0.5,
+        "audienceConfidence": 0.28,
+        "note": "Jev leaned tattooed, but only at 0.50 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "984432be-6304-4dc0-a387-b0557828c73f",
+      "name": "This Is How I Roll",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "skater",
+        "subjectConfidence": 0.42,
+        "audienceConfidence": 0.66,
+        "note": "Jev leaned skater, but only at 0.42 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b1a3e99d-93eb-4d97-ac60-0cd215903701",
+      "name": "First Rate Truck Driver Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.59,
+        "designAudience": "adult",
+        "audienceConfidence": 0.79,
+        "note": "Jev leaned country, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "65f4ad26-39f3-44eb-9400-e45135d3542d",
+      "name": "Tougher Than a Trucker's Wife",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.69,
+        "designAudience": "adult",
+        "audienceConfidence": 0.95,
+        "note": "Jev leaned country, but only at 0.69 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "42c0075d-e9ff-4d27-914a-b0b7bacbd78c",
+      "name": "Toughest Trucker's Wife Ever",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.84,
+        "designAudience": "adult",
+        "audienceConfidence": 0.96
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "872f5400-bb7f-45a4-8135-f5c8fbc08bd2",
+      "name": "That's How My Daddy Rolls",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.54,
+        "audienceConfidence": 0.31,
+        "note": "Jev leaned dad, but only at 0.54 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e763aab6-dd86-42cf-a90e-2539509c9c6d",
+      "name": "Higher the Truck, Closer to God",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.94,
+        "audienceConfidence": 0.68
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "e1c7eca2-c67e-4877-91ed-421456120c28",
+      "name": "Higher Truck, Closer to God",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.85,
+        "audienceConfidence": 0.28
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "e5f875e2-2c51-486d-8048-0384a4de591d",
+      "name": "Still Plays With Trucks",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.35,
+        "audienceConfidence": 0.7,
+        "note": "Jev leaned dad, but only at 0.35 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b741da32-8024-4d9b-958b-2252ef09577d",
+      "name": "Daddy's Rollin' Style",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.94,
+        "designAudience": "adult",
+        "audienceConfidence": 0.83
+      },
+      "jevCast": "dad",
+      "jevBand": "adult"
+    },
+    {
+      "id": "53c370cf-6887-4dfb-b23f-3077629f7424",
+      "name": "Still Plays With Trucks",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.35,
+        "audienceConfidence": 0.73,
+        "note": "Jev leaned playful kid, but only at 0.35 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4978eadc-72a9-48d9-8566-b7ea459f0fdf",
+      "name": "Truck Life Vibes",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.77,
+        "audienceConfidence": 0.25
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "730141bf-2ce7-4f80-bb53-bac75ee5aa17",
+      "name": "Still Plays With Trucks",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.34,
+        "designAudience": "youth",
+        "audienceConfidence": 0.76,
+        "note": "Jev leaned playful kid, but only at 0.34 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "951901f6-9d7d-4969-8c64-9d15f1926b67",
+      "name": "Forever a Truck Kid",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "student",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid",
+        "subjectConfidence": 0.37,
+        "designAudience": "youth",
+        "audienceConfidence": 0.83,
+        "note": "Jev leaned kid, but only at 0.37 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4f02197b-5528-4bef-a18f-b9fba8ac0d18",
+      "name": "Riding Home for Christmas",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "family",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.61,
+        "audienceConfidence": 0.74,
+        "note": "Jev leaned country, but only at 0.61 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "db1d5189-8ada-49d6-b08d-64d13228c2e7",
+      "name": "Riding Home for Christmas",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "family",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.59,
+        "designAudience": "either",
+        "audienceConfidence": 0.8,
+        "note": "Jev leaned country, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "bbcb6dc8-4acb-4c27-960e-7d0415526c2d",
+      "name": "Truck Life Vibes",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.79,
+        "audienceConfidence": 0.32
+      },
+      "jevCast": "country",
+      "jevBand": "adult"
+    },
+    {
+      "id": "bc46837f-70ff-4fb7-9d33-698beee8433a",
+      "name": "Raised on Diesel Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.6,
+        "audienceConfidence": 0.59,
+        "note": "Jev leaned country, but only at 0.60 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d5da1ff8-e643-4088-9f27-dcd3c7a2d83b",
+      "name": "Retired Trucker Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "grandma",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.27,
+        "audienceConfidence": 0.6,
+        "note": "Jev leaned country, but only at 0.27 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "52d84ede-b8c2-45f7-8cb0-300297158102",
+      "name": "Retired Trucker Life",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "grandma",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.32,
+        "designAudience": "adult",
+        "audienceConfidence": 0.97,
+        "note": "Jev leaned country, but only at 0.32 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f4ea8d94-f777-47a1-b2a5-eb97f4b8d55e",
+      "name": "Ride with Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "classic",
+        "subjectConfidence": 0.15,
+        "designAudience": "either",
+        "audienceConfidence": 0.94,
+        "note": "Jev leaned classic, but only at 0.15 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "e42b47cb-888d-499c-a9a4-0e0cd79296d9",
+      "name": "Raised on Diesel Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.63,
+        "audienceConfidence": 0.6,
+        "note": "Jev leaned country, but only at 0.63 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7b51a72a-e835-4621-90c4-7d5d1d7df06e",
+      "name": "Ride with Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "family",
+        "subjectConfidence": 0.11,
+        "designAudience": "either",
+        "audienceConfidence": 0.91,
+        "note": "Jev leaned family, but only at 0.11 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "bd16e631-d7b4-41c2-9772-a9b8f3539fce",
+      "name": "Old Truckers Never Die",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "grandpa",
+        "subjectConfidence": 0.45,
+        "designAudience": "adult",
+        "audienceConfidence": 0.79,
+        "note": "Jev leaned grandpa, but only at 0.45 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "eb74e7ce-61bd-46a9-9a56-37a2c933a8a7",
+      "name": "No Parking, Make a Spot",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.23,
+        "audienceConfidence": 0.41,
+        "note": "Jev leaned playful kid, but only at 0.23 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5f3ace22-3a68-481f-b9e1-49603ee16d4e",
+      "name": "Old Truckers Never Die",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "grandpa",
+        "subjectConfidence": 0.41,
+        "designAudience": "adult",
+        "audienceConfidence": 0.76,
+        "note": "Jev leaned grandpa, but only at 0.41 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "ee188e65-2012-4745-b388-18d5e34518cd",
+      "name": "Proud Cross Country Driver",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.44,
+        "audienceConfidence": 0.55,
+        "note": "Jev leaned country, but only at 0.44 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d5540d7c-9a41-44a8-aefa-ee66a80fd7b5",
+      "name": "Proud Truck Driver Legacy",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.51,
+        "audienceConfidence": 0.68,
+        "note": "Jev leaned dad, but only at 0.51 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "7de438f2-ea14-4ecb-904a-5f78c799d084",
+      "name": "No Parking, Time to Play",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.39,
+        "audienceConfidence": 0.52,
+        "note": "Jev leaned sporty kid, but only at 0.39 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "60774817-aac6-4948-a2ac-0764b121b741",
+      "name": "Stacks Are Sexy",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "studious",
+        "subjectConfidence": 0.28,
+        "audienceConfidence": 0.27,
+        "note": "Jev leaned studious, but only at 0.28 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f1d16ff9-333c-45b7-a143-e07250258916",
+      "name": "Drive Your Dreams",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.3,
+        "audienceConfidence": 0.73,
+        "note": "Jev leaned sporty kid, but only at 0.30 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "6c829606-2924-4837-9de8-d62902f9acd2",
+      "name": "Great Music and Trucking Advice",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.49,
+        "audienceConfidence": 0.61,
+        "note": "Jev leaned country, but only at 0.49 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b22d3d7a-aecc-4abf-818b-9ebb4218ff64",
+      "name": "Mother Trucker Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "mom",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "accepted",
+        "mode": "on",
+        "subjectId": "mom",
+        "subjectConfidence": 0.76,
+        "designAudience": "adult",
+        "audienceConfidence": 0.75
+      },
+      "jevCast": "mom",
+      "jevBand": "adult"
+    },
+    {
+      "id": "4b07a8d8-4fa8-4359-8ad2-906fc4d8129f",
+      "name": "Mother Trucker Tribute",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "mom",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "mom",
+        "subjectConfidence": 0.7,
+        "audienceConfidence": 0.7,
+        "note": "Jev leaned mom, but only at 0.70 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "dbff3743-fb85-4720-8259-422fdb83cbfe",
+      "name": "My Stacks Are Sexy",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "gym",
+        "subjectConfidence": 0.22,
+        "designAudience": "adult",
+        "audienceConfidence": 0.75,
+        "note": "Jev leaned gym, but only at 0.22 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "175bbab8-8ddb-4c7e-8657-864fbaa1cd46",
+      "name": "Fuel for Fun",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "kid-playful",
+      "keywordBand": "youth",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.63,
+        "designAudience": "either",
+        "audienceConfidence": 0.75,
+        "note": "Jev leaned playful kid, but only at 0.63 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "8465979d-4ba4-46a8-b3b0-24b556d7fb9e",
+      "name": "Mind Over Bladder",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "mom",
+        "subjectConfidence": 0.36,
+        "audienceConfidence": 0.58,
+        "note": "Jev leaned mom, but only at 0.36 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b65cbdbc-513a-4729-84e9-6d718579eb76",
+      "name": "Mind If I Smoke",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "skater",
+        "subjectConfidence": 0.22,
+        "designAudience": "adult",
+        "audienceConfidence": 0.89,
+        "note": "Jev leaned skater, but only at 0.22 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "89164be9-6ba1-46fc-bafc-236a6432555e",
+      "name": "Highway Heroes Tribute",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.26,
+        "audienceConfidence": 0.55,
+        "note": "Jev leaned dad, but only at 0.26 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "9b956fe3-45bb-41e9-bc59-7210f79bedd2",
+      "name": "Mind Over Bladder",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "mom",
+        "subjectConfidence": 0.23,
+        "audienceConfidence": 0.51,
+        "note": "Jev leaned mom, but only at 0.23 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "f8145c51-236f-451c-8b30-3e375b9cdd36",
+      "name": "Highway Heroes Appreciation",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.4,
+        "audienceConfidence": 0.49,
+        "note": "Jev leaned dad, but only at 0.40 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "79f8e90e-7136-4823-9f5d-012026d52cc6",
+      "name": "Big Truck Turn On",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.49,
+        "designAudience": "youth",
+        "audienceConfidence": 0.76,
+        "note": "Jev leaned playful kid, but only at 0.49 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "87d3aeb7-2738-4456-8486-f1ee40f9be21",
+      "name": "Road Trip Wisdom",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.26,
+        "audienceConfidence": 0.62,
+        "note": "Jev leaned dad, but only at 0.26 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "98c28c81-0517-409a-ba7e-311f7c5733c1",
+      "name": "Big Truck Love",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.41,
+        "audienceConfidence": 0.28,
+        "note": "Jev leaned country, but only at 0.41 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "da4cf342-8256-4dc7-8c38-a18f288b655f",
+      "name": "No Hire for Golfers and Campers",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.67,
+        "audienceConfidence": 0.25,
+        "note": "Jev leaned dad, but only at 0.67 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d8d89819-c30a-4343-b0e4-58a51f769732",
+      "name": "Road to Adventure",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.31,
+        "designAudience": "either",
+        "audienceConfidence": 0.97,
+        "note": "Jev leaned sporty kid, but only at 0.31 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "d1ce7e67-5349-4345-ab12-7f4603e8c039",
+      "name": "Golf Clubs and Campers",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "dad",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.64,
+        "designAudience": "either",
+        "audienceConfidence": 0.77,
+        "note": "Jev leaned dad, but only at 0.64 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a16ce91f-2076-498a-94a1-db585c5206b3",
+      "name": "Englishman Truck Humor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.59,
+        "audienceConfidence": 0.45,
+        "note": "Jev leaned dad, but only at 0.59 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "19d9c6c6-6c13-43e5-9948-fdb89d4cfbb8",
+      "name": "Adventure Awaits in the USA",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.14,
+        "designAudience": "either",
+        "audienceConfidence": 0.98,
+        "note": "Jev leaned country, but only at 0.14 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a8d7a49f-8a3c-4fdb-9665-faf8a870f181",
+      "name": "Truck Apology Humor",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.63,
+        "audienceConfidence": 0.29,
+        "note": "Jev leaned dad, but only at 0.63 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "a1b839c8-05c4-48a7-9955-cb219d8fb282",
+      "name": "Big Trucks Fan Club",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.46,
+        "audienceConfidence": 0.61,
+        "note": "Jev leaned playful kid, but only at 0.46 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "b96a89ec-9308-4da8-b31d-a6cc250e110c",
+      "name": "Big Trucks Fan Club",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-playful",
+        "subjectConfidence": 0.44,
+        "audienceConfidence": 0.67,
+        "note": "Jev leaned playful kid, but only at 0.44 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "4e7be129-7cc1-4edd-9197-8e13dff80e8d",
+      "name": "Drive and Go Adventure",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": null,
+      "keywordBand": null,
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "kid-sporty",
+        "subjectConfidence": 0.26,
+        "designAudience": "either",
+        "audienceConfidence": 0.85,
+        "note": "Jev leaned sporty kid, but only at 0.26 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "5918f70b-b611-4c44-9141-962c7e4ab81c",
+      "name": "Big Dodge Truck Driver Pride",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.6,
+        "audienceConfidence": 0.62,
+        "note": "Jev leaned country, but only at 0.60 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "2e5303f2-70cc-4025-826c-588066b0e89c",
+      "name": "Truck Driver Humor Tee",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "country",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "country",
+        "subjectConfidence": 0.7,
+        "designAudience": "adult",
+        "audienceConfidence": 0.85,
+        "note": "Jev leaned country, but only at 0.70 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    },
+    {
+      "id": "0c9e5044-6357-4c3d-900e-c2d630ffa410",
+      "name": "American Muscle on Wheels",
+      "idea": "",
+      "garment": "tshirt",
+      "keyword": "gym",
+      "keywordBand": "adult",
+      "recorded": null,
+      "jev": {
+        "verdict": "low-confidence",
+        "mode": "on",
+        "subjectId": "dad",
+        "subjectConfidence": 0.47,
+        "audienceConfidence": 0.5,
+        "note": "Jev leaned dad, but only at 0.47 confidence."
+      },
+      "jevCast": null,
+      "jevBand": null
+    }
+  ]
+}

@@ -1,5 +1,37 @@
 # TASK_NOTES
 
+## Current request (2026-09-23) — Jev model casting + design_audience (Watchtower c3bbbb16)
+
+Replace/augment the keyword + vision guessing in Step Flow casting with Jev
+(typesafe/jev-1.13, OpenRouter alpha decisions endpoint) under David's Jev task
+rules: multi-option choice with described options, confidence gate + human
+review, never destructive, keyword floor kept, measured on real rows before
+switching, vision fallback kept for nameless/tagless designs.
+
+### File shortlist (approved scope — 2026-09-23 Jev casting)
+- `backend/services/step-flow/casting.ts` (Jev pass, gates, shadow/on/off)
+- `backend/services/step-flow/casting.test.ts`
+- `backend/services/jev.ts` (new — typed backend Jev client; the IP gate on
+  d1582dc inlines its own fetch, so this is the first shared one)
+- `backend/scripts/jev-casting-sample.ts` (new — read-only measurement)
+- `docs/reports/jev-casting-sample-2026-09-23.{md,json}` (the measurement)
+- Read only: `backend/services/etsy-model-shots.ts`, `backend/shared/catalog-capability.ts`,
+  `backend/services/step-flow/shots.ts` (the one caller).
+
+### Work log (append-only)
+- 2026-09-23 sifu: Jev casting built behind STEP_FLOW_CASTING_JEV (default
+  shadow). Two described choices per listing (cast_subject over
+  listShotSubjects(bands), design_audience adult|youth|either); gates 0.75
+  subject / 0.75 audience / 0.85 + kids' keyword match for any child cast;
+  keyword floor may not be crossed in age band; failures route to the old
+  vision→keywords→default chain with needsReview set (on mode). 41 casting
+  tests green, step-flow 303/303. Sample of 300 live listings: 54 accepted
+  (18%), 241 low-confidence, 5 rejected; 28/36 exact agreement with keywords
+  where both answered (the disagreements read as Jev being right), 5/5 with
+  recorded vision casts; $0.017, 10s. Coverage too low to switch on — stays shadow.
+  Unrelated: `etsy-copy-repair.test.ts` fails 3 in a full run (timeouts; it
+  imports nothing touched here). Full suite otherwise 1924 passed.
+
 ## Current request (2026-09-23) — Jev triage for support tickets, shared mailbox, Etsy buyer messages
 
 Watchtower task 2a83afec-05e1-41d0-8618-66d69df33149 (Lucas Blaze). Jev (typesafe/jev-1.13)
