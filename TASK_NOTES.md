@@ -4252,3 +4252,10 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## File shortlist (approved scope) — 2026-09-23 API DNS cutover, Watchtower 13e1c509
+- Read first: `CLAUDE_TASK.md`, `AGENTS.md`, `CLAUDE.md`; then only `backend/index.ts`, `backend/package.json`, `README.md`, and Step 1 inventory from commit `8886a12` as needed.
+- Allowed repo edits: `CLAUDE_TASK.md` and `TASK_NOTES.md` only. Cloudflare, Fly, and Render state require separate verified remote access and scoped go-live approval.
+
+## Work log (append-only)
+- Scouted Watchtower `13e1c509-a66a-44d0-a67b-f3719ce86855`: public API still resolves to Render at TTL 300 and health returned 200; reconciled Step 1's DNS-only Cloudflare record with the stale proxy comment, noted Step 4's stopped worker and unmerged deploy gate, and prepared the certificate, cutover, and rollback brief without changing production routing.
