@@ -2,7 +2,15 @@
 import React, { useMemo, useState } from 'react'
 import { Check, RefreshCw, Wand2 } from 'lucide-react'
 import { useStudioLane } from './lane'
-import { getDesignCandidates, getNobgAsset, type StepFlowAction, type StepFlowState } from './stepFlowReducer'
+import {
+  getDesignCandidates,
+  getFailedDesignJob,
+  getNobgAsset,
+  isSensitivePromptError,
+  softenDesignPrompt,
+  type StepFlowAction,
+  type StepFlowState,
+} from './stepFlowReducer'
 import { ApproveButton, BusyDot, Checkerboard, EngineLine, engineLabel, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
 import PrintPrepPanel from './PrintPrepPanel'
@@ -37,6 +45,14 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
   // the flow, a failed adopt, a generation that never ran), saying so beats
   // a blank card.
   const nothingToShow = candidates.length === 0 && !state.loading && !state.error
+  // The newest design-generation job to fail outright, with no candidate to
+  // show for it — most often the image model's own safety filter refusing
+  // the prompt (Replicate's "E005: flagged as sensitive"). Distinct from a
+  // draft that simply has nothing drawn yet: this one has an explanation and
+  // a way forward (rephrase and retry) instead of a dead end.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const failedDesignJob = useMemo(() => getFailedDesignJob(state), [state.jobs])
+  const sensitiveRefusal = candidates.length === 0 && isSensitivePromptError(failedDesignJob?.error)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const nobgAsset = useMemo(() => getNobgAsset(state), [state.assets])
   const selectedAssetId = state.assets.find((a) => a.is_primary && a.kind === 'source')?.id ?? null
@@ -147,7 +163,44 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
               : 'The background is stripped once you approve.'}
       </p>
 
-      {nothingToShow && !isGenerating && (
+      {/* A flagged first generation has no candidate to "Tweak" from below —
+          this is the only way forward on this draft otherwise being a dead
+          end (David hit this on a "hip-hop monkey" brief refused by
+          flux-2-pro with E005). Reuses the exact same edit-and-retry action
+          as Tweak (a fresh draft with the edited prompt), just reachable
+          before any take exists. */}
+      {nothingToShow && !isGenerating && sensitiveRefusal && state.stepFlow?.brief && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm space-y-3">
+          <div>
+            <p className="font-semibold text-text mb-1">This idea was flagged by the image model's safety filter</p>
+            <p className="text-muted">
+              {failedDesignJob?.error || 'The generator refused this prompt as potentially sensitive.'} This is
+              often a false positive — rephrasing it, dropping specific or provocative wording, or describing the
+              idea more generally usually gets past it. Edit the prompt below, or try the auto-softened version
+              as a starting point, then retry.
+            </p>
+          </div>
+          <textarea
+            value={tweakPrompt}
+            onChange={(e) => setTweakPrompt(e.target.value)}
+            rows={3}
+            className="w-full text-sm border border-border-subtle rounded-lg px-3 py-2 bg-bg text-text"
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <SecondaryButton
+              onClick={() => setTweakPrompt(softenDesignPrompt(tweakPrompt))}
+              disabled={tweaking || !tweakPrompt.trim()}
+            >
+              <Wand2 className="w-3.5 h-3.5" /> Auto-soften
+            </SecondaryButton>
+            <ApproveButton onClick={handleTweak} disabled={!tweakPrompt.trim() || tweaking} busy={tweaking}>
+              {tweaking ? 'Retrying…' : 'Retry with this prompt'}
+            </ApproveButton>
+          </div>
+        </div>
+      )}
+
+      {nothingToShow && !isGenerating && !sensitiveRefusal && (
         <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
           <p className="font-semibold text-text mb-1">No design on this product yet</p>
           <p className="text-muted">

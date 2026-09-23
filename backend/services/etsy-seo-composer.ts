@@ -25,6 +25,7 @@ import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY, ETSY_SIZE_KEYS } from '../shared/metal-art.js'
+import { COLORS, type ColorId } from '../shared/catalog-capability.js'
 
 // OpenRouter-first since 2026-08-20 (David's cost pass): copy is a text job
 // Gemini Flash handles for ~nothing, and it rides a SEPARATE wallet — the
@@ -110,7 +111,25 @@ const DEFAULT_SECOND_COLOR = 'Black'
 
 const titleCaseColor = (c: string) => c.trim().replace(/\s+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
 
+/** A Step Flow `ColorId` (e.g. 'heather-grey') to its Etsy-facing display
+ *  label ('Heather Grey') — falls back to title-casing the raw id itself so
+ *  an unrecognized value still reads as a color instead of vanishing. */
+const colorIdToLabel = (id: string): string => titleCaseColor(COLORS[id as ColorId]?.label ?? id)
+
 export function defaultColorsFor(product: any): string[] {
+  // Step Flow is the source of truth for what a listing actually sells in —
+  // `colors.primary` plus every approved `colors.extras` — so a product built
+  // through the flow lists every color it offers, not just a guessed pair.
+  // Older/non-Step-Flow products (or a Step Flow draft with no colors set
+  // yet) fall back to the single shirt_color metadata field plus the old
+  // default second color, exactly as before.
+  const stepFlowColors = product?.metadata?.step_flow?.colors
+  if (stepFlowColors?.primary) {
+    const extras: string[] = Array.isArray(stepFlowColors.extras) ? stepFlowColors.extras : []
+    const all = [stepFlowColors.primary, ...extras].map((id: string) => colorIdToLabel(String(id)))
+    return [...new Set(all)]
+  }
+
   const own = titleCaseColor(String(
     product?.metadata?.shirt_color || product?.metadata?.dtf_settings?.shirt_color || 'Black'
   ))

@@ -4,11 +4,14 @@ import {
   canReachStep,
   furthestReachableStep,
   getDesignCandidates,
+  getFailedDesignJob,
   getNobgAsset,
   getShots,
   hasNonTerminalWork,
   initialStepFlowState,
+  isSensitivePromptError,
   mergeShots,
+  softenDesignPrompt,
   stepFlowReducer,
   type StepFlowState,
 } from './stepFlowReducer'
@@ -668,6 +671,74 @@ describe('getDesignCandidates', () => {
     const [take] = getDesignCandidates(state)
     expect(take.engine).toBeUndefined()
     expect(take.label).toBe('GPT Image 2')
+  })
+})
+
+describe('getFailedDesignJob', () => {
+  it('is undefined when nothing has failed', () => {
+    const state = stateWith({ jobs: [job({ id: 'j1', type: 'replicate_image_v2', status: 'running' })] })
+    expect(getFailedDesignJob(state)).toBeUndefined()
+  })
+
+  it('ignores a failed job of an unrelated type (e.g. a mockup or rembg job)', () => {
+    const state = stateWith({
+      jobs: [job({ id: 'j1', type: 'replicate_mockup_v2', status: 'failed', error: 'flagged as sensitive (E005)' })],
+    })
+    expect(getFailedDesignJob(state)).toBeUndefined()
+  })
+
+  it('picks the newest failed design job when there are several', () => {
+    const state = stateWith({
+      jobs: [
+        job({ id: 'old', type: 'replicate_image_v2', status: 'failed', created_at: '2026-09-01T00:00:00Z', error: 'first' }),
+        job({ id: 'new', type: 'replicate_image_v2', status: 'failed', created_at: '2026-09-01T00:05:00Z', error: 'second' }),
+      ],
+    })
+    expect(getFailedDesignJob(state)?.id).toBe('new')
+  })
+})
+
+describe('isSensitivePromptError', () => {
+  it('recognizes the real Replicate flux-2-pro refusal text', () => {
+    // Exact shape thrown by services/image-flow/providers/replicate.ts:
+    // `replicate ${modelId} ${status}: ${prediction.error}`.
+    expect(isSensitivePromptError(
+      'replicate black-forest-labs/flux-2-pro failed: flagged as sensitive (E005)'
+    )).toBe(true)
+  })
+
+  it('recognizes an NSFW-worded refusal from another model', () => {
+    expect(isSensitivePromptError('NSFW content detected in the generated image')).toBe(true)
+  })
+
+  it('is false for an ordinary/unrelated failure', () => {
+    expect(isSensitivePromptError('replicate black-forest-labs/flux-2-pro failed: request timed out')).toBe(false)
+  })
+
+  it('is false for no message at all', () => {
+    expect(isSensitivePromptError(undefined)).toBe(false)
+    expect(isSensitivePromptError(null)).toBe(false)
+    expect(isSensitivePromptError('')).toBe(false)
+  })
+})
+
+describe('softenDesignPrompt', () => {
+  it('strips generically risky words and appends a wholesome framing clause', () => {
+    const out = softenDesignPrompt('a street monkey holding a gun, violent pose')
+    expect(out).not.toMatch(/\bgun\b/i)
+    expect(out).not.toMatch(/\bviolent\b/i)
+    expect(out.toLowerCase()).toContain('wholesome')
+  })
+
+  it('still appends the framing clause even when nothing risky matched', () => {
+    const out = softenDesignPrompt('a hip-hop street monkey, bold streetwear illustration')
+    expect(out).toContain('a hip-hop street monkey, bold streetwear illustration')
+    expect(out.toLowerCase()).toContain('family-friendly')
+  })
+
+  it('does not double up the framing clause if it is already there', () => {
+    const already = 'a friendly robot, wholesome and family-friendly'
+    expect(softenDesignPrompt(already)).toBe(already)
   })
 })
 
