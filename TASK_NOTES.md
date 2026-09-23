@@ -4193,3 +4193,79 @@ Watchtower row `93ef1eb3-7041-443b-80d9-482469caab8c`.
   4 (whether to backfill/re-sync the already-published transfer listings that
   are missing the size axis) is handed to David as an approval, not decided
   here.
+
+## Current request (2026-09-23) — Step Flow follow-ups (Lucas Blaze, task 934dd6ed)
+
+David/Zero asked for four follow-ups from the earlier Step Flow build: SEO
+composer extra colors, a details-card redo re-render check, an E005 rephrase
+path in DesignStep, and a live throwaway Publish+Etsy test. (CLAUDE_TASK.md
+in this worktree had stale content from an unrelated, already-shipped task —
+replaced it with this brief per the working rule to update scope with
+rationale before proceeding.)
+
+### File shortlist (approved scope — 2026-09-23 step-flow follow-ups)
+- `backend/services/etsy-seo-composer.ts` / `.test.ts`
+- `backend/services/step-flow/shots.ts` / `.test.ts`
+- `src/components/studio/DesignStep.tsx` / `DesignStep.test.tsx` (new)
+- `src/components/studio/stepFlowReducer.ts` / `.test.ts`
+- `CLAUDE_TASK.md`, `TASK_NOTES.md`
+
+### Work log (append-only) — 2026-09-23
+- **SEO composer colors**: `defaultColorsFor` only ever read
+  `metadata.shirt_color` — a Step Flow product's `step_flow.colors.extras`
+  (set on GarmentStep) were silently dropped, so a listing that actually
+  sells in 3 colors composed an Etsy pack advertising 1. Now prefers
+  `step_flow.colors.{primary,extras}`, mapped to Etsy display labels via
+  `catalog-capability.ts`'s `COLORS`, falling back to the old
+  shirt_color/DEFAULT_SECOND_COLOR behavior for non-Step-Flow products. 8
+  tests in etsy-seo-composer.test.ts.
+- **Details card redo — REAL BUG FOUND AND FIXED**: `resolveStepFlow`'s loop
+  processes `product` before `details` (insertion order), but on the poll
+  where the redone `product` job resolves to 'done', the 'details' branch was
+  still reading the in-memory `stepFlow.shots.product` snapshot captured at
+  the top of the function — stale, still showing the pre-redo state — so it
+  saw "not ready yet" and skipped the re-render. That poll's RESPONSE then
+  showed both `product` and `details` at a terminal status, so the client's
+  `hasNonTerminalWork` (stepFlowReducer.ts) stopped the poll loop before any
+  next poll could ever pick up the re-render. Net effect: after a product-shot
+  redo, the details card could get stuck showing the stale pre-redo image
+  forever, with no further poll to fix it. Fixed by writing every
+  `patchShotState` return value back onto the in-memory `stepFlow.shots[key]`
+  so later keys in the SAME loop iteration see fresh data — the details card
+  now re-renders in the SAME poll that resolves the redone source shot. Added
+  a regression test in shots.test.ts that reproduces the exact race (job
+  transitions running->succeeded and the details cascade in one
+  `resolveStepFlow` call). All 84 tests in shots.test.ts green.
+- **E005 rephrase path**: added `getFailedDesignJob` / `isSensitivePromptError`
+  / `softenDesignPrompt` to stepFlowReducer.ts (12 new tests) and a rephrase
+  panel in DesignStep.tsx that renders when the only design-generation job
+  failed with an E005-shaped error (Replicate's "flagged as sensitive (E005)"
+  / NSFW-worded refusals) and there is no candidate to show for it — the
+  scenario that left a "hip-hop monkey" brief refused by flux-2-pro as a dead
+  end (Tweak only renders once a candidate exists). Reuses the EXISTING
+  Tweak fresh-draft-with-edited-prompt mechanism rather than building a new
+  one; adds an "Auto-soften" button (strips a short generic risky-word list,
+  appends a neutral "wholesome, family-friendly" framing clause — never
+  guesses at WHAT specifically tripped the refusal). 4 new component tests in
+  DesignStep.test.tsx (new file, jsdom + testing-library, mirrors the
+  EtsyStep.test.tsx pattern).
+- **OpenAI wallet / gpt-image-2 live verification**: this worktree has no
+  backend/.env (no OPENAI_API_KEY, no live Supabase/Etsy creds) — could not
+  verify gpt-image-2 live from here. The E005 path was verified against the
+  exact real Replicate refusal text on record in this repo (`ab-mockup-flux2.mjs`'s
+  "flagged as sensitive (E005)" and worker-helpers.ts's NSFW-worded variant),
+  not a live call.
+- **Live Publish + Etsy queue test**: did NOT run this myself. It requires
+  posting a real (if temporary) listing to the live ImagineThisPrinted1 Etsy
+  shop, which is a customer-facing go-live action — filed as APPROVE task
+  `2cdeeaae-c60d-4ccc-a576-ae0ec962f3e8` on the board instead of deciding it
+  alone, recommending it run AFTER this branch merges+deploys (so the test
+  actually exercises this work, not whatever's currently live). Existing
+  automated coverage (EtsyStep.test.tsx, etsy.ts / etsy-seo-composer.ts
+  suites) already covers the code path.
+- Verified: `npx tsc -p tsconfig.app.json --noEmit` and `npx tsc -p tsconfig.json
+  --noEmit` both clean; `npx eslint` on every touched file — 0 errors (only
+  pre-existing `no-explicit-any` warnings); 421 tests green across
+  `backend/services/step-flow`, `backend/services/etsy-seo-composer.test.ts`,
+  and `src/components/studio`.
+- 2026-09-23 (Lucas Blaze, task 5fe3dff9): a1ee512 cherry-picked onto origin/main alone (local main carries ~30 unpushed zero-nine commits that are not mine to deploy); DesignStep conflict resolved by keeping the E005 rephrase panel and dropping the unrelated 'no design yet' panel that depends on the unpushed adopt flow.

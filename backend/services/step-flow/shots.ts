@@ -1275,7 +1275,7 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         // if that failed there is nothing to render it from.
         const alreadyMarked = state.status === 'failed' && state.error === DETAILS_SOURCE_FAILED_ERROR
         if (!alreadyMarked) {
-          await patchShotState(product.id, key, { status: 'failed', error: DETAILS_SOURCE_FAILED_ERROR })
+          stepFlow.shots[key] = await patchShotState(product.id, key, { status: 'failed', error: DETAILS_SOURCE_FAILED_ERROR })
           touched = true
         }
         continue
@@ -1294,14 +1294,14 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         // slow render can never hold up, or get clobbered by, a concurrent
         // approve/redo/model-shot completion on this same product.
         const { patch } = await renderDetailsShot(product, stepFlow)
-        await patchShotState(product.id, key, { ...patch, jobId: undefined })
+        stepFlow.shots[key] = await patchShotState(product.id, key, { ...patch, jobId: undefined })
         touched = true
       } catch (err: any) {
         // "Not ready yet" (no source asset) is expected while mockups are
         // still rendering — leave it queued for the next poll rather than
         // flagging a failure that never happened.
         if (!(err instanceof StepFlowValidationError)) {
-          await patchShotState(product.id, key, { status: 'failed', error: err?.message || 'Details render failed' })
+          stepFlow.shots[key] = await patchShotState(product.id, key, { status: 'failed', error: err?.message || 'Details render failed' })
           touched = true
         }
       }
@@ -1318,14 +1318,14 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         // The job record this shot is waiting on is gone (deleted, or never
         // landed) — nothing will ever resolve it. Fail now so Redo is
         // offered instead of a spinner that waits forever.
-        await patchShotState(product.id, key, { status: 'failed', error: 'stale — job record missing, redo this shot' })
+        stepFlow.shots[key] = await patchShotState(product.id, key, { status: 'failed', error: 'stale — job record missing, redo this shot' })
         touched = true
       }
       continue
     }
 
     if (job.status === 'failed') {
-      await patchShotState(product.id, key, { status: 'failed', error: job.error || 'Job failed' })
+      stepFlow.shots[key] = await patchShotState(product.id, key, { status: 'failed', error: job.error || 'Job failed' })
       touched = true
     } else if (job.status === 'succeeded') {
       const role = roleForShotKey(key, garment)
@@ -1333,11 +1333,22 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
         .filter((a) => a.asset_role === role && a.url)
         .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
       if (candidates[0]) {
-        await patchShotState(product.id, key, { status: 'done', assetId: candidates[0].id, url: candidates[0].url })
+        // Written back onto the in-memory `stepFlow.shots[key]` (not just the
+        // DB) so a LATER key in this same loop — 'details', which reads its
+        // source shot's status/assetId off this exact object — sees the fresh
+        // 'done' + new assetId in the SAME poll instead of one poll behind.
+        // Before this, a product-shot redo landed here first (product comes
+        // before details in insertion order), but the 'details' branch below
+        // still read the pre-redo snapshot captured at the top of this
+        // function, saw a stale (terminal) 'done' status on both keys, and
+        // `hasNonTerminalWork` on the client stopped polling before the
+        // details card ever got a chance to re-render on a next poll that
+        // was never requested.
+        stepFlow.shots[key] = await patchShotState(product.id, key, { status: 'done', assetId: candidates[0].id, url: candidates[0].url })
       } else {
         // MUST-FIX #11: the job says it succeeded but nothing landed in its
         // asset_role slot — never leave the shot spinning forever.
-        await patchShotState(product.id, key, { status: 'failed', error: 'render finished, no asset landed' })
+        stepFlow.shots[key] = await patchShotState(product.id, key, { status: 'failed', error: 'render finished, no asset landed' })
       }
       touched = true
     } else {
@@ -1347,10 +1358,10 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
       if (age > STALE_RUNNING_MS) {
         // MUST-FIX #11: stuck for >15 minutes — fail it so Redo is offered
         // instead of an infinite spinner.
-        await patchShotState(product.id, key, { status: 'failed', error: 'stale — no result after 15 minutes, redo this shot' })
+        stepFlow.shots[key] = await patchShotState(product.id, key, { status: 'failed', error: 'stale — no result after 15 minutes, redo this shot' })
         touched = true
       } else if (state.status !== job.status) {
-        await patchShotState(product.id, key, { status: job.status })
+        stepFlow.shots[key] = await patchShotState(product.id, key, { status: job.status })
         touched = true
       }
     }

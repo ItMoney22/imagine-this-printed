@@ -1139,6 +1139,40 @@ describe('resolveStepFlow', () => {
     expect(sf.shots.details).toMatchObject({ assetId: 'd2', sourceAssetId: 'ga2-new' })
   })
 
+  // Follow-up to MUST-FIX #8 above: that test pre-seeded `product` as already
+  // 'done' with the new assetId, which never exercised the SAME poll where the
+  // redo's job transitions running -> succeeded. `product` sorts before
+  // `details` in `Object.keys(stepFlow.shots)`, so within one resolveStepFlow
+  // call the loop resolves `product` to 'done' first and must hand `details`
+  // that FRESH state, not the snapshot read at the top of the function — the
+  // in-memory `stepFlow` is otherwise stale for the rest of this call, and the
+  // client's poll loop stops the instant both shots report a terminal status
+  // (hasNonTerminalWork), so a details re-render deferred to "next poll" would
+  // never actually get a next poll and the card would stay stuck on the old take.
+  it('re-renders details in the SAME poll that resolves the redone product job (no stale one-poll lag)', async () => {
+    const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
+      version: 1, idea: '', brief: { title: 'x' }, garment: 'tshirt' as const, colors: { primary: 'black' as const, extras: [] },
+      shots: {
+        // Old asset stays visible while the redo is in flight (see redoShot's
+        // comment) — status is 'running', but assetId/url still point at the
+        // pre-redo take until the job resolves.
+        product: { approved: false, status: 'running' as const, jobId: 'job-redo', assetId: 'ga1-old', url: 'https://cdn/ghost-old.png' },
+        details: { approved: true, status: 'done' as const, assetId: 'd1', url: 'https://cdn/details.png', sourceAssetId: 'ga1-old' },
+      },
+      approvals: {},
+    } } }
+    db.products.push(product)
+    const jobs = [{ id: 'job-redo', status: 'succeeded' }]
+    const assets = [{ id: 'ga2-new', asset_role: 'mockup_ghost_mannequin', url: 'https://cdn/ghost-new.png', created_at: '2026-01-02' }]
+    renderDetailsCard.mockResolvedValue({ buffer: Buffer.from(''), url: 'https://cdn/details-2.png', path: 'x', assetId: 'd2' })
+
+    const sf = await resolveStepFlow(product as any, assets, jobs)
+
+    expect(sf.shots.product).toMatchObject({ status: 'done', assetId: 'ga2-new', url: 'https://cdn/ghost-new.png' })
+    expect(renderDetailsCard).toHaveBeenCalledWith(expect.objectContaining({ mockupUrl: 'https://cdn/ghost-new.png' }))
+    expect(sf.shots.details).toMatchObject({ status: 'done', assetId: 'd2', url: 'https://cdn/details-2.png', sourceAssetId: 'ga2-new' })
+  })
+
   // MUST-FIX #2
   it('marks details failed, without attempting to render, when the product shot itself failed', async () => {
     const product = { id: 'p1', category: 't-shirts', metadata: { step_flow: {
