@@ -4252,3 +4252,13 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### File shortlist (approved scope — 2026-09-23 Jev pre-sort, task 1bb051b5)
+- `backend/services/jev-approval-presort.ts` (+ `.test.ts`) — new: floor + Jev IP gate + 4-way triage, confidence-gated, read-only
+- `backend/services/jev-ip-gate.ts` — byte-identical copy of levi-james's d1582dc (task c0fbb4a3) so this branch compiles alone; merges clean as an identical add/add
+- `backend/routes/admin/user-product-approvals.ts` (+ `.test.ts`) — GET /pending returns `jev_presort` per item + `presort:{mode,sort}`; `?sort=jev|created`
+- `src/components/AdminCreatorProductsTab.tsx` (+ `.test.tsx`) — suggestion badge + Jev triage / Newest toggle
+- `backend/scripts/jev-presort-benchmark.ts` + `docs/reports/jev-presort-benchmark-2026-09-23.json` — read-only benchmark vs human decisions
+
+### Work log (append-only)
+- 2026-09-23 — Jev pre-sort for the creator approval queue. Deterministic floor (trademark denylist → reject_ip, no artwork → reject_quality, placeholder title → needs_fix; missing generations is INFO only) runs first and Jev can only make it stricter. IP half reuses levi's Jev IP gate; triage is a 4-way choice with written criteria gated at 0.75 — under the bar = no suggestion. Nothing writes; reading the queue is proven write-free in tests. JEV_PRESORT defaults to `shadow` (payload annotated, order unchanged unless ?sort=jev). Benchmark on all 11 human-decided live rows: 5/11 got a suggestion, 3/5 agreed on keep-vs-reject, 2 false approvals (both image-quality rejections the text can't see) — so it STAYS shadow. First benchmark run also showed missing-generations as a verdict flattened 10/11 rows to needs_fix; downgraded to info. 34 new tests green; full suite 1936 pass / 2 pre-existing fails in etsy-copy-repair (files untouched).
