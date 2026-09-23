@@ -4252,3 +4252,32 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## 2026-09-23 — On-person back shot + two-sided spin video (task cd85eaca, dr-dill)
+
+David 2026-09-21/22: "if we do a video shoot it needs to be able to show front nd back".
+
+### File shortlist (approved scope — task cd85eaca)
+- `backend/routes/ai/realtime.ts` (spin-video route: select print_locations, use planSpinVideo)
+- `backend/services/spin-video.ts` + `.test.ts` (new — pure request planner)
+- `backend/services/etsy-model-shots.ts` (new `shootBackModelShot` / `buildBackModelPrompt`)
+- `backend/services/step-flow/shots.ts` + `.test.ts` (new `model-back` shot key, chained off `model`)
+- `backend/shared/product-gallery.ts` (`mockup_back_model` role + `BACK_MODEL_ROLE`)
+- `src/lib/api.ts`, `src/components/studio/MockupStep.tsx` (ShotKey + label only)
+- `backend/scripts/verify-two-sided-spin.ts` (new — read-only E2E proof)
+
+### Work log (append-only)
+- Found two real defects: (1) the spin route selected `id, name, images, metadata` and passed
+  `print_locations` as undefined, so a product whose back lives only in print_locations
+  (e.g. "Leftovers Are for Quitters" f09a7d64) shot a front-only video; (2) grok-imagine-video
+  takes ONE image, so the "turn around" branch made the model invent the back print.
+- Added `model-back`: an EDIT of the front on-person shot (INPUT 1) + back artwork (INPUT 2) on
+  gpt-image, verified against the back art with one corrective retry; stamped with the front's
+  assetId (`sourceAssetId`). Two-sided videos with a matching pair now run on
+  kwaivgi/kling-v2.5-turbo-pro with start_image=front, end_image=back; otherwise grok with a
+  returned/logged `warning` + `back_source:'imagined'` (never silent).
+- Verified live on Spartans tee 568ee288 (read-only on the product row): back shot passed QA
+  first try in 46s (gpt-image-2.5-flare), Kling prediction xhjayk2c6hrmr0d0sr28y4ty1w rendered a
+  5.08s 1172x1764 clip — front SPARTANS/WARRIOR -> clean 180 turn -> BEAR 9 back, same person
+  and scene. One transitional frame (~3s) smears a little back-print red near the side seam.
+  Tests: 92/92 (spin-video + shots). Clip: gs hero-videos/verify-cd85eaca/.

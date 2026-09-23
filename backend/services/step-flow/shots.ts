@@ -19,9 +19,9 @@ import {
   type GarmentId,
 } from '../../shared/catalog-capability.js'
 import { STUDIO_SIZE_KEYS, type MetalArtSizeKey } from '../../shared/metal-art.js'
-import { BACK_ROLE } from '../../shared/product-gallery.js'
+import { BACK_ROLE, BACK_MODEL_ROLE } from '../../shared/product-gallery.js'
 import { GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../replicate.js'
-import { shootOneModelShot, designReferenceForProduct } from '../etsy-model-shots.js'
+import { shootOneModelShot, shootBackModelShot, designReferenceForProduct } from '../etsy-model-shots.js'
 import { castForDesign, manualCast, type CastingDecision } from './casting.js'
 import { renderDetailsCard, renderMetalDetailsCard } from './details-card.js'
 import { supportsPrintTrue } from '../print-true-mockup.js'
@@ -52,6 +52,10 @@ export type ShotKey =
   | 'details'
   /** Back view of a two-sided garment, printed with the BACK artwork. */
   | 'back'
+  /** The front on-person shot's person, turned around, wearing the BACK
+   *  artwork — the end frame of a two-sided spin video. Rendered FROM the
+   *  `model` shot, so it waits for that shot to land. */
+  | 'model-back'
   | `model:${string}`
   | `color:${string}`
   | `scene:${string}`
@@ -306,7 +310,12 @@ export function defaultShotKeys(
   // A front-and-back product whose listing only ever shows the front is a
   // listing that cannot sell the back. David 2026-09-21: "since its a front
   // and back it should mock up a front n back".
-  if (product && productPrintsOnBack(product)) base.push('back')
+  //
+  // The on-person back ('model-back') rides along with it (David 2026-09-22:
+  // "if we do a video shoot it needs to be able to show front nd back") — a
+  // flat back shows the print, the on-person back is what the spin video
+  // turns INTO.
+  if (product && productPrintsOnBack(product)) base.push('back', 'model-back')
   return [...base, ...extras.map((c) => `color:${c}` as ShotKey)]
 }
 
@@ -383,6 +392,7 @@ export function roleForShotKey(key: ShotKey, garment?: GarmentId): string {
   if (key.startsWith('scene:')) return `mockup_metal_${key.slice('scene:'.length)}`
   if (key === 'hanger') return 'mockup_hanger'
   if (key === 'back') return BACK_ROLE
+  if (key === 'model-back') return BACK_MODEL_ROLE
   if (isModelKey(key)) return `mockup_model_${modelSlot(key)}`
   if (key === 'details') return 'mockup_details'
   if (key.startsWith('color:')) return `mockup_color_${key.slice('color:'.length)}`
@@ -777,12 +787,88 @@ async function runModelShot(
     await patchShotState(productId, key, {
       status: 'done', assetId: asset.id, url: asset.url, error: undefined, note: check.degraded,
     })
+    if (key === 'model') await chainBackModelShot(productId, userId, garment, shirtColor)
   } catch (err: any) {
     const message = err?.message || 'Model shot failed'
     console.error(`[step-flow/shots] "${key}" model shot failed:`, message)
     await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', jobId)
     await patchShotState(productId, key, { status: 'failed', error: message })
   }
+}
+
+/**
+ * The front on-person shot just landed. If this product also carries a
+ * `model-back` slot that is waiting on it (or was built from an older front
+ * take and is not yet approved), render the back from THIS front so the pair
+ * is always the same person in the same place. An approved back is left
+ * alone — the admin redoes it explicitly if they want it re-matched.
+ */
+async function chainBackModelShot(productId: string, userId: string, garment: GarmentId, shirtColor: ColorId): Promise<void> {
+  const stepFlow = getStepFlow(await loadProductRow(productId))
+  const back = stepFlow.shots['model-back']
+  const front = stepFlow.shots.model
+  if (!back || back.approved || !front?.url || !front.assetId) return
+  if (back.status === 'running') return
+  if (back.status === 'done' && back.sourceAssetId === front.assetId) return
+  await startBackModelShot(productId, userId, garment, shirtColor, { url: front.url, assetId: front.assetId })
+}
+
+/** Create the bookkeeping job and render the on-person back in the background. */
+async function startBackModelShot(
+  productId: string,
+  userId: string,
+  garment: GarmentId,
+  shirtColor: ColorId,
+  front: { url: string; assetId: string }
+): Promise<{ jobId: string; status: ShotState['status'] }> {
+  const key: ShotKey = 'model-back'
+  const { data: job, error } = await supabase
+    .from('ai_jobs')
+    .insert({
+      product_id: productId,
+      type: 'step_flow_model_shot', // bookkeeping only — pre-claimed as 'running' so the worker never touches it
+      status: 'running',
+      input: { stepKey: key, shirtColor, garment, sourceAssetId: front.assetId, nonce: randomNonce() },
+    })
+    .select()
+    .single()
+  if (error) throw new Error(`Failed to queue the on-person back shot: ${error.message}`)
+  await patchShotState(productId, key, { status: 'running', jobId: job.id, approved: false, error: undefined })
+
+  void (async () => {
+    try {
+      const { url, check, modelId, backArtworkUrl } = await shootBackModelShot(productId, userId, {
+        frontShotUrl: front.url,
+        shirtColor,
+        garment,
+      })
+      if (check.ok === false) {
+        const message = check.reason || 'On-person back shot failed design-fidelity QA'
+        console.warn(`[step-flow/shots] ${productId} "${key}" failed QA (not mirrored): ${message}`)
+        await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', job.id)
+        await patchShotState(productId, key, { status: 'failed', error: message })
+        return
+      }
+      const asset = await mirrorUrlToProductAsset(productId, BACK_MODEL_ROLE, url, 5, {
+        template: 'step_flow_back_model_shot',
+        generated_with: 'etsy-model-shots',
+        source_asset_id: front.assetId,
+        back_artwork_url: backArtworkUrl,
+        ...(modelId ? { model_id: modelId } : {}),
+      })
+      await supabase.from('ai_jobs').update({ status: 'succeeded', output: { url }, updated_at: new Date().toISOString() }).eq('id', job.id)
+      await patchShotState(productId, key, {
+        status: 'done', assetId: asset.id, url: asset.url, sourceAssetId: front.assetId, error: undefined,
+      })
+    } catch (err: any) {
+      const message = err?.message || 'On-person back shot failed'
+      console.error(`[step-flow/shots] "${key}" shot failed:`, message)
+      await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', job.id)
+      await patchShotState(productId, key, { status: 'failed', error: message })
+    }
+  })()
+
+  return { jobId: job.id, status: 'running' }
 }
 
 async function queueModelShot(
@@ -966,6 +1052,21 @@ async function buildShotJob(
     throw new StepFlowValidationError('Approve garments & colors before queuing shots')
   }
   assertOffered(garment, colors.primary)
+
+  if (key === 'model-back') {
+    // Rendered FROM the front on-person shot. Until that lands there is
+    // nothing to turn around: park it as queued and let the front shot's own
+    // completion (chainBackModelShot) start it.
+    const front = stepFlow.shots.model
+    if (front?.status === 'done' && front.url && front.assetId) {
+      return startBackModelShot(product.id, userId, garment, colors.primary, { url: front.url, assetId: front.assetId })
+    }
+    if (mode === 'redo') {
+      throw new StepFlowValidationError('The on-person back is shot from the front on-person photo — finish that one first')
+    }
+    await patchShotState(product.id, key, { status: 'queued', jobId: undefined, approved: false, error: undefined })
+    return { jobId: null, status: 'queued' }
+  }
 
   if (isModelKey(key)) {
     // MUST-FIX #3: on a redo, thread the prior shot's URL through so
@@ -1259,6 +1360,7 @@ export async function approveShotsBatch(
                 // than re-deriving it.
                 ...defaultShotKeys(stepFlow.colors),
                 ...((stepFlow.shots as any)?.back ? (['back'] as ShotKey[]) : []),
+                ...(stepFlow.shots['model-back'] ? (['model-back'] as ShotKey[]) : []),
                 // Added people are tracked too, or an extra on-person shot
                 // nobody approved would let Listing unlock behind its back.
                 ...(Object.keys(shots) as ShotKey[]).filter((k) => isModelKey(k) && k !== 'model'),
@@ -1292,6 +1394,7 @@ const STALE_RUNNING_MS = 15 * 60 * 1000
 
 /** The error stamped on 'details' when its source shot (product, or a metal scene) failed — checked below to avoid re-stamping the same failure every poll. */
 const DETAILS_SOURCE_FAILED_ERROR = 'source shot failed — nothing to render'
+const MODEL_BACK_SOURCE_FAILED_ERROR = 'the front on-person shot failed — redo it, then the back is shot from it'
 
 /**
  * Called from GET /:id/step — brings `step_flow.shots` up to date with the
@@ -1365,6 +1468,12 @@ export async function resolveStepFlow(product: ProductRow, assets: any[], jobs: 
     }
 
     if (state.status === 'done' || state.status === 'failed') continue
+
+    if (key === 'model-back' && !state.jobId && stepFlow.shots.model?.status === 'failed') {
+      await patchShotState(product.id, key, { status: 'failed', error: MODEL_BACK_SOURCE_FAILED_ERROR })
+      touched = true
+      continue
+    }
 
     if (!state.jobId) continue
     const job = jobs.find((j) => j.id === state.jobId)

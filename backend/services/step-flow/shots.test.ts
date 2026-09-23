@@ -1565,11 +1565,21 @@ describe('back view for two-sided products', () => {
       { primary: 'black', extras: ['white'] },
       { print_locations: ['front_image', 'back_image'], metadata: {} }
     )
-    expect(keys).toEqual(['product', 'hanger', 'model', 'details', 'back', 'color:white'])
+    expect(keys).toEqual(['product', 'hanger', 'model', 'details', 'back', 'model-back', 'color:white'])
   })
 
   it('maps to the gallery back-view role', () => {
     expect(roleForShotKey('back', 'tee')).toBe('mockup_back')
+  })
+
+  it('adds the ON-PERSON back alongside the flat back (David 2026-09-22: front nd back in the video)', () => {
+    const keys = defaultShotKeys(colors, { print_locations: ['front_image', 'back_image'], metadata: {} })
+    expect(keys).toContain('model-back')
+    expect(defaultShotKeys(colors, { print_locations: ['front_image'], metadata: {} })).not.toContain('model-back')
+  })
+
+  it('files the on-person back under its own role — never swept into the mockup_model_* people', () => {
+    expect(roleForShotKey('model-back', 'tee')).toBe('mockup_back_model')
   })
 })
 

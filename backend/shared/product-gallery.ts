@@ -81,6 +81,11 @@ export const ROLE_ORDER = [
   // front-then-back, before the lifestyle shots.
   'mockup_back',
   MODEL_ROLE_WILDCARD,
+  // The on-person back: same person as the first model shot, turned around.
+  // Right after the on-person fronts so the lifestyle run reads front-then-back
+  // the way the flat run above does. Deliberately NOT named mockup_model_* —
+  // the wildcard above would swallow it and sort it FIRST among the people.
+  'mockup_back_model',
   // Metal print size scenes (Step Flow §14) — largest first, right before
   // the details card, same "biggest photo leads" convention as the rest of
   // this list. A garment product never has these roles; a metal product
@@ -117,6 +122,8 @@ export const METAL_ROLE_ORDER = [
 export const POCKET_ROLE = 'mockup_pocket'
 /** Gallery role of the back-side render on two-sided (front-back) products. */
 export const BACK_ROLE = 'mockup_back'
+/** Gallery role of the ON-PERSON back shot (two-sided products) — the spin video's end frame. */
+export const BACK_MODEL_ROLE = 'mockup_back_model'
 
 /**
  * @param order Which role whitelist/ordering to apply — ROLE_ORDER (garments,
