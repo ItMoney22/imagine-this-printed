@@ -407,6 +407,7 @@ const REPAIR_SYSTEM =
   'hook under 155 characters. Never invent materials, sizes, or shipping promises — use only what you are given.'
 
 async function modelRepair(subject: CopySubject, objections: string[]): Promise<Partial<CopySubject> | null> {
+  if (!objections.length) return null
   const client = composerClient()
   if (!client) return null
   try {

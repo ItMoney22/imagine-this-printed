@@ -19,6 +19,15 @@ vi.mock('../lib/supabase.js', () => {
   return { supabase: { from: () => chain() } }
 })
 
+let mockComposerClient: (() => any) | null = () => null
+vi.mock('./etsy-seo-composer.js', async (importOriginal) => {
+  const actual: any = await importOriginal()
+  return {
+    ...actual,
+    composerClient: () => (mockComposerClient ? mockComposerClient() : null),
+  }
+})
+
 const { repairCopy, repairEtsyPack, subjectPhrases, kindOf } = await import('./etsy-copy-repair.js')
 const { checkSeo, DESCRIPTION_MIN_CHARS, SEO_RULES } = await import('./presentation-qa.js')
 const { MAX_TAGS, MAX_TAG_LEN } = await import('./etsy-listing-fields.js')
@@ -190,6 +199,7 @@ describe('subjectPhrases', () => {
 // ---------------------------------------------------------------------------
 describe('repairEtsyPack', () => {
   beforeEach(() => {
+    mockComposerClient = () => null
     db.updates = []
     db.product = {
       id: 'p1',
@@ -236,5 +246,54 @@ describe('repairEtsyPack', () => {
     const result = await repairEtsyPack('p1', ['Only 0 tag(s); at least 10 are required and Etsy allows 13.'])
     expect(result.repaired).toBe(true)
     expect(db.updates[0].metadata.etsy_pack.tags).toContain('samurai tee')
+  })
+
+  it('uses the model when a composer client is available', async () => {
+    mockComposerClient = () => ({
+      chat: {
+        completions: {
+          create: async () => ({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    title: 'Stoic Samurai Cherry Blossom Art Tee | Japanese Aesthetic Shirt',
+                    tags: ['samurai tee', 'cherry blossom shirt', 'japanese aesthetic', 'graphic streetwear'],
+                    description: 'A soft unisex tee featuring a stoic samurai under falling blossoms.\n\nPrinted to order in Rockmart, Georgia with vivid DTF ink.',
+                  }),
+                },
+              },
+            ],
+          }),
+        },
+      },
+    })
+
+    const result = await repairEtsyPack('p1', ['Title is 32 characters; the minimum is 40.'])
+    expect(result.repaired).toBe(true)
+    expect(result.usedModel).toBe(true)
+    expect(db.updates[0].metadata.etsy_pack.model).toMatch(/\+repair$/)
+  })
+
+  it('does not invoke the model when objections is empty even if client is available', async () => {
+    let called = false
+    mockComposerClient = () => ({
+      chat: {
+        completions: {
+          create: async () => {
+            called = true
+            return { choices: [{ message: { content: '{}' } }] }
+          },
+        },
+      },
+    })
+
+    const clean = repairCopy(base)
+    db.product.metadata.etsy_pack = { ...db.product.metadata.etsy_pack, ...clean }
+    const result = await repairEtsyPack('p1', [])
+    expect(called).toBe(false)
+    expect(result.repaired).toBe(false)
+    expect(result.usedModel).toBe(false)
+    expect(db.updates).toHaveLength(0)
   })
 })
