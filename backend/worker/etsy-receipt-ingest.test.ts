@@ -159,6 +159,41 @@ describe('ingestReceipt', () => {
     expect(db.ordersInserted).toHaveLength(0)
   })
 
+  it('stores the buyer-note flag on the order metadata', async () => {
+    const db = makeFakeDb()
+    const seen: any[] = []
+    const result = await ingestReceipt(
+      baseReceipt({ message_from_buyer: 'Name on the back: MARTINEZ 23' }) as any,
+      db as any,
+      async (message, items) => {
+        seen.push({ message, items })
+        return { flag: 'personalization', needsReview: false, source: 'jev', confidence: 0.97, floorRules: [], mode: 'on' }
+      }
+    )
+    expect(result.created).toBe(true)
+    expect(seen).toEqual([{ message: 'Name on the back: MARTINEZ 23', items: ['Walk By Faith Tee'] }])
+    expect(db.ordersInserted[0].metadata.buyer_message_flag).toEqual({
+      flag: 'personalization', needs_review: false, source: 'jev', confidence: 0.97, mode: 'on'
+    })
+  })
+
+  it('an empty buyer note is flagged none without a Jev call (default classifier)', async () => {
+    const db = makeFakeDb()
+    await ingestReceipt(baseReceipt({ message_from_buyer: '   ' }) as any, db as any)
+    expect(db.ordersInserted[0].metadata.buyer_message_flag).toMatchObject({ flag: 'none', needs_review: false, source: 'floor' })
+  })
+
+  it('a classifier failure never costs the sale — the order still ingests, marked for review', async () => {
+    const db = makeFakeDb()
+    const result = await ingestReceipt(
+      baseReceipt({ message_from_buyer: 'please hurry' }) as any,
+      db as any,
+      async () => { throw new Error('lane down') }
+    )
+    expect(result.created).toBe(true)
+    expect(db.ordersInserted[0].metadata.buyer_message_flag).toEqual({ flag: null, needs_review: true, source: 'error' })
+  })
+
   it('still creates the order when a transaction listing has no etsy_listings mapping (product_id null, not dropped)', async () => {
     const db = makeFakeDb({ etsyListings: [] }) // no mapping at all
     const result = await ingestReceipt(baseReceipt() as any, db as any)
