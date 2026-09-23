@@ -738,6 +738,33 @@ export async function startMrsImagineBatch(opts: BatchOptions = {}): Promise<{ b
   if (!process.env.OPENAI_API_KEY) throw new Error('OPENAI_API_KEY is not configured')
   if (!isEtsyResearchConfigured()) throw new Error('ETSY_KEYSTRING is not configured — Mrs. Imagine cannot research without it')
 
+  // Runaway-generator guard (Watchtower d7eabac4, 2026-09-23). Nothing calls
+  // this function today — the route that fired it (POST /api/admin/mrs-imagine/run)
+  // was deleted in 7b65648 (2026-09-09) after it drained the OpenAI wallet to a
+  // 429 without shipping anything, and buildOneDesign() leaves every QA-blocked
+  // or copyright-gated attempt sitting at status='draft' forever with no cleanup
+  // path — that silent pile-up is exactly what task d7eabac4 just cleaned up (54
+  // rows, all dated 2026-08-21..08-31, batch-created and never touched again).
+  // If this entry point is ever wired back up, it must not repeat that: refuse
+  // to start a fresh batch while a backlog of dead drafts from the LAST one is
+  // still sitting unreviewed, so the failure is a loud thrown error instead of
+  // another silent pile of orphaned products someone finds by accident months
+  // later.
+  const { count: deadDraftCount, error: deadDraftErr } = await supabase
+    .from('products')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'draft')
+    .eq('metadata->>mrs_imagine', 'true')
+  if (deadDraftErr) throw new Error(`runaway-generator guard check failed: ${deadDraftErr.message}`)
+  const MAX_PENDING_MRS_IMAGINE_DRAFTS = 5
+  if ((deadDraftCount ?? 0) > MAX_PENDING_MRS_IMAGINE_DRAFTS) {
+    throw new Error(
+      `refusing to start a new Mrs. Imagine batch: ${deadDraftCount} draft products already carry metadata.mrs_imagine=true ` +
+        `(cap ${MAX_PENDING_MRS_IMAGINE_DRAFTS}). Review/archive them first — see task d7eabac4 for the pattern (soft-delete to ` +
+        `status='rejected', never a hard delete).`
+    )
+  }
+
   const counts = {
     garments: Math.min(20, Math.max(0, opts.garments ?? GARMENT_COUNT())),
     metal: Math.min(10, Math.max(0, opts.metal ?? METAL_COUNT())),
