@@ -241,18 +241,30 @@ export interface SampledColours {
  * that is far enough away in RGB is the first outline. Both are suggestions —
  * the authoring screen shows them as editable swatches.
  */
-export async function eyedropColours(original: Buffer, zone: Zone): Promise<SampledColours> {
+export async function eyedropColours(
+  original: Buffer,
+  zone: Zone,
+  opts: { ignore?: { r: number; g: number; b: number } } = {}
+): Promise<SampledColours> {
   const { data, info } = await sharp(original)
     .extract({ left: zone.x, top: zone.y, width: zone.w, height: zone.h })
     .resize(160, null, { fit: 'inside' })
-    .removeAlpha()
+    .ensureAlpha()
     .raw()
     .toBuffer({ resolveWithObject: true })
 
   // Quantize to a 5-bit-per-channel histogram so antialiasing does not read as
-  // hundreds of distinct colours.
+  // hundreds of distinct colours. Transparent pixels are skipped: on a cut-out
+  // back print they are the empty shirt, and counting them made the "fill"
+  // come out black.
   const counts = new Map<number, number>()
   for (let p = 0; p < data.length; p += info.channels) {
+    if (data[p + 3] < 128) continue
+    // On OPAQUE art the empty shirt is painted in (usually white); inside a
+    // box around lettering it outvotes the letters and came back as the
+    // "fill" (live 2026-09-24: #F8F8F8 for maroon BEAR). Skip that colour.
+    const ig = opts.ignore
+    if (ig && Math.abs(data[p] - ig.r) + Math.abs(data[p + 1] - ig.g) + Math.abs(data[p + 2] - ig.b) < 36) continue
     const key = ((data[p] >> 3) << 10) | ((data[p + 1] >> 3) << 5) | (data[p + 2] >> 3)
     counts.set(key, (counts.get(key) ?? 0) + 1)
   }
@@ -275,4 +287,22 @@ export async function eyedropColours(original: Buffer, zone: Zone): Promise<Samp
     fill: hex(fill),
     strokes: distinct ? [{ color: hex(distinct), w: Math.max(4, Math.round(zone.h * 0.03)) }] : [],
   }
+}
+
+/**
+ * The background colour of OPAQUE art: the median of its border pixels, or
+ * null when the art has real transparency (then there is nothing to ignore).
+ */
+export async function borderBackground(original: Buffer): Promise<{ r: number; g: number; b: number } | null> {
+  const { data, info } = await sharp(original).resize(200, 200, { fit: 'fill' }).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+  const px: number[][] = []
+  for (let y = 0; y < info.height; y++)
+    for (let x = 0; x < info.width; x++) {
+      if (x > 1 && y > 1 && x < info.width - 2 && y < info.height - 2) continue
+      const i = (y * info.width + x) * 4
+      if (data[i + 3] < 250) return null
+      px.push([data[i], data[i + 1], data[i + 2]])
+    }
+  const med = (c: number) => px.map((p) => p[c]).sort((a, b) => a - b)[Math.floor(px.length / 2)]
+  return { r: med(0), g: med(1), b: med(2) }
 }

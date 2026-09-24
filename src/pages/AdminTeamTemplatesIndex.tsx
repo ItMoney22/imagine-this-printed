@@ -104,7 +104,7 @@ const AdminTeamTemplatesIndex: React.FC = () => {
               return (
                 <Link
                   key={row.id}
-                  to={`/admin/team-templates/${row.id}`}
+                  to={`/imagination-station/team/${row.id}`}
                   className="group rounded-xl border border-primary/20 bg-card p-3 transition-colors hover:border-primary"
                 >
                   <div className="mb-2 aspect-square overflow-hidden rounded-lg bg-white">

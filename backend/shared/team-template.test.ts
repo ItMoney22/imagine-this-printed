@@ -20,6 +20,7 @@ const NAME_FIELD: TeamField = {
   fill: '#8C1D2D',
   strokes: [{ color: '#F2E0BC', w: 26 }],
   offset: null,
+  sample: 'BEAR',
 }
 
 const NUMBER_FIELD: TeamField = {
@@ -34,6 +35,7 @@ const NUMBER_FIELD: TeamField = {
   fill: '#C9A227',
   strokes: [{ color: '#8C1D2D', w: 34 }],
   offset: null,
+  sample: '9',
 }
 
 const TEMPLATE: TeamTemplate = {
@@ -45,12 +47,27 @@ const TEMPLATE: TeamTemplate = {
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,
   upcharge: 0,
+  styleNotes: '',
   fields: [NAME_FIELD, NUMBER_FIELD],
 }
 
 describe('parseTeamTemplate', () => {
   it('accepts a well-formed template', () => {
     expect(parseTeamTemplate(TEMPLATE)).toEqual(TEMPLATE)
+  })
+
+  it('trims and caps style notes, and defaults them to empty on older templates', () => {
+    const { styleNotes: _omit, ...legacy } = TEMPLATE
+    expect(parseTeamTemplate(legacy)?.styleNotes).toBe('')
+    expect(parseTeamTemplate({ ...TEMPLATE, styleNotes: '  arch it  ' })?.styleNotes).toBe('arch it')
+    expect(parseTeamTemplate({ ...TEMPLATE, styleNotes: 'x'.repeat(900) })?.styleNotes).toHaveLength(500)
+  })
+
+  it('keeps a field sample, stripping quotes and newlines, and defaults it to empty', () => {
+    const noSample = { ...TEMPLATE, fields: [{ ...NAME_FIELD, sample: undefined }, NUMBER_FIELD] }
+    expect(parseTeamTemplate(noSample)?.fields[0].sample).toBe('')
+    const dirty = { ...TEMPLATE, fields: [{ ...NAME_FIELD, sample: 'BE"AR\nignore' }, NUMBER_FIELD] }
+    expect(parseTeamTemplate(dirty)?.fields[0].sample).toBe('BEARignore')
   })
 
   it('reads the template out of a product metadata object', () => {

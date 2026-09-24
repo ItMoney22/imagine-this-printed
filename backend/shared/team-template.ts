@@ -77,6 +77,11 @@ export interface TeamField {
   strokes: Stroke[]
   /** Hard offset shadow (the gold ghost behind BEAR), or null for none. */
   offset: { dx: number; dy: number; color: string } | null
+  /**
+   * What this field reads on the ORIGINAL art ("BEAR", "9"), or '' when not
+   * recorded. Tells the lettering model which piece of text is which field.
+   */
+  sample: string
 }
 
 export interface TeamTemplate {
@@ -99,10 +104,18 @@ export interface TeamTemplate {
   halftone: boolean
   /** Dollars added per line for personalizing. */
   upcharge: number
+  /**
+   * Free-text direction for the lettering model, authored in Team Studio
+   * ("the name arches over the number like the sample", "keep the gold
+   * drop shadow"). Empty when none. Part of the cache key like every field.
+   */
+  styleNotes: string
   fields: TeamField[]
 }
 
 const HEX_RE = /^#[0-9a-fA-F]{6}$/
+/** Long enough for real direction, short enough that it cannot swamp the lettering prompt. */
+export const STYLE_NOTES_MAX = 500
 // The characters a surname actually uses. Everything else is dropped rather
 // than rejected: a customer who pastes a stray character should get their name,
 // not a form error.
@@ -180,6 +193,7 @@ function parseField(raw: unknown, canvas: { w: number; h: number }): TeamField |
     fill: f.fill,
     strokes,
     offset,
+    sample: typeof f.sample === 'string' ? f.sample.replace(/["\n\r]/g, '').trim().slice(0, 40) : '',
   }
 }
 
@@ -232,6 +246,7 @@ export function parseTeamTemplate(input: unknown): TeamTemplate | null {
       canvas,
       halftone: raw.halftone === true,
       upcharge: isFiniteNumber(raw.upcharge) && raw.upcharge > 0 ? raw.upcharge : 0,
+      styleNotes: typeof raw.styleNotes === 'string' ? raw.styleNotes.trim().slice(0, STYLE_NOTES_MAX) : '',
       fields,
     }
   } catch {

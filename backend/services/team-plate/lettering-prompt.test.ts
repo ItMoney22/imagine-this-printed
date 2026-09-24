@@ -11,6 +11,7 @@ const template: TeamTemplate = {
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,
   upcharge: 0,
+  styleNotes: '',
   fields: [
     {
       key: 'name', label: 'Last name', type: 'text', max: 12, uppercase: true,
@@ -28,6 +29,24 @@ const template: TeamTemplate = {
 }
 
 describe('buildLetteringPrompt', () => {
+  it('says what each field reads now, so the model knows which lettering is which', () => {
+    const withSamples = {
+      ...template,
+      fields: [{ ...template.fields[0], sample: 'BEAR' }, { ...template.fields[1], sample: '9' }],
+    }
+    const p = buildLetteringPrompt(withSamples, { name: 'SMITH', number: '22' }, 'replace')
+    expect(p).toContain('The last name, which currently reads "BEAR", must now read exactly "SMITH"')
+    expect(p).toContain('The player number, which currently reads "9", must now read exactly "22"')
+    // 'add' mode edits the blank plate — there is no sample on it to name.
+    expect(buildLetteringPrompt(withSamples, { name: 'SMITH', number: '22' }, 'add')).not.toContain('currently reads')
+  })
+
+  it('carries the art director notes only when there are some', () => {
+    const noted = buildLetteringPrompt({ ...template, styleNotes: 'keep the gold drop shadow' }, { name: 'LI', number: '5' }, 'replace')
+    expect(noted).toContain("Art director's notes: keep the gold drop shadow")
+    expect(buildLetteringPrompt(template, { name: 'LI', number: '5' }, 'replace')).not.toContain('Art director')
+  })
+
   it('names each new value exactly and spells it out', () => {
     const p = buildLetteringPrompt(template, { name: 'SMITH', number: '22' }, 'replace')
     expect(p).toContain('"SMITH" (5 characters: S-M-I-T-H)')

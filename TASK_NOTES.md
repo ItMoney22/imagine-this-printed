@@ -1,5 +1,60 @@
 # TASK_NOTES
 
+## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
+
+David: "the team name step flow is horrible the look the way it works ... i dont
+want this style anymore ... research how to do it with gpt image 2.5 flare which
+has many tools ... when we do the step flow and we pick the team thing i want
+imagination station to open up ... build all the right tools we can use upscale
+etc ... learn all the capabilities that gpt image can do and build guides and
+steps in the imagination station".
+
+Branch/worktree: earth/zero-nine/imagination-team-studio (off main eac8fed, with
+af03a7c — the flare lettering engine — cherry-picked in, so this branch
+supersedes merge task 3959d0cf).
+
+### GPT Image 2.5 Flare — researched capabilities (2026-09-24)
+- /v1/images/generations + /v1/images/edits; up to 16 input images per edit.
+- mask inpainting (alpha=0 marks the edit area; same size as image 1; one image).
+- input_fidelity high|low (2.5 honours it; gpt-image-2 ignores it).
+- quality low|medium|high|xhigh|max|auto; n 1-10 (we cap 4).
+- size WIDTHxHEIGHT, multiples of 16, aspect 1:3..3:1, max edge 3840,
+  655,360..8,294,400 px; >2560x1440 is experimental.
+- background transparent|opaque|auto (transparent needs png/webp).
+- Pricing: image in $8/M, image out $30/M, text in $5/M tokens.
+- Tips: quote exact text + spell it; state what to KEEP first; one edit per call.
+
+### File shortlist (approved scope — 2026-09-24 team studio)
+- `backend/services/image-flow/providers/openai-image.ts` (mask, input_fidelity, n)
+- `backend/services/flare-studio.ts` + `.test.ts` (new: prompt recipes, sizing, mask, pricing)
+- `backend/routes/flare-studio.ts` (new) + mount in `backend/index.ts`
+- `backend/routes/team-plate.ts` (source-without-erase, eyedrop, press check)
+- `backend/services/team-plate/*`, `backend/shared/team-template.ts` (+tests) — styleNotes, input_fidelity
+- `src/components/imagination/flare/*` (new: Flare Lab, guide, mask painter)
+- `src/pages/TeamStudio.tsx` (new), `src/pages/ImaginationStation.tsx` (Flare Lab button)
+- `src/App.tsx`, `src/components/studio/MockupStep.tsx`, `src/pages/AdminTeamTemplatesIndex.tsx` (links)
+- `src/lib/api.ts` (client calls)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-24 (zero-nine): Team Studio (/imagination-station/team/:productId) + Flare Lab (9 GPT Image 2.5
+  Flare tools with in-app guides) built. Step Flow's Mockup step, /admin/team-templates/:id and the
+  admin index now open Team Studio; the erase-and-vector AdminTeamTemplates page is deleted.
+  LIVE-VERIFIED on the real Spartans BEAR 9 art (product 568ee288, nothing published): team proofs
+  SMITH 22 and RODRIGUEZ 27 correct in the art's own lettering, press file 3600x4498 @300 DPI with
+  crisp edges; Flare Lab text swap / paint-and-replace / route auth all 200 on gpt-image-2.5-flare.
+  Three things the live runs caught that research and tests did not:
+  (1) gpt-image-2.5-flare REJECTS input_fidelity (400 invalid_input_fidelity_model) — a third-party
+      write-up said it was supported; paramsForModel now strips it for non-gpt-image-1 models and the
+      knob is gone from the UI.
+  (2) Flare drew "SMTH" for "SMITH" — a spelling gate now reads every lettering render back
+      (services/lettering-check.ts) and redraws a misspelled team render ONCE. The house vision model
+      gpt-5.6-terra AUTOCORRECTED "SMTH" to "SMITH" under every prompt; gpt-4.1 with a glyph-by-glyph
+      prompt caught it 5/5 and passed the correct proof 5/5 (OPENAI_LETTERING_MODEL overrides).
+  (3) Eyedrop returned the white background as the fill on opaque art — border colour now ignored.
+  Tests: backend 1552/1552, frontend studio+pages 118/118, vite build OK.
+  NOT done: no template published (approval b0733d26 still David's); branch unpushed/unmerged.
+
 ## Current request (2026-09-02) — background removal is eating disconnected art
 
 David: "i did a design i really liked but when it did the background removal it

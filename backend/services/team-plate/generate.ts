@@ -20,6 +20,7 @@
 import sharp from 'sharp'
 import type { TeamTemplate } from '../../shared/team-template.js'
 import { buildLetteringPrompt, type LetteringMode } from './lettering-prompt.js'
+import type { LetteringVerdict } from '../lettering-check.js'
 
 /** Pinned first; the provider's chain (gpt-image-2 -> 1) remains the fallback. */
 export const LETTERING_MODEL = 'gpt-image-2.5-flare'
@@ -48,6 +49,12 @@ export interface GenerateDeps {
   fetchBuffer(url: string): Promise<Buffer>
   /** recraft-crisp-upscale with the source's alpha restored (print-resolution.ts). */
   upscale(url: string, sourceBuf: Buffer): Promise<{ buffer: Buffer; width: number; height: number }>
+  /**
+   * Read the lettering back and compare it to what was asked for
+   * (services/lettering-check.ts). Optional: absent in tests, and a null
+   * verdict means the checker could not run — never a pass.
+   */
+  verify?(url: string, expected: string[]): Promise<LetteringVerdict | null>
 }
 
 export interface GeneratedBase {

@@ -39,6 +39,7 @@ const template: TeamTemplate = {
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,
   upcharge: 0,
+  styleNotes: '',
   fields: [
     {
       key: 'name', label: 'Last name', type: 'text', max: 12, uppercase: true,
@@ -56,6 +57,7 @@ const template: TeamTemplate = {
 const SMITH = { name: 'SMITH', number: '22' }
 let editCalls = 0
 let upscaleCalls = 0
+let baseDeps: Parameters<typeof __setGenerateDeps>[0] & object
 
 async function png(w: number, h: number): Promise<Buffer> {
   return sharp({ create: { width: w, height: h, channels: 4, background: { r: 10, g: 20, b: 30, alpha: 1 } } }).png().toBuffer()
@@ -66,7 +68,7 @@ beforeEach(async () => {
   editCalls = 0
   upscaleCalls = 0
   const source = await png(600, 800)
-  __setGenerateDeps({
+  baseDeps = {
     loadAsset: async (id) => ({ url: `https://signed.example/${id}`, buffer: source }),
     edit: async (o) => {
       editCalls++
@@ -86,6 +88,45 @@ beforeEach(async () => {
       const out = await sharp(buf).resize(3072, 4096).png().toBuffer()
       return { buffer: out, width: 3072, height: 4096 }
     },
+  }
+  __setGenerateDeps(baseDeps)
+})
+
+describe('spelling gate', () => {
+  const miss = { ok: false, read: ['SMTH', '22'], mismatches: [{ expected: 'SMITH', closest: 'SMTH' }] }
+  const hit = { ok: true, read: ['SMITH', '22'], mismatches: [] }
+
+  it('a misspelled render is redrawn once, and the good redraw is what is kept', async () => {
+    const verdicts = [miss, hit]
+    const seen: string[][] = []
+    __setGenerateDeps({ ...baseDeps, verify: async (_u, expected) => (seen.push(expected), verdicts.shift()!) })
+    const out = await renderOrGetCached(template, SMITH, 900)
+    expect(editCalls).toBe(2)
+    expect(out.attempts).toBe(2)
+    expect(out.lettering?.ok).toBe(true)
+    expect(seen[0]).toEqual(['SMITH', '22'])
+  })
+
+  it('a correct first render costs exactly one flare edit', async () => {
+    __setGenerateDeps({ ...baseDeps, verify: async () => hit })
+    const out = await renderOrGetCached(template, SMITH, 900)
+    expect(editCalls).toBe(1)
+    expect(out.attempts).toBe(1)
+  })
+
+  it('two misses stop there and report the miss — never a third bill', async () => {
+    __setGenerateDeps({ ...baseDeps, verify: async () => miss })
+    const out = await renderOrGetCached(template, SMITH, 900)
+    expect(editCalls).toBe(2)
+    expect(out.lettering?.ok).toBe(false)
+    expect(out.lettering?.mismatches[0].closest).toBe('SMTH')
+  })
+
+  it('a checker that cannot run (null) is not retried', async () => {
+    __setGenerateDeps({ ...baseDeps, verify: async () => null })
+    const out = await renderOrGetCached(template, SMITH, 900)
+    expect(editCalls).toBe(1)
+    expect(out.lettering).toBeNull()
   })
 })
 

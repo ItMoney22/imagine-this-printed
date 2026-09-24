@@ -32,6 +32,7 @@ import { upscaleToPng } from '../step-flow/print-resolution.js'
 import { templateCacheKey, type TeamTemplate } from '../../shared/team-template.js'
 import { LETTERING_PROMPT_VERSION } from './lettering-prompt.js'
 import { generateBase, upscaleToPress, type AssetRef, type GenerateDeps } from './generate.js'
+import { readLettering, type LetteringVerdict } from '../lettering-check.js'
 
 /**
  * Namespace for generated plates: `users/<PLATE_OWNER>/<ENGINE>/...`. These
@@ -105,6 +106,7 @@ export const realDeps: GenerateDeps = {
     }),
   fetchBuffer,
   upscale: (url, buf) => upscaleToPng(url, buf),
+  verify: (url, expected) => readLettering(url, expected),
 }
 
 let deps: GenerateDeps = realDeps
@@ -129,6 +131,13 @@ export interface RenderedPlate {
   tier: PlateTier
   /** The image model that drew it, when this call drew it. */
   modelId?: string
+  /**
+   * The read-back spelling check, when this call drew it (undefined for a
+   * cache hit, null when the checker could not run).
+   */
+  lettering?: LetteringVerdict | null
+  /** How many flare renders this call made (2 = the first was misspelled). */
+  attempts?: number
 }
 
 // A roster order fires the same name at the preview and at checkout within
@@ -150,8 +159,33 @@ async function getBase(template: TeamTemplate, values: Record<string, string>): 
     return { url: await generateSignedUrl(path, SIGNED_URL_HOURS), path, rendered: false, tier: 'base' }
   }
   return once(path, async () => {
-    const base = await generateBase(template, values, deps, path)
-    return { url: base.url, path: base.path, rendered: true, tier: 'base', modelId: base.modelId, buffer: base.buffer } as RenderedPlate
+    // The spelling gate (task 630bae57). Flare spells well, not perfectly —
+    // live 2026-09-24 it drew "SMTH" for "SMITH". A misspelled render is
+    // redrawn ONCE at the same path (so the cache keeps the good one); a
+    // second miss is kept but reported, for a human to catch.
+    const expected = template.fields.map((f) => values[f.key] ?? '').filter(Boolean)
+    let base = await generateBase(template, values, deps, path)
+    let lettering = deps.verify ? await deps.verify(base.url, expected) : null
+    let attempts = 1
+    if (lettering && !lettering.ok) {
+      console.warn('[team-plate] lettering misspelled, redrawing once', { path, mismatches: lettering.mismatches })
+      base = await generateBase(template, values, deps, path)
+      lettering = deps.verify ? await deps.verify(base.url, expected) : null
+      attempts = 2
+      if (lettering && !lettering.ok) {
+        console.error('[team-plate] lettering still misspelled after a redraw', { path, mismatches: lettering.mismatches })
+      }
+    }
+    return {
+      url: base.url,
+      path: base.path,
+      rendered: true,
+      tier: 'base',
+      modelId: base.modelId,
+      buffer: base.buffer,
+      lettering,
+      attempts,
+    } as RenderedPlate
   })
 }
 
@@ -195,8 +229,8 @@ export async function renderOrGetCached(
   if (width >= template.canvas.w) return getPress(template, values)
   // Rebuilt rather than spread: the in-memory buffer stays with the press step,
   // and the in-flight promise's object is shared, so it must not be mutated.
-  const { url, path, rendered, tier, modelId } = await getBase(template, values)
-  return { url, path, rendered, tier, modelId }
+  const { url, path, rendered, tier, modelId, lettering, attempts } = await getBase(template, values)
+  return { url, path, rendered, tier, modelId, lettering, attempts }
 }
 
 /** Mint a fresh link for a plate already on an order. */

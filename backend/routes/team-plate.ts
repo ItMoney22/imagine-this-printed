@@ -19,11 +19,12 @@ import { requireAuth } from '../middleware/supabaseAuth.js'
 import { requireAdmin } from '../middleware/requireAdmin.js'
 import { uploadFile } from '../services/gcs-storage.js'
 import { parseTeamTemplate, sanitizeValues, TEAM_TEMPLATE_VERSION } from '../shared/team-template.js'
-import { renderOrGetCached } from '../services/team-plate/plate-store.js'
+import { realDeps, renderOrGetCached } from '../services/team-plate/plate-store.js'
+import { readLettering } from '../services/lettering-check.js'
 // Ids and labels only — the admin picker still offers a face as a style hint.
 // Nothing here draws with the quarantined vector engine.
 import { HOUSE_FONTS } from '../services/team-plate/legacy-vector/fonts.js'
-import { deriveZonesAndDistress, erasePlate, eyedropColours } from '../services/team-plate/authoring.js'
+import { borderBackground, deriveZonesAndDistress, erasePlate, eyedropColours } from '../services/team-plate/authoring.js'
 
 const router = express.Router()
 
@@ -256,6 +257,154 @@ router.post(
   }
 )
 
+// ---------------------------------------------------------------------------
+// Team Studio (Imagination Station) — the flare-native authoring path.
+//
+// No erase, no zone diff: the flare edit works from the ORIGINAL art, so the
+// operator only marks where the name and number sit (placement hints) and
+// proofs. The erased-plate derive above stays for templates built the old way.
+// ---------------------------------------------------------------------------
+
+/** The source art is stored at its own resolution, capped — the model reads ~1.5k anyway. */
+const SOURCE_MAX_EDGE = 2048
+
+/**
+ * POST /api/team-plate/:productId/source
+ * Body: { sourceUrl, canvasWidth? }
+ *
+ * Registers the back art as the template source (sample lettering and all).
+ * The canvas is the 300 DPI press file: canvasWidth px wide (default 3600) at
+ * the art's own aspect.
+ */
+router.post(
+  '/:productId/source',
+  requireAuth,
+  requireAdmin,
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const { productId } = req.params
+      const { sourceUrl } = req.body ?? {}
+      if (typeof sourceUrl !== 'string' || !/^(https:|data:image\/)/.test(sourceUrl)) {
+        return res.status(400).json({ error: 'sourceUrl must be an https or data:image URL' })
+      }
+      const product = await loadProduct(productId)
+      if (!product) return res.status(404).json({ error: 'Product not found' })
+
+      const srcRes = await fetch(sourceUrl)
+      if (!srcRes.ok) return res.status(400).json({ error: 'Could not fetch that artwork' })
+      const raw = Buffer.from(await srcRes.arrayBuffer())
+      const source = await sharp(raw)
+        .rotate()
+        .resize(SOURCE_MAX_EDGE, SOURCE_MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
+        .png()
+        .toBuffer()
+      const meta = await sharp(source).metadata()
+      const w = meta.width ?? 1
+      const h = meta.height ?? 1
+
+      const canvasW = Math.min(6000, Math.max(1200, Math.round(Number(req.body?.canvasWidth) || 3600)))
+      const canvas = { w: canvasW, h: Math.round((canvasW * h) / w), dpi: 300 }
+
+      const sourceAssetId = await saveLayerAsset(productId, 'team_source_back', source)
+      const asset = await realDeps.loadAsset(sourceAssetId)
+
+      return res.json({
+        canvas,
+        sourceAssetId,
+        // The flare engine only reads the plate in 'add' mode (no source). A
+        // studio template always has a source, so the plate slot points at it.
+        plateAssetId: sourceAssetId,
+        sourceUrl: asset.url,
+        width: w,
+        height: h,
+      })
+    } catch (err: any) {
+      req.log?.error({ err }, 'team-plate source failed')
+      return res.status(500).json({ error: err?.message ?? 'Could not save that artwork' })
+    }
+  }
+)
+
+/**
+ * POST /api/team-plate/:productId/eyedrop
+ * Body: { sourceAssetId, canvas: { w, h }, zone }   (zone in canvas px)
+ *
+ * The fill and outline colours inside a marked box — the colour hints the
+ * lettering prompt carries.
+ */
+router.post(
+  '/:productId/eyedrop',
+  requireAuth,
+  requireAdmin,
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const { sourceAssetId, canvas, zone } = req.body ?? {}
+      if (typeof sourceAssetId !== 'string' || !canvas?.w || !canvas?.h || !zone) {
+        return res.status(400).json({ error: 'sourceAssetId, canvas and zone are required' })
+      }
+      const asset = await realDeps.loadAsset(sourceAssetId)
+      const meta = await sharp(asset.buffer).metadata()
+      const bw = meta.width ?? 1
+      const bh = meta.height ?? 1
+      const sx = bw / Number(canvas.w)
+      const sy = bh / Number(canvas.h)
+      const x = Math.min(bw - 1, Math.max(0, Math.floor(Number(zone.x) * sx)))
+      const y = Math.min(bh - 1, Math.max(0, Math.floor(Number(zone.y) * sy)))
+      const scaled = {
+        x,
+        y,
+        w: Math.max(1, Math.min(bw - x, Math.round(Number(zone.w) * sx))),
+        h: Math.max(1, Math.min(bh - y, Math.round(Number(zone.h) * sy))),
+      }
+      const colours = await eyedropColours(asset.buffer, scaled, { ignore: (await borderBackground(asset.buffer)) ?? undefined })
+      // eyedropColours sizes the outline for the buffer it read; restate it in canvas px.
+      const strokes = colours.strokes.map((s) => ({ ...s, w: Math.max(4, Math.round(Number(zone.h) * 0.03)) }))
+      return res.json({ fill: colours.fill, strokes })
+    } catch (err: any) {
+      req.log?.error({ err }, 'team-plate eyedrop failed')
+      return res.status(500).json({ error: err?.message ?? 'Could not sample those colours' })
+    }
+  }
+)
+
+/**
+ * POST /api/team-plate/:productId/press-proof
+ * Body: { template, values }
+ *
+ * The full chain a real order runs: flare base (cached from the proof) ->
+ * crisp upscale -> the canvas-size press file. Returns its URL and pixel size
+ * so the operator can see the print resolution before publishing.
+ */
+router.post(
+  '/:productId/press-proof',
+  requireAuth,
+  requireAdmin,
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const incoming = { ...(req.body?.template ?? {}), version: TEAM_TEMPLATE_VERSION }
+      const template = parseTeamTemplate(incoming)
+      if (!template) return res.status(400).json({ error: 'That template is not valid yet' })
+      const values = sanitizeValues(template, req.body?.values)
+      const press = await renderOrGetCached(template, values, template.canvas.w)
+      return res.json({
+        url: press.url,
+        values,
+        width: template.canvas.w,
+        height: template.canvas.h,
+        dpi: template.canvas.dpi,
+        inches: {
+          w: Math.round((template.canvas.w / template.canvas.dpi) * 10) / 10,
+          h: Math.round((template.canvas.h / template.canvas.dpi) * 10) / 10,
+        },
+        modelId: press.modelId ?? null,
+      })
+    } catch (err: any) {
+      req.log?.error({ err }, 'team-plate press proof failed')
+      return res.status(500).json({ error: err?.message ?? 'Could not build the press file' })
+    }
+  }
+)
+
 /** GET /api/team-plate/:productId/template — the saved template, or null. */
 router.get(
   '/:productId/template',
@@ -323,7 +472,20 @@ router.post(
       if (!template) return res.status(400).json({ error: 'That template is not valid yet' })
       const values = sanitizeValues(template, req.body?.values)
       const plate = await renderOrGetCached(template, values, PREVIEW_WIDTH)
-      return res.json({ url: plate.url, values })
+      // A cache hit was checked when it was drawn, but that verdict is not
+      // stored — read it again (a few seconds) so every proof shows one.
+      const lettering =
+        plate.lettering !== undefined
+          ? plate.lettering
+          : await readLettering(plate.url, Object.values(values).filter(Boolean))
+      return res.json({
+        url: plate.url,
+        values,
+        cached: !plate.rendered,
+        modelId: plate.modelId ?? null,
+        lettering,
+        attempts: plate.attempts ?? 0,
+      })
     } catch (err: any) {
       req.log?.error({ err }, 'team-plate proof failed')
       return res.status(500).json({ error: err?.message ?? 'Could not render that proof' })

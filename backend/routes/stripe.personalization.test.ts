@@ -13,6 +13,7 @@ const templateFor = (canvasW = 3600) => ({
   canvas: { w: canvasW, h: 4800, dpi: 300 },
   halftone: false,
   upcharge: 0,
+  styleNotes: '',
   fields: [
     {
       key: 'name',

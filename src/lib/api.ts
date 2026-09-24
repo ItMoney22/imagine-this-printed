@@ -1851,3 +1851,75 @@ export const tryonApi = {
 
   getAnalytics: (days = 30) => apiFetch(`/api/tryon/analytics?days=${days}`)
 }
+
+// ---------------------------------------------------------------------------
+// Flare Lab + Team Studio (Imagination Station, GPT Image 2.5 Flare)
+// ---------------------------------------------------------------------------
+
+/** apiFetch throws "HTTP 402: {json}" — pull the server's own sentence back out. */
+export function apiErrorMessage(err: unknown, fallback = 'Something went wrong'): string {
+  const msg = err instanceof Error ? err.message : String(err ?? '')
+  const body = msg.replace(/^HTTP \d+:\s*/, '')
+  try {
+    const parsed = JSON.parse(body)
+    if (parsed?.error) return String(parsed.error)
+  } catch {
+    /* not JSON */
+  }
+  return body || fallback
+}
+
+export interface FlareRunParams {
+  op: string
+  imageUrl: string
+  prompt?: string
+  refUrls?: string[]
+  maskDataUrl?: string | null
+  textFrom?: string
+  textTo?: string
+  colors?: string[]
+  quality?: string
+  size?: 'standard' | 'large'
+  variations?: number
+  transparent?: boolean
+}
+
+/** Read-back spelling check (backend/services/lettering-check.ts); null = checker could not run. */
+export interface LetteringVerdict {
+  ok: boolean
+  read: string[]
+  mismatches: Array<{ expected: string; closest: string | null }>
+}
+
+export interface FlareRunResult {
+  images: Array<{ url: string; modelId: string; lettering?: LetteringVerdict | null }>
+  prompt: string
+  size: string
+  background: string
+  op: string
+  cost: number
+}
+
+export const flareApi = {
+  pricing: (): Promise<{ perImage: Record<string, number>; largeMultiplier: number; maxRefs: number; maxVariations: number }> =>
+    apiFetch('/api/imagination-station/flare/pricing'),
+  run: (params: FlareRunParams): Promise<FlareRunResult> =>
+    apiFetch('/api/imagination-station/flare/run', { method: 'POST', body: JSON.stringify(params) }),
+}
+
+export const teamStudioApi = {
+  getTemplate: (productId: string) => apiFetch(`/api/team-plate/${productId}/template`),
+  setSource: (productId: string, sourceUrl: string, canvasWidth?: number) =>
+    apiFetch(`/api/team-plate/${productId}/source`, {
+      method: 'POST',
+      body: JSON.stringify({ sourceUrl, canvasWidth }),
+    }),
+  eyedrop: (productId: string, body: { sourceAssetId: string; canvas: { w: number; h: number }; zone: { x: number; y: number; w: number; h: number } }) =>
+    apiFetch(`/api/team-plate/${productId}/eyedrop`, { method: 'POST', body: JSON.stringify(body) }),
+  proof: (productId: string, template: unknown, values: Record<string, string>) =>
+    apiFetch(`/api/team-plate/${productId}/proof`, { method: 'POST', body: JSON.stringify({ template, values }) }),
+  pressProof: (productId: string, template: unknown, values: Record<string, string>) =>
+    apiFetch(`/api/team-plate/${productId}/press-proof`, { method: 'POST', body: JSON.stringify({ template, values }) }),
+  save: (productId: string, template: unknown) =>
+    apiFetch(`/api/team-plate/${productId}/template`, { method: 'PUT', body: JSON.stringify({ template }) }),
+}

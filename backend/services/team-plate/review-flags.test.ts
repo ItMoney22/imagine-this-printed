@@ -11,6 +11,7 @@ const TEMPLATE: TeamTemplate = {
   canvas: { w: 3600, h: 4800, dpi: 300 },
   halftone: false,
   upcharge: 0,
+  styleNotes: '',
   fields: [
     {
       key: 'name', label: 'Last name', type: 'text', max: 12, uppercase: true,

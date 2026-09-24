@@ -19,6 +19,7 @@ import type {
   Product,
 } from '../types';
 import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal, MakeProductModal } from '../components/imagination';
+import FlareLab from '../components/imagination/flare/FlareLab';
 import type { Layer as SimpleLayer } from '../types';
 import {
   calculateDpi,
@@ -196,6 +197,8 @@ const ImaginationStation: React.FC = () => {
   const [showMakeProductModal, setShowMakeProductModal] = useState(false);
   const [showReimagineItModal, setShowReimagineItModal] = useState(false);
   const [showITPEnhanceModal, setShowITPEnhanceModal] = useState(false);
+  // Flare Lab — GPT Image 2.5 Flare edit tools with their guides (flare/FlareLab.tsx)
+  const [showFlareLab, setShowFlareLab] = useState(false);
   const [reimagineItLayerId, setReimagineItLayerId] = useState<string | null>(null);
 
   // Canvas features state
@@ -1798,6 +1801,48 @@ const ImaginationStation: React.FC = () => {
     finally { setIsRemovingBg(false); }
   };
 
+
+  // ---- Flare Lab hand-offs ----
+  // A kept result replaces the active design (history keeps the old one, and
+  // the compare modal offers Revert like every other tool here).
+  const handleFlareUse = (newUrl: string, label: string) => {
+    const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
+    if (!activeDesign) return;
+    const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
+    setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
+    setShowFlareLab(false);
+    setCompareModal({ isOpen: true, beforeImage: activeDesign.url, afterImage: newUrl, layerId: activeDesign.id, operation: `Flare · ${label}`, revert: revertSnapshot });
+  };
+
+  const handleFlareAddNew = (urls: string[], label: string) => {
+    const created: StudioDesign[] = urls.map((url, i) => ({
+      id: `design-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`,
+      name: `Flare ${label}`,
+      url,
+      originalUrl: url,
+      history: [url],
+      createdAt: new Date().toISOString(),
+      meta: { source: 'flare-lab', tool: label },
+    }));
+    setDesigns(prev => [...prev, ...created]);
+    toast.success(`${created.length} design${created.length > 1 ? 's' : ''} added`, 'Find them in your gallery.');
+  };
+
+  /** Print upscale from inside Flare Lab — the same paid crisp upscale as the rail button. */
+  const handleFlareUpscale = async (url: string): Promise<string | null> => {
+    try {
+      const useTrial = getFreeTrial('upscale_2x') > 0;
+      const { data } = await imaginationApi.upscaleImage({ imageUrl: url, factor: 2, useTrial });
+      const newUrl = data.processedUrl || data.imageUrl || data.url || data.output;
+      if (!newUrl) { toast.error('Upscale failed', 'No image returned.'); return null; }
+      if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
+      return newUrl;
+    } catch (err: any) {
+      toast.error('Upscale failed', err.response?.data?.error || 'Please try again.');
+      return null;
+    }
+  };
+
   const handleDesignUpscale = async () => {
     const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
     if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
@@ -2476,6 +2521,19 @@ const ImaginationStation: React.FC = () => {
           {/* Edit Design section */}
           <div className="p-2 md:p-3 border-b border-text/10">
             <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Edit Design</p>
+            <button
+              onClick={() => { if (activeDesign) setShowFlareLab(true); else toast.warning('Select a design first', 'Click a design in your gallery.'); }}
+              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-gradient-to-r from-orange-500/10 via-fuchsia-500/10 to-violet-600/10 text-text hover:from-orange-500/20 hover:to-violet-600/20 border border-fuchsia-500/30"
+              title="Flare Lab: edit, paint & replace, text swap, references, variations, true transparency"
+            >
+              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-orange-500 via-fuchsia-500 to-violet-600 flex items-center justify-center shrink-0">
+                <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
+              </div>
+              <div className="hidden md:flex flex-col">
+                <span className="font-medium text-sm">Flare Lab</span>
+                <span className="text-xs text-muted">9 GPT Image 2.5 tools</span>
+              </div>
+            </button>
             <button
               onClick={() => { if (activeDesign) openReimagineItForDesign(activeDesign.id); else toast.warning('Select a design first', 'Click a design in your gallery.'); }}
               className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30"
@@ -3241,6 +3299,19 @@ const ImaginationStation: React.FC = () => {
           onKeepOriginal={handleReimagineItKeepOriginal}
           standardCost={getFeaturePrice('reimagine_standard') || 1}
           premiumCost={getFeaturePrice('reimagine_premium') || 50}
+        />
+      )}
+
+      {/* Flare Lab */}
+      {showFlareLab && activeDesign && (
+        <FlareLab
+          isOpen={showFlareLab}
+          onClose={() => setShowFlareLab(false)}
+          imageUrl={activeDesign.url}
+          isAdmin={user?.role === 'admin'}
+          onUse={handleFlareUse}
+          onAddNew={handleFlareAddNew}
+          onUpscaleForPrint={handleFlareUpscale}
         />
       )}
 

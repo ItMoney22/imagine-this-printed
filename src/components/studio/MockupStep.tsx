@@ -484,12 +484,12 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
             </p>
           </div>
           <a
-            href={'/admin/team-templates/' + state.productId}
+            href={'/imagination-station/team/' + state.productId}
             target="_blank"
             rel="noreferrer"
             className="px-3 py-1.5 text-sm rounded-lg bg-primary text-white hover:opacity-90"
           >
-            {hasTeamTemplate ? 'Edit template' : 'Set up team template'}
+            {hasTeamTemplate ? 'Edit in Team Studio' : 'Open Team Studio'}
           </a>
         </div>
       )}

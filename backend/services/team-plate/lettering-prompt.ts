@@ -74,8 +74,11 @@ function fieldLine(field: TeamField, value: string, canvas: { w: number; h: numb
       : `- The ${what}: leave that area as plain artwork — draw nothing there.`
   }
   const verb = mode === 'replace' ? 'must now read' : 'reads'
+  // Naming what the sample reads is what tells the model WHICH lettering is
+  // the name and which is the number on art that carries several words.
+  const was = mode === 'replace' && field.sample ? `, which currently reads "${field.sample}",` : ''
   return (
-    `- The ${what} ${verb} exactly "${value}" ` +
+    `- The ${what}${was} ${verb} exactly "${value}" ` +
     `(${value.length} character${value.length === 1 ? '' : 's'}: ${spellOut(value)}), ` +
     `${placement(field, canvas)}; colours ${colours(field)}.`
   )
@@ -124,6 +127,10 @@ export function buildLetteringPrompt(
       'Use heavy athletic collegiate lettering in the colours listed above, with crisp outlines,',
       'and carry the artwork\'s own distressing and texture into the letters so they look printed with it.'
     )
+  }
+
+  if (template.styleNotes) {
+    lines.push(`Art director's notes: ${template.styleNotes}`)
   }
 
   lines.push(

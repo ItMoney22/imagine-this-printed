@@ -14,6 +14,7 @@ const TEMPLATE: TeamTemplate = {
   canvas: CANVAS,
   halftone: false,
   upcharge: 0,
+  styleNotes: '',
   fields: [
     {
       key: 'name',

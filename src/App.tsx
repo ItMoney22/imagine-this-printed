@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useEffect, lazy, Suspense } from 'react'
 import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
 import { CartProvider } from './context/CartContext'
@@ -83,13 +83,20 @@ const OrderStatus = lazy(() => import('./pages/OrderStatus'))
 const ClaimAccount = lazy(() => import('./pages/ClaimAccount'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationProducts'))
-const AdminTeamTemplates = lazy(() => import('./pages/AdminTeamTemplates'))
 const AdminTeamTemplatesIndex = lazy(() => import('./pages/AdminTeamTemplatesIndex'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
+const TeamStudio = lazy(() => import('./pages/TeamStudio'))
 const ToyAR = lazy(() => import('./pages/ToyAR'))
 const BecomeCreator = lazy(() => import('./pages/BecomeCreator'))
 const CreatorStudio = lazy(() => import('./pages/CreatorStudio'))
 const CreatorStudioVoice = lazy(() => import('./pages/CreatorStudioVoice'))
+
+// Team templates moved into Imagination Station (Team Studio, 2026-09-24).
+// Old links — bookmarks, the admin index, earlier Step Flow builds — land there.
+function TeamTemplateRedirect() {
+  const { productId } = useParams<{ productId: string }>()
+  return <Navigate to={`/imagination-station/team/${productId}`} replace />
+}
 
 // Routes that should hide the sidebar for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk', '/ar/']
@@ -194,7 +201,7 @@ function App() {
                   <Route path="/crm" element={<RoleRoute allowedRoles={['admin', 'manager']}><CRM /></RoleRoute>} />
                   <Route path="/admin" element={<RoleRoute allowedRoles={['admin']}><AdminDashboard /></RoleRoute>} />
                   <Route path="/admin/team-templates" element={<RoleRoute allowedRoles={['admin']}><AdminTeamTemplatesIndex /></RoleRoute>} />
-                  <Route path="/admin/team-templates/:productId" element={<RoleRoute allowedRoles={['admin']}><AdminTeamTemplates /></RoleRoute>} />
+                  <Route path="/admin/team-templates/:productId" element={<RoleRoute allowedRoles={['admin']}><TeamTemplateRedirect /></RoleRoute>} />
                   <Route path="/marketing" element={<RoleRoute allowedRoles={['admin', 'manager']}><MarketingTools /></RoleRoute>} />
                   <Route path="/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><OrderManagement /></RoleRoute>} />
                   <Route path="/referrals" element={<Referrals />} />
@@ -264,6 +271,16 @@ function App() {
                   <Route path="/admin/email-templates" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminEmailTemplates /></RoleRoute>} />
 
                   {/* Imagination Station Routes */}
+                  <Route
+                    path="/imagination-station/team/:productId"
+                    element={
+                      <ImaginationErrorBoundary>
+                        <RoleRoute allowedRoles={['admin']}>
+                          <TeamStudio />
+                        </RoleRoute>
+                      </ImaginationErrorBoundary>
+                    }
+                  />
                   <Route
                     path="/imagination-station"
                     element={

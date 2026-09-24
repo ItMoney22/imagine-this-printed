@@ -75,6 +75,7 @@ import creatorsRouter from './routes/creators.js'
 import creatorStudioRouter from './routes/creator-studio.js'
 import studioFlowRouter from './routes/studio-flow.js'
 import teamPlateRouter from './routes/team-plate.js'
+import flareStudioRouter from './routes/flare-studio.js'
 import kioskRouter from './routes/kiosk.js'
 import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
 import messagingRouter from './routes/messaging.js'
@@ -284,6 +285,8 @@ app.use('/api/admin/support', adminSupportRouter)
 app.use('/api/support', publicSupportRouter) // Public support ticket creation
 app.use('/api/admin/imagination-pricing', adminImaginationPricingRouter)
 app.use('/api/admin/imagination-products', adminImaginationProductsRouter)
+// Flare Lab first: /flare/* must not fall through to the station router.
+app.use('/api/imagination-station/flare', flareStudioRouter)
 app.use('/api/imagination-station', imaginationStationRouter)
 app.use('/api/admin/coupons', adminCouponsRouter)
 app.use('/api/admin/gift-cards', adminGiftCardsRouter)
