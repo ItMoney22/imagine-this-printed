@@ -197,6 +197,17 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
         </div>
       )}
 
+      {nothingToShow && !isGenerating && !sensitiveRefusal && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+          <p className="font-semibold text-text mb-1">No design on this product yet</p>
+          <p className="text-muted">
+            Nothing has been drawn or brought into the flow for it. If it was made in the
+            product editor, open it in the design library and press Step Flow there — that
+            promotes its artwork into a real take. Nothing on this step will work until then.
+          </p>
+        </div>
+      )}
+
       {isGenerating && candidates.length === 0 && (
         <div className="py-8 px-2 sm:px-8">
           <ProgressBar

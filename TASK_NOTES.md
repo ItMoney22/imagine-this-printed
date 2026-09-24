@@ -1,5 +1,59 @@
 # TASK_NOTES
 
+## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
+
+David: "the team name step flow is horrible the look the way it works ... i dont
+want this style anymore ... research how to do it with gpt image 2.5 flare which
+has many tools ... when we do the step flow and we pick the team thing i want
+imagination station to open up ... build all the right tools we can use upscale
+etc ... learn all the capabilities that gpt image can do and build guides and
+steps in the imagination station".
+
+Branch/worktree: earth/zero-nine/imagination-team-studio (off main eac8fed, with
+af03a7c — the flare lettering engine — cherry-picked in, so this branch
+supersedes merge task 3959d0cf).
+
+### GPT Image 2.5 Flare — researched capabilities (2026-09-24)
+- /v1/images/generations + /v1/images/edits; up to 16 input images per edit.
+- mask inpainting (alpha=0 marks the edit area; same size as image 1; one image).
+- input_fidelity high|low (2.5 honours it; gpt-image-2 ignores it).
+- quality low|medium|high|xhigh|max|auto; n 1-10 (we cap 4).
+- size WIDTHxHEIGHT, multiples of 16, aspect 1:3..3:1, max edge 3840,
+  655,360..8,294,400 px; >2560x1440 is experimental.
+- background transparent|opaque|auto (transparent needs png/webp).
+- Pricing: image in $8/M, image out $30/M, text in $5/M tokens.
+- Tips: quote exact text + spell it; state what to KEEP first; one edit per call.
+
+### File shortlist (approved scope — 2026-09-24 team studio)
+- `backend/services/image-flow/providers/openai-image.ts` (mask, input_fidelity, n)
+- `backend/services/flare-studio.ts` + `.test.ts` (new: prompt recipes, sizing, mask, pricing)
+- `backend/routes/flare-studio.ts` (new) + mount in `backend/index.ts`
+- `backend/routes/team-plate.ts` (source-without-erase, eyedrop, press check)
+- `backend/services/team-plate/*`, `backend/shared/team-template.ts` (+tests) — styleNotes, input_fidelity
+- `src/components/imagination/flare/*` (new: Flare Lab, guide, mask painter)
+- `src/pages/TeamStudio.tsx` (new), `src/pages/ImaginationStation.tsx` (Flare Lab button)
+- `src/App.tsx`, `src/components/studio/MockupStep.tsx`, `src/pages/AdminTeamTemplatesIndex.tsx` (links)
+- `src/lib/api.ts` (client calls)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-24 (zero-nine): Team Studio (/imagination-station/team/:productId) + Flare Lab (9 GPT Image 2.5
+  Flare tools with in-app guides) built. Step Flow's Mockup step, /admin/team-templates/:id and the
+  admin index now open Team Studio; the erase-and-vector AdminTeamTemplates page is deleted.
+  LIVE-VERIFIED on the real Spartans BEAR 9 art (product 568ee288, nothing published): team proofs
+  SMITH 22 and RODRIGUEZ 27 correct in the art's own lettering, press file 3600x4498 @300 DPI with
+  crisp edges; Flare Lab text swap / paint-and-replace / route auth all 200 on gpt-image-2.5-flare.
+  Three things the live runs caught that research and tests did not:
+  (1) gpt-image-2.5-flare REJECTS input_fidelity (400 invalid_input_fidelity_model) — a third-party
+      write-up said it was supported; paramsForModel now strips it for non-gpt-image-1 models and the
+      knob is gone from the UI.
+  (2) Flare drew "SMTH" for "SMITH" — a spelling gate now reads every lettering render back
+      (services/lettering-check.ts) and redraws a misspelled team render ONCE. The house vision model
+      gpt-5.6-terra AUTOCORRECTED "SMTH" to "SMITH" under every prompt; gpt-4.1 with a glyph-by-glyph
+      prompt caught it 5/5 and passed the correct proof 5/5 (OPENAI_LETTERING_MODEL overrides).
+  (3) Eyedrop returned the white background as the fill on opaque art — border colour now ignored.
+  Tests: backend 1552/1552, frontend studio+pages 118/118, vite build OK.
+  NOT done: no template published (approval b0733d26 still David's); branch unpushed/unmerged.
 ## Current request (2026-09-23) — Jev model casting + design_audience (Watchtower c3bbbb16)
 
 Replace/augment the keyword + vision guessing in Step Flow casting with Jev
@@ -4211,6 +4265,75 @@ prod, 6 ever took money.
   and no worker wiring. Modal copy says so rather than promising mail that
   never goes out.
 
+## Current request (2026-09-21) — team shirt personalization (name + number)
+
+David: "we need to add this design to our products but the customer should be
+able to edit the name and number that goes on the back ... the flow needs to be
+there for other team shirts we do since this isnt the only shirt we do for
+sports."
+
+Design: `docs/plans/2026-09-21-team-shirt-personalization-design.md` (approved).
+Branch: `earth/zero-nine/team-shirt-personalization` (own worktree — the shared
+checkout stays on main and is currently carrying Codex's uncommitted Etsy-review
+edits to CLAUDE_TASK.md / TASK_NOTES.md, which are NOT mine to commit).
+
+### The one decision worth remembering
+Rejected per-order GPT Image 2.5 lettering. A 12x16in back at 300 DPI is
+3600x4800px; the gpt-image edit endpoint returns ~1024-1536px, so every order
+would need a ~3x upscale of invented letterforms plus a human spell-check.
+Instead: AI erases the sample lettering ONCE at authoring time (texture survives
+an upscale, letterforms do not), and per order the name/number are drawn as real
+vector glyphs at full print resolution — exact, free, ~150ms, identical every
+time.
+
+### File shortlist (approved scope — 2026-09-21 team shirt personalization)
+- `backend/services/team-plate/` (new: render.ts, fit.ts, fonts.ts, template.ts,
+  authoring.ts + their .test.ts)
+- `backend/routes/team-plate.ts` (new: preview + template CRUD)
+- `backend/routes/stripe.ts` (server-side re-render at checkout; order_items
+  metadata)
+- `backend/routes/print-bridge.ts` (pass the personalized print file through)
+- `backend/shared/team-template.ts` (new: shared type, frontend + backend)
+- `src/pages/AdminTeamTemplates.tsx` (new authoring page) + route in `src/App.tsx`
+- `src/pages/ProductPage.tsx` (personalize block)
+- `src/context/CartContext.tsx` (merge key must include personalization)
+- `src/types/index.ts` (CartItem.personalization)
+- `public/fonts/` (house display faces, OFL)
+- `docs/plans/2026-09-21-team-shirt-personalization-design.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-21 — Brainstormed and locked the design with David across four
+  decisions (render engine, order shape, authoring UI, fonts). Wrote the design
+  doc and created the worktree. Nothing implemented yet.
+
+### Work log (append-only) — 2026-09-21 build
+- Engine built TDD across six commits: template type + sanitizer, fit/arch
+  geometry, house font set, SVG stroke stack, sharp composite, plate store.
+  Rendered real 1800x2400 plates for BEAR 9 / SMITH 22 / VANDERMEULEN 7 at
+  ~120ms each as proof before touching any UI.
+- FOUR real bugs the tests caught before a customer could: (1) a lone "1"
+  printed at DOUBLE the cap height of an "88" — numbers are now sized to the
+  field's capacity, not the digits typed; (2) arching lifted the middle glyphs
+  out of the zone, silently, because sharp composites outside the frame
+  without complaining; (3) a negative arch drew the same rainbow as a positive
+  one (cos is even, the sign never reached the geometry); (4) rotation makes
+  an arched string WIDER as well as taller — VANDERMEULEN at arch 18 overran
+  by 12px at press resolution, and only rendering real pixels found it.
+- Cart merge key: SMITH 22 and LOPEZ 41 in the same size collapsed into one
+  line at qty 2. Seven tests, all seven red before the fix.
+- Checkout re-renders server-side; a planted evil.example.com print_file_url
+  is proven to appear nowhere in what gets written.
+- Customer panel feature-detects the API (Vercel deploys ahead of Render) and
+  hides itself rather than showing a form that 404s.
+- Admin authoring at /admin/team-templates/:productId; the erase-then-diff
+  seeds zones, distress mask and colours in one pass.
+- Verified: frontend tsc clean, backend tsc clean, vite build passes,
+  eslint 0 errors, 118 files / 1875 tests green.
+- NOT done: no real Spartans template authored yet (task 14 in the plan) —
+  that needs the artwork uploaded and an OPENAI_API_KEY-backed erase run
+  against live prod, which is David's call. Nothing is pushed.
+
 ---
 
 ## Task: Etsy transfer listing size axis fallback for taxonomy 6617 (2026-09-21)
@@ -4349,4 +4472,45 @@ rationale before proceeding.)
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### Work log (append-only) — 2026-09-22 print_materials applied + stocked (Watchtower c89e511c)
+
+Scope note: this dispatch is a production migration + inventory task, so the
+file shortlist above (which belongs to an earlier request) does not describe it.
+Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
+`src/components/AdminPrintMaterials.tsx` (one-line swatch border),
+`src/components/AdminPrintMaterials.test.tsx` (new), `TASK_NOTES.md`.
+
+- `20260819230000_print_materials.sql` had been on `main` since 2026-08-19 but
+  was never applied, so the Admin "Filament & Paint" tab and every toy order's
+  filament/paint plan were dark for a month — silently, because
+  `matchMaterials()` swallows a missing relation and returns `null`. Dry run
+  confirmed `table absent` with every other PLAN entry already LIVE; applied
+  with `--apply --track`; verified read-only (15 columns, both CHECKs, the
+  4-column UNIQUE, the kind/active index, RLS on with zero policies) and the
+  `20260819230000` tracking row.
+- Seeded 13 rows through the deployed admin route. The 4 filament rows are
+  REAL: read live off the two A1s' AMS via the Watchtower `printers` table —
+  Bambu Lab PLA Matte `#757575` (genuine RFID tag), Unbranded PLA `#ffffff`
+  (wet-suspected batch), `#000000` (qty 2, loaded on both machines) and
+  `#f65973`. The 9 paint rows are placeholders at `qty_on_hand = 0` so the
+  matcher (which filters `qty_on_hand > 0`) cannot claim paint the shop does
+  not own.
+- CRUD proven against production: GET, GET `?kind=filament`, POST, duplicate
+  POST → 409, bad hex → 400, PUT, DELETE. The real `matchMaterials()` run
+  against the seeded stock produced a 3-of-4 plan plus an honest
+  `NO STOCK MATCH for #0000ff — restock needed`.
+- Looked at the live tab in a browser: all 13 rows render with correct swatches.
+  The white spool's swatch was invisible — the swatch used `border-white/20`,
+  which is white-on-white in the light theme. Swapped to `card-border`
+  (`var(--border)`), so it reads in both themes.
+- New `src/components/AdminPrintMaterials.test.tsx`: 8 tests pinning that the
+  tab reads from `/api/admin/print-materials` and never the browser Supabase
+  client (RLS-on/no-policies would give it a silent empty grid forever), that
+  it re-reads after every write, that delete needs the confirm, and that the
+  kind filter is client-side. `tsc -p tsconfig.app.json` clean, `eslint` 0
+  errors.
+
+### Work log 2026-09-23 — team-plate lettering swapped to gpt-image-2.5-flare + crisp upscale (task 65d98dd9, jimmy-phix)
+- Per-order name/number is now a flare EDIT of the original back art (prompt schema in `backend/services/team-plate/lettering-prompt.ts`), cached as `<key>-base.png` (the preview) and upscaled by `recraft-crisp-upscale` (`upscaleToPng`, split out of `step-flow/print-resolution.ts`) into `<key>-press.png` at the template canvas. Paths: `users/team-plates/flare-v1/`. Vector engine quarantined in `team-plate/legacy-vector/`. Checkout waits 20s for the press file, else writes the deterministic gcsPath + `print_file_status: 'rendering'` and settles it in the background. Customer panel previews on a button press (paid call) with a staged progress bar. Result: 152/152 tests; live smoke `backend/scripts/team-plate-smoke.ts` on the real BEAR 9 art passed every check twice (RODRIGUEZ 27, LI 5 — spelled right, art held, 3600x4498 press).
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).

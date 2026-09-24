@@ -114,6 +114,14 @@ function isGpt25(model: string): boolean {
  * hard failure, which is the whole promise the chain makes to its callers.
  */
 export function paramsForModel(model: string, params: Record<string, unknown>): Record<string, unknown> {
+  // input_fidelity is a gpt-image-1.x parameter. gpt-image-2 ignores it, and
+  // gpt-image-2.5-flare REJECTS it outright — verified live 2026-09-24:
+  // 400 invalid_input_fidelity_model (a third-party write-up claimed 2.5
+  // honoured it; the API says otherwise). Strip it everywhere else.
+  if ('input_fidelity' in params && !/^gpt-image-1/.test(model)) {
+    const { input_fidelity: _dropped, ...rest } = params
+    params = rest
+  }
   if (isGpt25(model)) return params
   const out = { ...params }
 
@@ -268,6 +276,24 @@ export interface OpenAIEditOpts {
   moderation?: 'auto' | 'low'
   /** Try this model first (e.g. OPENAI_IMAGE_PRECISION_MODEL); the chain stays as the fallback. */
   model?: string
+  /**
+   * Inpainting mask: a PNG the SAME size as the source whose fully transparent
+   * pixels mark where the model may paint. OpenAI applies it to the first image
+   * only, so callers pass no refUrls alongside it (flare-studio.ts enforces).
+   */
+  mask?: Buffer
+  /**
+   * The source's bytes when the caller already has them (a mask must match the
+   * source exactly, so the masked path hands over the PNG it measured).
+   */
+  sourceBuffer?: Buffer
+  /**
+   * How hard the model holds the input's detail — gpt-image-1.x ONLY.
+   * paramsForModel strips it for every other model (2.5-flare rejects it).
+   */
+  inputFidelity?: 'high' | 'low'
+  /** Variations in one call (1-10 on the API; callers cap lower). */
+  n?: number
 }
 
 async function urlToFile(url: string, idx: number): Promise<any> {
@@ -281,28 +307,59 @@ async function urlToFile(url: string, idx: number): Promise<any> {
 
 /** Image+prompt edit / compositing, walking the model chain (see the header). */
 export async function editOpenAIImage(opts: OpenAIEditOpts): Promise<{ url: string; path: string; modelId: string }> {
+  const [first] = await editOpenAIImageMany({ ...opts, n: 1 })
+  return first
+}
+
+/**
+ * The full edit surface: mask, reference images and n variations. Every output is
+ * stored; with n > 1 the objectPath (when given) gets a -<i> suffix per image.
+ */
+export async function editOpenAIImageMany(
+  opts: OpenAIEditOpts
+): Promise<Array<{ url: string; path: string; modelId: string }>> {
   const urls = [opts.sourceUrl, ...(opts.refUrls ?? [])]
   // Fetched ONCE, ahead of the chain: a fallback that re-downloaded every
   // reference image would triple the egress on a compositing call.
-  const files = await Promise.all(urls.map((u, i) => urlToFile(u, i)))
+  const files = await Promise.all(
+    urls.map((u, i) =>
+      i === 0 && opts.sourceBuffer
+        ? toFile(opts.sourceBuffer, 'edit-src-0.png', { type: 'image/png' })
+        : urlToFile(u, i)
+    )
+  )
+  const n = Math.max(1, Math.min(10, Math.floor(opts.n ?? 1)))
   const base: Record<string, unknown> = {
     image: files.length === 1 ? files[0] : files,
     prompt: opts.prompt,
-    n: 1,
+    n,
     size: opts.size || '1024x1024',
     quality: opts.quality || 'high',
   }
   if (opts.background) base.background = opts.background
   if (opts.moderation) base.moderation = opts.moderation
+  if (opts.inputFidelity) base.input_fidelity = opts.inputFidelity
+  if (opts.mask) base.mask = await toFile(opts.mask, 'mask.png', { type: 'image/png' })
 
   const { res, usedModel } = await withModelChain(
     resolveModelChain(opts.model),
     (model) => client().images.edit({ model, ...paramsForModel(model, base) } as any),
     opts.model
   )
-  const b64 = (res as any).data?.[0]?.b64_json
-  if (!b64) throw new Error(`${usedModel} edit: no image returned`)
-  const path = opts.objectPath || `users/${opts.userId || 'anon'}/edited/edit-${rand()}.png`
-  const { publicUrl } = await uploadImageFromBase64(`data:image/png;base64,${b64}`, path)
-  return { url: publicUrl, path, modelId: `openai/${usedModel}` }
+  const data: any[] = (res as any).data ?? []
+  const b64s = data.map((d) => d?.b64_json).filter(Boolean) as string[]
+  if (b64s.length === 0) throw new Error(`${usedModel} edit: no image returned`)
+  const stamp = rand()
+  return Promise.all(
+    b64s.map(async (b64, i) => {
+      const fallback = `users/${opts.userId || 'anon'}/edited/edit-${stamp}${b64s.length > 1 ? `-${i}` : ''}.png`
+      const path = opts.objectPath
+        ? b64s.length > 1
+          ? opts.objectPath.replace(/(\.png)?$/, `-${i}.png`)
+          : opts.objectPath
+        : fallback
+      const { publicUrl } = await uploadImageFromBase64(`data:image/png;base64,${b64}`, path)
+      return { url: publicUrl, path, modelId: `openai/${usedModel}` }
+    })
+  )
 }

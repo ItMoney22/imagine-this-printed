@@ -60,8 +60,15 @@ export default {
         'subtle-pulse': 'subtle-pulse 3s ease-in-out infinite',
         'reveal-pop': 'reveal-pop 0.7s cubic-bezier(0.68, -0.55, 0.265, 1.55) forwards',
         'reveal-flash': 'reveal-flash 0.7s ease-out forwards',
+        // Indeterminate progress sweep — for waits whose backend reports no
+        // percentage (an upscale, a model call). Honest motion beats a fake bar.
+        'indeterminate': 'indeterminate 1.4s ease-in-out infinite',
       },
       keyframes: {
+        'indeterminate': {
+          '0%': { transform: 'translateX(-100%)' },
+          '100%': { transform: 'translateX(400%)' },
+        },
         'fade-up': {
           '0%': { opacity: '0', transform: 'translateY(30px)' },
           '100%': { opacity: '1', transform: 'translateY(0)' },

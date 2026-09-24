@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, Shirt, AlertTriangle, Unlock, ShieldCheck, ShieldAlert, ShieldQuestion, Wand2, PlayCircle } from 'lucide-react'
-import api, { aiProducts, stepFlow } from '../lib/api'
+import { FolderOpen, RefreshCw, CheckCircle, EyeOff, ChevronLeft, ChevronRight, AlertTriangle, Unlock, ShieldCheck, ShieldAlert, ShieldQuestion, Wand2, PlayCircle } from 'lucide-react'
+import api, { stepFlow } from '../lib/api'
 import DesignQaPanel from './DesignQaPanel'
 
 interface Collection {
@@ -112,13 +112,16 @@ export default function AdminDesignLibrary() {
   const [checked, setChecked] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [mockupRun, setMockupRun] = useState<{ done: number; total: number } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [blocked, setBlocked] = useState<BlockedDesign[]>([])
   const [qaTarget, setQaTarget] = useState<LibraryProduct | null>(null)
-  const [qaRun, setQaRun] = useState<{ done: number; total: number } | null>(null)
   const [adopting, setAdopting] = useState<string | null>(null)
+  // Shown INLINE next to the Step Flow button. The shared `error` banner lives
+  // up in the collections sidebar, which is off-screen whenever the grid is
+  // scrolled — a failure there is indistinguishable from the button doing
+  // nothing at all.
+  const [stepFlowError, setStepFlowError] = useState<string | null>(null)
 
   const flash = (msg: string) => {
     setNotice(msg)
@@ -230,63 +233,7 @@ export default function AdminDesignLibrary() {
     }
   }
 
-  // Reuses the existing per-product Create Mockups endpoint (flat-lay + ghost
-  // mannequin + Mr. Imagine via Replicate) — the worker falls back to the
-  // design PNG in products.images. Deliberate button, not automatic: ~3 paid
-  // renders per design.
-  const createMockups = async () => {
-    const ids = [...checked]
-    if (ids.length === 0) return
-    if (!window.confirm(
-      `Generate mockups for ${ids.length} design(s)? Each design queues ~3 Replicate renders (costs a few cents per design). They appear on the products as they finish.`
-    )) return
-    setMockupRun({ done: 0, total: ids.length })
-    setError(null)
-    let failed = 0
-    for (const id of ids) {
-      try {
-        await aiProducts.createMockups(id)
-      } catch (err: any) {
-        failed++
-        console.error('mockup enqueue failed:', id, err?.message)
-      }
-      setMockupRun(prev => (prev ? { ...prev, done: prev.done + 1 } : prev))
-    }
-    setMockupRun(null)
-    setChecked(new Set())
-    flash(`Mockup jobs queued for ${ids.length - failed} design(s)${failed ? ` (${failed} failed to queue)` : ''}. The worker renders them over the next while — images attach automatically.`)
-  }
 
-  // Bulk QA. Sequential and server-side batched (the endpoint caps at 50 per
-  // call) because each review makes vision calls on the same key the render
-  // pipeline uses — firing a whole collection at once would rate-limit both.
-  const runQa = async () => {
-    const ids = [...checked]
-    if (!ids.length || !selected) return
-    if (!window.confirm(
-      `Run the presentation QA gate on ${ids.length} design(s)? Each review reads the mockups and the listing copy, ` +
-      'and costs a couple of vision calls per design.'
-    )) return
-    setQaRun({ done: 0, total: ids.length })
-    setError(null)
-    let passed = 0
-    let failed = 0
-    try {
-      for (let i = 0; i < ids.length; i += 50) {
-        const batch = ids.slice(i, i + 50)
-        const response = await api.post('/api/admin/design-qa/submit', { product_ids: batch, channel: 'storefront' })
-        passed += response.data.passed || 0
-        failed += response.data.failed || 0
-        setQaRun({ done: Math.min(ids.length, i + batch.length), total: ids.length })
-      }
-      flash(`QA complete: ${passed} passed, ${failed} failed. Open a design's QA badge to see what to fix.`)
-      fetchProducts(selected, statusFilter, offset)
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'QA review failed')
-    } finally {
-      setQaRun(null)
-    }
-  }
 
   // Take an existing library design straight into the Step Flow (David
   // 2026-09-08). The design library's rows carry their artwork only on
@@ -300,6 +247,7 @@ export default function AdminDesignLibrary() {
   // goes draft -> LIVE in this grid rather than spawning a duplicate.
   const sendToStepFlow = async (product: LibraryProduct) => {
     setError(null)
+    setStepFlowError(null)
     setBlocked([])
     setAdopting(product.id)
     try {
@@ -310,7 +258,15 @@ export default function AdminDesignLibrary() {
       // step activates a product directly and never re-runs this grid's gate,
       // so the block has to land here — same banner the bulk Activate uses.
       if (Array.isArray(err?.body?.blocked)) setBlocked(err.body.blocked)
-      setError(err?.message || 'Failed to bring that design into the Step Flow')
+      const message = err?.message || 'Failed to bring that design into the Step Flow'
+      setError(message)
+      // The API being down is the single most common cause and the least
+      // obvious one — say so rather than leaving a bare network error.
+      setStepFlowError(
+        /fetch|network|failed to fetch/i.test(String(err?.message))
+          ? 'Could not reach the API — is the backend running on :4000?'
+          : message
+      )
       setAdopting(null)
     }
   }
@@ -417,10 +373,15 @@ export default function AdminDesignLibrary() {
                   })}
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {stepFlowError && (
+                  <div className="w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {stepFlowError}
+                  </div>
+                )}
                 {checked.size > 0 ? (
                   <>
-                    <button onClick={() => setStatus('active', [...checked])} disabled={busy || !!mockupRun}
+                    <button onClick={() => setStatus('active', [...checked])} disabled={busy}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50">
                       <CheckCircle className="w-4 h-4" /> Activate {checked.size}
                     </button>
@@ -431,7 +392,7 @@ export default function AdminDesignLibrary() {
                       const only = products.find(p => checked.has(p.id))
                       if (!only) return null
                       return (
-                        <button onClick={() => sendToStepFlow(only)} disabled={busy || !!mockupRun || !!qaRun || !!adopting}
+                        <button onClick={() => sendToStepFlow(only)} disabled={busy || !!adopting}
                           title={only.step_flow
                             ? `Already in the Step Flow — pick it back up on ${only.step_flow.label}`
                             : 'Bring this design into the Step Flow — garment & color, mockups, listing, Etsy'}
@@ -443,23 +404,12 @@ export default function AdminDesignLibrary() {
                         </button>
                       )
                     })()}
-                    <button onClick={createMockups} disabled={busy || !!mockupRun || !!qaRun}
-                      className="flex items-center gap-1.5 px-3 py-2 text-sm bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
-                      <Shirt className="w-4 h-4" />
-                      {mockupRun ? `Queueing ${mockupRun.done}/${mockupRun.total}…` : `Mockups for ${checked.size}`}
-                    </button>
-                    <button onClick={runQa} disabled={busy || !!mockupRun || !!qaRun}
-                      title="Run the presentation QA gate — mockups, placement, typography, copy, price, sharpness"
-                      className="flex items-center gap-1.5 px-3 py-2 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900 disabled:opacity-50">
-                      <ShieldCheck className="w-4 h-4" />
-                      {qaRun ? `Reviewing ${qaRun.done}/${qaRun.total}…` : `QA ${checked.size}`}
-                    </button>
-                    <button onClick={() => setStatus('draft', [...checked])} disabled={busy || !!mockupRun}
+                    <button onClick={() => setStatus('draft', [...checked])} disabled={busy}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50">
                       <EyeOff className="w-4 h-4" /> Draft {checked.size}
                     </button>
                     {checkedBlocked.length > 0 && (
-                      <button onClick={releaseQuarantine} disabled={busy || !!mockupRun}
+                      <button onClick={releaseQuarantine} disabled={busy}
                         title="Override the low-resolution block for the selected designs"
                         className="flex items-center gap-1.5 px-3 py-2 text-sm bg-amber-100 text-amber-800 rounded-lg hover:bg-amber-200 disabled:opacity-50">
                         <Unlock className="w-4 h-4" /> Release {checkedBlocked.length}

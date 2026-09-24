@@ -74,6 +74,8 @@ import aiRealtimeRouter from './routes/ai/realtime.js'
 import creatorsRouter from './routes/creators.js'
 import creatorStudioRouter from './routes/creator-studio.js'
 import studioFlowRouter from './routes/studio-flow.js'
+import teamPlateRouter from './routes/team-plate.js'
+import flareStudioRouter from './routes/flare-studio.js'
 import kioskRouter from './routes/kiosk.js'
 import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
 import messagingRouter from './routes/messaging.js'
@@ -274,6 +276,7 @@ app.use('/api/creator/studio', creatorStudioRouter)
 // The Step Flow, customer lane — the admin router remounted behind a creator
 // gate + ownership + ITC meter. See routes/studio-flow.ts.
 app.use('/api/studio', studioFlowRouter)
+app.use('/api/team-plate', teamPlateRouter)
 app.use('/api/watchtower', watchtowerRouter)
 // imageToolsRouter retired on the hardening branch (8f6e7a2: unbilled AI route)
 app.use('/api/user-products', userProductsRouter)
@@ -282,6 +285,8 @@ app.use('/api/admin/support', adminSupportRouter)
 app.use('/api/support', publicSupportRouter) // Public support ticket creation
 app.use('/api/admin/imagination-pricing', adminImaginationPricingRouter)
 app.use('/api/admin/imagination-products', adminImaginationProductsRouter)
+// Flare Lab first: /flare/* must not fall through to the station router.
+app.use('/api/imagination-station/flare', flareStudioRouter)
 app.use('/api/imagination-station', imaginationStationRouter)
 app.use('/api/admin/coupons', adminCouponsRouter)
 app.use('/api/admin/gift-cards', adminGiftCardsRouter)

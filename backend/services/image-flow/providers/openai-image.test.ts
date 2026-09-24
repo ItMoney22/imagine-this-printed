@@ -282,6 +282,14 @@ describe('the unavailable-model cache', () => {
 })
 
 describe('paramsForModel', () => {
+  it('strips input_fidelity for every model but gpt-image-1.x (2.5-flare 400s on it, live 2026-09-24)', () => {
+    const p = { prompt: 'x', input_fidelity: 'high' }
+    expect(paramsForModel('gpt-image-2.5-flare', p)).not.toHaveProperty('input_fidelity')
+    expect(paramsForModel('gpt-image-2', p)).not.toHaveProperty('input_fidelity')
+    expect(paramsForModel('gpt-image-1.5', p)).toHaveProperty('input_fidelity', 'high')
+    expect(paramsForModel('gpt-image-1', p)).toHaveProperty('input_fidelity', 'high')
+  })
+
   it('leaves a 2.5 request untouched', () => {
     const p = { quality: 'max', size: '1536x864' }
     expect(paramsForModel('gpt-image-2.5-flare', p)).toEqual(p)

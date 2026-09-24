@@ -159,6 +159,21 @@ export function addonsSignature(addons?: CartAddon[] | null): string {
   return addons.map(a => a.id).sort().join(',')
 }
 
+/**
+ * Stable signature for a personalized line's field values.
+ *
+ * Used in the cart merge key so SMITH 22 and LOPEZ 41 in the same size stay
+ * TWO lines. Keys are sorted, so an object built in a different order still
+ * matches — otherwise a repeat add could fail to merge and the cart would show
+ * the same player twice.
+ */
+export function personalizationSignature(values?: Record<string, string> | null): string {
+  if (!values || typeof values !== 'object') return ''
+  const keys = Object.keys(values).filter(k => values[k] !== undefined && values[k] !== '')
+  if (keys.length === 0) return ''
+  return keys.sort().map(k => `${k}=${values[k]}`).join('&')
+}
+
 export function productKindOf(product: Pick<Product, 'category' | 'metadata'>): ProductKind {
   const c = String(product?.category || '').toLowerCase()
   const t = String(product?.metadata?.product_template || product?.metadata?.category || '').toLowerCase()

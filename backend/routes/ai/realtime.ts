@@ -17,6 +17,7 @@ import Replicate from 'replicate'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import { MODELS } from '../../services/image-flow/models.js'
 import { supabase } from '../../lib/supabase.js'
+import { productPrintsOnBack } from '../../services/step-flow/shots.js'
 import { uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 
 const router = Router()
@@ -368,14 +369,29 @@ router.post('/spin-video', requireAuth, requireRole(['admin', 'manager']), async
     // jacket styling one time in three.
     const baseColor: string = String(meta.shirt_color || 'black').replace(/-/g, ' ')
     const garmentNoun = meta.product_type === 'hoodie' ? 'hoodie' : 't-shirt'
-    const jacketVariant = Math.random() < 0.34
-    const styling = jacketVariant
-      ? `They are wearing an open, unbuttoned jacket over the ${garmentNoun} (denim, flannel or a light bomber), and the front of the ${garmentNoun} with the printed design stays fully visible the whole time. `
-      : `They model the ${garmentNoun} naturally — shifting their weight, turning slightly to show the print, a relaxed smile, maybe tugging the hem straight. `
+
+    // TWO-SIDED PRODUCTS TURN AROUND. David 2026-09-21: "when i do a video
+    // subject should turn around and show the back". A five-second clip of
+    // someone facing forward sells half of a front-and-back shirt — the back
+    // is the half the customer is paying extra for, and on a team shirt it is
+    // the half with their own name on it.
+    //
+    // The jacket variant is suppressed for these: an open jacket is styled to
+    // keep the FRONT visible, which is the opposite of what a turn is for.
+    const twoSided = productPrintsOnBack({ metadata: meta, print_locations: (product as any).print_locations })
+    const jacketVariant = !twoSided && Math.random() < 0.34
+    const styling = twoSided
+      ? `They start facing the camera so the front print reads clearly, then turn a full 180 degrees, unhurried, and hold with their back to the camera so the design on the BACK of the ${garmentNoun} is square-on, centred and fully legible for the last half of the clip. `
+      : jacketVariant
+        ? `They are wearing an open, unbuttoned jacket over the ${garmentNoun} (denim, flannel or a light bomber), and the front of the ${garmentNoun} with the printed design stays fully visible the whole time. `
+        : `They model the ${garmentNoun} naturally — shifting their weight, turning slightly to show the print, a relaxed smile, maybe tugging the hem straight. `
     const prompt =
       `Professional lifestyle fashion video of the same person from the reference image modeling the ${baseColor} ${garmentNoun}. ` +
       styling +
-      `The ${garmentNoun} keeps EXACTLY the same ${baseColor} fabric colour and the printed graphic stays pixel-identical, undistorted and fully legible throughout — no colour change, no new graphics, no text overlays. ` +
+      `The ${garmentNoun} keeps EXACTLY the same ${baseColor} fabric colour and every printed graphic stays undistorted and fully legible throughout — no colour change, no new graphics, no text overlays. ` +
+      (twoSided
+        ? `Both printed designs are the ones already on the garment: do not invent, duplicate or mirror artwork onto either side. `
+        : '') +
       `Natural handheld-steady camera, soft flattering light, same location as the reference, no cuts.`
 
     const prediction = await replicate.predictions.create({

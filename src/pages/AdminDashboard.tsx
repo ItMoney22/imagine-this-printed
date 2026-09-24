@@ -346,6 +346,14 @@ const AdminDashboard: React.FC = () => {
     // (migration 20260629_tshirt_print_locations.sql) rejects any `shirts` row with
     // zero placements, so this defaults to front print rather than an empty list.
     printLocations: ['front_image'] as TshirtPrintLocation[],
+    // WHICH artwork goes on WHICH side (David 2026-09-21: "i upload 2 designs
+    // it doesnt pick"). print_locations only ever said a back print EXISTS —
+    // nothing said which of the uploaded images it was, so every consumer
+    // downstream had to guess (the team-template screen was guessing "the last
+    // gallery image"). These hold the chosen image URLs and persist to
+    // products.metadata.print_artwork — jsonb, no migration.
+    frontArtwork: '' as string,
+    backArtwork: '' as string,
     // products.status. Defaults to 'draft' in the DB, but ProductCatalog gates
     // the storefront on status='active' AND is_active=true — so a product saved
     // from this modal was invisible until this became settable. Creating one
@@ -563,6 +571,10 @@ const AdminDashboard: React.FC = () => {
   // everywhere (catalog card, product page hero, emails), so "set as main" is a
   // move-to-front — the same reorder handleSetMainImage does server-side for a
   // product that already exists.
+  // Front/back print tagging is only meaningful on garments — a tumbler
+  // gallery should not sprout print-side buttons.
+  const isApparel = productForm.category === 'shirts' || productForm.category === 'hoodies'
+
   const makeUploadedImageMain = (index: number) => {
     setUploadedImages(prev =>
       index <= 0 || index >= prev.length
@@ -942,6 +954,8 @@ const AdminDashboard: React.FC = () => {
       sizes: [],
       colors: [],
       printLocations: ['front_image'],
+      frontArtwork: '',
+      backArtwork: '',
       status: 'active'
     })
     // Reset upload state
@@ -970,6 +984,8 @@ const AdminDashboard: React.FC = () => {
       // Legacy shirts created before the print_locations rollout have an empty
       // list; fall back to front print so re-saving them can't trip the CHECK.
       printLocations: product.print_locations?.length ? product.print_locations : ['front_image'],
+      frontArtwork: (product as any)?.metadata?.print_artwork?.front_image ?? '',
+      backArtwork: (product as any)?.metadata?.print_artwork?.back_image ?? '',
       // Preserve the existing status — never silently publish a draft on edit.
       status: product.status || 'active'
     })
@@ -1039,7 +1055,17 @@ const AdminDashboard: React.FC = () => {
             : [],
         // Without this the DB default 'draft' hid every product the modal
         // created — ProductCatalog requires status='active' AND is_active=true.
-        status: productForm.status
+        status: productForm.status,
+        // Which uploaded image prints on which side. Merged into whatever
+        // metadata the product already carries so an edit cannot wipe a team
+        // template, SEO fields or garment flags living in the same blob.
+        metadata: {
+          ...((editingProduct as any)?.metadata ?? {}),
+          print_artwork: {
+            front_image: productForm.frontArtwork || null,
+            back_image: productForm.backArtwork || null
+          }
+        }
       }
 
       if (editingProduct) {
@@ -2510,6 +2536,13 @@ const AdminDashboard: React.FC = () => {
                       <div className="font-semibold text-teal-900">Cost Override</div>
                       <div className="text-sm text-teal-600">Pricing & cost controls</div>
                     </Link>
+                    <Link
+                      to="/admin/team-templates"
+                      className="block text-left p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors border border-purple-100"
+                    >
+                      <div className="font-semibold text-purple-900">Team Templates</div>
+                      <div className="text-sm text-purple-600">Name &amp; number shirts</div>
+                    </Link>
                   </div>
                 </div>
               </div>
@@ -3709,7 +3742,15 @@ const AdminDashboard: React.FC = () => {
                     {uploadedImages.length > 0 && (
                       <div className="grid grid-cols-4 gap-2 mt-3">
                         {uploadedImages.map((img, idx) => (
-                          <div key={idx} className="relative group">
+                          <div key={idx} className="group">
+                            {/* The image and its overlays get their OWN relative
+                                box. They used to share one with the Front/Back
+                                row below, so "Set as main" (absolute bottom-1)
+                                anchored to the bottom of the whole card and
+                                landed on top of the Back button — David
+                                2026-09-21: "i cant set the back because the set
+                                to main goes over back". */}
+                            <div className="relative">
                             <img src={img.url} alt={`Product ${idx + 1}`} className="w-full h-20 object-cover rounded-lg border border-slate-200" />
                             {idx === 0 ? (
                               <span className="absolute top-1 left-1 bg-purple-600 text-white text-[10px] px-1.5 py-0.5 rounded">Main</span>
@@ -3733,9 +3774,61 @@ const AdminDashboard: React.FC = () => {
                             >
                               ×
                             </button>
+                            </div>
+                            {/* Which SIDE this artwork prints on. Marking one
+                                image front and another back is the whole
+                                difference between "this product has a back
+                                print" and "this exact picture is the back
+                                print" — the second is what fulfilment and the
+                                team-template screen actually need. */}
+                            {isApparel && (
+                              <div className="mt-1 flex gap-1">
+                                {(['front_image', 'back_image'] as const).map((side) => {
+                                  const isFront = side === 'front_image'
+                                  const active =
+                                    (isFront ? productForm.frontArtwork : productForm.backArtwork) === img.url
+                                  return (
+                                    <button
+                                      key={side}
+                                      type="button"
+                                      title={isFront ? 'This artwork prints on the front' : 'This artwork prints on the back'}
+                                      onClick={() =>
+                                        setProductForm((f: any) => ({
+                                          ...f,
+                                          // Toggling off clears it; picking a side also
+                                          // makes sure that side is an offered placement,
+                                          // or you could tag a back print on a product
+                                          // that claims to be front-only.
+                                          [isFront ? 'frontArtwork' : 'backArtwork']: active ? '' : img.url,
+                                          printLocations:
+                                            !active && !f.printLocations.includes(side)
+                                              ? [...f.printLocations, side]
+                                              : f.printLocations
+                                        }))
+                                      }
+                                      className={`flex-1 text-[10px] py-0.5 rounded font-medium transition-colors ${
+                                        active
+                                          ? 'bg-purple-600 text-white'
+                                          : 'bg-white text-slate-600 border border-slate-300 hover:border-purple-400'
+                                      }`}
+                                    >
+                                      {isFront ? 'Front' : 'Back'}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>
+                    )}
+                    {isApparel && uploadedImages.length > 0 && (
+                      <p className="text-xs text-slate-500 mt-2">
+                        Tag which image prints on the <span className="font-medium text-slate-700">Front</span> and
+                        which on the <span className="font-medium text-slate-700">Back</span>. Tagging a back
+                        image is what makes this a front-and-back product — and it is what the
+                        Team Templates screen reads when you set up a name-and-number shirt.
+                      </p>
                     )}
                     {uploadedImages.length > 1 && (
                       <p className="text-xs text-slate-500 mt-2">
@@ -3923,7 +4016,7 @@ const AdminDashboard: React.FC = () => {
                       products.print_locations, which the DB CHECK
                       products_print_locations_valid requires to be non-empty
                       for the 'shirts' category. */}
-                  {productForm.category === 'shirts' && (
+                  {(productForm.category === 'shirts' || productForm.category === 'hoodies') && (
                     <div className="bg-slate-50 border border-slate-200 rounded-xl p-4">
                       <label className="block text-sm font-medium text-slate-700 mb-3">
                         Print Placements *

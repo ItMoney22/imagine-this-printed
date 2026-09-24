@@ -165,6 +165,8 @@ const {
   approveShotsBatch,
   resolveStepFlow,
   defaultShotKeys,
+  productPrintsOnBack,
+  backArtworkUrl,
   defaultMetalShotKeys,
   roleForShotKey,
   buildApprovedGallery,
@@ -1548,5 +1550,76 @@ describe('failStalledShot', () => {
   it('is a no-op for a slot that does not exist', async () => {
     seedProduct(withModel({ approved: false, status: 'running' }))
     expect(await failStalledShot('p1', 'model:7', 'interrupted')).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Back view for two-sided products (David 2026-09-21: "since its a front and
+// back it should mock up a front n back").
+//
+// The Step Flow never shot the back at all — its default set was
+// product/hanger/model/details/colors. A front-and-back product whose listing
+// only ever shows the front is a listing that cannot sell the back.
+// ---------------------------------------------------------------------------
+describe('back view for two-sided products', () => {
+  const colors = { primary: 'black' as const, extras: [] }
+
+  it('is absent for an ordinary front-only product', () => {
+    expect(defaultShotKeys(colors, { print_locations: ['front_image'], metadata: {} })).toEqual([
+      'product', 'hanger', 'model', 'details',
+    ])
+  })
+
+  it('is absent when no product row is supplied — no silent change for old callers', () => {
+    expect(defaultShotKeys(colors)).toEqual(['product', 'hanger', 'model', 'details'])
+  })
+
+  it('appears when the product offers a back placement', () => {
+    const keys = defaultShotKeys(colors, { print_locations: ['front_image', 'back_image'], metadata: {} })
+    expect(keys).toContain('back')
+  })
+
+  it('appears when back ARTWORK is tagged, even if the placement list is missing it', () => {
+    // Tagged artwork with no placement is a data slip, not a reason to skip
+    // the photo.
+    const keys = defaultShotKeys(colors, {
+      print_locations: ['front_image'],
+      metadata: { print_artwork: { back_image: 'https://cdn/back.png' } },
+    })
+    expect(keys).toContain('back')
+  })
+
+  it('appears for a front-back print_placement', () => {
+    const keys = defaultShotKeys(colors, { print_locations: [], metadata: { print_placement: 'front-back' } })
+    expect(keys).toContain('back')
+  })
+
+  it('sits after the core shots and before the extra colours', () => {
+    const keys = defaultShotKeys(
+      { primary: 'black', extras: ['white'] },
+      { print_locations: ['front_image', 'back_image'], metadata: {} }
+    )
+    expect(keys).toEqual(['product', 'hanger', 'model', 'details', 'back', 'color:white'])
+  })
+
+  it('maps to the gallery back-view role', () => {
+    expect(roleForShotKey('back', 'tee')).toBe('mockup_back')
+  })
+})
+
+describe('productPrintsOnBack / backArtworkUrl', () => {
+  it('reads the tagged back artwork', () => {
+    expect(backArtworkUrl({ metadata: { print_artwork: { back_image: 'https://cdn/b.png' } } })).toBe(
+      'https://cdn/b.png'
+    )
+  })
+
+  it('returns null when nothing is tagged, so the shot falls back to the product design', () => {
+    expect(backArtworkUrl({ metadata: {} })).toBeNull()
+    expect(backArtworkUrl({})).toBeNull()
+  })
+
+  it('does not claim a back print for a plain product', () => {
+    expect(productPrintsOnBack({ metadata: {}, print_locations: ['front_image'] })).toBe(false)
   })
 })
