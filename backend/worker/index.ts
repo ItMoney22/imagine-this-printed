@@ -6,6 +6,7 @@ import { startTryOnRetentionSweep } from './tryon-retention-sweep.js'
 import { startMrsImagineDaily } from './mrs-imagine-daily.js'
 import { startStepFlowStallSweep } from './step-flow-stall-sweep.js'
 import { startDeliveryTrackingSweep } from './delivery-tracking-sweep.js'
+import { startSignupBotSweep } from './signup-bot-sweep.js'
 
 // Process-level crash handlers. Node 20 defaults to
 // --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
@@ -58,5 +59,9 @@ startStepFlowStallSweep()
 // SHIPPO_API_TOKEN; logs and stays dark without it. See
 // backend/worker/delivery-tracking-sweep.ts.
 startDeliveryTrackingSweep()
+// Jev judges every new account that has never signed in and deletes the
+// scripted signups as they arrive. BOT_SWEEP=shadow logs without deleting,
+// BOT_SWEEP=off stops it. See backend/worker/signup-bot-sweep.ts.
+startSignupBotSweep()
 
 console.log('Worker is running. Press Ctrl+C to stop.')
