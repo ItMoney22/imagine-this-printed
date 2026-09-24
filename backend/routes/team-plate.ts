@@ -25,6 +25,7 @@ import { readLettering } from '../services/lettering-check.js'
 // Nothing here draws with the quarantined vector engine.
 import { HOUSE_FONTS } from '../services/team-plate/legacy-vector/fonts.js'
 import { borderBackground, deriveZonesAndDistress, erasePlate, eyedropColours } from '../services/team-plate/authoring.js'
+import { buildAutoTemplate, detectSampleLettering } from '../services/team-plate/auto-setup.js'
 
 const router = express.Router()
 
@@ -269,6 +270,110 @@ router.post(
 const SOURCE_MAX_EDGE = 2048
 
 /**
+ * Store the back art as the template source (sample lettering and all). The
+ * canvas is the 300 DPI press file: canvasWidth px wide (default 3600) at the
+ * art's own aspect. Null when the artwork cannot be fetched.
+ */
+async function registerSource(productId: string, sourceUrl: string, canvasWidth?: unknown) {
+  const srcRes = await fetch(sourceUrl)
+  if (!srcRes.ok) return null
+  const raw = Buffer.from(await srcRes.arrayBuffer())
+  const source = await sharp(raw)
+    .rotate()
+    .resize(SOURCE_MAX_EDGE, SOURCE_MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
+    .png()
+    .toBuffer()
+  const meta = await sharp(source).metadata()
+  const width = meta.width ?? 1
+  const height = meta.height ?? 1
+  const canvasW = Math.min(6000, Math.max(1200, Math.round(Number(canvasWidth) || 3600)))
+  const canvas = { w: canvasW, h: Math.round((canvasW * height) / width), dpi: 300 }
+  const sourceAssetId = await saveLayerAsset(productId, 'team_source_back', source)
+  const asset = await realDeps.loadAsset(sourceAssetId)
+  return { canvas, sourceAssetId, url: asset.url, buffer: source, width, height }
+}
+
+/**
+ * POST /api/team-plate/:productId/auto-setup
+ * Body: { sourceUrl? }   (defaults to the product's tagged back art)
+ *
+ * One click from "two-sided shirt" to "customers can put their name on it":
+ * store the art, have a vision model find the sample name and number
+ * (auto-setup.ts), sample their colours, and publish the template. The old
+ * drag-a-box studio stays behind an admin "Fine-tune" link for the rare art the
+ * guess gets wrong — a preview of a real name is how anyone finds out.
+ */
+router.post(
+  '/:productId/auto-setup',
+  requireAuth,
+  requireAdmin,
+  async (req: Request, res: Response): Promise<any> => {
+    try {
+      const { productId } = req.params
+      const product = await loadProduct(productId)
+      if (!product) return res.status(404).json({ error: 'Product not found' })
+
+      const meta: any = product.metadata ?? {}
+      const sourceUrl: unknown = req.body?.sourceUrl || meta?.print_artwork?.back_image
+      if (typeof sourceUrl !== 'string' || !/^(https:|data:image\/)/.test(sourceUrl)) {
+        return res.status(400).json({ error: 'This shirt has no back design to personalize yet.' })
+      }
+
+      const source = await registerSource(productId, sourceUrl)
+      if (!source) return res.status(400).json({ error: 'Could not fetch the back design' })
+
+      const detection = await detectSampleLettering(source.url)
+
+      // Colours inside each guessed zone — hints for the lettering prompt. A
+      // failed sample keeps the default and the model matches the art anyway.
+      const ignore = (await borderBackground(source.buffer)) ?? undefined
+      const colours: Partial<Record<'name' | 'number', { fill: string; strokes: Array<{ color: string; w: number }> }>> = {}
+      for (const key of ['name', 'number'] as const) {
+        const box = detection?.[key]?.box
+        if (!box) continue
+        try {
+          const zone = {
+            x: Math.floor(box.x * source.width),
+            y: Math.floor(box.y * source.height),
+            w: Math.max(1, Math.round(box.w * source.width)),
+            h: Math.max(1, Math.round(box.h * source.height)),
+          }
+          const c = await eyedropColours(source.buffer, zone, { ignore })
+          const strokeW = Math.max(4, Math.round(box.h * source.canvas.h * 0.03))
+          colours[key] = { fill: c.fill, strokes: c.strokes.map((s) => ({ ...s, w: strokeW })) }
+        } catch {
+          /* keep the default */
+        }
+      }
+
+      const existing = parseTeamTemplate(meta)
+      const template = parseTeamTemplate(
+        buildAutoTemplate({
+          sourceAssetId: source.sourceAssetId,
+          canvas: source.canvas,
+          detection,
+          colours,
+          upcharge: existing?.upcharge,
+          styleNotes: existing?.styleNotes,
+        })
+      )
+      if (!template) return res.status(500).json({ error: 'Could not build the template' })
+
+      const { error } = await supabase
+        .from('products')
+        .update({ metadata: { ...meta, team_template: template } })
+        .eq('id', productId)
+      if (error) return res.status(500).json({ error: error.message })
+
+      return res.json({ template, detection, sourceUrl: source.url })
+    } catch (err: any) {
+      req.log?.error({ err }, 'team-plate auto-setup failed')
+      return res.status(500).json({ error: err?.message ?? 'Could not set this shirt up' })
+    }
+  }
+)
+
+/**
  * POST /api/team-plate/:productId/source
  * Body: { sourceUrl, canvasWidth? }
  *
@@ -290,33 +395,17 @@ router.post(
       const product = await loadProduct(productId)
       if (!product) return res.status(404).json({ error: 'Product not found' })
 
-      const srcRes = await fetch(sourceUrl)
-      if (!srcRes.ok) return res.status(400).json({ error: 'Could not fetch that artwork' })
-      const raw = Buffer.from(await srcRes.arrayBuffer())
-      const source = await sharp(raw)
-        .rotate()
-        .resize(SOURCE_MAX_EDGE, SOURCE_MAX_EDGE, { fit: 'inside', withoutEnlargement: true })
-        .png()
-        .toBuffer()
-      const meta = await sharp(source).metadata()
-      const w = meta.width ?? 1
-      const h = meta.height ?? 1
-
-      const canvasW = Math.min(6000, Math.max(1200, Math.round(Number(req.body?.canvasWidth) || 3600)))
-      const canvas = { w: canvasW, h: Math.round((canvasW * h) / w), dpi: 300 }
-
-      const sourceAssetId = await saveLayerAsset(productId, 'team_source_back', source)
-      const asset = await realDeps.loadAsset(sourceAssetId)
-
+      const out = await registerSource(productId, sourceUrl, req.body?.canvasWidth)
+      if (!out) return res.status(400).json({ error: 'Could not fetch that artwork' })
       return res.json({
-        canvas,
-        sourceAssetId,
+        canvas: out.canvas,
+        sourceAssetId: out.sourceAssetId,
         // The flare engine only reads the plate in 'add' mode (no source). A
         // studio template always has a source, so the plate slot points at it.
-        plateAssetId: sourceAssetId,
-        sourceUrl: asset.url,
-        width: w,
-        height: h,
+        plateAssetId: out.sourceAssetId,
+        sourceUrl: out.url,
+        width: out.width,
+        height: out.height,
       })
     } catch (err: any) {
       req.log?.error({ err }, 'team-plate source failed')

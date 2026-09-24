@@ -65,7 +65,15 @@ export function compareLettering(expected: string[], read: string[]): LetteringV
   for (const value of wanted) {
     const v = normalizeLettering(value)
     if (!v) continue
-    const found = lines.includes(v) || words.includes(v) || (v.length >= 3 && joined.includes(v))
+    // A number is often read one item per digit ("23" as "2","3"), so a run of
+    // ADJACENT items that joins to exactly the value counts too. Exact, so a
+    // "2" still cannot pass on a read of "22".
+    const adjacentRun = lines.some((_, i) => {
+      let acc = ''
+      for (let j = i; j < lines.length && acc.length < v.length; j++) acc += lines[j]
+      return acc === v
+    })
+    const found = lines.includes(v) || words.includes(v) || adjacentRun || (v.length >= 3 && joined.includes(v))
     if (found) continue
     const pool = [...new Set([...lines, ...words])]
     const closest = pool.length ? pool.reduce((best, w) => (editDistance(w, v) < editDistance(best, v) ? w : best)) : null

@@ -1909,6 +1909,9 @@ export const flareApi = {
 
 export const teamStudioApi = {
   getTemplate: (productId: string) => apiFetch(`/api/team-plate/${productId}/template`),
+  /** One click: read the sample name + number off the back art and publish the template. */
+  autoSetup: (productId: string, sourceUrl?: string) =>
+    apiFetch(`/api/team-plate/${productId}/auto-setup`, { method: 'POST', body: JSON.stringify({ sourceUrl }) }),
   setSource: (productId: string, sourceUrl: string, canvasWidth?: number) =>
     apiFetch(`/api/team-plate/${productId}/source`, {
       method: 'POST',

@@ -86,14 +86,22 @@ const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationPro
 const AdminTeamTemplatesIndex = lazy(() => import('./pages/AdminTeamTemplatesIndex'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
 const TeamStudio = lazy(() => import('./pages/TeamStudio'))
+const TeamShirtStudio = lazy(() => import('./pages/TeamShirtStudio'))
 const ToyAR = lazy(() => import('./pages/ToyAR'))
 const BecomeCreator = lazy(() => import('./pages/BecomeCreator'))
 const CreatorStudio = lazy(() => import('./pages/CreatorStudio'))
 const CreatorStudioVoice = lazy(() => import('./pages/CreatorStudioVoice'))
 
-// Team templates moved into Imagination Station (Team Studio, 2026-09-24).
-// Old links — bookmarks, the admin index, earlier Step Flow builds — land there.
+// Team templates moved into Imagination Station (2026-09-24). The team URL is
+// now the CUSTOMER page (name, number, placement, cart); the operator's
+// drag-a-box studio lives under /setup. Old admin links land on the setup.
 function TeamTemplateRedirect() {
+  const { productId } = useParams<{ productId: string }>()
+  return <Navigate to={`/imagination-station/team/${productId}/setup`} replace />
+}
+
+// Short, shareable link a coach can text the team: /team/<product id or slug>.
+function TeamShortLink() {
   const { productId } = useParams<{ productId: string }>()
   return <Navigate to={`/imagination-station/team/${productId}`} replace />
 }
@@ -271,8 +279,18 @@ function App() {
                   <Route path="/admin/email-templates" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminEmailTemplates /></RoleRoute>} />
 
                   {/* Imagination Station Routes */}
+                  {/* Team shirts: public, so a guest can shop it like any product page. */}
                   <Route
                     path="/imagination-station/team/:productId"
+                    element={
+                      <ImaginationErrorBoundary>
+                        <TeamShirtStudio />
+                      </ImaginationErrorBoundary>
+                    }
+                  />
+                  <Route path="/team/:productId" element={<TeamShortLink />} />
+                  <Route
+                    path="/imagination-station/team/:productId/setup"
                     element={
                       <ImaginationErrorBoundary>
                         <RoleRoute allowedRoles={['admin']}>

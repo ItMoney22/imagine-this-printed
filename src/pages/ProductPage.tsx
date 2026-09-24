@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { Link, useParams, useNavigate } from 'react-router-dom'
 import { Sparkles, ShoppingCart, Zap, Check, Upload, Loader2 } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -13,7 +13,7 @@ import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
-import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
+import type { TeamTemplateSummary } from '../components/TeamPersonalizePanel'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
@@ -61,11 +61,11 @@ const ProductPage: React.FC = () => {
   // blank so checkout works with zero interaction; premium tiers upcharge.
   const [selectedTier, setSelectedTier] = useState<string>(DEFAULT_GARMENT_TIER_ID)
   // Team shirt personalization (products.metadata.team_template).
-  const [personalization, setPersonalization] = useState<Record<string, string>>({})
+  const [personalization] = useState<Record<string, string>>({})
   // Set when the API turns out not to serve /api/team-plate yet — Vercel
   // deploys ahead of Render, so the panel has to be able to bow out and let
   // the shirt sell as an ordinary product.
-  const [personalizeUnsupported, setPersonalizeUnsupported] = useState(false)
+  const [personalizeUnsupported] = useState(false)
   /** Placement → the mockup rendered at that print scale (currently pocket only). */
   const [placementShots, setPlacementShots] = useState<Record<string, string>>({})
   const [selectedAddons, setSelectedAddons] = useState<CartAddon[]>([])
@@ -479,6 +479,11 @@ const ProductPage: React.FC = () => {
   }
 
   const handleAddToCart = (attribution?: { tryonId: string | null; secondsSinceTryon: number }) => {
+    if (teamTemplate) {
+      // Name, number and size are all picked on the team page.
+      navigate(`/imagination-station/team/${product?.slug || product?.id}`)
+      return
+    }
     // Size is required only when the listing actually offers sizes — a
     // one-size 3D print has no picker to answer.
     if (requiresSize && !selectedSize) {
@@ -491,10 +496,6 @@ const ProductPage: React.FC = () => {
     }
     if (requiresPrintLocation && !selectedPrintLocation) {
       toast.warning('Selection required', 'Please select a print placement')
-      return
-    }
-    if (teamTemplate && !personalizationComplete) {
-      toast.warning('Selection required', `Please enter the ${teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')}`)
       return
     }
     if (product) {
@@ -507,6 +508,10 @@ const ProductPage: React.FC = () => {
   }
 
   const handleBuyNow = () => {
+    if (teamTemplate) {
+      navigate(`/imagination-station/team/${product?.slug || product?.id}`)
+      return
+    }
     // Size is required only when the listing actually offers sizes — a
     // one-size 3D print has no picker to answer.
     if (requiresSize && !selectedSize) {
@@ -519,10 +524,6 @@ const ProductPage: React.FC = () => {
     }
     if (requiresPrintLocation && !selectedPrintLocation) {
       toast.warning('Selection required', 'Please select a print placement')
-      return
-    }
-    if (teamTemplate && !personalizationComplete) {
-      toast.warning('Selection required', `Please enter the ${teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')}`)
       return
     }
     if (product) {
@@ -1105,19 +1106,26 @@ const ProductPage: React.FC = () => {
                 </>
               )}
 
+              {/* Team shirts are made in the team page (Imagination Station):
+                  name, number, placement and a preview of the exact print.
+                  One path, not a second smaller form here (David 2026-09-24). */}
               {teamTemplate && (
-                <TeamPersonalizePanel
-                  productId={product.id}
-                  template={teamTemplate}
-                  values={personalization}
-                  onChange={setPersonalization}
-                  onUnsupported={() => setPersonalizeUnsupported(true)}
-                />
+                <Link
+                  to={`/imagination-station/team/${product.slug || product.id}`}
+                  className="group flex items-center gap-4 rounded-2xl border-2 border-primary/40 bg-gradient-to-r from-violet-600/10 via-fuchsia-500/10 to-orange-400/10 p-3 hover:border-primary transition"
+                >
+                  <img src="/team-shirts/place-both.webp" alt="" className="w-20 h-24 rounded-xl object-cover bg-[#FBF7F4] shrink-0" />
+                  <span className="flex-1 min-w-0">
+                    <span className="block font-semibold text-text text-lg leading-tight">Put your name &amp; number on it</span>
+                    <span className="block text-sm text-muted mt-0.5">Lettered in this design's own style. See it before we print.</span>
+                  </span>
+                  <span className="shrink-0 px-4 py-2.5 rounded-xl bg-primary text-white font-semibold group-hover:brightness-110">Make it mine</span>
+                </Link>
               )}
 
               <button
                 onClick={() => handleAddToCart()}
-                disabled={!product.inStock || (teamTemplate ? !personalizationComplete : false)}
+                disabled={!product.inStock}
                 className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <ShoppingCart className="w-4 h-4" />

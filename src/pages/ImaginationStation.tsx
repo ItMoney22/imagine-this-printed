@@ -1811,13 +1811,13 @@ const ImaginationStation: React.FC = () => {
     const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
     setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
     setShowFlareLab(false);
-    setCompareModal({ isOpen: true, beforeImage: activeDesign.url, afterImage: newUrl, layerId: activeDesign.id, operation: `Flare · ${label}`, revert: revertSnapshot });
+    setCompareModal({ isOpen: true, beforeImage: activeDesign.url, afterImage: newUrl, layerId: activeDesign.id, operation: `Imagination · ${label}`, revert: revertSnapshot });
   };
 
   const handleFlareAddNew = (urls: string[], label: string) => {
     const created: StudioDesign[] = urls.map((url, i) => ({
       id: `design-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`,
-      name: `Flare ${label}`,
+      name: `Imagination ${label}`,
       url,
       originalUrl: url,
       history: [url],
@@ -2524,14 +2524,14 @@ const ImaginationStation: React.FC = () => {
             <button
               onClick={() => { if (activeDesign) setShowFlareLab(true); else toast.warning('Select a design first', 'Click a design in your gallery.'); }}
               className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-gradient-to-r from-orange-500/10 via-fuchsia-500/10 to-violet-600/10 text-text hover:from-orange-500/20 hover:to-violet-600/20 border border-fuchsia-500/30"
-              title="Flare Lab: edit, paint & replace, text swap, references, variations, true transparency"
+              title="Imagination Lab: edit, paint & replace, text swap, references, variations, true transparency"
             >
               <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-orange-500 via-fuchsia-500 to-violet-600 flex items-center justify-center shrink-0">
                 <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
               </div>
               <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Flare Lab</span>
-                <span className="text-xs text-muted">9 GPT Image 2.5 tools</span>
+                <span className="font-medium text-sm">Imagination Lab</span>
+                <span className="text-xs text-muted">9 Imagination 5 tools</span>
               </div>
             </button>
             <button

@@ -46,7 +46,7 @@ export const FLARE_TOOLS: FlareToolGuide[] = [
     steps: [
       'Select the design you want to change.',
       'Describe ONE change in plain words.',
-      'The recipe tells Flare to hold everything you did not mention.',
+      'The recipe tells Imagination to hold everything you did not mention.',
       'Run it, compare before/after, keep the one you like.',
     ],
     tips: [

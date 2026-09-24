@@ -469,18 +469,20 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
           template belongs — David 2026-09-21: "step flow needs to know this
           process of the team templates". Shown only for a product that
           actually prints on the back; a front-only tee has no plate to
-          personalize. */}
-      {hasBackPrint && state.productId && (
+          personalize. The team lane only: the button opens the CUSTOMER
+          team page in Imagination Station, where an admin turns the shirt on
+          with one click and tries it with a real name (David 2026-09-24). */}
+      {hasBackPrint && state.productId && lane.showTeamTools && (
         <div className="mb-4 rounded-xl border border-primary/30 bg-card p-3 flex items-center gap-3 flex-wrap">
           <Shirt className="w-4 h-4 text-primary" />
           <div className="flex-1 min-w-[12rem]">
             <p className="text-sm font-semibold text-text">
-              {hasTeamTemplate ? 'Personalizable — name & number' : 'Two-sided shirt'}
+              {hasTeamTemplate ? 'Names & numbers are on' : 'Make it a team shirt'}
             </p>
             <p className="text-xs text-muted">
               {hasTeamTemplate
-                ? 'Customers can type their own name and number on the back.'
-                : 'Set up a team template and customers can put their own name and number on the back.'}
+                ? 'Customers type their own name and number on the back.'
+                : 'Let customers put their own name and number on the back.'}
             </p>
           </div>
           <a
@@ -489,7 +491,7 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
             rel="noreferrer"
             className="px-3 py-1.5 text-sm rounded-lg bg-primary text-white hover:opacity-90"
           >
-            {hasTeamTemplate ? 'Edit in Team Studio' : 'Open Team Studio'}
+            {hasTeamTemplate ? 'Try it with a name' : 'Turn on names & numbers'}
           </a>
         </div>
       )}

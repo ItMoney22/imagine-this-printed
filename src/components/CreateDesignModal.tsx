@@ -1482,7 +1482,7 @@ export function CreateDesignModal({
                         </span>
                         <span className="text-[10px] font-semibold text-amber-200 bg-amber-500/30 px-1.5 py-0.5 rounded">50 ITC</span>
                       </div>
-                      <p className="text-[11px] text-white/60 leading-tight">GPT Image 2 — highest fidelity edits</p>
+                      <p className="text-[11px] text-white/60 leading-tight">Imagination 5 — highest fidelity edits</p>
                     </button>
                   </div>
                 )}

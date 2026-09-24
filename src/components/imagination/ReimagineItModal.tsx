@@ -195,7 +195,7 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
                         {premiumCost} ITC
                       </span>
                     </div>
-                    <p className="text-xs text-muted">GPT Image 2 — best quality edits, follows complex instructions</p>
+                    <p className="text-xs text-muted">Imagination 5 — best quality edits, follows complex instructions</p>
                   </button>
                 </div>
               </div>
@@ -277,7 +277,7 @@ const ReimagineItModal: React.FC<ReimagineItModalProps> = ({
                 <p className="text-lg font-semibold text-text">Mr. Imagine is working his magic...</p>
                 <p className="text-sm text-muted">Adding "{prompt}" to your image</p>
                 {tier === 'premium' && (
-                  <p className="text-xs text-fuchsia-400 mt-1">Using GPT Image 2 for best quality</p>
+                  <p className="text-xs text-fuchsia-400 mt-1">Using Imagination 5 for best quality</p>
                 )}
               </div>
             </div>

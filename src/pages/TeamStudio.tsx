@@ -98,13 +98,13 @@ const STEP_GUIDE: Record<number, { title: string; points: string[] }> = {
   1: {
     title: 'Start from the finished design',
     points: [
-      'Use the back art WITH its sample name and number — Flare copies that lettering style, so nothing gets erased.',
-      'Transparent PNG is best. If the art has a painted checkerboard or soft edges, open Flare Lab → True Transparent or Print Cleanup first.',
+      'Use the back art WITH its sample name and number — Imagination copies that lettering style, so nothing gets erased.',
+      'Transparent PNG is best. If the art has a painted checkerboard or soft edges, open Imagination Lab → True Transparent or Print Cleanup first.',
       'The press file is built at 3600px wide (12" at 300 DPI) at the art\'s own shape.',
     ],
   },
   2: {
-    title: 'Tell Flare which text is which',
+    title: 'Tell Imagination which text is which',
     points: [
       'Pick a field, then drag a box over that lettering on the art.',
       'Type what it reads NOW ("BEAR", "9") — this is how the model knows which words to replace.',
@@ -123,8 +123,8 @@ const STEP_GUIDE: Record<number, { title: string; points: string[] }> = {
   4: {
     title: 'Proof the hard cases',
     points: [
-      'Try a short name, a long name and a name with an apostrophe — they stress spacing differently.',
-      'Every proof is a real GPT Image 2.5 Flare render, exactly what a customer will see.',
+      'Type the name and number you want to see, then render it. Add more rows to try a long name or an apostrophe.',
+      'Every proof is a real Imagination 5 render, exactly what a customer will see.',
       'Every proof is read back letter by letter; a misspelled render is redrawn once automatically. Still glance at it.',
       'Not right? Adjust the boxes or the notes and proof again — changed templates render fresh.',
     ],
@@ -139,11 +139,9 @@ const STEP_GUIDE: Record<number, { title: string; points: string[] }> = {
   },
 }
 
-const TEST_NAMES: Array<Record<string, string>> = [
-  { name: 'LI', number: '5' },
-  { name: 'RODRIGUEZ', number: '27' },
-  { name: "O'BRIEN", number: '88' },
-]
+// One empty row: the operator types the name they want to see. Canned names
+// (LI / RODRIGUEZ / O'BRIEN) rendered instead of what David typed — 2026-09-24.
+const TEST_NAMES: Array<Record<string, string>> = [{ name: '', number: '' }]
 
 const STYLE_SUGGESTIONS = [
   'The name arches over the number exactly like the sample.',
@@ -365,7 +363,8 @@ const TeamStudio: React.FC = () => {
     }
   }
 
-  const runAllProofs = () => proofs.filter((p) => p.status !== 'running').forEach((p) => void runProof(p))
+  const hasValues = (p: ProofRow) => Object.values(p.values).some((v) => v.trim().length > 0)
+  const runAllProofs = () => proofs.filter((p) => p.status !== 'running' && hasValues(p)).forEach((p) => void runProof(p))
 
   // ---- step 5: press + publish ---------------------------------------------------
   const runPress = async (values: Record<string, string>) => {
@@ -411,7 +410,7 @@ const TeamStudio: React.FC = () => {
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-lg leading-tight">Team Studio</h1>
-            <p className="text-xs text-muted truncate">{productName || 'Loading…'} · Imagination Station · GPT Image 2.5 Flare</p>
+            <p className="text-xs text-muted truncate">{productName || 'Loading…'} · Imagination Station · Team setup</p>
           </div>
           {published && (
             <span className="hidden sm:inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -505,7 +504,7 @@ const TeamStudio: React.FC = () => {
                   disabled={!chosenUrl}
                   className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-fuchsia-500/40 bg-fuchsia-500/10 text-sm font-medium disabled:opacity-40"
                 >
-                  <Sparkles className="w-4 h-4" /> Prep in Flare Lab
+                  <Sparkles className="w-4 h-4" /> Prep in Imagination Lab
                 </button>
                 <button type="button" onClick={() => uploadRef.current?.click()} className="inline-flex items-center gap-2 px-4 py-3 rounded-xl border border-text/15 text-sm">
                   <Upload className="w-4 h-4" /> Upload art
@@ -657,7 +656,7 @@ const TeamStudio: React.FC = () => {
                 ))}
               </div>
               <label className="block max-w-xs">
-                <span className="text-sm font-medium">Personalization upcharge</span>
+                <span className="text-sm font-medium">Extra charge for a name (optional)</span>
                 <div className="mt-1.5 flex items-center gap-2">
                   <span className="text-muted">$</span>
                   <input
@@ -701,7 +700,7 @@ const TeamStudio: React.FC = () => {
                 >
                   <Plus className="w-4 h-4" /> Add a test name
                 </button>
-                <span className="text-xs text-muted">Each proof is one Flare render (~40s). Unchanged names come back from cache.</span>
+                <span className="text-xs text-muted">Each proof is one Imagination render (~40s). Unchanged names come back from cache.</span>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
                 <figure className="rounded-2xl border border-text/10 overflow-hidden bg-card">
@@ -717,7 +716,7 @@ const TeamStudio: React.FC = () => {
                         <img src={p.url} alt={`Proof ${Object.values(p.values).join(' ')}`} className="max-h-full max-w-full object-contain" />
                       ) : p.status === 'running' ? (
                         <div className="w-full px-6">
-                          <ProgressBar label="Flare is lettering it in the art's own style" startedAt={p.startedAt} expectedMs={45000} />
+                          <ProgressBar label="Imagination is lettering it in the art's own style" startedAt={p.startedAt} expectedMs={45000} />
                         </div>
                       ) : (
                         <p className="text-xs text-muted px-6 text-center">{p.error ?? 'Not rendered yet'}</p>
@@ -740,7 +739,7 @@ const TeamStudio: React.FC = () => {
                         <button
                           type="button"
                           onClick={() => runProof(p)}
-                          disabled={!template || p.status === 'running'}
+                          disabled={!template || p.status === 'running' || !hasValues(p)}
                           className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-primary/40 text-primary text-xs font-semibold disabled:opacity-40"
                         >
                           <Eye className="w-3.5 h-3.5" /> {p.status === 'done' ? 'Re-proof' : 'Render proof'}
@@ -854,7 +853,7 @@ const TeamStudio: React.FC = () => {
               <Sparkles className="w-4 h-4 text-fuchsia-400" /> How it works
             </p>
             <p className="text-xs text-muted mt-1.5">
-              Each customer's shirt is a GPT Image 2.5 Flare edit of this exact artwork: the sample name and number are redrawn
+              Each customer's shirt is an Imagination 5 edit of this exact artwork: the sample name and number are redrawn
               as theirs, in the same lettering, with everything else held. The approved preview is then crisp-upscaled into the
               print file, so what they approve is what prints.
             </p>
@@ -868,7 +867,7 @@ const TeamStudio: React.FC = () => {
           onClose={() => setFlareOpen(false)}
           imageUrl={chosenUrl}
           isAdmin={user?.role === 'admin'}
-          title="Flare Lab · prep the back art"
+          title="Imagination Lab · prep the back art"
           initialOp="cleanup"
           tools={['cleanup', 'transparent', 'inpaint', 'edit', 'text', 'recolor']}
           onUse={(url) => {

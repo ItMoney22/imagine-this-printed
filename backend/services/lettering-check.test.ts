@@ -24,6 +24,16 @@ describe('compareLettering', () => {
     expect(v.ok).toBe(false)
   })
 
+  it('accepts a number read as one item per digit (live 2026-09-24: "23" read as "2","3")', () => {
+    expect(compareLettering(['23'], ['2', '3']).ok).toBe(true)
+    expect(compareLettering(['FLARE', '23'], ['FLARE', '2', '3']).ok).toBe(true)
+  })
+
+  it('does not stitch non-adjacent pieces into a match', () => {
+    expect(compareLettering(['23'], ['2', 'FLARE', '3']).ok).toBe(false)
+    expect(compareLettering(['23'], ['3', '2']).ok).toBe(false)
+  })
+
   it('skips empty expected values', () => {
     expect(compareLettering(['', 'LI'], ['LI']).ok).toBe(true)
   })

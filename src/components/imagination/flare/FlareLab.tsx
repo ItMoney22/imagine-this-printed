@@ -104,7 +104,7 @@ const FlareLab: React.FC<FlareLabProps> = ({
   onAddNew,
   onUpscaleForPrint,
   tools,
-  title = 'Flare Lab',
+  title = 'Imagination Lab',
 }) => {
   const toolList = useMemo(() => FLARE_TOOLS.filter((t) => !tools || tools.includes(t.op)), [tools])
   const [op, setOp] = useState<FlareOp>(initialOp)
@@ -165,7 +165,7 @@ const FlareLab: React.FC<FlareLabProps> = ({
     setError(null)
     setResults(null)
     const expectedMs = QUALITY_INFO[quality].expectedMs * (size === 'large' ? 1.4 : 1) + (variations - 1) * 8000
-    setRun({ startedAt: Date.now(), expectedMs, label: `${guide.name} · ${QUALITY_INFO[quality].label} quality on GPT Image 2.5 Flare` })
+    setRun({ startedAt: Date.now(), expectedMs, label: `${guide.name} · ${QUALITY_INFO[quality].label} quality on Imagination 5` })
     try {
       const out = await flareApi.run({
         op,
@@ -183,7 +183,7 @@ const FlareLab: React.FC<FlareLabProps> = ({
       })
       setResults(out)
     } catch (err) {
-      setError(apiErrorMessage(err, 'Flare could not finish that'))
+      setError(apiErrorMessage(err, 'Imagination could not finish that'))
     } finally {
       setRun(null)
     }
@@ -217,7 +217,7 @@ const FlareLab: React.FC<FlareLabProps> = ({
             </div>
             <div className="min-w-0">
               <h2 className="font-display text-lg leading-tight truncate">{title}</h2>
-              <p className="text-xs text-muted truncate">GPT Image 2.5 Flare · edits, masks, references, real text, true transparency</p>
+              <p className="text-xs text-muted truncate">Imagination 5 · edits, masks, references, real text, true transparency</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -226,7 +226,7 @@ const FlareLab: React.FC<FlareLabProps> = ({
               onClick={() => setShowOverview((v) => !v)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-text/10 text-sm hover:border-primary/40"
             >
-              <BookOpen className="w-4 h-4" /> What Flare can do
+              <BookOpen className="w-4 h-4" /> What Imagination can do
             </button>
             <button type="button" onClick={onClose} className="p-2 rounded-lg hover:bg-text/5" aria-label="Close">
               <X className="w-5 h-5" />

@@ -712,7 +712,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                   ))}
                 </div>
                 <p className="mt-1.5 text-xs text-muted">
-                  {genTier === 'premium' ? 'Each design rendered by GPT Image 2 (premium)' : 'Each design comes from a different top AI model'}
+                  {genTier === 'premium' ? 'Each design rendered by Imagination 5 (premium)' : 'Each design comes from a different top AI model'}
                 </p>
                 {imageCount > 1 && (
                   <p className="mt-1 text-xs text-primary font-medium">
@@ -744,7 +744,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
                     }`}
                   >
                     <span className="block text-sm font-semibold text-text flex items-center gap-1">Premium <Sparkles className="w-3 h-3 text-amber-500" /></span>
-                    <span className="block text-xs text-muted">GPT Image 2 · best quality · {itcToUsdLabel(PREMIUM_ITC)} each</span>
+                    <span className="block text-xs text-muted">Imagination 5 · best quality · {itcToUsdLabel(PREMIUM_ITC)} each</span>
                   </button>
                 </div>
               </div>
