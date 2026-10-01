@@ -386,4 +386,33 @@ async function notifyTeamOfPaidOrder(order: any, source: PaidOrderSource, log?: 
   } catch (err: any) {
     log?.error({ err, orderId: order.id }, '[new-order-alert] team email failed')
   }
+
+  // Becky pings Christina's phone in her own voice (David 2026-10-01: "when an order comes in, Becky pings her right
+  // away"). davidtrinidad.com writes the line, drops it in her chat and sends the push. Same bridge token the print
+  // factory uses, the other way round. Five seconds at most, and a failure never touches the order.
+  try {
+    const token = process.env.PRINT_BRIDGE_TOKEN
+    if (token) {
+      const base = (process.env.WATCHTOWER_URL || 'https://davidtrinidad.com').replace(/\/$/, '')
+      const first = String(order.customer_name || order.shipping_address?.firstName || '').trim().split(/\s+/)[0] || null
+      const res = await fetch(`${base}/api/phone/order-ping`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.id,
+          orderNumber: label,
+          total,
+          itemCount,
+          items: (order.order_items || []).slice(0, 8).map((i: any) => ({ name: i.product_name || 'Product', quantity: Number(i.quantity) || 1 })),
+          customerFirstName: first,
+          shipping: order.metadata?.shipping?.method ?? order.metadata?.shipping?.type ?? null,
+          recoveredByReconciler: viaReconciler,
+        }),
+        signal: AbortSignal.timeout(5000),
+      })
+      if (!res.ok) log?.error({ status: res.status, orderId: order.id }, '[new-order-alert] Becky ping refused')
+    }
+  } catch (err: any) {
+    log?.error({ err, orderId: order.id }, '[new-order-alert] Becky ping failed')
+  }
 }

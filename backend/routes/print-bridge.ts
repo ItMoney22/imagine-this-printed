@@ -2,6 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { sendEmail } from '../utils/email.js'
 import { matchMaterials, describeMaterialPlan, type PaletteEntry, type MaterialMatch } from '../services/print-palette.js'
+import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
+import { randomUUID } from 'crypto'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -467,5 +469,77 @@ export async function notifyWorkers(
     `,
   })
 }
+
+/**
+ * POST /api/print-bridge/design-draft  { imageUrl, prompt, title? }  ->  { id, url }
+ *
+ * Christina's designs from her phone chat with Becky on davidtrinidad.com (David 2026-10-01: "she can talk to Becky
+ * about a design and Becky would say, you want to add this to ITP"). The design lands as a draft in the Design
+ * Library, collection "Christina", the same row shape backend/scripts/import-designs.mjs writes, so the Step Flow
+ * builder takes it from there (adopt: background removal + upscale, print file, garments, shots, listing, publish).
+ * Bridge token only, and only pictures from the dashboard's own phone-designs bucket.
+ */
+const PHONE_DESIGN_URL = /^https:\/\/[a-z0-9]+\.supabase\.co\/storage\/v1\/object\/public\/phone-designs\/[\w/.-]+\.png$/
+
+function draftTitle(prompt: string): string {
+  const words = prompt
+    .replace(/^(make|draw|design|create)\s+(me\s+)?(a|an)?\s*/i, '')
+    .replace(/[^\w\s'-]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 6)
+    .join(' ')
+  const t = words || 'Christina design'
+  return t.charAt(0).toUpperCase() + t.slice(1)
+}
+
+router.post('/design-draft', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
+  const { imageUrl, prompt, title } = (req.body ?? {}) as { imageUrl?: unknown; prompt?: unknown; title?: unknown }
+  if (typeof imageUrl !== 'string' || !PHONE_DESIGN_URL.test(imageUrl) || imageUrl.includes('..')) {
+    return res.status(400).json({ error: 'imageUrl must be a phone-designs picture' })
+  }
+  const words = typeof prompt === 'string' ? prompt.trim().slice(0, 2000) : ''
+  const name = (typeof title === 'string' && title.trim().slice(0, 80)) || draftTitle(words)
+  const id = randomUUID()
+  try {
+    const uploaded = await uploadImageFromUrl(imageUrl, `design-library/christina/${id}.png`)
+    const slug = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60) || 'design'}-${id.slice(0, 6)}`
+    const { data: product, error } = await supabase
+      .from('products')
+      .insert({
+        name,
+        slug,
+        description: words,
+        price: 24.99,
+        images: [uploaded.publicUrl],
+        category: 'shirts',
+        status: 'draft',
+        print_locations: ['front_image'],
+        sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+        colors: ['Black', 'White'],
+        is_user_generated: false,
+        metadata: {
+          import_source: 'design-library',
+          import_key: `phone:${id}`,
+          collection: 'Christina',
+          design_id: id,
+          gcs_path: uploaded.path,
+          source: 'phone',
+          prompt: words,
+          source_image_url: imageUrl,
+          media_version: 2,
+          imported_at: new Date().toISOString(),
+        },
+      })
+      .select('id')
+      .single()
+    if (error) throw new Error(error.message)
+    const site = (process.env.FRONTEND_URL || 'https://imaginethisprinted.com').replace(/\/$/, '')
+    return res.json({ id: product.id, url: `${site}/admin?tab=designs` })
+  } catch (err: any) {
+    console.error('[print-bridge] design-draft failed:', err?.message || err)
+    return res.status(500).json({ error: 'Could not save the design to the library' })
+  }
+})
 
 export default router
