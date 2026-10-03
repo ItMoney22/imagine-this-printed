@@ -69,5 +69,13 @@
         }
       ]
     }
-  ]
+  ],
+  "git": {
+    "deploymentEnabled": {
+      "**": false,
+      "main": true,
+      "preview/**": true
+    }
+  },
+  "ignoreCommand": "case \"$VERCEL_GIT_COMMIT_REF\" in main|preview/*) exit 1;; *) exit 0;; esac"
 }
