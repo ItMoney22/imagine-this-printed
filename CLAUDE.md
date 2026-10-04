@@ -25,8 +25,10 @@ These rules are mandatory:
 3. **Branches are small and short-lived.** Merge within ~a day via the pre-merge
    gate. No mega-branches: slice big efforts into independently mergeable pieces.
    A branch that outlives a day of divergence strands everyone else's work behind it.
-4. **A push to `main` IS a production deploy** (Render backend+worker and Vercel
-   auto-deploy). Before pushing, confirm `git branch --show-current` says the branch
+4. **A push to `main` IS a production deploy** (Vercel always; the backend API +
+   worker via Render today, via the Fly GitHub Actions workflow
+   `.github/workflows/fly-deploy.yml` once `FLY_DEPLOY_ENABLED` is on — see
+   "Deployment" below). Before pushing, confirm `git branch --show-current` says the branch
    you think you're on — a session that assumes `main` while the checkout sits on a
    feature branch "pushes" nothing and thinks it shipped.
 
@@ -74,7 +76,7 @@ cd scripts && npm run verify
 - **Payments**: Stripe
 - **Canvas**: Konva.js for product design editor
 - **AI**: OpenAI GPT for marketing content generation
-- **Deployment**: Vercel (frontend), Render (backend web service + background worker)
+- **Deployment**: Vercel (frontend); backend API + worker on Render, moving to Fly.io (see "Deployment")
 
 ## Architecture
 
@@ -352,8 +354,36 @@ function MyComponent() {
 
 The project is deployed on the following platforms:
 - **Frontend**: Vite SPA built and served via **Vercel** (automatic deployments triggered by pushes to `main` branch).
-- **Backend (API)**: Express.js server hosted on **Render** as a Web Service.
-- **Worker**: Background processor hosted on **Render** as a Background Worker.
+- **Backend (API)**: Express.js server. Production today: **Render** web service `srv-d7jpgut7vvec739bsid0`. Target: Fly app `imagine-this-printed-api` (`backend/fly.api.toml`, bluegreen, health-gated on `/api/health`).
+- **Worker**: Background processor. Production today: **Render** background worker `srv-d7jppnn7f7vs73bb4p80`. Target: Fly app `imagine-this-printed-worker` (`backend/fly.worker.toml`, rolling, no services, exactly one machine).
+
+Both Fly apps build the same image from `backend/Dockerfile` (build context `backend/`).
+
+### Backend CI/CD (Render -> Fly migration)
+
+Render redeploys itself from `main` while it is production. Fly has no Git
+integration, so `.github/workflows/fly-deploy.yml` replaces that trigger:
+
+- **Trigger**: push to `main` touching `backend/**` or the workflow file, or a manual
+  `workflow_dispatch` (Actions -> "Deploy to Fly" -> Run workflow). Storefront-only
+  commits never rebuild the backend (same as Render's `backend` root-dir filter).
+- **Switch**: repo variable `FLY_DEPLOY_ENABLED`. Anything but `true` -> the run stops at
+  `deploy switch` with a notice and the deploy jobs show **skipped**. It stays off while
+  Render is production, because a deploy would start a second worker against the live
+  DB (the Mrs. Imagine daily scout races). Step 5 of the migration turns it on at
+  cutover: `gh variable set FLY_DEPLOY_ENABLED --body true -R ItMoney22/imagine-this-printed`.
+- **Tokens**: `FLY_API_TOKEN_API` / `FLY_API_TOKEN_WORKER` (per-app deploy tokens,
+  preferred — the repo is public), falling back to a single `FLY_API_TOKEN`. Switch on
+  + no token = the run **fails**, never a silent no-op.
+- **Order + gates** (each a named check; any failure = red run, nonzero exit):
+  1. `backend compiles` — `npm ci && prisma generate && npm run build` on the runner.
+  2. `deploy api + worker` — `fly deploy` the API (health-gated bluegreen), then the
+     worker, then curl `https://imagine-this-printed-api.fly.dev/api/health` for a 200,
+     then assert **exactly one** worker machine is `started` (0 = dead queue, 2+ = racing).
+- **Did my push deploy?** `gh run list -w "Deploy to Fly" -L 3` and
+  `fly releases -a imagine-this-printed-api`. Once Render is gone, a push that shows no
+  Fly run did NOT ship the backend.
+- Full write-up: `docs/migration/render-to-fly/STEP-4-CI-DEPLOY.md`.
 
 Health check endpoints:
 ```bash

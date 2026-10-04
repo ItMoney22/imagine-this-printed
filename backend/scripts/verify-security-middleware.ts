@@ -79,23 +79,85 @@ for (let i = 0; i < 20; i++) {
 check('rate limit: /api/health exempt', healthStatuses.every(s => s === 200), `${healthStatuses.filter(s => s !== 200).length} throttled`)
 
 // --- Trust proxy hop count ---------------------------------------------------
-// Simulate the real chain: client (A) -> Cloudflare (B) -> Render edge (C) ->
-// this app. Cloudflare sets X-Forwarded-For to the client's IP; Render's edge
-// appends its own hop before forwarding internally, so the app sees
-// "A, B" on X-Forwarded-For with the socket peer being C (loopback here,
-// since this is a local ephemeral server).
+// TRUST_PROXY_HOPS is per-HOST, not per-app, and the Render -> Fly migration
+// changes it. Both topologies are asserted here so neither can be broken by
+// copying the other's value:
+//
+//   Render: client (A) -> Cloudflare (B) -> Render's router (C) -> app.
+//           The Cloudflare there is RENDER'S OWN — the zone record for
+//           api.imaginethisprinted.com is proxied:false, yet production
+//           responses carry `server: cloudflare` alongside Render's
+//           `rndr-id`. Two hops, TRUST_PROXY_HOPS=2.
+//   Fly:    client (A) -> Fly proxy -> app. One hop, TRUST_PROXY_HOPS=1
+//           (pinned in backend/fly.api.toml).
+//
+// Express resolves req.ip by walking X-Forwarded-For from the right, treating
+// the n rightmost entries as trusted proxies. So the hop count decides which
+// entry is believed — and an over-count believes one the CALLER supplied.
 const CLIENT_IP = '203.0.113.7' // TEST-NET-3, RFC 5737 — never a real address
 const CF_EDGE_IP = '198.51.100.42' // TEST-NET-2
+const SPOOFED_IP = '192.0.2.99' // TEST-NET-1 — stands in for a forged header
+
 const whoamiRes = await fetch(`${base}/api/whoami`, {
   headers: { 'X-Forwarded-For': `${CLIENT_IP}, ${CF_EDGE_IP}` }
 })
 const whoami = await whoamiRes.json()
 check(
-  'trust proxy=2: req.ip resolves to the real client, not the Cloudflare edge',
+  'render topology (hops=2): req.ip resolves to the real client, not the Cloudflare edge',
   whoami.ip === CLIENT_IP,
   `got ${whoami.ip}, expected ${CLIENT_IP}`
 )
 
 server.close()
+
+// --- Fly topology (hops=1) ---------------------------------------------------
+// Second throwaway app, because `trust proxy` is set once per Express app.
+// Fly's proxy APPENDS the connecting client's address to X-Forwarded-For, so a
+// caller that forges the header ends up with "<forged>, <real>" and the real
+// address is always the rightmost entry.
+const flyApp = express()
+flyApp.set('trust proxy', 1)
+flyApp.get('/api/whoami', (req, res) => res.json({ ip: req.ip }))
+const flyServer = flyApp.listen(0)
+await new Promise<void>(resolve => flyServer.once('listening', () => resolve()))
+const flyBase = `http://127.0.0.1:${(flyServer.address() as AddressInfo).port}`
+
+const flyHonest = await (await fetch(`${flyBase}/api/whoami`, {
+  headers: { 'X-Forwarded-For': CLIENT_IP }
+})).json()
+check(
+  'fly topology (hops=1): req.ip resolves to the client the Fly proxy appended',
+  flyHonest.ip === CLIENT_IP,
+  `got ${flyHonest.ip}, expected ${CLIENT_IP}`
+)
+
+const flySpoofed = await (await fetch(`${flyBase}/api/whoami`, {
+  headers: { 'X-Forwarded-For': `${SPOOFED_IP}, ${CLIENT_IP}` }
+})).json()
+check(
+  'fly topology (hops=1): a forged X-Forwarded-For entry is IGNORED',
+  flySpoofed.ip === CLIENT_IP,
+  `got ${flySpoofed.ip}, expected ${CLIENT_IP} (a client that can forge this mints a fresh rate-limit bucket per request)`
+)
+
+// The failure mode being guarded against, stated as a test: carrying Render's
+// 2 over to Fly makes Express believe exactly the entry the caller forged.
+const wrongApp = express()
+wrongApp.set('trust proxy', 2)
+wrongApp.get('/api/whoami', (req, res) => res.json({ ip: req.ip }))
+const wrongServer = wrongApp.listen(0)
+await new Promise<void>(resolve => wrongServer.once('listening', () => resolve()))
+const wrongBase = `http://127.0.0.1:${(wrongServer.address() as AddressInfo).port}`
+const wrongIp = (await (await fetch(`${wrongBase}/api/whoami`, {
+  headers: { 'X-Forwarded-For': `${SPOOFED_IP}, ${CLIENT_IP}` }
+})).json()).ip
+check(
+  'regression guard: hops=2 on a Fly-shaped chain trusts the forged entry (this is why the value is not portable)',
+  wrongIp === SPOOFED_IP,
+  `got ${wrongIp}, expected ${SPOOFED_IP}`
+)
+
+flyServer.close()
+wrongServer.close()
 console.log(failures === 0 ? '\nAll security middleware checks passed.' : `\n${failures} check(s) failed.`)
 process.exit(failures === 0 ? 0 : 1)

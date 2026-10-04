@@ -17,6 +17,7 @@
 // state (draft/active/blocked/error) used to strand a row in 'processing' or
 // 'pending' forever, invisible to the 'queued'-only poll query.
 import { supabase } from '../lib/supabase.js'
+import { noteTick } from './heartbeat.js'
 import { publishProductToEtsy, isEtsyEnabled } from '../services/etsy.js'
 import { runCopyrightGate } from '../services/etsy-copyright-gate.js'
 import { checkGate, submitForQa } from '../services/design-qa-gate.js'
@@ -35,7 +36,7 @@ export function startEtsyWorker(): void {
     return
   }
   console.log(`[etsy-worker] 🧵 starting Etsy publish worker (poll ${POLL_INTERVAL}ms)`)
-  setInterval(() => { void processEtsyQueue() }, POLL_INTERVAL)
+  setInterval(() => { noteTick('etsy-poll'); void processEtsyQueue() }, POLL_INTERVAL)
   void processEtsyQueue() // run once on boot
   startEtsyReceiptPoller()
 }
