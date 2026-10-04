@@ -25,6 +25,7 @@ import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY, ETSY_SIZE_KEYS } from '../shared/metal-art.js'
+import { COLORS, normalizeColor } from '../shared/catalog-capability.js'
 
 // OpenRouter-first since 2026-08-20 (David's cost pass): copy is a text job
 // Gemini Flash handles for ~nothing, and it rides a SEPARATE wallet — the
@@ -97,7 +98,10 @@ export interface EtsyPack {
   description: string
   price: number
   /** Shirt colors offered as an Etsy Color variation (buyer picks). First one
-   *  is the lead color; model shots rotate through the list. */
+   *  is the lead color; model shots rotate through the list. Derived from
+   *  `metadata.step_flow.colors` (primary + extras) when the Garment step has
+   *  run — see `defaultColorsFor`. Empty for metal art, which has no color
+   *  axis. */
   colors: string[]
   composed_at: string
   model: string
@@ -108,12 +112,65 @@ export interface EtsyPack {
 // string Etsy accepts is fine), this is just the sensible default source.
 const DEFAULT_SECOND_COLOR = 'Black'
 
+/**
+ * How many colors a pack may carry. The capability palette tops out at 7
+ * (backend/shared/catalog-capability.ts), and the Etsy inventory endpoint caps
+ * a listing at 100 offerings — a garment listing sells 11 sizes (S-3XL plus
+ * the youth band), so 7 colors is 77 combos and the widest palette ITP offers
+ * still fits. The old hand-edit cap was 4, which silently threw away colors
+ * 5-7 on any pack the Garment step had legitimately approved.
+ */
+export const MAX_ETSY_COLORS = 7
+
 const titleCaseColor = (c: string) => c.trim().replace(/\s+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
 
+/**
+ * A capability color id ('heather-grey') → the label a shopper reads on the
+ * Etsy dropdown ('Heather Grey'). Falls back to title-casing whatever string
+ * came in, because these values also arrive from legacy rows and hand edits
+ * that were never capability ids. Title-casing ALONE is not enough:
+ * 'heather-grey' would become 'Heather-Grey', which is not a color name.
+ */
+const colorLabel = (c: unknown): string => {
+  const raw = String(c ?? '').trim()
+  if (!raw) return ''
+  const id = normalizeColor(raw)
+  return id ? COLORS[id].label : titleCaseColor(raw)
+}
+
+/**
+ * The Etsy Color variation for a product, in buyer-facing labels.
+ *
+ * `step_flow.colors` is the authoritative answer whenever it exists: the
+ * Garment step (`POST /:id/step/garments`) writes `{ primary, extras }` there
+ * after validating every one against the capability boundary, AND fires a
+ * `color:<id>` model shot for each extra — so the listing's own photos already
+ * show colors this composer used to drop on the floor. Before this, a pack
+ * composed for a White tee with Navy and Sand extras listed White and Black:
+ * the primary plus a hardcoded second color, with the approved extras gone and
+ * a color the admin never picked added in their place.
+ *
+ * Fallback order after that is narrowest-first: `metadata.colors` (the mirror
+ * the Garment step also writes, and what pre-step-flow bulk paths set), then
+ * the single `shirt_color`, then Black. A single color still gets the
+ * historical Black companion so a one-color legacy draft keeps offering two
+ * options; an explicit step-flow selection is taken EXACTLY as chosen — adding
+ * a color David didn't pick is the same defect in the other direction.
+ */
 export function defaultColorsFor(product: any): string[] {
-  const own = titleCaseColor(String(
-    product?.metadata?.shirt_color || product?.metadata?.dtf_settings?.shirt_color || 'Black'
-  ))
+  const meta = product?.metadata || {}
+  const flowColors = meta.step_flow?.colors
+
+  const fromFlow: unknown[] = flowColors?.primary
+    ? [flowColors.primary, ...(Array.isArray(flowColors.extras) ? flowColors.extras : [])]
+    : []
+  const fromMirror: unknown[] = Array.isArray(meta.colors) ? meta.colors : []
+  const picked = fromFlow.length ? fromFlow : fromMirror
+
+  const labels = [...new Set(picked.map(colorLabel).filter(Boolean))].slice(0, MAX_ETSY_COLORS)
+  if (labels.length) return labels
+
+  const own = colorLabel(meta.shirt_color || meta.dtf_settings?.shirt_color || 'Black')
   return [...new Set([own, DEFAULT_SECOND_COLOR])]
 }
 
@@ -134,7 +191,10 @@ const SYSTEM_PROMPT =
   'mobile preview). Then short scannable sections: the design; the shirt (soft unisex tee, vibrant ' +
   'DTF print); a sizing nudge (size up for an oversized fit); made to order + printed in Rockmart, ' +
   'Georgia; care (machine wash cold, inside out). Friendly and concrete. Never invent facts, ' +
-  'materials, or shipping promises.'
+  'materials, or shipping promises. ' +
+  'COLORS: when the brief carries "shirt_colors_offered", name exactly those colors in the shirt ' +
+  'section and say the buyer picks one at checkout. Never name a shirt color that is not in that ' +
+  'list, and never claim a color choice when the field is absent.'
 
 // Metal art variant — same JSON contract, wall-art copy instead of apparel.
 //
@@ -211,6 +271,18 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
   if (!product) throw new Error(`Product ${productId} not found`)
 
   const isMetal = String(product.category) === 'metal-art'
+
+  // A HAND-EDITED color list is the admin's call and survives a recompose.
+  // An auto-derived one is re-derived, because the Garment step may have run
+  // (or added an extra color) since the pack was first composed — keeping the
+  // old list there would leave the listing selling fewer colors than it has
+  // photos for. `edited_at` is the only honest marker of "a human chose
+  // this"; the previous code preferred ANY stored list and so froze the color
+  // axis at whatever the first compose happened to see.
+  const previousPack = (product as any).metadata?.etsy_pack as EtsyPack | undefined
+  const handEditedColors = previousPack?.edited_at && previousPack.colors?.length ? previousPack.colors : undefined
+  const colors = isMetal ? [] : (handEditedColors ?? defaultColorsFor(product))
+
   let fields: { title: string, tags: string[], description: string } | null = null
   if (openai) {
     try {
@@ -227,6 +299,10 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
               description: product.description,
               category: product.category,
               existing_keywords: product.search_keywords,
+              // The colors the listing actually sells, so the description can
+              // point at the real dropdown instead of guessing (or, worse,
+              // naming the one shirt color the mockup happened to use).
+              ...(colors.length ? { shirt_colors_offered: colors } : {}),
               original_prompt: (product as any).metadata?.original_prompt || (product as any).metadata?.image_prompt || null
             })
           }
@@ -242,7 +318,6 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
   }
   if (!fields) fields = mechanicalPack(product)
 
-  const existingColors: string[] | undefined = (product as any).metadata?.etsy_pack?.colors
   const pack: EtsyPack = {
     ...fields,
     // Metal art: base price is the 4x6 anchor; the 8x10 price rides on the
@@ -250,7 +325,7 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
     // Garments anchor by what they are — a hoodie at the tee price is margin
     // handed away on every sale.
     price: etsyAnchorPriceFor(product as any),
-    colors: isMetal ? [] : (existingColors?.length ? existingColors : defaultColorsFor(product)),
+    colors,
     composed_at: new Date().toISOString(),
     model: openai ? COMPOSER_MODEL : 'mechanical'
   }
@@ -293,7 +368,7 @@ export async function saveEtsyPackEdits(
 
   const price = Number(edits.price ?? existing.price)
   const editedColors = Array.isArray(edits.colors)
-    ? [...new Set(edits.colors.map(c => titleCaseColor(String(c))).filter(c => c.length >= 3 && c.length <= 30))].slice(0, 4)
+    ? [...new Set(edits.colors.map(colorLabel).filter(c => c.length >= 3 && c.length <= 30))].slice(0, MAX_ETSY_COLORS)
     : undefined
   // An explicitly empty list is valid (metal art has no color axis) — only
   // fall back to the stored colors when the field wasn't sent at all.

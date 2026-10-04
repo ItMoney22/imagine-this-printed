@@ -52,6 +52,10 @@ import type {
   SuggestedPrintOptions,
 } from './types'
 import { STEP_ORDER } from './types'
+// Same shared metal-art module the Sizes/Listing/Etsy steps already import —
+// the details card's metal source key has to agree with the server's
+// "largest selected size" convention, so it reads the same ordered key list.
+import { STUDIO_SIZE_KEYS } from '../../../backend/shared/metal-art'
 
 // Re-exported so step components can pull everything they need (reducer
 // state/actions AND the wire types they render) from this one module.
@@ -259,14 +263,74 @@ export function getShots(
   return mergeShots(state.stepFlow?.shots, state.assets, state.jobs)
 }
 
+/**
+ * The shot the details card is composed FROM. Mirrors `detailsSourceKey` in
+ * backend/services/step-flow/shots.ts: the single `product` shot for a
+ * garment, and for a metal print the LARGEST selected size's scene (preferring
+ * the largest one that is already `done`, exactly as the server does — the
+ * card renders off whichever scene landed first rather than blocking on a
+ * specific size). Undefined when there is nothing to key off yet.
+ */
+export function detailsSourceKey(
+  shots: Partial<Record<ShotKey, ShotState>>,
+  stepFlow: StepFlowMeta | null
+): ShotKey | undefined {
+  const isMetal = stepFlow?.productKind === 'metal' || stepFlow?.brief?.productKind === 'metal'
+  if (!isMetal) return 'product'
+  const sizes = stepFlow?.sizes ?? []
+  const largestFirst = [...STUDIO_SIZE_KEYS].reverse().filter((s) => sizes.includes(s))
+  if (!largestFirst.length) return undefined
+  const doneSize = largestFirst.find((s) => shots[`scene:${s}` as ShotKey]?.status === 'done')
+  return `scene:${doneSize ?? largestFirst[0]}` as ShotKey
+}
+
+/**
+ * True when the details card on screen was composed from a source shot that
+ * has since been REDONE — i.e. the thumbnail is a card of the previous mockup.
+ *
+ * The server rebuilds the card on the next `GET /:id/step` (resolveStepFlow's
+ * `details` branch re-renders whenever `sourceAssetId !== sourceShot.assetId`),
+ * and it stamps the new source id when it does. So this is both the "pending
+ * re-render" signal for the poll loop and the "don't trust this thumbnail"
+ * signal for the card.
+ *
+ * Without it the card silently went stale: redoing the product shot leaves
+ * `details` at `status: 'done'` (and `approved: true`, if it had been
+ * approved), so once the redo's own job reached a terminal state NOTHING was
+ * queued or running, `hasNonTerminalWork` went false, the poll loop stopped —
+ * and the rebuilt card only ever appeared on a manual page reload. Meanwhile
+ * Continue stayed enabled, so the listing could go to Etsy carrying a details
+ * card of a mockup that no longer existed.
+ */
+export function isDetailsStale(
+  state: Pick<StepFlowState, 'stepFlow' | 'assets' | 'jobs'>,
+  shots: Partial<Record<ShotKey, ShotState>> = getShots(state)
+): boolean {
+  const details = shots.details
+  if (!details || details.status !== 'done' || !details.sourceAssetId) return false
+  const sourceKey = detailsSourceKey(shots, state.stepFlow ?? null)
+  const source = sourceKey ? shots[sourceKey] : undefined
+  // Only a source shot that has actually LANDED a new asset makes the card
+  // stale. Mid-redo (queued/running) the source still carries its previous
+  // assetId, which still matches — the card is a true picture of the mockup
+  // currently on screen until the retake lands.
+  if (!source || source.status !== 'done' || !source.assetId) return false
+  return source.assetId !== details.sourceAssetId
+}
+
 /** True once every fired shot is explicitly settled — approved, or skipped
  *  (the server's persisted ShotState.skipped flag). A bare `failed` status
  *  does NOT count on its own: a failed shot blocks the flow until the admin
- *  hits Skip, so nothing silently ships without that shot. */
+ *  hits Skip, so nothing silently ships without that shot.
+ *
+ *  A STALE details card is not settled either, whatever its stored `approved`
+ *  flag says — that approval was given to a card built from a mockup the
+ *  admin has since replaced. */
 export function areMockupsResolved(state: Pick<StepFlowState, 'stepFlow' | 'assets' | 'jobs'>): boolean {
   const shots = getShots(state)
   const entries = Object.values(shots).filter((s): s is ShotState => !!s)
   if (entries.length === 0) return false
+  if (isDetailsStale(state, shots)) return false
   return entries.every((s) => s.approved || s.skipped === true)
 }
 
@@ -297,6 +361,10 @@ export function hasNonTerminalWork(state: Pick<StepFlowState, 'stepFlow' | 'asse
   // forever with nothing that will ever resolve it, so it must not keep the
   // poll loop running (MockupStep's Skip button is what clears it for good).
   const productFailed = shots.product?.status === 'failed'
+  // A details card whose source shot has been redone is a re-render the
+  // server has not run yet — it is in flight even though nothing carries a
+  // `queued` status, because the rebuild happens inside the next GET.
+  if (!productFailed && isDetailsStale(state, shots)) return true
   return Object.entries(shots).some(([key, s]) => {
     if (!s) return false
     if (key === 'details' && productFailed) return false

@@ -38,3 +38,76 @@ describe('etsyAnchorPriceFor', () => {
     expect(isHoodieProduct({ category: 't-shirts', name: 'Ghost In A Hooded Cloak Tee' })).toBe(false)
   })
 })
+
+// ---------------------------------------------------------------------------
+// Color axis. The Garment step (`POST /:id/step/garments`) validates a primary
+// plus N extras against the capability boundary, writes them to
+// `metadata.step_flow.colors`, AND fires a `color:<id>` mockup for every
+// extra. The composer used to read only `metadata.shirt_color` and pad with a
+// hardcoded 'Black', so a listing whose photos showed five colors sold two —
+// one of which the admin had never picked.
+// ---------------------------------------------------------------------------
+const { defaultColorsFor, MAX_ETSY_COLORS } = await import('./etsy-seo-composer.js')
+
+describe('defaultColorsFor', () => {
+  it('offers the primary plus every approved extra, in buyer-facing labels', () => {
+    expect(
+      defaultColorsFor({
+        metadata: {
+          shirt_color: 'white',
+          step_flow: { colors: { primary: 'white', extras: ['navy', 'heather-grey', 'forest-green'] } },
+        },
+      })
+    ).toEqual(['White', 'Navy', 'Heather Grey', 'Forest Green'])
+  })
+
+  // 'heather-grey' title-cased naively is 'Heather-Grey', which is not a color
+  // name a shopper picks off a dropdown. The capability palette owns the label.
+  it('renders a hyphenated capability id as its real label', () => {
+    expect(defaultColorsFor({ metadata: { step_flow: { colors: { primary: 'heather-grey', extras: [] } } } }))
+      .toEqual(['Heather Grey'])
+  })
+
+  // An explicit step-flow pick is taken EXACTLY as chosen — padding it with a
+  // color David never approved is the same defect as dropping one.
+  it('does not pad an explicit single-color selection with Black', () => {
+    expect(defaultColorsFor({ metadata: { step_flow: { colors: { primary: 'red', extras: [] } } } }))
+      .toEqual(['Red'])
+  })
+
+  it('falls back to the metadata.colors mirror when no step_flow exists', () => {
+    expect(defaultColorsFor({ metadata: { shirt_color: 'black', colors: ['black', 'royal-blue'] } }))
+      .toEqual(['Black', 'Royal Blue'])
+  })
+
+  // Pre-step-flow drafts (bulk create, the classic wizard) only ever had one
+  // color, and the historical Black companion keeps those listings selling two.
+  it('keeps the legacy single-color + Black behaviour', () => {
+    expect(defaultColorsFor({ metadata: { shirt_color: 'white' } })).toEqual(['White', 'Black'])
+    expect(defaultColorsFor({ metadata: {} })).toEqual(['Black'])
+    expect(defaultColorsFor({ metadata: { dtf_settings: { shirt_color: 'navy' } } })).toEqual(['Navy', 'Black'])
+  })
+
+  it('de-duplicates and caps at the Etsy-safe ceiling', () => {
+    const extras = ['white', 'white', 'navy', 'heather-grey', 'red', 'forest-green', 'royal-blue', 'black']
+    const out = defaultColorsFor({ metadata: { step_flow: { colors: { primary: 'black', extras } } } })
+    expect(out.length).toBeLessThanOrEqual(MAX_ETSY_COLORS)
+    expect(new Set(out).size).toBe(out.length)
+    expect(out[0]).toBe('Black')
+  })
+
+  // 7 colors x 11 sizes (S-3XL + the youth band) = 77 offerings, inside Etsy's
+  // 100-per-listing ceiling. Raising this cap without re-checking that product
+  // is how a publish starts failing on inventory.
+  it('caps low enough that the widest palette still fits an Etsy listing', () => {
+    expect(MAX_ETSY_COLORS * 11).toBeLessThanOrEqual(100)
+  })
+
+  // A hand edit survives a recompose; an auto-derived list is re-derived so a
+  // Garment step that ran later is not ignored. (Guards the branch in
+  // composeEtsyPack that used to prefer ANY stored list.)
+  it('ignores an unknown string only as far as title-casing it', () => {
+    expect(defaultColorsFor({ metadata: { step_flow: { colors: { primary: 'sand dune', extras: [] } } } }))
+      .toEqual(['Sand Dune'])
+  })
+})

@@ -8,7 +8,9 @@ import { useStudioLane } from './lane'
 import { COLORS } from '../../../backend/shared/catalog-capability'
 import {
   areMockupsResolved,
+  detailsSourceKey,
   getShots,
+  isDetailsStale,
   type CastingDecision,
   type ShotKey,
   type ShotState,
@@ -187,6 +189,10 @@ const STATUS_STYLE: Record<string, string> = {
   // not an error the admin still needs to look at.
   skipped: 'bg-amber-500/20 text-amber-400',
   blocked: 'bg-red-500/20 text-red-400',
+  // The details card's source mockup was redone, so the card on screen is of
+  // the OLD photo. Blue like `running` because that is exactly what it is —
+  // work in flight — even though the rebuild has no job row of its own.
+  rebuilding: 'bg-blue-500/20 text-blue-400',
 }
 
 /**
@@ -434,6 +440,19 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
   const productFailed = shots.product?.status === 'failed'
   const isOrphanedDetails = (key: ShotKey, shot: ShotState) => key === 'details' && productFailed && !shot.approved
 
+  // The details card is composed FROM another shot, so redoing that shot
+  // leaves this one showing a card of the photo that was just replaced. The
+  // server rebuilds it on the next poll; until it does, the card says so and
+  // cannot be approved. (Without this it kept its green "approved" badge and
+  // its old thumbnail, and Continue stayed enabled — a listing could ship a
+  // details card of a mockup that no longer existed.)
+  const detailsStale = isDetailsStale(state, shots)
+  const isRebuilding = (key: ShotKey) => key === 'details' && detailsStale
+  // Which shot it is being rebuilt FROM, so the line names the card the admin
+  // just redid ("the new product shot" / "the new 8×10 on the wall") instead
+  // of a generic "source".
+  const detailsSourceLabelKey = detailsSourceKey(shots, state.stepFlow) ?? 'product'
+
   // Every fired shot must be explicitly resolved before Continue enables —
   // approved, or skipped (the server-persisted ShotState.skipped flag). A
   // failed (or orphaned-details) shot no longer counts as auto-resolved just
@@ -529,17 +548,26 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
             // back in flight (queued/running), that in-progress status wins
             // over the stale skip flag so the card doesn't read "skipped"
             // while a fresh render is on the way.
-            const inFlight = shot.status === 'queued' || shot.status === 'running'
+            const rebuilding = isRebuilding(key)
+            const inFlight = shot.status === 'queued' || shot.status === 'running' || rebuilding
             const isSkipped = !!shot.skipped && !inFlight
             const canSkip = (shot.status === 'failed' || orphaned) && !isSkipped && !shot.approved
-            const badgeLabel = shot.approved ? 'approved' : isSkipped ? 'skipped' : orphaned ? 'blocked' : shot.status
+            const badgeLabel = rebuilding
+              ? 'rebuilding'
+              : shot.approved ? 'approved' : isSkipped ? 'skipped' : orphaned ? 'blocked' : shot.status
             const job = jobForShot(shot)
             const failedVisual = shot.status === 'failed' || orphaned
             return (
               <div key={key} className="rounded-xl border border-border-subtle overflow-hidden flex flex-col">
                 <div className="aspect-square bg-card-elevated flex items-center justify-center p-3">
                   {shot.url ? (
-                    <img src={shot.url} alt={shotLabel(key)} className="w-full h-full object-contain" />
+                    // Dimmed while rebuilding: this is the card of the photo
+                    // that was just replaced, so it must not read as current.
+                    <img
+                      src={shot.url}
+                      alt={shotLabel(key)}
+                      className={`w-full h-full object-contain transition-opacity ${rebuilding ? 'opacity-40' : ''}`}
+                    />
                   ) : failedVisual ? (
                     <div className="w-full flex flex-col items-center gap-2">
                       <AlertTriangle className="w-6 h-6 text-red-400" />
@@ -581,8 +609,16 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                       Blocked — the product shot failed
                     </p>
                   )}
+                  {rebuilding && (
+                    <p
+                      className="text-[10px] text-blue-400 line-clamp-2"
+                      title="You redid the shot this card is built from. The card below is of the old photo — it is being rebuilt from the new one."
+                    >
+                      Rebuilding from the new {shotLabel(detailsSourceLabelKey).toLowerCase()}
+                    </p>
+                  )}
                   <div className="flex items-center gap-1.5">
-                    {shot.status === 'done' && !shot.approved && (
+                    {shot.status === 'done' && !shot.approved && !rebuilding && (
                       <button
                         type="button"
                         onClick={() => handleApprove(key, shot)}

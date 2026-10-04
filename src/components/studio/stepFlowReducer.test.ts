@@ -2,12 +2,14 @@ import { describe, it, expect } from 'vitest'
 import {
   areMockupsResolved,
   canReachStep,
+  detailsSourceKey,
   furthestReachableStep,
   getDesignCandidates,
   getNobgAsset,
   getShots,
   hasNonTerminalWork,
   initialStepFlowState,
+  isDetailsStale,
   mergeShots,
   stepFlowReducer,
   type StepFlowState,
@@ -761,5 +763,142 @@ describe('areMockupsResolved / hasNonTerminalWork', () => {
       }),
     })
     expect(hasNonTerminalWork(state)).toBe(true)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Details-card freshness after a redo of its source shot.
+//
+// The card is composed FROM the product shot (or, for metal, the largest
+// selected size's scene), so redoing that shot leaves the card showing the
+// photo that was just replaced. The server rebuilds it inside the next
+// `GET /:id/step` — but the redo's own job reaches a terminal state FIRST, so
+// without this signal `hasNonTerminalWork` went false, the poll loop stopped,
+// and the rebuilt card only appeared on a manual page reload. Worse, the card
+// kept its stored `approved` flag, so Continue stayed enabled and the listing
+// could carry a details card of a mockup that no longer existed.
+// ---------------------------------------------------------------------------
+describe('isDetailsStale', () => {
+  const afterProductRedo = (detailsOver: Partial<ShotState> = {}) =>
+    stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          // The retake has LANDED — new asset, terminal status, job done.
+          product: { approved: false, status: 'done', assetId: 'product-v2', url: 'p2.png' },
+          details: { approved: true, status: 'done', assetId: 'd1', url: 'd1.png', sourceAssetId: 'product-v1', ...detailsOver },
+        },
+      }),
+      jobs: [job({ id: 'j-redo', status: 'succeeded' })],
+    })
+
+  it('is true once the redone product shot lands a different asset', () => {
+    expect(isDetailsStale(afterProductRedo())).toBe(true)
+  })
+
+  it('keeps the poll loop alive so the server-side rebuild is actually fetched', () => {
+    expect(hasNonTerminalWork(afterProductRedo())).toBe(true)
+  })
+
+  // Every card approved, so the STALE details is the only thing that can be
+  // holding Continue back — otherwise the assertion passes for the wrong reason.
+  it('blocks Continue — the approval was given to a card of the old photo', () => {
+    const allApproved = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: true, status: 'done', assetId: 'product-v2' },
+          details: { approved: true, status: 'done', assetId: 'd1', sourceAssetId: 'product-v1' },
+        },
+      }),
+    })
+    expect(isDetailsStale(allApproved)).toBe(true)
+    expect(areMockupsResolved(allApproved)).toBe(false)
+    // …and true the moment the rebuilt card stamps the new source id.
+    expect(
+      areMockupsResolved(
+        stateWith({
+          stepFlow: stepFlowMeta({
+            shots: {
+              product: { approved: true, status: 'done', assetId: 'product-v2' },
+              details: { approved: true, status: 'done', assetId: 'd2', sourceAssetId: 'product-v2' },
+            },
+          }),
+        })
+      )
+    ).toBe(true)
+  })
+
+  it('is false again once the rebuilt card stamps the new source id', () => {
+    const state = afterProductRedo({ sourceAssetId: 'product-v2', assetId: 'd2', url: 'd2.png' })
+    expect(isDetailsStale(state)).toBe(false)
+    expect(hasNonTerminalWork(state)).toBe(false)
+    expect(areMockupsResolved(state)).toBe(false) // product itself still needs its approve
+  })
+
+  // Mid-redo the source shot still carries its PREVIOUS assetId, so the card
+  // is still a true picture of what's on screen. Flagging it there would put
+  // every card into "rebuilding" the instant Redo was pressed.
+  it('is false while the redo is still in flight', () => {
+    const state = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: false, status: 'running', assetId: 'product-v1', url: 'p1.png', jobId: 'j-redo' },
+          details: { approved: true, status: 'done', assetId: 'd1', sourceAssetId: 'product-v1' },
+        },
+      }),
+      jobs: [job({ id: 'j-redo', status: 'running' })],
+    })
+    expect(isDetailsStale(state)).toBe(false)
+    // Still polling, but because the redo job itself is running.
+    expect(hasNonTerminalWork(state)).toBe(true)
+  })
+
+  it('is false for a card the server has not stamped a source id onto', () => {
+    const state = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: true, status: 'done', assetId: 'product-v2' },
+          details: { approved: true, status: 'done', assetId: 'd1' },
+        },
+      }),
+    })
+    expect(isDetailsStale(state)).toBe(false)
+  })
+
+  // A failed product shot orphans the card instead of staling it — that path
+  // is the Skip button's, and it must not resurrect the poll loop.
+  it('does not fight the orphaned-details rule when the product shot failed', () => {
+    const state = stateWith({
+      stepFlow: stepFlowMeta({
+        shots: {
+          product: { approved: false, status: 'failed', assetId: 'product-v2', error: 'render failed' },
+          details: { approved: false, status: 'done', assetId: 'd1', sourceAssetId: 'product-v1' },
+        },
+      }),
+    })
+    expect(hasNonTerminalWork(state)).toBe(false)
+  })
+
+  // Metal: no `product` shot exists at all. The source is the largest selected
+  // size's scene, preferring the largest one already done — mirrors
+  // backend/services/step-flow/shots.ts's metalDetailsSourceKey.
+  it('tracks the largest selected size scene for a metal print', () => {
+    const metal = (sourceAssetId: string) =>
+      stateWith({
+        productKind: 'metal',
+        stepFlow: stepFlowMeta({
+          productKind: 'metal',
+          sizes: ['4x6', '8x10'],
+          shots: {
+            'scene:4x6': { approved: true, status: 'done', assetId: 'small-v1' },
+            'scene:8x10': { approved: false, status: 'done', assetId: 'large-v2' },
+            details: { approved: true, status: 'done', assetId: 'd1', sourceAssetId },
+          },
+        }),
+      })
+    expect(detailsSourceKey(getShots(metal('large-v1')), metal('large-v1').stepFlow)).toBe('scene:8x10')
+    expect(isDetailsStale(metal('large-v1'))).toBe(true)
+    expect(isDetailsStale(metal('large-v2'))).toBe(false)
+    // Keyed off the LARGEST, so a redo of the small scene is not what stales it.
+    expect(isDetailsStale(metal('small-v1'))).toBe(true)
   })
 })
