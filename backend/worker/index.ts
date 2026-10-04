@@ -6,6 +6,7 @@ import { startTryOnRetentionSweep } from './tryon-retention-sweep.js'
 import { startMrsImagineDaily } from './mrs-imagine-daily.js'
 import { startStepFlowStallSweep } from './step-flow-stall-sweep.js'
 import { startDeliveryTrackingSweep } from './delivery-tracking-sweep.js'
+import { startHeartbeat } from './heartbeat.js'
 
 // Process-level crash handlers. Node 20 defaults to
 // --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
@@ -58,5 +59,13 @@ startStepFlowStallSweep()
 // SHIPPO_API_TOKEN; logs and stays dark without it. See
 // backend/worker/delivery-tracking-sweep.ts.
 startDeliveryTrackingSweep()
+
+// Liveness. One stdout line a minute carrying uptime, memory and per-loop tick
+// counts. This is the probe for "did Fly park the machine?" — the platform
+// gives no error when it does, and the audit_logs heartbeat behind
+// GET /api/health/worker is only hourly, so up to an hour of a dead worker
+// reads as healthy. An uptime that RESETS in these lines is the tell.
+// See backend/worker/heartbeat.ts and docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md.
+startHeartbeat()
 
 console.log('Worker is running. Press Ctrl+C to stop.')

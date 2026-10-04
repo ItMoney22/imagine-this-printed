@@ -15,6 +15,7 @@ import { addWatermark } from '../services/watermark.js'
 import { extractPalette } from '../services/print-palette.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
 import { monitorHealthAndOrders } from '../services/order-monitor.js'
+import { noteTick } from './heartbeat.js'
 import { sweepMissingSeoPacks } from '../services/seo-pack.js'
 import { claimOnce } from '../lib/webhook-helpers.js'
 import sharp from 'sharp'
@@ -2726,6 +2727,11 @@ export function startWorker() {
 
   // AI job processing (every 5 seconds)
   setInterval(async () => {
+    // Counted BEFORE the work, so a tick that throws still proves the interval
+    // fired. The heartbeat line reports these counters: uptime climbing while
+    // ai-poll stands still is "the process is alive but its poll loop is
+    // dead" — invisible otherwise. See worker/heartbeat.ts.
+    noteTick('ai-poll')
     try {
       await processQueuedJobs()
     } catch (error) {

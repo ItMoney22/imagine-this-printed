@@ -197,6 +197,32 @@ router.get('/gcs', async (req: Request, res: Response): Promise<any> => {
   }
 })
 
+// Proxy-chain diagnostic. The one thing you cannot work out from a config file
+// is how many reverse proxies a given HOST actually puts in front of this
+// process, and that number (TRUST_PROXY_HOPS) decides what req.ip resolves to
+// and therefore what express-rate-limit meters. Render needs 2, Fly needs 1,
+// and orange-clouding a record changes the answer again — so the Render → Fly
+// cutover needs a way to MEASURE it against a live host instead of reasoning
+// about it:
+//
+//     curl https://<host>/api/health/ip
+//
+// If `ip` is the caller's real address, the hop count is right. If it is a
+// platform address, it is too low; if it echoes a value the caller could have
+// forged, it is too high. Discloses nothing the caller did not already send
+// or already know about itself.
+router.get('/ip', (req: Request, res: Response) => {
+  res.status(200).json({
+    ip: req.ip,
+    ips: req.ips,
+    trust_proxy_hops: req.app.get('trust proxy'),
+    x_forwarded_for: req.headers['x-forwarded-for'] ?? null,
+    // Fly's proxy sets this itself and it cannot be spoofed past the edge, so
+    // it is the ground truth to compare `ip` against on Fly.
+    fly_client_ip: req.headers['fly-client-ip'] ?? null,
+  })
+})
+
 // General health check
 router.get('/', async (req: Request, res: Response) => {
   res.status(200).json({ ok: true })

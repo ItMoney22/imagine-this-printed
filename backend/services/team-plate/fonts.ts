@@ -40,7 +40,17 @@ export interface HouseFont {
   note: string
 }
 
-const FONT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../assets/fonts')
+// Same relative offset (services/team-plate/ -> ../../assets/fonts) resolves
+// correctly whether `moduleUrl` is this source file (tsx dev — lands on
+// backend/assets/fonts) or the compiled dist/services/team-plate/fonts.js
+// (lands on dist/assets/fonts, which `scripts/copy-assets.mjs` populates as
+// part of `npm run build`). Exported so both cases are covered by a test
+// without needing an actual build.
+export function resolveFontDir(moduleUrl: string): string {
+  return path.join(path.dirname(fileURLToPath(moduleUrl)), '../../assets/fonts')
+}
+
+const FONT_DIR = resolveFontDir(import.meta.url)
 
 /**
  * The house set.
