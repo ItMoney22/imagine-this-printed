@@ -141,16 +141,29 @@ const app = express()
 const PORT = process.env.PORT || 4000
 const prisma = new PrismaClient()
 
-// Production topology is Cloudflare (orange-clouded, terminates the client's
-// TLS connection) -> Render's own edge/load balancer (terminates again,
-// forwards internally to this container) -> this process. That is TWO
-// reverse-proxy hops, not one — a hop count of 1 would resolve req.ip to
-// Render's internal edge address for every request, collapsing every real
-// client into one rate-limit bucket (see docs/SECURITY_HARDENING.md). This
-// MUST stay a hop count, never `true` — trusting every hop lets a caller
-// spoof X-Forwarded-For and mint a fresh bucket per request. Verified against
-// TRUST_PROXY_HOPS set explicitly in Render's env for this service; the '2'
-// fallback here only covers a misconfigured env, not a different topology.
+// THIS VALUE IS PER-HOST. It counts reverse-proxy hops in front of this
+// process, and every platform has a different number:
+//
+//   Render (today, TRUST_PROXY_HOPS=2 in its env): client -> Cloudflare ->
+//     Render's router -> this container. The Cloudflare in that chain is
+//     RENDER'S OWN, not the imaginethisprinted.com zone — the zone's record
+//     for api.imaginethisprinted.com is proxied:false, yet production
+//     responses carry both `server: cloudflare` and Render's `rndr-id`. Two
+//     hops.
+//   Fly (TRUST_PROXY_HOPS=1, pinned in backend/fly.api.toml): client ->
+//     Fly proxy -> this process. One hop.
+//
+// Getting it wrong is a security bug, not a cosmetic one, because req.ip is
+// what express-rate-limit keys on: too HIGH and Express reads past the
+// platform's own entry into whatever the CALLER put in X-Forwarded-For, so a
+// client can forge a fresh bucket per request (or poison someone else's); too
+// LOW and every request keys on the edge address, collapsing the whole
+// storefront into one bucket. It MUST stay a hop count, never `true`, which
+// trusts the entire header.
+//
+// backend/scripts/verify-security-middleware.ts asserts both topologies,
+// including the spoofed-header case. The '2' fallback here only covers a
+// misconfigured env on the CURRENT host; it is not a default that travels.
 app.set('trust proxy', Number.parseInt(process.env.TRUST_PROXY_HOPS || '2', 10))
 
 // Security response headers (helmet): HSTS, nosniff, frame-deny, no-referrer,
@@ -352,24 +365,67 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   })
 })
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  logger.info('Received SIGINT, shutting down gracefully...')
-  await prisma.$disconnect()
-  process.exit(0)
-})
-
-process.on('SIGTERM', async () => {
-  logger.info('Received SIGTERM, shutting down gracefully...')
-  await prisma.$disconnect()
-  process.exit(0)
-})
-
-// Start server
-app.listen(PORT, () => {
-  logger.info(`🚀 Server running on port ${PORT}`)
+// Start server.
+//
+// The host is explicit. Node's default for listen(port) is the unspecified
+// address, which happens to work on Fly — but "happens to work" is not a
+// deployment contract: Fly's proxy reaches the machine over its private 6PN
+// address, so a process that ever bound to 127.0.0.1 would be invisible to it
+// and every request would 502 with the app looking perfectly healthy in its
+// own logs. 0.0.0.0 states the requirement instead of inheriting it.
+const HOST = process.env.HOST || '0.0.0.0'
+const server = app.listen(Number(PORT), HOST, () => {
+  logger.info(`🚀 Server running on ${HOST}:${PORT}`)
   logger.info(`📡 API available at http://localhost:${PORT}`)
   logger.info(`🏥 Health check: http://localhost:${PORT}/api/health`)
 })
+
+// Graceful shutdown.
+//
+// This used to be `await prisma.$disconnect(); process.exit(0)` with no
+// server.close(), which SEVERS every in-flight request the instant the
+// platform sends SIGTERM: a shopper mid-checkout gets a dropped connection,
+// not a slow response. Render's health-gated rolling deploy hid that by
+// keeping the old instance serving until the new one passed, so the severed
+// requests were rare enough to look like flakiness. Fly sends SIGTERM and
+// then hard-kills after kill_timeout (30 s, pinned in fly.api.toml), so the
+// drain has to be real.
+//
+// Order matters: stop accepting NEW connections first (server.close() lets
+// existing ones finish), then drop the database handle. Disconnecting Prisma
+// first would fail the very requests being drained.
+let shuttingDown = false
+async function shutdown(signal: string) {
+  if (shuttingDown) return          // a second SIGTERM must not race the first
+  shuttingDown = true
+  logger.info(`Received ${signal}, draining connections...`)
+
+  // Fly's kill_timeout is the real ceiling; this self-imposed one is a second
+  // earlier so the process reports its own giving-up instead of vanishing
+  // mid-log when the platform kills it.
+  const graceMs = Number(process.env.SHUTDOWN_GRACE_MS || 25_000)
+  const forced = setTimeout(() => {
+    logger.warn(`Drain exceeded ${graceMs}ms - forcing exit with requests still open`)
+    process.exit(1)
+  }, graceMs)
+  forced.unref()
+
+  const closed = new Promise<void>(resolve => server.close(() => resolve()))
+  // server.close() alone waits for IDLE keep-alive sockets too — browsers hold
+  // those open for a minute — so without this the drain would time out on
+  // every deploy even with zero real work in flight. This closes the idle
+  // ones immediately and leaves sockets mid-request alone.
+  server.closeIdleConnections()
+  await closed
+  logger.info('HTTP server closed, no connections left in flight')
+
+  await prisma.$disconnect()
+  clearTimeout(forced)
+  logger.info('Shutdown complete')
+  process.exit(0)
+}
+
+process.on('SIGINT', () => { void shutdown('SIGINT') })
+process.on('SIGTERM', () => { void shutdown('SIGTERM') })
 
 export default app

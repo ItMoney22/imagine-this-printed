@@ -5,7 +5,7 @@
   "type": "module",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-assets.mjs",
     "typecheck": "tsc --noEmit",
     "verify:security": "tsx scripts/verify-security-middleware.ts",
     "prestart": "node ./scripts/check-jose.js",

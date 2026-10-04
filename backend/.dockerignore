@@ -1,0 +1,55 @@
+# Build context is backend/. Everything here is either rebuilt inside the
+# image, useless to it, or actively dangerous inside it.
+
+# ── NON-NEGOTIABLE ────────────────────────────────────────────────────────
+# backend/load-env.ts is the FIRST import of both entry points and calls
+# dotenv.config({ override: true }). A .env file baked into this image would
+# therefore BEAT every value set with `fly secrets set`, silently, with
+# nothing logged — a stale key or a dev Supabase URL running production.
+# On Render this could not happen (.env is gitignored and never reaches the
+# build). On Fly the Docker context is the working tree, so it can.
+.env
+.env.*
+*.env
+!.env.example
+
+# ── rebuilt in the image ──────────────────────────────────────────────────
+node_modules
+dist
+.prisma
+
+# ── never belongs in a runtime image ──────────────────────────────────────
+.git
+.gitignore
+.github
+Dockerfile
+.dockerignore
+fly.api.toml
+fly.worker.toml
+fly.toml
+railway.toml
+railway.worker.toml
+nixpacks.toml
+Procfile
+ecosystem.config.cjs
+dev-with-worker.bat
+dev-with-worker.sh
+
+# tests and their fixtures — the build excludes *.test.ts from tsc anyway
+**/*.test.ts
+**/*.spec.ts
+
+# one-off diagnostics and docs that were never part of the deployed service
+check-*.cjs
+check-*.js
+check-*.mjs
+test-*.ts
+*.md
+
+# editor / OS noise
+.vscode
+.idea
+.DS_Store
+Thumbs.db
+npm-debug.log*
+*.log

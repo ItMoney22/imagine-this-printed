@@ -4252,3 +4252,265 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+### File shortlist (approved scope — 2026-09-22 team-plate font path fix, Watchtower 3a3455f7)
+- `backend/services/team-plate/fonts.ts` (+ fonts.test.ts) — testable FONT_DIR
+  resolution
+- `backend/scripts/copy-assets.mjs` (new) — postbuild copy + loud verification
+  of `dist/assets/fonts`
+- `backend/package.json` — wire the copy into `build`
+- `TASK_NOTES.md`
+- Out of scope: `backend/Dockerfile` does not exist in this worktree — it only
+  exists, uncommitted to main, on `earth/levi-james/step-2-6-author-fly-toml-
+  0f33268f-mucglvkn`. Noted in the handoff + a follow-up task instead of
+  touching a file this branch doesn't own.
+
+### Work log (append-only) — 2026-09-22 font path fix
+- Confirmed the bug: `backend/package.json`'s `build` script was plain `tsc`,
+  which never copies `.ttf` files, so `dist/assets/fonts` never existed after
+  a real build (Render runs exactly this script; there is no Dockerfile in
+  the live path today, so this was live-broken independent of the Fly
+  migration).
+- Fix: `backend/scripts/copy-assets.mjs` (new) copies `assets/` -> `dist/assets/`
+  after `tsc` and fails the build loudly (non-zero exit) if the expected
+  `.ttf` count doesn't land — build script is now
+  `"build": "tsc && node scripts/copy-assets.mjs"`. `fonts.ts`'s FONT_DIR
+  resolution logic was already correct (relative to the compiled/executing
+  file); the offset math was never the bug, the missing copy step was.
+- Refactored FONT_DIR into an exported `resolveFontDir(moduleUrl)` purely so
+  the resolution logic is unit-testable against a simulated dist/ location
+  without needing a real build in the fast test suite.
+- Verified for real, not just unit tests: ran the actual `npm run build`
+  chain (`tsc` then `copy-assets.mjs`), then dynamically imported the
+  COMPILED `dist/services/team-plate/fonts.js` and called `loadFont` — it
+  loaded a real house face with no ENOENT. This is the exact production
+  failure mode, proven fixed against the real compiled artifact, not a mock.
+- `npx tsc` in this worktree fails with pre-existing TS2742 errors in
+  `middleware/rate-limits.ts` (unrelated file, untouched here) caused by this
+  worktree's `node_modules` being a symlink to the shared checkout outside
+  `rootDir` — a worktree-tooling artifact, not a real prod issue (Render's
+  `npm ci` gives a real non-symlinked `node_modules` inside `rootDir`). `tsc`
+  still emits `.js` output despite the non-zero exit, which is how the
+  end-to-end proof above was run manually. Confirmed via `git diff` that
+  `rate-limits.ts` has zero changes from this session — pre-existing, out of
+  scope.
+- Tests: added 2 tests to `fonts.test.ts` (dev-path resolves to a real
+  `backend/assets/fonts` on disk; compiled-path resolves to the equivalent
+  `dist/assets/fonts` shape). `vitest run services/team-plate/` → 6 files /
+  86 tests green. Full backend `vitest run` → 92/93 files green, 1492/1495
+  tests green; the 3 failures are all in `etsy-copy-repair.test.ts`, a file
+  this session never touched (confirmed via `git diff`) — pre-existing,
+  unrelated, out of scope.
+- `backend/Dockerfile` (only on levi-james's unmerged Fly branch) has a
+  `RUN cp -R assets dist/assets` + a runtime `COPY --from=build /app/assets
+  ./assets` that become redundant once this fix merges (the build now
+  produces `dist/assets/fonts` itself, which is the only path FONT_DIR ever
+  resolves to). Left untouched — not in this worktree/branch's tree — and
+  filed as a follow-up task instead.
+
+---
+
+## Current request (2026-09-22) — Render → Fly migration, Step 1/6: inventory + provision
+
+Watchtower task `45975c35-fde4-4174-a600-ee7489710eb2` (parent umbrella
+`291fcf82-d89a-4848-af42-2ab70d5ec57d`). Agent: Levi James.
+
+Capture the exact live configuration of both Render services, audit the worker's
+job graph, and provision two idle Fly apps in the Supabase region. Zero traffic
+moves in this step; Render and DNS stay untouched.
+
+### File shortlist (approved scope — 2026-09-22 Render→Fly Step 1)
+
+The prior shortlist in this file belonged to the 2026-09-17 Etsy review and did
+not cover this work, so per CLAUDE.md the scope is updated here before editing.
+Rationale: Step 1 is read-only against the application — it produces documentation
+plus two staged deploy manifests, and touches no runtime code.
+
+- `docs/migration/render-to-fly/STEP-1-INVENTORY.md` (new) — the inventory
+- `backend/fly.api.toml` (new) — staged, not deployed
+- `backend/fly.worker.toml` (new) — staged, not deployed
+- `TASK_NOTES.md` (this entry)
+- Read-only: `backend/worker/*.ts`, `backend/index.ts`, `backend/load-env.ts`,
+  `backend/package.json`, `backend/services/order-tracking-*.ts`,
+  `backend/routes/health.ts`
+
+### Work log (append-only)
+
+- Pulled both services live from the Render REST API rather than trusting any
+  existing doc. 61 env var names on the API, 50 on the worker (the API's set
+  minus 11). No disks, no env groups, no Render cron jobs — every recurring task
+  is an in-process `setInterval` in the worker.
+- **There is no `render.yaml` in this repo.** Both services are dashboard-only
+  configuration, so `STEP-1-INVENTORY.md` is now the sole cold-rebuild record.
+  `railway.backend.toml` is a dead NIXPACKS leftover, not what production uses.
+- Established the Supabase region by evidence, not assumption: the live
+  `DATABASE_URL` points at `aws-0-us-east-2.pooler.supabase.com`, which resolves
+  through an `elb.us-east-2.amazonaws.com` load balancer → AWS us-east-2, Ohio.
+  Render runs in `oregon`, ~2,000 mi away. Fly has no Ohio region; `ord`
+  (Chicago, ~300 mi) is the nearest, `iad` (~400 mi) the fallback.
+- Worker audit: the brief lists 7 jobs, `index.ts` starts 6. Both are right —
+  `etsy-receipt-ingest` is started *inside* `etsy-jobs-worker.ts:40`, invisible
+  to anyone reading the entry file. All 7 accounted for, with cadences.
+- None of the worker's tuning/gating env vars are set on Render; all 7 jobs run
+  on code defaults. Recorded so nobody sets them on Fly and changes behaviour —
+  `MRS_IMAGINE_DAILY=true` in particular would re-arm the batch David turned off
+  on 2026-09-02.
+- Traced overlap safety job by job, because a zero-downtime worker cutover needs
+  it: 6 of 7 are safe to run twice (atomic claims on ai_jobs and etsy_listings,
+  `claimDelivered()`'s `.neq('status','delivered')` making the buyer's thank-you
+  email exactly-once, a UNIQUE `orders.order_number` + `23505` catch on receipt
+  ingest, and two idempotent sweeps). The exception is `mrs-imagine-daily`: its
+  guard is a SELECT-then-run race. It only fires in the 11:00 UTC hour, so cut
+  over outside that window or gate it for the overlap.
+- Three pre-existing risks surfaced that Step 2 should absorb: the API's SIGTERM
+  handler calls `process.exit(0)` with no `server.close()` (in-flight requests
+  are severed on every deploy); `load-env.ts`'s `dotenv.config({ override: true })`
+  means a stray `.env` inside a Docker image would silently beat every Fly
+  secret; and `app.listen(PORT)` binds without an explicit host.
+- Production is running `91811ccb` (2026-09-11) while local `main` is **31
+  commits ahead, unpushed**. `fly deploy` builds from the working tree, so Step 5
+  would otherwise ship a quarter of unreleased work at the same moment traffic
+  moves hosts. Filed as a decision for David before Step 5.
+- Verified `npx prisma generate` succeeds with `DATABASE_URL` unset — so the
+  build needs no build-time secret, which matters because Fly secrets are
+  runtime-only while Render's env vars are available at build time.
+- Provisioned `imagine-this-printed-api` and `imagine-this-printed-worker` in the
+  `personal` Fly org. Both confirmed at zero machines, zero IPs, zero secrets —
+  nothing running, nothing billable, no address that could take traffic. Region
+  pinned as `primary_region = "ord"` in the two staged manifests (Fly apps have
+  no region of their own; only machines do). Both manifests pass
+  `flyctl config validate`.
+- Production untouched and verified after the work: `/api/health` → 200
+  `{"ok":true}`, `/api/health/worker` → `alive`, the
+  `api.imaginethisprinted.com` CNAME still points at
+  `imagine-this-printed-backend.onrender.com`, both Render deploys still `live`.
+  Only `GET` calls were made against the Render API.
+
+
+---
+
+## Step 2/6 — Fly deploy configuration (2026-09-22, Levi James, Watchtower 0f33268f)
+
+Deliverable: `docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md`. Continues
+Step 1 (`45975c35`) on the same branch — the Step-1 commits were fast-forwarded
+in so the whole migration lands as one mergeable unit instead of two branches
+that conflict on the same two manifests.
+
+### File shortlist (approved scope — Step 2 Fly config)
+- `backend/Dockerfile` (new), `backend/.dockerignore` (new)
+- `backend/fly.api.toml`, `backend/fly.worker.toml` (from Step 1, rewritten)
+- `backend/worker/heartbeat.ts` + `backend/worker/heartbeat.test.ts` (new)
+- `backend/worker/index.ts`, `backend/worker/ai-jobs-worker.ts`,
+  `backend/worker/etsy-jobs-worker.ts` (heartbeat wiring only)
+- `backend/index.ts` (SIGTERM drain, explicit host bind, trust-proxy comment)
+- `backend/routes/health.ts` (`GET /api/health/ip` diagnostic)
+- `backend/scripts/verify-security-middleware.ts` (Fly topology assertions)
+- `.github/workflows/fly-deploy.yml` (new, disabled by default)
+- `docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md` (new), `TASK_NOTES.md`
+
+### Work log (append-only)
+- Wrote one multi-stage `backend/Dockerfile` serving BOTH services — same image,
+  different command — reproducing Render's buildpack exactly (`npm ci
+  --include=dev`, `npx prisma generate`, `npm run build`). Build context is
+  `backend/`, matching Render's `rootDir`. 155 MB, Node 22, runs as `node`.
+- Gave the image a build-time self-check (`require('@prisma/client')`,
+  `require('sharp')`, count the fonts) because all three fail *silently* until
+  production: the generated Prisma client has to be copied from the build stage
+  (the CLI is a devDependency), sharp's native binary rides in as an optional
+  dependency, and the fonts are moved by a `cp` no compiler validates.
+- **Found a live bug while doing that.** `services/team-plate/fonts.ts` resolves
+  its font dir relative to the COMPILED file — `dist/services/team-plate/` →
+  `../../assets/fonts` → `dist/assets/fonts` — and `tsc` copies no `.ttf`. That
+  directory does not exist on Render either, so every bundled typeface fails to
+  load in production today. The image copies `assets` to both `/app/assets` and
+  `/app/dist/assets`; the real path fix is filed as its own task, not smuggled
+  into a migration.
+- `backend/.dockerignore` excludes `.env*` as a correctness requirement:
+  `load-env.ts` calls `dotenv.config({ override: true })` as the first import of
+  both entry points, so a `.env` baked into the image would beat every
+  `fly secrets set` value with nothing logged.
+- Worker autostop: the brief asked for `auto_stop_machines = false` +
+  `min_machines_running = 1` on the worker. **Those keys do not exist outside a
+  service block** and flyctl rejects them at the top level. The real Fly
+  equivalent is the ABSENCE of `[http_service]`/`[[services]]` (auto-stop is a
+  proxy feature — no service, no idle timer), plus no public IP,
+  `fly scale count worker=1` and `[[restart]] policy='always'`. Documented in
+  the manifest itself so nobody "fixes" it later by adding a service block.
+- Added `backend/worker/heartbeat.ts`: one stdout line a minute carrying
+  **uptime**, rss and per-loop tick counters, plus a late-beat warning. Uptime is
+  the point — a bare "worker alive" line cannot distinguish six hours of uptime
+  from four parkings and restarts, and that is precisely the failure Fly
+  introduces. Wired `noteTick()` into the AI (5 s) and Etsy (15 s) poll loops so
+  "alive but not working" is distinguishable from "alive and working".
+- Fixed the SIGTERM drain in `backend/index.ts` (Step 1 flagged it): now
+  `server.close()` + `closeIdleConnections()` (without which the drain would time
+  out on every deploy waiting on browser keep-alives) → in-flight requests finish
+  → Prisma disconnects, with a 25 s self-imposed ceiling under Fly's 30 s
+  `kill_timeout`. Bind is now explicitly `0.0.0.0`.
+- `TRUST_PROXY_HOPS`: Step 1 said the API is not behind Cloudflare (zone record
+  is `proxied:false`) while the code comment said it was. **Both were half
+  right** — production responses carry `server: cloudflare` AND Render's
+  `rndr-id`, so the Cloudflare in that chain is RENDER'S, not David's zone. Fly
+  is one hop; pinned `TRUST_PROXY_HOPS = '1'` and extended
+  `verify-security-middleware.ts` to assert both topologies plus the forged-header
+  case. Carrying Render's `2` to Fly is not merely wrong, it is exploitable: a
+  caller could forge `X-Forwarded-For` and mint a fresh rate-limit bucket per
+  request. Added `GET /api/health/ip` so Step 4/5 can MEASURE the chain on a live
+  host instead of arguing about it.
+- `.github/workflows/fly-deploy.yml` replaces Render's git-push auto-deploy
+  (CLAUDE.md rule 4 goes false the moment traffic moves). Disabled behind a
+  repo variable AND a missing secret, so merging this branch cannot deploy
+  anything; it also asserts the worker machine is `started`, not parked, after
+  each deploy.
+- Verified: both manifests pass `flyctl config validate` against the real Fly
+  API; the image builds on Fly's remote builder from BOTH configs with the
+  self-check passing (`prisma, sharp, 8 fonts`); `npm run verify:security` all
+  green including the four new proxy assertions; `vitest` 64 tests / 9 files
+  green; the compiled heartbeat emits climbing uptime from `dist/`. Production
+  was only ever read (one `GET /api/health`). NOT verifiable until Step 4
+  deploys: the drain end-to-end, the 1-hour no-autostop run, and the hop count
+  against a live Fly host.
+
+---
+
+## Dockerfile font-copy cleanup (2026-09-22, Amelia Chan, Watchtower 54ca0382)
+
+Jessica's `814fcd3` makes `npm run build` populate `dist/assets/fonts`. The
+manual copies in the Fly Dockerfile were a workaround for the old `tsc`-only
+build. This branch did not contain that Dockerfile (it lives only on Levi's
+unmerged Fly branch), and `814fcd3` was not on main. Did not wait for main
+and did not rebase Levi's commits.
+
+### File shortlist (approved scope — 2026-09-22 Dockerfile font cleanup)
+- `backend/Dockerfile` — drop the redundant font copies, keep the build and
+  the self-check
+- `docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md` — the fonts bullet
+  still told the next reader to copy `/app/assets` as well
+- `TASK_NOTES.md`
+- Brought in, not rewritten: `814fcd3` (fast-forward) and Levi's Fly branch
+  `d6b0831` (merge; `TASK_NOTES.md` was the only conflict, both logs kept)
+
+### Work log (append-only)
+- Fast-forwarded this dispatch branch onto `814fcd3`. `backend/package.json`
+  `build` is `tsc && node scripts/copy-assets.mjs`.
+- Merged `earth/levi-james/step-2-6-author-fly-toml-0f33268f-mucglvkn`
+  (`d6b0831`) so the Dockerfile existed. Assumption: a merge, not a rebase,
+  keeps Levi's commits intact for Git Audit. This branch is now a superset of
+  that Fly work plus the font-copy fix. Do not merge it to main as if it were
+  only a Dockerfile tweak.
+- Removed `RUN cp -R assets dist/assets` and
+  `COPY --from=build /app/assets ./assets`. Kept `RUN npm run build`,
+  `COPY --from=build /app/dist ./dist`, and the runtime self-check that
+  counts `dist/assets/fonts`.
+- `fonts.ts` resolves the typefaces from the compiled file only, so the
+  runtime image does not read `/app/assets`.
+- Verified with a real `docker build` of `backend/` (legacy builder, no
+  BuildKit). `npm run build` logged `copied assets/ -> dist/assets/ (8 fonts)`.
+  The image self-check printed `image self-check OK — prisma, sharp, 8 fonts`.
+  A throwaway container of the finished image reported `dist_fonts=8` and
+  `root_assets_exists=false`. Image `ba9fe6c4d464`, tag
+  `itp-backend:font-simplify`, local only, not pushed, not deployed.
+- Windows has no `docker` on PATH. The Ubuntu WSL daemon was already running;
+  the login user is not in the `docker` group, so the build was driven as
+  root inside that distro. Fly CLI has no token here, so this was not a
+  remote Fly build and nothing was released.

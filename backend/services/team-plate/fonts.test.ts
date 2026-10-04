@@ -1,5 +1,40 @@
+import { existsSync, readdirSync } from 'node:fs'
+import path from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { describe, it, expect } from 'vitest'
-import { HOUSE_FONTS, loadFont, measureWith, missingGlyphs, resolveHouseFont } from './fonts.js'
+import {
+  HOUSE_FONTS,
+  loadFont,
+  measureWith,
+  missingGlyphs,
+  resolveFontDir,
+  resolveHouseFont,
+} from './fonts.js'
+
+describe('resolveFontDir', () => {
+  it('resolves the real dev (tsx) source path to backend/assets/fonts on disk', () => {
+    // This IS the dev case: fonts.test.ts runs from this very source file
+    // via tsx/vite, same as fonts.ts does at runtime in `npm run dev`.
+    const dir = resolveFontDir(import.meta.url)
+    expect(existsSync(dir)).toBe(true)
+    const ttfs = readdirSync(dir).filter((f) => f.endsWith('.ttf'))
+    expect(ttfs.length).toBe(HOUSE_FONTS.length)
+  })
+
+  it('resolves relative to a compiled dist/ location the same way it resolves in dev', () => {
+    // Simulates the production case (dist/services/team-plate/fonts.js)
+    // without requiring an actual `tsc` build: same relative offset, a
+    // different base file. This is the exact shape that shipped broken —
+    // the offset was always correct, `dist/assets/fonts` just never existed
+    // until `scripts/copy-assets.mjs` started populating it in `build`.
+    const backendDir = path.dirname(path.dirname(path.dirname(fileURLToPath(import.meta.url))))
+    const simulatedDistFile = path.join(backendDir, 'dist', 'services', 'team-plate', 'fonts.js')
+    const distDir = resolveFontDir(pathToFileURL(simulatedDistFile).href)
+    expect(path.basename(distDir)).toBe('fonts')
+    expect(path.basename(path.dirname(distDir))).toBe('assets')
+    expect(path.dirname(path.dirname(distDir))).toBe(path.join(backendDir, 'dist'))
+  })
+})
 
 describe('HOUSE_FONTS', () => {
   it('ships the faces a team shirt actually needs', () => {
