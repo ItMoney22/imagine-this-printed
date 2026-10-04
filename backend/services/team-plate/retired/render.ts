@@ -1,3 +1,6 @@
+// RETIRED FROM THE ORDER PATH (2026-09-22).
+// plate-store.ts no longer calls renderTeamPlate. Orders go through lettering.ts.
+//
 // Team plate — the composite.
 //
 // ONE function draws both the live preview and the press file, at different
@@ -11,7 +14,7 @@
 // when pressing). A preview that ran it would put the screen dots on the
 // product page. See print-prep.ts.
 import sharp from 'sharp'
-import type { TeamTemplate } from '../../shared/team-template.js'
+import type { TeamTemplate } from '../../../shared/team-template.js'
 import { buildLayerSvg } from './svg.js'
 
 export interface PlateSource {

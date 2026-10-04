@@ -19,17 +19,20 @@ import { requireAdmin } from '../middleware/requireAdmin.js'
 import { uploadFile } from '../services/gcs-storage.js'
 import { parseTeamTemplate, sanitizeValues, TEAM_TEMPLATE_VERSION } from '../shared/team-template.js'
 import { renderOrGetCached, forgetTemplateLayers } from '../services/team-plate/plate-store.js'
-import { HOUSE_FONTS, loadFont, missingGlyphs } from '../services/team-plate/fonts.js'
+import { HOUSE_FONTS, loadFont, missingGlyphs } from '../services/team-plate/retired/fonts.js'
 import { deriveZonesAndDistress, erasePlate, eyedropColours } from '../services/team-plate/authoring.js'
 
 const router = express.Router()
 
-/** Preview width. Big enough to judge lettering on a phone, small enough to be free. */
+/** Preview width. A downscale of the press file, not a second model call. */
 const PREVIEW_WIDTH = 900
 
+// Each cache miss is a paid flare edit plus an upscale. A person naming a
+// roster is fine; a tight loop is not. Cache hits still count, and a human
+// cannot usefully request more than this while each miss takes about a minute.
 const previewLimiter = rateLimit({
   windowMs: 60_000,
-  limit: 60,
+  limit: 12,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many previews, give it a second.' },

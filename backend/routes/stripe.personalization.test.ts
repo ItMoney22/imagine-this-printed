@@ -129,6 +129,16 @@ describe('checkout personalization', () => {
     expect(renderCalls[0].values).toEqual({ name: 'SMSCRIPTITH', number: '22' })
   })
 
+  it('propagates review flags and still stores a durable gcs path', async () => {
+    await replaceOrderItems('order-1', [line({ personalization: { name: 'FUCK', number: '22' } })], req)
+    const meta = insertedRows[0].metadata
+    expect(meta.personalization_flags).toEqual([
+      { field: 'name', reason: 'contains "fuck" — check before pressing' },
+    ])
+    expect(meta.print_file_path).toBe('users/team-plates/ai-generated/name=FUCK&number=22.png')
+    expect(String(meta.print_file_path).startsWith('http')).toBe(false)
+  })
+
   it('renders at press width, not preview width', async () => {
     await replaceOrderItems('order-1', [line()], req)
     expect(renderCalls[0].width).toBe(3600)

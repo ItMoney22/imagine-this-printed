@@ -1,3 +1,7 @@
+// RETIRED FROM THE ORDER PATH (2026-09-22).
+// Fitting and arch maths served the vector plate. Orders no longer import this.
+// Kept so the geometry tests still pin the old engine.
+//
 // Team plate — text fitting and arch geometry.
 //
 // Pure math, no I/O, no font files: everything here takes a `measure` callback

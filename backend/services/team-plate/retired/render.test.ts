@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import sharp from 'sharp'
 import { renderTeamPlate } from './render.js'
-import type { TeamTemplate } from '../../shared/team-template.js'
+import type { TeamTemplate } from '../../../shared/team-template.js'
 
 const CANVAS = { w: 1200, h: 1600, dpi: 300 }
 

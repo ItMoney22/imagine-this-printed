@@ -39,12 +39,9 @@ export const ERASE_PROMPT = [
 /**
  * Erase the sample lettering to leave a clean plate.
  *
- * This is the ONE place an image model is allowed near this feature, and it is
- * allowed here for a specific reason: the model returns ~1024-1536px and the
- * plate has to reach 3600x4800, but a plate is SPLATTER AND HALFTONE, not
- * letterforms. Texture survives a 3x upscale; a "9" does not. That asymmetry is
- * the entire argument (see the design doc) for keeping the AI at authoring time
- * and out of the per-order path.
+ * Authoring-time erase only. Per-order names are not drawn here — lettering.ts
+ * sends the tagged back to gpt-image-2.5-flare and upscales the result. This
+ * erase still exists so an operator can build zones from a clean plate.
  *
  * The operator can always upload a clean plate instead — and should, when the
  * layered source file exists, because hiding two layers beats any erase.

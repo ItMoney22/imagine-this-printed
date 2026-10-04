@@ -238,7 +238,8 @@ function snapshotCartItems(items: any[] | undefined | null) {
 // URL. Neither is trusted here. The template is re-read from the DATABASE (the
 // cart's copy of product.metadata is client-supplied and could say anything),
 // the values are re-sanitized with the same server-side rules the preview used,
-// and the press file is re-rendered from those. A client-supplied file URL is
+// and the press file is regenerated from those (flare edit, then crisp upscale,
+// cached on the name and number). A client-supplied file URL is
 // ignored outright — otherwise anyone could point an order's print file at an
 // image of their choosing.
 //

@@ -1,9 +1,9 @@
 // Team shirt personalization — the customer-facing panel.
 //
 // Shown on /product/:id when the product carries a team template. The customer
-// types a name and a number; the back plate re-renders as they type and the
-// picture they approve is literally the file the press receives (same render
-// function, different width — see backend/services/team-plate/render.ts).
+// types a name and a number; the back is redrawn by the same flare + upscale
+// path the press file uses. The preview is a downscale of that file, not a
+// second drawing (backend/services/team-plate/plate-store.ts).
 //
 // TWO THINGS THIS DELIBERATELY GETS RIGHT
 //
@@ -15,9 +15,8 @@
 //      keystroke, which reads to a customer as a broken store.
 //
 //   2. NO SPINNER. David, 2026-09-02: any waiting UI is a themed animated
-//      progress bar with stage text and elapsed time. Most renders are cached
-//      and return in ~150ms, so the bar is only ever seen on a genuinely new
-//      name.
+//      progress bar with stage text and elapsed time. A new name is a paid
+//      redraw and takes about a minute. The same name again is a cache hit.
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Type } from 'lucide-react'
 import { apiFetch } from '../lib/api'
@@ -47,8 +46,8 @@ interface Props {
 }
 
 const DEBOUNCE_MS = 400
-/** A fresh render is ~150ms warm; this is the honest ceiling for a cold one. */
-const EXPECTED_MS = 1500
+/** A new name is a flare edit plus an upscale, about a minute. A repeat is a cache hit. */
+const EXPECTED_MS = 75_000
 
 /** Mirrors backend/shared/team-template.ts sanitizeFieldValue. The server
  *  sanitizes again at preview AND at checkout — this only keeps the input box
@@ -166,7 +165,7 @@ const TeamPersonalizePanel: React.FC<Props> = ({ productId, template, values, on
             />
           </div>
           <p className="text-xs text-muted">
-            Drawing your name on the back… {(elapsed / 1000).toFixed(1)}s
+            Redrawing your name onto the back. This is the print file, so it takes about a minute… {(elapsed / 1000).toFixed(0)}s
           </p>
         </div>
       )}

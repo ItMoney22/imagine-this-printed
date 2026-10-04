@@ -5,6 +5,8 @@
 **Status:** approved by David, ready to implement
 **Branch:** `earth/zero-nine/team-shirt-personalization`
 
+> **Superseded 2026-09-22 for the per-order lettering engine.** Orders edit the tagged back with `gpt-image-2.5-flare` and upscale through `recraft-crisp-upscale` (`backend/services/team-plate/lettering.ts`, cached in `plate-store.ts`). The vector modules now live in `backend/services/team-plate/retired/` and are not on the order path. Authoring (erase, zones, colours) below still describes the admin tools.
+
 ---
 
 ## 1. The request

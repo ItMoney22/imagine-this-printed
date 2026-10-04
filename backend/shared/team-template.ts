@@ -5,14 +5,14 @@
 // ... the flow needs to be there for other team shirts we do since this isnt
 // the only shirt we do for sports."
 //
-// A template turns one existing back design into a personalizable one: the
-// fixed art (splatter, halftone, helmet) is stored once with the sample
-// lettering erased, and the customer's name/number are drawn per order as real
-// vector glyphs at full press resolution. See
-// docs/plans/2026-09-21-team-shirt-personalization-design.md for why the
-// per-order lettering is NOT an AI edit (short version: a 12x16in back at 300
-// DPI is 3600x4800px, the gpt-image edit endpoint returns ~1024-1536px, and
-// upscaling invented letterforms is exactly where a 9 stops being a 9).
+// A template turns one existing back design into a personalizable one.
+// The customer's name and number are regenerated per order: gpt-image-2.5-flare
+// edits the tagged back and recraft-crisp-upscale brings it up to the press
+// canvas (services/team-plate/lettering.ts). David 2026-09-22 chose that over
+// the vector plate because the letters stay cleaner. The 2026-09-21 design doc
+// had rejected a per-order edit on resolution; print-resolution.ts is what
+// closes that gap. The vector modules live in services/team-plate/retired/
+// and are not on the order path.
 //
 // Lives in backend/shared/ — the established frontend/backend shared-code
 // convention (metal-art.ts, catalog-capability.ts, product-gallery.ts) — so the

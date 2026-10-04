@@ -1,3 +1,6 @@
+// RETIRED FROM THE ORDER PATH (2026-09-22).
+// Orders no longer rasterize a glyph SVG. Kept with the geometry tests.
+//
 // Team plate — turning a fitted string into SVG.
 //
 // Everything here is markup generation, no rasterizing: sharp does that in
@@ -18,7 +21,7 @@
 //
 // There is also no <text> element anywhere in the output, by construction —
 // see fonts.ts for why that matters on Render.
-import type { TeamField } from '../../shared/team-template.js'
+import type { TeamField } from '../../../shared/team-template.js'
 import { archPlacements, fitToZone, widestNumberString } from './fit.js'
 import { loadFont, measureWith, type LoadedFont } from './fonts.js'
 
