@@ -1,5 +1,84 @@
 # TASK_NOTES
 
+## Current request (2026-10-01) — weekly Etsy shop review
+
+- Review the live Etsy storefront against the 2026-09-24 baseline.
+- Capture the shop home, strongest featured listing, an inconsistent listing, and About/policies.
+- Email the report from Mr. Imagine with all four screenshots embedded by CID and attached as true PNG files.
+
+## Current status (2026-10-01)
+
+- No material storefront change from September 24: 14 active listings, 0 sales, no reviews, and 0 admirers.
+- The featured row remains Y2K, `Not a Drill Dad Duties`, `Resting Witch Face`, and `Gnome Abduction`.
+- Eleven cards still start at `$22` and three at `$25`, with no visible sale.
+- `Not a Drill Dad Duties` remains the strongest featured listing: readable title, convincing adult-model hero, and five visible images. Its `$22` youth-led entry price versus `$25` adult S–XL and `$27.50` 2XL–3XL remains unclear on the adult-focused card; no color selector or verified real-product close-up is visible.
+- `Grey Alien Listen` remains the inconsistent listing: six visible images and a polished hero, but missing spaces around title separators, keyword-like phrasing, no color selector, the same youth-led price ladder, and no verified real-product close-up.
+- Both inspected listings show `$5.00` shipping, an October 3–13 estimate, and returns within 30 days.
+- About/policies and the conflict between “drawn up in-house” and AI-designed wording remain unchanged. The lack of owner/process imagery, truncated card titles, keyword-heavy copy, small/light secondary text, and long white-on-purple About copy remain visible trust/accessibility risks.
+- Sent the illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; Resend reports delivery and four CID attachments, the Mr. Imagine Sent record contains four attachments, and the WeCare recipient record contains four working true-PNG downloads.
+- Fresh true-PNG screenshots are stored at `C:/Users/David/.codex/visualizations/2026/10/01/weekly-etsy-shop-review-2026-10-01/true-png`.
+- No live Etsy changes or repo implementation-code changes were made.
+
+## File shortlist (approved scope — 2026-10-01 weekly Etsy review)
+
+### Read first
+- `AGENTS.md`
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md`
+- `backend/routes/email.ts`
+
+### Edit allowed
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
+- No repo implementation files.
+- External state approved for this request: one weekly report from the existing Mr. Imagine mailbox.
+
+## Work log (append-only) — 2026-10-01 weekly Etsy review
+
+- 2026-10-01 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Not a Drill Dad Duties, Grey Alien Listen, and About/policies screenshots. Compared with September 24: the storefront is materially unchanged at 14 active listings and zero sales/reviews/admirers; featured assortment, prices, title/option inconsistencies, and trust/accessibility gaps are unchanged, while the delivery estimate advanced to October 3–13. Sent one illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified four CID attachments at the sending service, four attachments in Mr. Imagine's Sent record, and four working PNG-signature-verified downloads in the WeCare recipient record. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
+
+---
+
+## Current request (2026-09-24) — weekly Etsy shop review
+
+- Review the live Etsy storefront against the 2026-09-17 baseline.
+- Capture the shop home, strongest featured listing, an inconsistent listing, and About/policies.
+- Email the report from Mr. Imagine with all four screenshots embedded by CID and attached as true PNG files.
+
+## Current status (2026-09-24)
+
+- No material storefront change from September 17: 14 active listings, 0 sales, no reviews, and 0 admirers.
+- The featured row remains Y2K, `Not a Drill Dad Duties`, `Resting Witch Face`, and `Gnome Abduction`.
+- Eleven cards still start at `$22` and three at `$25`, with no visible sale. The shop now displays two months on Etsy.
+- `Not a Drill Dad Duties` remains the strongest featured listing: clear title, adult-model hero, and five visible images. Its `$22` youth-led starting price versus `$25` adult S–XL and `$27.50` 2XL–3XL remains unclear on the adult-focused card, and no color selector is visible.
+- `Grey Alien Listen` remains the inconsistent listing: six visible images and a polished model hero, but missing spaces around title separators, no color selector, the same youth-led price ladder, and no clearly verified finished-product close-up.
+- Both inspected listings show `$5.00` shipping, a September 26–October 5 estimate, and returns within 30 days.
+- About/policies and the conflict between “drawn up in-house” and AI-designed wording remain unchanged. The blank banner, lack of owner/process imagery, truncated card titles, keyword-heavy copy, and small/light secondary text remain visible trust/accessibility risks.
+- Sent the illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com` and verified Resend delivery with four CID attachments, four attachments in Mr. Imagine's Sent record, and four working true-PNG downloads in the WeCare recipient record.
+- Fresh true-PNG screenshots are stored at `C:/Users/David/.codex/visualizations/2026/09/24/weekly-etsy-shop-review-2026-09-24/true-png`.
+- No live Etsy changes or repo implementation-code changes were made.
+
+## File shortlist (approved scope — 2026-09-24 weekly Etsy review)
+
+### Read first
+- `AGENTS.md`
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md`
+- `backend/routes/email.ts`
+- `backend/services/email-resend.ts`
+
+### Edit allowed
+- `CLAUDE_TASK.md`
+- `TASK_NOTES.md` (one concise milestone/work-log bullet per Codex run)
+- No repo implementation files.
+- External state approved for this request: one weekly report from the existing Mr. Imagine mailbox.
+
+## Work log (append-only) — 2026-09-24 weekly Etsy review
+
+- 2026-09-24 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Not a Drill Dad Duties, Grey Alien Listen, and About/policies screenshots. Compared with September 17: the storefront is materially unchanged at 14 active listings and zero sales/reviews/admirers; the featured set, prices, title/option inconsistencies, and trust/accessibility gaps are unchanged, while the delivery estimate advanced to September 26–October 5. Sent one illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified delivery, four CID attachments in Resend, four attachments in Mr. Imagine's Sent record, and four working PNG-signature-verified downloads in the recipient record. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
+
+---
+
 ## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
 
 David: "the team name step flow is horrible the look the way it works ... i dont
