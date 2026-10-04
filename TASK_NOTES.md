@@ -4252,3 +4252,26 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## Current request (2026-09-22) — apply ITC refund guard and merge (`9efccea0-d4f8-4520-aac9-01c69cd1312c`)
+
+### File shortlist (approved scope — ITC refund guard deployment)
+
+#### Read first
+- `CLAUDE_TASK.md`
+- `CLAUDE.md`
+- `supabase/migrations/README.md`
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `E:\memory\watchtower\handoffs\handoff-zero-nine-1790073300505.json`
+- Target branch versions of `backend/routes/wallet.ts`, `backend/routes/wallet.refund-itc.test.ts`, `src/components/ProductPreviewCarousel.tsx`, and `supabase/migrations/20260922120000_itc_refund_guard.sql`
+
+#### Edit allowed
+- Rename the target refund migration to a verified-unused version, then update its filename references.
+- `backend/routes/wallet.ts`
+- `backend/routes/wallet.refund-itc.test.ts`
+- `src/components/ProductPreviewCarousel.tsx`
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-09-22 (Codex scout, Watchtower `9efccea0`): traced commit `0ea5025`, the 19-test refund suite, route/caller/migration, repo commands, and production handoff; found that refund migration version `20260922120000` collides with the already-live signup migration on current `main`, so the deployment brief requires a verified-unused re-version before apply/history/merge and explicitly forbids overwriting the signup schema-history row.
