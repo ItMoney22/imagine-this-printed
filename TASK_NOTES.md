@@ -4252,3 +4252,166 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+---
+
+## Current request (2026-09-22) — Render → Fly migration, Step 1/6: inventory + provision
+
+Watchtower task `45975c35-fde4-4174-a600-ee7489710eb2` (parent umbrella
+`291fcf82-d89a-4848-af42-2ab70d5ec57d`). Agent: Levi James.
+
+Capture the exact live configuration of both Render services, audit the worker's
+job graph, and provision two idle Fly apps in the Supabase region. Zero traffic
+moves in this step; Render and DNS stay untouched.
+
+### File shortlist (approved scope — 2026-09-22 Render→Fly Step 1)
+
+The prior shortlist in this file belonged to the 2026-09-17 Etsy review and did
+not cover this work, so per CLAUDE.md the scope is updated here before editing.
+Rationale: Step 1 is read-only against the application — it produces documentation
+plus two staged deploy manifests, and touches no runtime code.
+
+- `docs/migration/render-to-fly/STEP-1-INVENTORY.md` (new) — the inventory
+- `backend/fly.api.toml` (new) — staged, not deployed
+- `backend/fly.worker.toml` (new) — staged, not deployed
+- `TASK_NOTES.md` (this entry)
+- Read-only: `backend/worker/*.ts`, `backend/index.ts`, `backend/load-env.ts`,
+  `backend/package.json`, `backend/services/order-tracking-*.ts`,
+  `backend/routes/health.ts`
+
+### Work log (append-only)
+
+- Pulled both services live from the Render REST API rather than trusting any
+  existing doc. 61 env var names on the API, 50 on the worker (the API's set
+  minus 11). No disks, no env groups, no Render cron jobs — every recurring task
+  is an in-process `setInterval` in the worker.
+- **There is no `render.yaml` in this repo.** Both services are dashboard-only
+  configuration, so `STEP-1-INVENTORY.md` is now the sole cold-rebuild record.
+  `railway.backend.toml` is a dead NIXPACKS leftover, not what production uses.
+- Established the Supabase region by evidence, not assumption: the live
+  `DATABASE_URL` points at `aws-0-us-east-2.pooler.supabase.com`, which resolves
+  through an `elb.us-east-2.amazonaws.com` load balancer → AWS us-east-2, Ohio.
+  Render runs in `oregon`, ~2,000 mi away. Fly has no Ohio region; `ord`
+  (Chicago, ~300 mi) is the nearest, `iad` (~400 mi) the fallback.
+- Worker audit: the brief lists 7 jobs, `index.ts` starts 6. Both are right —
+  `etsy-receipt-ingest` is started *inside* `etsy-jobs-worker.ts:40`, invisible
+  to anyone reading the entry file. All 7 accounted for, with cadences.
+- None of the worker's tuning/gating env vars are set on Render; all 7 jobs run
+  on code defaults. Recorded so nobody sets them on Fly and changes behaviour —
+  `MRS_IMAGINE_DAILY=true` in particular would re-arm the batch David turned off
+  on 2026-09-02.
+- Traced overlap safety job by job, because a zero-downtime worker cutover needs
+  it: 6 of 7 are safe to run twice (atomic claims on ai_jobs and etsy_listings,
+  `claimDelivered()`'s `.neq('status','delivered')` making the buyer's thank-you
+  email exactly-once, a UNIQUE `orders.order_number` + `23505` catch on receipt
+  ingest, and two idempotent sweeps). The exception is `mrs-imagine-daily`: its
+  guard is a SELECT-then-run race. It only fires in the 11:00 UTC hour, so cut
+  over outside that window or gate it for the overlap.
+- Three pre-existing risks surfaced that Step 2 should absorb: the API's SIGTERM
+  handler calls `process.exit(0)` with no `server.close()` (in-flight requests
+  are severed on every deploy); `load-env.ts`'s `dotenv.config({ override: true })`
+  means a stray `.env` inside a Docker image would silently beat every Fly
+  secret; and `app.listen(PORT)` binds without an explicit host.
+- Production is running `91811ccb` (2026-09-11) while local `main` is **31
+  commits ahead, unpushed**. `fly deploy` builds from the working tree, so Step 5
+  would otherwise ship a quarter of unreleased work at the same moment traffic
+  moves hosts. Filed as a decision for David before Step 5.
+- Verified `npx prisma generate` succeeds with `DATABASE_URL` unset — so the
+  build needs no build-time secret, which matters because Fly secrets are
+  runtime-only while Render's env vars are available at build time.
+- Provisioned `imagine-this-printed-api` and `imagine-this-printed-worker` in the
+  `personal` Fly org. Both confirmed at zero machines, zero IPs, zero secrets —
+  nothing running, nothing billable, no address that could take traffic. Region
+  pinned as `primary_region = "ord"` in the two staged manifests (Fly apps have
+  no region of their own; only machines do). Both manifests pass
+  `flyctl config validate`.
+- Production untouched and verified after the work: `/api/health` → 200
+  `{"ok":true}`, `/api/health/worker` → `alive`, the
+  `api.imaginethisprinted.com` CNAME still points at
+  `imagine-this-printed-backend.onrender.com`, both Render deploys still `live`.
+  Only `GET` calls were made against the Render API.
+
+
+---
+
+## Step 2/6 — Fly deploy configuration (2026-09-22, Levi James, Watchtower 0f33268f)
+
+Deliverable: `docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md`. Continues
+Step 1 (`45975c35`) on the same branch — the Step-1 commits were fast-forwarded
+in so the whole migration lands as one mergeable unit instead of two branches
+that conflict on the same two manifests.
+
+### File shortlist (approved scope — Step 2 Fly config)
+- `backend/Dockerfile` (new), `backend/.dockerignore` (new)
+- `backend/fly.api.toml`, `backend/fly.worker.toml` (from Step 1, rewritten)
+- `backend/worker/heartbeat.ts` + `backend/worker/heartbeat.test.ts` (new)
+- `backend/worker/index.ts`, `backend/worker/ai-jobs-worker.ts`,
+  `backend/worker/etsy-jobs-worker.ts` (heartbeat wiring only)
+- `backend/index.ts` (SIGTERM drain, explicit host bind, trust-proxy comment)
+- `backend/routes/health.ts` (`GET /api/health/ip` diagnostic)
+- `backend/scripts/verify-security-middleware.ts` (Fly topology assertions)
+- `.github/workflows/fly-deploy.yml` (new, disabled by default)
+- `docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md` (new), `TASK_NOTES.md`
+
+### Work log (append-only)
+- Wrote one multi-stage `backend/Dockerfile` serving BOTH services — same image,
+  different command — reproducing Render's buildpack exactly (`npm ci
+  --include=dev`, `npx prisma generate`, `npm run build`). Build context is
+  `backend/`, matching Render's `rootDir`. 155 MB, Node 22, runs as `node`.
+- Gave the image a build-time self-check (`require('@prisma/client')`,
+  `require('sharp')`, count the fonts) because all three fail *silently* until
+  production: the generated Prisma client has to be copied from the build stage
+  (the CLI is a devDependency), sharp's native binary rides in as an optional
+  dependency, and the fonts are moved by a `cp` no compiler validates.
+- **Found a live bug while doing that.** `services/team-plate/fonts.ts` resolves
+  its font dir relative to the COMPILED file — `dist/services/team-plate/` →
+  `../../assets/fonts` → `dist/assets/fonts` — and `tsc` copies no `.ttf`. That
+  directory does not exist on Render either, so every bundled typeface fails to
+  load in production today. The image copies `assets` to both `/app/assets` and
+  `/app/dist/assets`; the real path fix is filed as its own task, not smuggled
+  into a migration.
+- `backend/.dockerignore` excludes `.env*` as a correctness requirement:
+  `load-env.ts` calls `dotenv.config({ override: true })` as the first import of
+  both entry points, so a `.env` baked into the image would beat every
+  `fly secrets set` value with nothing logged.
+- Worker autostop: the brief asked for `auto_stop_machines = false` +
+  `min_machines_running = 1` on the worker. **Those keys do not exist outside a
+  service block** and flyctl rejects them at the top level. The real Fly
+  equivalent is the ABSENCE of `[http_service]`/`[[services]]` (auto-stop is a
+  proxy feature — no service, no idle timer), plus no public IP,
+  `fly scale count worker=1` and `[[restart]] policy='always'`. Documented in
+  the manifest itself so nobody "fixes" it later by adding a service block.
+- Added `backend/worker/heartbeat.ts`: one stdout line a minute carrying
+  **uptime**, rss and per-loop tick counters, plus a late-beat warning. Uptime is
+  the point — a bare "worker alive" line cannot distinguish six hours of uptime
+  from four parkings and restarts, and that is precisely the failure Fly
+  introduces. Wired `noteTick()` into the AI (5 s) and Etsy (15 s) poll loops so
+  "alive but not working" is distinguishable from "alive and working".
+- Fixed the SIGTERM drain in `backend/index.ts` (Step 1 flagged it): now
+  `server.close()` + `closeIdleConnections()` (without which the drain would time
+  out on every deploy waiting on browser keep-alives) → in-flight requests finish
+  → Prisma disconnects, with a 25 s self-imposed ceiling under Fly's 30 s
+  `kill_timeout`. Bind is now explicitly `0.0.0.0`.
+- `TRUST_PROXY_HOPS`: Step 1 said the API is not behind Cloudflare (zone record
+  is `proxied:false`) while the code comment said it was. **Both were half
+  right** — production responses carry `server: cloudflare` AND Render's
+  `rndr-id`, so the Cloudflare in that chain is RENDER'S, not David's zone. Fly
+  is one hop; pinned `TRUST_PROXY_HOPS = '1'` and extended
+  `verify-security-middleware.ts` to assert both topologies plus the forged-header
+  case. Carrying Render's `2` to Fly is not merely wrong, it is exploitable: a
+  caller could forge `X-Forwarded-For` and mint a fresh rate-limit bucket per
+  request. Added `GET /api/health/ip` so Step 4/5 can MEASURE the chain on a live
+  host instead of arguing about it.
+- `.github/workflows/fly-deploy.yml` replaces Render's git-push auto-deploy
+  (CLAUDE.md rule 4 goes false the moment traffic moves). Disabled behind a
+  repo variable AND a missing secret, so merging this branch cannot deploy
+  anything; it also asserts the worker machine is `started`, not parked, after
+  each deploy.
+- Verified: both manifests pass `flyctl config validate` against the real Fly
+  API; the image builds on Fly's remote builder from BOTH configs with the
+  self-check passing (`prisma, sharp, 8 fonts`); `npm run verify:security` all
+  green including the four new proxy assertions; `vitest` 64 tests / 9 files
+  green; the compiled heartbeat emits climbing uptime from `dist/`. Production
+  was only ever read (one `GET /api/health`). NOT verifiable until Step 4
+  deploys: the drain end-to-end, the 1-hour no-autostop run, and the hop count
+  against a live Fly host.

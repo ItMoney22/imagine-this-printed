@@ -1,0 +1,138 @@
+# Fly.io config — imagine-this-printed API (replaces Render web service
+# srv-d7jpgut7vvec739bsid0).
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ STAGED — NOT DEPLOYED. As of 2026-09-22 the app `imagine-this-printed-api`│
+# │ exists with ZERO machines, ZERO IPs and ZERO secrets. Production traffic  │
+# │ still goes to Render via the api.imaginethisprinted.com CNAME. Deploying  │
+# │ this file is Step 4/6 of the migration, not Step 2.                       │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# Every value here is mirrored from the LIVE Render config captured in
+# docs/migration/render-to-fly/STEP-1-INVENTORY.md, with the Step-2 build and
+# proxy decisions recorded in docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md.
+# Change those docs if you change this file — together they are the only
+# cold-rebuild record (there is no render.yaml in this repo).
+#
+# Deploy (build context is backend/, see Dockerfile header):
+#   cd backend && fly deploy -c fly.api.toml
+
+app = 'imagine-this-printed-api'
+
+# AWS us-east-2 (Columbus, OH) is where the Supabase project lives. Fly has no
+# Ohio region; ord (Chicago, ~300 mi) is the closest, iad (Ashburn, ~400 mi) is
+# the fallback if ord has no capacity. Today's Render service runs in oregon,
+# ~2,000 mi from the database — this move is also a latency win.
+# See INVENTORY §3.
+primary_region = 'ord'
+
+[build]
+  # backend/Dockerfile — multi-stage, reproduces Render's build verbatim
+  # (npm ci --include=dev · npx prisma generate · npm run build). Resolved
+  # relative to THIS file, so the deploy must run from backend/.
+  dockerfile = 'Dockerfile'
+
+[deploy]
+  # Render holds traffic on the old instance until /api/health passes on the
+  # new one. `rolling` on a single machine would stop it first — a hard gap on
+  # every deploy. bluegreen brings a second machine up, waits for its health
+  # checks, swaps traffic, then destroys the old one. Zero downtime is an
+  # explicit requirement of this migration, so it is pinned, not defaulted.
+  # (Costs a few minutes of a second machine per deploy — pennies. If Fly ever
+  # refuses bluegreen for this app, fall back to `rolling` WITH
+  # min_machines_running raised to 2, never to a bare rolling single machine.)
+  strategy = 'bluegreen'
+
+[env]
+  # Render sets PORT=10000; backend/index.ts reads process.env.PORT.
+  # Kept identical so nothing else has to change.
+  PORT = '10000'
+  NODE_ENV = 'production'
+
+  # ── TRUST_PROXY_HOPS: re-derived for Fly, NOT copied from Render ──────────
+  # Render's value is 2. backend/index.ts attributed that to "Cloudflare +
+  # Render", Step 1 then read the zone and found api.imaginethisprinted.com is
+  # proxied:false — no orange cloud. Both are half right, and the resolution
+  # matters: production responses carry `server: cloudflare` + `cf-cache-status`
+  # alongside Render's own `rndr-id`, so the Cloudflare edge in that chain is
+  # RENDER'S, not David's zone. Client → Render's CF edge → Render router →
+  # app = the 2 hops Render needs.
+  #
+  # Fly's chain is client → Fly proxy → app. ONE hop.
+  #
+  # Getting this wrong is not cosmetic. express-rate-limit keys on req.ip:
+  #   too HIGH (2 on Fly) → Express walks one entry too far left in
+  #     X-Forwarded-For and lands on whatever the CALLER sent, so any client can
+  #     forge a header, mint a fresh bucket per request, and evade the limiter
+  #     entirely — or poison someone else's bucket by forging their address.
+  #   too LOW  (0) → every request keys on the Fly proxy address, collapsing the
+  #     whole storefront into one bucket where one abuser throttles everybody.
+  #
+  # Verified by unit assertion, not by assumption: `npm run verify:security`
+  # (backend/scripts/verify-security-middleware.ts) now exercises BOTH
+  # topologies — hops=2 against a Render-shaped chain and hops=1 against a
+  # Fly-shaped one, including the spoofed-header case.
+  #
+  # ⚠ STEP 5 DEPENDENCY: this 1 is only correct while the Cloudflare record for
+  # api.imaginethisprinted.com stays DNS-only (proxied:false, as it is today).
+  # Orange-clouding it at cutover adds an edge and makes the answer 2. Confirm
+  # against the live host before and after the DNS flip with
+  #   curl https://<host>/api/health/ip
+  # which reports the resolved client IP, the hop count in force, and the raw
+  # X-Forwarded-For it was derived from.
+  TRUST_PROXY_HOPS = '1'
+
+# Everything else — all 61 variables in INVENTORY §5.1 — arrives via
+# `fly secrets set` in Step 3. Fly secrets are RUNTIME ONLY and are not
+# available during the image build; verified that `prisma generate` does not
+# need DATABASE_URL, so this build has no build-time secret dependency.
+# GCS_CREDENTIALS is a 2.4 KB inline JSON blob — set it from a file/stdin,
+# not on a command line.
+
+[http_service]
+  internal_port = 10000
+  force_https = true
+
+  # Render runs exactly one always-on instance (numInstances: 1) and never
+  # cold-starts. Reproduce that: no scale-to-zero, no cold start on the first
+  # request after a quiet spell.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  # Fly's default is CONNECTION-based (soft 20 / hard 25). Browsers hold
+  # keep-alive connections open, so a couple of dozen shoppers idling on the
+  # storefront could exhaust that ceiling and make the proxy queue or 503 real
+  # requests while the machine sits nearly idle. Render imposes no such limit,
+  # so metering by in-flight REQUESTS is the like-for-like choice.
+  [http_service.concurrency]
+    type = 'requests'
+    soft_limit = 200
+    hard_limit = 250
+
+  # Render will not shift traffic to a new instance until /api/health passes.
+  # On Fly that is opt-in, not a default — without this block a broken build
+  # takes the site down instead of being held back. /api/health is exempt from
+  # every rate limiter (middleware/rate-limits.ts EXEMPT list), so a 4 s probe
+  # interval cannot throttle anything.
+  [[http_service.checks]]
+    interval = '15s'
+    timeout = '5s'
+    grace_period = '30s'
+    method = 'GET'
+    path = '/api/health'
+
+# backend/index.ts now closes the HTTP server and waits for in-flight requests
+# before exiting on SIGTERM (Step 2 — it previously called process.exit(0)
+# immediately and severed them; Render's health-gated rolling deploy masked it,
+# Fly would not). 30 s is the drain window that fix needs; the process exits as
+# soon as the last connection finishes, so the full 30 s is only ever spent on
+# a genuinely stuck request.
+kill_signal = 'SIGTERM'
+kill_timeout = 30
+
+[[vm]]
+  # Like-for-like with Render Starter (0.5 vCPU / 512 MB), which five months of
+  # production has proven adequate. ~$3.19/mo vs Render's $7.
+  size = 'shared-cpu-1x'
+  memory = '512mb'

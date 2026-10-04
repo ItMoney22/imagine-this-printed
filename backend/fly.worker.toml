@@ -1,0 +1,126 @@
+# Fly.io config — imagine-this-printed background worker (replaces Render
+# background worker srv-d7jppnn7f7vs73bb4p80).
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ STAGED — NOT DEPLOYED. As of 2026-09-22 the app                           │
+# │ `imagine-this-printed-worker` exists with ZERO machines, ZERO IPs and     │
+# │ ZERO secrets. The Render worker is still the one doing the work.          │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# Mirrored from the LIVE Render config captured in
+# docs/migration/render-to-fly/STEP-1-INVENTORY.md; build and liveness
+# decisions in docs/migration/render-to-fly/STEP-2-DEPLOY-CONFIG.md. Shares the
+# same image and the same Dockerfile as fly.api.toml — only the command differs.
+#
+# Deploy (build context is backend/):
+#   cd backend && fly deploy -c fly.worker.toml
+
+app = 'imagine-this-printed-worker'
+
+# Same reasoning as the API: Supabase is in AWS us-east-2 (Columbus, OH), Fly
+# has no Ohio region, ord (Chicago) is the nearest. INVENTORY §3.
+primary_region = 'ord'
+
+[build]
+  # Same backend/Dockerfile as the API — one image, two entry points.
+  dockerfile = 'Dockerfile'
+
+[deploy]
+  # Deliberately NOT bluegreen. Blue-green would run the old and the new worker
+  # at once, and six of the seven jobs tolerate that but mrs-imagine-daily does
+  # not — its guard is a SELECT-then-run race, not a lock (INVENTORY §4.3).
+  # `rolling` replaces the single machine: a gap of a few seconds during which
+  # nothing polls, which costs nothing because every job is queue-driven and
+  # picks up where it left off on the next tick.
+  strategy = 'rolling'
+
+[env]
+  NODE_ENV = 'production'
+  # Render also sets PORT=10000 on the worker, but nothing listens — a
+  # background worker takes no inbound HTTP. Omitted rather than copied so
+  # nobody later mistakes this for a service that serves traffic.
+  #
+  # DELIBERATELY UNSET, exactly as on Render: ETSY_WORKER_ENABLED,
+  # TRYON_RETENTION_ENABLED, STEP_FLOW_STALL_SWEEP_ENABLED,
+  # DELIVERY_SWEEP_ENABLED, MRS_IMAGINE_SCOUT, MRS_IMAGINE_DAILY and every
+  # *_MINUTES / *_HOURS / *_BATCH tuning var. All seven jobs run on their
+  # code defaults today. Setting any of them here CHANGES PRODUCTION
+  # BEHAVIOUR — in particular MRS_IMAGINE_DAILY=true would re-arm the
+  # unattended daily batch David switched off on 2026-09-02.
+  # Full table: INVENTORY §4.2.
+  #
+  # WORKER_HEARTBEAT_SECONDS is also left unset: the default is 60 s, which is
+  # what makes "the machine is still awake" readable in `fly logs` within a
+  # minute instead of within the hour the audit_logs heartbeat takes.
+
+# The 50 variables in INVENTORY §5.2 arrive via `fly secrets set` in Step 3.
+# That set is the API's 61 minus 11 (PRINT_BRIDGE_TOKEN, PRINT_WORKER_EMAILS,
+# RESEND_WEBHOOK_SECRET, STOREFRONT_*, SUPABASE_JWT_SECRET, TRUST_PROXY_HOPS,
+# WATCHTOWER_INTERNAL_SECRET, XAI_API_KEY). Reproduce the asymmetry as-is;
+# do not "repair" it during the migration.
+
+# ══════════════════════════════════════════════════════════════════════════
+# THE WORKER MUST NEVER AUTOSTOP — and here is exactly what enforces that.
+#
+# Fly's auto-stop is a PROXY feature: `auto_stop_machines` and
+# `min_machines_running` are keys of [http_service] / [[services]], and the
+# proxy parks a machine when no requests have arrived for its services. That
+# is the documented trap for background workers — a worker that takes no
+# inbound HTTP looks permanently idle, so a config copied from a web service
+# parks it and the Etsy queue, AI jobs, delivery tracking, the step-flow
+# sweep and the daily timers all stop with no error anywhere.
+#
+# The fix is NOT to write `auto_stop_machines = false` here. There is no
+# service block for it to belong to; flyctl rejects it at the top level.
+# What actually keeps this process pinned:
+#
+#   1. NO [http_service] AND NO [[services]] — below. With no service, the
+#      proxy has nothing to watch and no authority to stop the machine. This
+#      is the Fly equivalent of `auto_stop_machines = false` for a worker, and
+#      it is stronger: there is no idle timer to expire.
+#   2. NO PUBLIC IP. `fly ips list -a imagine-this-printed-worker` must stay
+#      empty. Allocating one would give the app an address that can receive
+#      traffic — exactly what a background worker must not have.
+#   3. `fly scale count worker=1` — one machine in the `worker` process group,
+#      the Render `numInstances: 1` equivalent. Verify with
+#      `fly status -a imagine-this-printed-worker`: one machine, state
+#      `started`. Anything in `stopped` or `suspended` is the failure this
+#      whole block exists to prevent.
+#   4. [[restart]] policy = 'always' — below.
+#
+# Liveness is proven, not assumed: the process logs a heartbeat line every 60 s
+# (backend/worker/heartbeat.ts) carrying uptime, the machine id and per-job
+# tick counts, on top of the hourly audit_logs stamp behind
+# GET /api/health/worker. An UPTIME THAT RESETS is the signature of a machine
+# that was parked and restarted — a plain "worker is running" line cannot tell
+# you that, which is why uptime is in every beat. Procedure:
+# STEP-2-DEPLOY-CONFIG.md §5.
+# ══════════════════════════════════════════════════════════════════════════
+
+[processes]
+  worker = 'node dist/worker/index.js'
+
+# backend/worker/index.ts deliberately logs and process.exit(1) on any
+# unhandled rejection or uncaught exception, handing recovery to the platform.
+# Its own comment flags that this was never confirmed for Render. On Fly it is
+# explicit — pin it rather than inherit a default. INVENTORY §6.4.
+[[restart]]
+  policy = 'always'
+
+[[vm]]
+  # Like-for-like with Render Starter (0.5 vCPU / 512 MB). Always on: the
+  # worker is a set of setInterval pollers (AI jobs every 5s) — it must never
+  # scale to zero.
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  processes = ['worker']
+
+# CUTOVER NOTE (Steps 5-6). Six of the seven worker jobs are safe to run on
+# Render and Fly simultaneously — AI jobs, Etsy publish, delivery tracking and
+# the receipt ingest are all guarded by atomic claims or a UNIQUE constraint,
+# and the two sweeps are idempotent. The ONE exception is the Mrs. Imagine
+# daily scout: its guard is a SELECT-then-run race, not a lock, so two live
+# workers could both start a sweep. It only acts in the 11:00 UTC hour — so
+# either cut over outside 11:00-12:00 UTC, or set MRS_IMAGINE_SCOUT=false here
+# for the overlap window and remove it once Render is stopped.
+# Full analysis: INVENTORY §4.3.
