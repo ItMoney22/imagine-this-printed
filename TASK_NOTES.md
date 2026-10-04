@@ -4252,3 +4252,20 @@ time.
   created, gate now passes.
 - 11 new tests; 119 files / 1896 tests green in this checkout. The 12 failures
   in a full `vitest run` are all inside other sessions' `.claude/worktrees/`.
+
+## Current request (2026-09-23) — shared PostgreSQL rate limits
+
+Watchtower task `afb20fbd-ee24-4fbd-8bd4-576c002cb64f`. Scout found the central
+factory in `backend/middleware/rate-limits.ts` still uses per-process memory.
+The existing security check is one-process and database-free. `backend/index.ts`
+sets trust-proxy hops and mounts all six central limiters. The cited Fly migration
+verification document is absent from this worktree.
+
+### File shortlist (approved scope)
+- Read first: `backend/middleware/rate-limits.ts`, `backend/scripts/verify-security-middleware.ts`, `backend/index.ts`.
+- Read for integration: `backend/package.json`, `backend/prisma/schema.prisma`, `docs/SECURITY_HARDENING.md`.
+- Claude may edit `backend/middleware/rate-limits.ts`, `backend/scripts/verify-security-middleware.ts`, and one new migration under `backend/prisma/migrations/`. Extend this shortlist with a written rationale before editing `backend/index.ts`, package manifests, or Prisma schema.
+- Codex output scope for this run remains `CLAUDE_TASK.md` and `TASK_NOTES.md` only.
+
+### Work log (append-only)
+- 2026-09-23 — Scouted central limiter, API mounts, proxy setting, database schema, and security command; overwrote `CLAUDE_TASK.md` with the PostgreSQL store implementation and two-instance verification brief. No application code or live infrastructure changed.
