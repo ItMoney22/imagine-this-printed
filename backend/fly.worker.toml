@@ -1,0 +1,77 @@
+# Fly.io config — imagine-this-printed background worker (replaces Render
+# background worker srv-d7jppnn7f7vs73bb4p80).
+#
+# ┌───────────────────────────────────────────────────────────────────────────┐
+# │ STAGED — NOT DEPLOYED. As of 2026-09-22 the app                           │
+# │ `imagine-this-printed-worker` exists with ZERO machines, ZERO IPs and     │
+# │ ZERO secrets. The Render worker is still the one doing the work.          │
+# └───────────────────────────────────────────────────────────────────────────┘
+#
+# Mirrored from the LIVE Render config captured in
+# docs/migration/render-to-fly/STEP-1-INVENTORY.md. Shares the same image and
+# the same Dockerfile as fly.api.toml — only the process differs.
+#
+# Deploy with:  fly deploy -c backend/fly.worker.toml
+
+app = 'imagine-this-printed-worker'
+
+# Same reasoning as the API: Supabase is in AWS us-east-2 (Columbus, OH), Fly
+# has no Ohio region, ord (Chicago) is the nearest. INVENTORY §3.
+primary_region = 'ord'
+
+[build]
+  dockerfile = 'Dockerfile'      # same image as the API; only the start command differs
+
+[env]
+  NODE_ENV = 'production'
+  # Render also sets PORT=10000 on the worker, but nothing listens — a
+  # background worker takes no inbound HTTP. Omitted rather than copied so
+  # nobody later mistakes this for a service that serves traffic.
+  #
+  # DELIBERATELY UNSET, exactly as on Render: ETSY_WORKER_ENABLED,
+  # TRYON_RETENTION_ENABLED, STEP_FLOW_STALL_SWEEP_ENABLED,
+  # DELIVERY_SWEEP_ENABLED, MRS_IMAGINE_SCOUT, MRS_IMAGINE_DAILY and every
+  # *_MINUTES / *_HOURS / *_BATCH tuning var. All seven jobs run on their
+  # code defaults today. Setting any of them here CHANGES PRODUCTION
+  # BEHAVIOUR — in particular MRS_IMAGINE_DAILY=true would re-arm the
+  # unattended daily batch David switched off on 2026-09-02.
+  # Full table: INVENTORY §4.2.
+
+# The 50 variables in INVENTORY §5.2 arrive via `fly secrets set` in Step 3.
+# That set is the API's 61 minus 11 (PRINT_BRIDGE_TOKEN, PRINT_WORKER_EMAILS,
+# RESEND_WEBHOOK_SECRET, STOREFRONT_*, SUPABASE_JWT_SECRET, TRUST_PROXY_HOPS,
+# WATCHTOWER_INTERNAL_SECRET, XAI_API_KEY). Reproduce the asymmetry as-is;
+# do not "repair" it during the migration.
+
+# No [http_service] and no [[services]] on purpose: this process opens no
+# port. Giving it one would allocate an address that could receive traffic.
+
+[processes]
+  worker = 'node dist/worker/index.js'
+
+# backend/worker/index.ts deliberately logs and process.exit(1) on any
+# unhandled rejection or uncaught exception, handing recovery to the platform.
+# Its own comment flags that this was never confirmed for Render. On Fly it is
+# explicit — pin it rather than inherit a default. INVENTORY §6.4.
+[[restart]]
+  policy = 'always'
+
+[[vm]]
+  # Like-for-like with Render Starter (0.5 vCPU / 512 MB). Always on: the
+  # worker is a set of setInterval pollers (AI jobs every 5s) — it must never
+  # scale to zero.
+  size = 'shared-cpu-1x'
+  memory = '512mb'
+  cpu_kind = 'shared'
+  cpus = 1
+  processes = ['worker']
+
+# CUTOVER NOTE (Steps 5-6). Six of the seven worker jobs are safe to run on
+# Render and Fly simultaneously — AI jobs, Etsy publish, delivery tracking and
+# the receipt ingest are all guarded by atomic claims or a UNIQUE constraint,
+# and the two sweeps are idempotent. The ONE exception is the Mrs. Imagine
+# daily scout: its guard is a SELECT-then-run race, not a lock, so two live
+# workers could both start a sweep. It only acts in the 11:00 UTC hour — so
+# either cut over outside 11:00-12:00 UTC, or set MRS_IMAGINE_SCOUT=false here
+# for the overlap window and remove it once Render is stopped.
+# Full analysis: INVENTORY §4.3.

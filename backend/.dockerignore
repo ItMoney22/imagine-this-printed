@@ -1,0 +1,64 @@
+# Build context exclusions for backend/Dockerfile.
+
+# ---------------------------------------------------------------------------
+# THIS BLOCK IS LOAD-BEARING — do not "tidy" it away.
+#
+# backend/load-env.ts runs dotenv.config({ override: true }) as the FIRST
+# import in BOTH entry points (index.ts and worker/index.ts). `override: true`
+# means a value in a .env file BEATS a real environment variable.
+#
+# On Render that is inert: .env is gitignored, so it never reaches the build.
+# On Fly it is a live hazard — `fly deploy` uploads the working directory as
+# the build context, and a developer's local backend/.env WOULD be sitting
+# right there. Baked into the image, it would silently override every single
+# `fly secrets set` value with stale local credentials, and nothing logs it.
+# This project has already lost time to exactly that failure shape
+# ("ITP supabase key env shadowing", 2026-08-19).
+#
+# See docs/migration/render-to-fly/STEP-1-INVENTORY.md §7.3.
+# ---------------------------------------------------------------------------
+.env
+.env.*
+*.env
+!.env.example
+
+# Service-account keys and anything else credential-shaped that must never be
+# layered into an image.
+*.pem
+*.key
+*-service-account*.json
+gcs-credentials*.json
+
+# Rebuilt inside the image; copying host artifacts in would mix a Windows
+# install (this repo's dev box) into a linux-x64 image. sharp and the Prisma
+# query engine are native — a host node_modules is not merely redundant here,
+# it is wrong.
+node_modules
+dist
+
+# Everything the running service never reads.
+.git
+.gitignore
+*.md
+!README.md
+migrations
+db
+scripts
+**/*.test.ts
+**/*.spec.ts
+
+# Other hosts' manifests. fly.*.toml is excluded because fly deploy reads the
+# config from the filesystem before the build context is assembled; shipping a
+# copy inside the image only invites drift.
+fly.*.toml
+railway*.toml
+nixpacks.toml
+Procfile
+ecosystem.config.cjs
+dev-with-worker.*
+
+# One-off maintenance scripts that live loose at the backend root.
+check-*.cjs
+check-*.js
+check-*.mjs
+add-metadata-column.cjs

@@ -352,24 +352,61 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
   })
 })
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  logger.info('Received SIGINT, shutting down gracefully...')
-  await prisma.$disconnect()
-  process.exit(0)
-})
-
-process.on('SIGTERM', async () => {
-  logger.info('Received SIGTERM, shutting down gracefully...')
-  await prisma.$disconnect()
-  process.exit(0)
-})
-
-// Start server
-app.listen(PORT, () => {
+// Start server.
+//
+// The host is explicit. Node's default for app.listen(port) is already every
+// interface, so this changes nothing today — but Fly's proxy reaches the
+// process over the machine's internal network, and if this ever narrowed to
+// 127.0.0.1 the health check would fail with no obvious cause and the deploy
+// would roll back looking like a broken build. Say what we mean.
+const server = app.listen(Number(PORT), '0.0.0.0', () => {
   logger.info(`🚀 Server running on port ${PORT}`)
   logger.info(`📡 API available at http://localhost:${PORT}`)
   logger.info(`🏥 Health check: http://localhost:${PORT}/api/health`)
 })
+
+// Graceful shutdown.
+//
+// This used to be `await prisma.$disconnect(); process.exit(0)` with no
+// server.close() — every in-flight HTTP request was severed the instant the
+// platform signalled shutdown. Render hid it: its health-gated rolling deploy
+// keeps the old instance serving until the new one is healthy, so the requests
+// that got cut were few and nobody noticed.
+//
+// Fly does not hide it. It sends SIGTERM and then waits kill_timeout (30 s,
+// set in fly.api.toml) before SIGKILL — and an immediate exit(0) walks out the
+// door *earlier* than the platform is willing to wait. For a migration whose
+// whole promise is that nothing goes dark for a single request, that is the
+// wrong shape.
+//
+// So: stop accepting new connections, let the ones already in flight finish,
+// then disconnect Prisma and leave. The 25 s cap sits just under Fly's 30 s
+// kill_timeout so we exit on our own terms rather than being killed mid-write.
+// See docs/migration/render-to-fly/STEP-1-INVENTORY.md §7.2.
+let shuttingDown = false
+
+const shutdown = async (signal: string) => {
+  if (shuttingDown) return
+  shuttingDown = true
+  logger.info(`Received ${signal}, shutting down gracefully...`)
+
+  const forced = setTimeout(() => {
+    logger.warn('Drain window expired with connections still open; exiting anyway')
+    void prisma.$disconnect().finally(() => process.exit(0))
+  }, 25_000)
+  // Do not let the drain timer hold the event loop open once the server has
+  // actually closed — that would turn a clean 200 ms shutdown into 25 s.
+  forced.unref()
+
+  server.close(async () => {
+    clearTimeout(forced)
+    logger.info('HTTP server closed; no requests in flight')
+    await prisma.$disconnect()
+    process.exit(0)
+  })
+}
+
+process.on('SIGINT', () => { void shutdown('SIGINT') })
+process.on('SIGTERM', () => { void shutdown('SIGTERM') })
 
 export default app
