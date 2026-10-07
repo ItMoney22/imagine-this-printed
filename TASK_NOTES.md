@@ -111,7 +111,83 @@ picker offers only real roles; Toy Lab, Team Templates, Email, Orders in the nav
 
 ## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
 
-## Current request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
+## Current request (2026-10-07) — creator print files out of public products.metadata (Watchtower b312de9c, zero-pluto)
+
+Reproduced with the public anon key: GET /rest/v1/products?id=eq.e387149e...&select=metadata->assets->>dtf
+returned a 1-year signed URL (expires 2027-07-12) to Darrell's print-ready front.png; assets.clean and
+print_files.front held the same. Worse: imagine-this-printed-main grants allUsers objectViewer, so the
+plain path (next to the public mockups) and an anonymous bucket listing handed it out too.
+
+Mechanism: service-role-only TABLE product_print_files (bucket + object paths, never URLs; RLS on, no
+policies, grants revoked) + the PRIVATE bucket imagine-this-printed-products (public access prevention
+enforced; the API's service account is already admin on it). Public row keeps only
+metadata.print_file_placements. Links are signed at read time (12 h for the press floor). Built on
+Daisy's c25fa1e (isCreatorProductMeta) so both ship together (28f1a972).
+
+### File shortlist (approved scope — 2026-10-07 print files)
+- `supabase/migrations/20261007200000_product_print_files.sql` (applied to prod 2026-10-07, ledger row in)
+- `backend/services/print-files.ts` + `.test.ts` (new), `backend/services/google-cloud-storage.ts` (2 private-bucket helpers)
+- `backend/routes/storefront.ts` (publish + checkout) + `backend/routes/storefront.print-files.test.ts` (new)
+- `backend/routes/admin/user-product-approvals.ts` (direct-print gate, no public watermark of creator art)
+- `backend/services/product-files.ts` + `.test.ts` (press floor signs the private file / order-line refs)
+- `backend/shared/creator-product.ts` + `.test.ts` (printFilePlacementsOf), `src/components/AdminCreatorProductsTab.tsx` (mirror gate)
+- `backend/scripts/move-creator-print-files-private.mjs` (one-off move, run on prod 2026-10-07)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-pluto): code + tests (route test runs the real router; 7/8 fail on the old code). Table applied
+  to prod; 3 merch-studio rows moved (copy md5-verified, public originals deleted: soft-delete 7 days), anon
+  queries now null, 0/2,605 products carry a creator print path. Real-DB proof: local publish of a throwaway
+  product + Walk By Faith checkout (Stripe refused on purpose) wrote print_file_refs; the floor code signed
+  the private copy, HTTP 200, 1,625,476 bytes; all proof rows/objects deleted.
+- 2026-10-07 (zero-pluto): Walk By Faith's assets.display was a 3072x4096 copy of the full design with one small
+  corner watermark (made from the print file at approval), public and shown first on the live page. Stripped from
+  the row + object deleted (script now covers display); approval no longer makes one for creator products (test
+  added: 2/3 fail on the old route). Live page re-walked at 390: leads with the maroon garment photo.
+  Main bucket imagine-this-printed-main: allUsers objectViewer (read + LIST) swapped for legacyObjectReader (read
+  only). Anonymous listing now 401/403; 58/58 live product images still load. Old policy saved in
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-b312de9c-main-bucket-iam-before.json.
+
+## Current request (2026-10-07) — creator products get creator treatment + 2XL +$2.50 (Watchtower d6822874)
+
+David's phone walk of Darrell McCutchen's "Walk By Faith" (e387149e) on ITP: no digital
+download or design tools on creator products, lead with the maroon photo, lock the blank to
+maroon and say so (the order must carry the colour), credit Darrell, keep creator and faith
+products out of the generic recommendation rows. His own site must show the 2XL +$2.50 on the
+button and in the cart (that site lives in the Darrell V2 repo, worked in its own worktree).
+
+Creator product = metadata.source 'merch-studio' (the storefront publish lane: a creator's own
+merch line). NOT metadata.creator_id alone: user designs, Imagination Station and Step Flow
+admin rows all write creator_id too.
+
+### File shortlist (approved scope — 2026-10-07 creator products)
+- `backend/shared/creator-product.ts` + `.test.ts` (new: creator/faith predicates, rec lanes)
+- `src/lib/product-kind.ts` + `.test.ts` (option sets, gallery order, digital offer)
+- `src/pages/ProductPage.tsx` (credit, colour copy, digital gate, rec title)
+- `src/components/ProductRecommendations.tsx`, `src/utils/product-recommender.ts` (+ test)
+- `backend/routes/user-products.ts` (refuse digital buy/download on creator products)
+- `backend/routes/admin/user-product-approvals.ts` (no auto digital on creator products)
+- `backend/routes/storefront.ts` (order colour default, creator_name at publish)
+- `backend/shared/promos.ts` + `.test.ts` (added: the house "2 for $25" flag sat on Darrell's
+  $24.99 shirt, selling two for $25 — a creator product is never bundle-eligible)
+- `src/pages/Cart.tsx` (added: the cart line showed $24.99 under a $27.49 total for a 2XL)
+- `src/utils/product-recommender.test.ts` (new)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): backend/shared/creator-product.ts is the one creator/faith rule.
+  Creator products: no upload/gang sheet/digital download (page + API + approval), gallery =
+  garment photos only, "Design by <metadata.creator_name>", colour sentence + swatch from
+  placement.color, never in the house "2 for $25" bundle. Recommendation rows stay in the
+  anchor's lane (creator -> that creator only, faith -> faith only, else neither); cache keyed
+  by product. Storefront checkout defaults a one-colour product's colour; publish records
+  creator_name. Live row e387149e patched (maroon only, physical, digital_price 0,
+  creator_name, bundle off; revert manifest in E:/memory/.../2026-10-07-d6822874-walk-by-faith-patch.json).
+  Darrell's site 2XL +$2.50 is in the Darrell V2 repo (branch earth/daisy-carter/darrell-2xl-surcharge-d6822874).
+  vitest 140 files / 2156 green, tsc app clean, backend clean except pre-existing rate-limits.ts,
+  vite build green; walked at 390px + desktop on local vite against live data.
+
+## Previous request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
 
 David's 10/7 live phone walk: the $5 "Patriotic Heartbeat DTF" transfer shows shirt sizes,
 youth sizes, shirt colours and "Shirt Quality"; the hoodie page offers T-shirt blanks; size

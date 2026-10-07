@@ -49,6 +49,12 @@ describe('bundleTotalCents', () => {
 })
 
 describe('isBundleEligible', () => {
+  it("never puts a creator's own apparel in the house bundle, whatever its flags say", () => {
+    // Darrell's "Walk By Faith" carried metadata.isThreeForTwentyFive: two of his $24.99 shirts sold for $25.
+    const walkByFaith = { isThreeForTwentyFive: true, metadata: { source: 'merch-studio', isThreeForTwentyFive: true } }
+    expect(isBundleEligible(walkByFaith)).toBe(false)
+  })
+
   it('is eligible via the top-level flag', () => {
     expect(isBundleEligible({ isThreeForTwentyFive: true })).toBe(true)
   })

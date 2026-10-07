@@ -15,11 +15,12 @@ import { getPromoBadge } from '../utils/product-promo'
 import { STANDARD_FULFILLMENT_DAYS } from '../utils/shipping-calculator'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
 import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
+import { isCreatorProductMeta, creatorNameOf, creatorGarmentColor } from '../../backend/shared/creator-product'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 
 // Perceived-luminance check for blank-garment swatches (their hexes come off
@@ -288,7 +289,7 @@ const ProductPage: React.FC = () => {
   // Deliverable URLs come from the gated endpoint, never from product.metadata.
   // MUST stay above the early returns below — hooks run unconditionally.
   useEffect(() => {
-    if (!product || !user || !hasDigitalDeliverables(product)) return
+    if (!product || !user || !offersDigitalDownload(product)) return
     let cancelled = false
     ;(async () => {
       try {
@@ -346,6 +347,11 @@ const ProductPage: React.FC = () => {
   const requiresSize = sizeChoices.length > 0
   const colorChoices = colorChoicesFor(product)
   const placementChoices = placementChoicesFor(product)
+  // A creator's own apparel (backend/shared/creator-product.ts): credited by
+  // name, its colour stated in words, its row filled only with their work.
+  const isCreatorProduct = isCreatorProductMeta(product.metadata)
+  const creatorName = creatorNameOf(product)
+  const creatorColor = creatorGarmentColor(product.metadata)
   // Blank garments are sold as-is (no print, no quality upsell — the blank IS
   // its tier, priced outright). Seeded with metadata.garment.blank = true.
   const isBlank = isBlankProduct(product)
@@ -657,6 +663,11 @@ const ProductPage: React.FC = () => {
                 />
               </div>
             </div>
+            {creatorName && (
+              <p className="text-sm text-muted mb-2">
+                Design by <span className="font-semibold text-text">{creatorName}</span>
+              </p>
+            )}
             <div className="flex items-baseline gap-3 flex-wrap">
               {isBlank ? (
                 <>
@@ -924,9 +935,12 @@ const ProductPage: React.FC = () => {
                   {colorChoices.map(color => {
                     // Blanks store Jiffy colour NAMES (so inventory + reorders
                     // line up); their swatch hex comes off metadata.garment.colors.
+                    // A creator's colour takes the hex they designed on, so the
+                    // swatch matches the photos (CSS 'maroon' is far redder).
                     const label = isBlank ? color : getColorName(color)
-                    const swatch = isBlank ? (blankSwatches[color] || '#9CA3AF') : color
-                    const light = isBlank ? isLightHex(swatch) : isLightSwatch(color)
+                    const creatorHex = creatorColor?.hex && creatorColor.name.toLowerCase() === color.toLowerCase() ? creatorColor.hex : null
+                    const swatch = isBlank ? (blankSwatches[color] || '#9CA3AF') : (creatorHex ?? color)
+                    const light = isBlank || creatorHex ? isLightHex(swatch) : isLightSwatch(color)
                     const isSelected = selectedColor === color
                     return (
                       <button
@@ -958,6 +972,11 @@ const ProductPage: React.FC = () => {
                     )
                   })}
                 </div>
+                {isCreatorProduct && colorChoices.length === 1 && (
+                  <p className="text-xs text-muted mt-2">
+                    Printed on {getColorName(colorChoices[0])} only, the colour {creatorName ?? 'the artist'} designed it for.
+                  </p>
+                )}
               </div>
             )}
 
@@ -1168,7 +1187,7 @@ const ProductPage: React.FC = () => {
             )}
           </div>
 
-          {hasDigitalDeliverables(product) && (
+          {offersDigitalDownload(product) && (
             <div className="bg-card card-border p-4 rounded-lg">
               <h4 className="font-semibold mb-1 text-text flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-primary" />
@@ -1242,7 +1261,10 @@ const ProductPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Similar Products Recommendations */}
+      {/* Similar Products Recommendations. The recommender keeps the row in
+          the anchor's lane (backend/shared/creator-product.ts): a creator's
+          product shows only their own work, and hides the row when there is
+          none, so nothing off-brand ever sits beside it. */}
       <div className="mt-16">
         <ProductRecommendations
           context={{
@@ -1251,7 +1273,7 @@ const ProductPage: React.FC = () => {
             limit: 6,
             excludeIds: [product.id]
           }}
-          title="Similar Products"
+          title={isCreatorProduct && creatorName ? `More from ${creatorName}` : 'Similar Products'}
           onProductClick={(recommendedProduct, _position) => {
             navigate(`/product/${recommendedProduct.id}`)
           }}
