@@ -1,4 +1,5 @@
 import { Link } from 'react-router-dom'
+import { BUSINESS_LEGAL_NAME, ETSY_SHOP_URL, SHOP_PLACE } from '../config/business-info'
 
 export function Footer() {
   const currentYear = new Date().getFullYear()
@@ -14,6 +15,9 @@ export function Footer() {
             </Link>
             <p className="mt-3 text-sm text-muted max-w-xs">
               Your one-stop shop for custom printing solutions, from DTF transfers to 3D prints.
+            </p>
+            <p className="mt-2 text-sm text-text-secondary">
+              {BUSINESS_LEGAL_NAME}, {SHOP_PLACE.town}, {SHOP_PLACE.stateName}
             </p>
           </div>
 
@@ -115,7 +119,7 @@ export function Footer() {
 
           {/* Bare twitter/instagram/facebook.com icons pointed at no account of ours; the Etsy shop is real. */}
           <a
-            href="https://www.etsy.com/shop/ImagineThisPrinted1"
+            href={ETSY_SHOP_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="text-sm text-muted hover:text-secondary transition-colors"
