@@ -4739,3 +4739,24 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-07) — Etsy Mini-Me listing with photo-upload personalization (task d76d6501, sal-moretti)
+Stale scope above belongs to earlier tasks. Rationale: the Etsy listing needs its own builder + runner; the
+first sample statue (task e0c81e3c) is not printed and Mini-Me prices are still MINI_ME_PRICES_APPROVED=false,
+so the live create is HELD behind both and this task ships the creator, not the listing.
+
+### File shortlist (approved scope — 2026-10-07 Etsy Mini-Me listing)
+- `backend/shared/mini-me.ts` + `.test.ts` — taken verbatim from earth/zero-nine/itp-mini-me (the ONE Mini-Me price table)
+- `backend/services/etsy-mini-me-listing.ts` + `.test.ts` (new: pure copy / personalization / inventory builder + guards)
+- `backend/scripts/etsy-mini-me-listing.ts` (new: dry-run by default; creates the listing only with real photos + approved prices)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (sal-moretti): gate NOT met (e0c81e3c pending, never dispatched; no figurine has ever finished on the A1s) and
+  MINI_ME_PRICES_APPROVED=false, so no live listing. Built the creator instead: pure builder (copy with the verbatim AI line,
+  one 10-file photo-upload question + optional 16-char name-on-base, Size 10cm/15cm each +/- "NFC video" x Colour
+  "White + paint kit"/"4-colour" = 8 priced combos from the ONE Mini-Me table, taxonomy 130 custom slots 513/514) and a runner
+  that dry-runs by default and refuses --create without approved prices + real sample photos. NFC rides the size axis: a third
+  variation is Etsy developer-preview only, and personalization can only price an optional text answer. Read-only live checks:
+  GET personalization on a live listing 200, taxonomy 130 slots 513/514 present. vitest backend/services+shared 76 files /
+  1366 pass; script tsc strict clean; backend tsc only the 6 pre-existing TS2742 (linked node_modules) in rate-limits.ts.
