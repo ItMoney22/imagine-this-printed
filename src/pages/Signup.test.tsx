@@ -42,6 +42,14 @@ describe('Signup honeypot', () => {
     expect(signUp).not.toHaveBeenCalled()
   })
 
+  it('a person the bot gate refuses sees plain words, not a database error', async () => {
+    signUp.mockResolvedValue({ error: 'Database error saving new user' })
+    fillAndSubmit()
+    const msg = await screen.findByText(/We could not create your account/)
+    expect(msg.className).toContain('text-red-700')
+    expect(screen.queryByText(/Database error/)).toBeNull()
+  })
+
   it('keeps the hidden field away from people: off-screen, not tabbable, not read out', () => {
     render(
       <MemoryRouter>

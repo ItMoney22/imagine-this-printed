@@ -51,3 +51,15 @@ export const TURNSTILE_SCRIPT_SRC =
  * tell a signup flood apart from a password-reset flood. Keep these stable.
  */
 export type CaptchaAction = 'signup' | 'signin' | 'password-reset' | 'magic-link' | 'contact'
+
+/**
+ * GoTrue answers "Database error saving new user" when the database refuses a
+ * signup — which is what the bot gate (on_auth_user_gate_bot, see
+ * docs/SIGNUP_BOT_PROTECTION.md section 6) does on purpose. Show a person words
+ * they can act on instead of a database error.
+ */
+export function friendlySignupError(message: string): string {
+  return /database error (saving|creating) new user/i.test(message)
+    ? 'We could not create your account. Please try again, check out as a guest, or email wecare@imaginethisprinted.com and we will set it up for you.'
+    : message
+}

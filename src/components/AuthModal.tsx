@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import TurnstileWidget from './TurnstileWidget'
 import HoneypotField from './HoneypotField'
-import { isCaptchaConfigured } from '../lib/captcha'
+import { isCaptchaConfigured, friendlySignupError } from '../lib/captcha'
 
 interface AuthModalProps {
   isOpen: boolean
@@ -60,7 +60,8 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
         onClose()
       } else if (mode === 'signup') {
         const { error } = await signUp(email, password, { firstName, lastName }, captchaToken)
-        if (error) throw error
+        // signUp returns a string; wrap it so the catch below can read .message.
+        if (error) throw new Error(friendlySignupError(error))
         setMessage('Account created! Please check your email to verify your account.')
       } else if (mode === 'reset') {
         const { error } = await resetPassword(email, captchaToken)

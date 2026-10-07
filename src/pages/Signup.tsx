@@ -3,7 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import TurnstileWidget from '../components/TurnstileWidget'
 import HoneypotField from '../components/HoneypotField'
-import { isCaptchaConfigured } from '../lib/captcha'
+import { isCaptchaConfigured, friendlySignupError } from '../lib/captcha'
 
 const SIGNUP_SENT = 'Account created! Please check your email to verify your account.'
 
@@ -70,7 +70,7 @@ const Signup: React.FC = () => {
         console.error('❌ Signup: Account creation failed:', {
           error: result.error
         })
-        setMessage(result.error)
+        setMessage(friendlySignupError(result.error))
         return
       }
       
@@ -169,8 +169,8 @@ const Signup: React.FC = () => {
 
         {message && (
           <div className={`mt-4 p-3 rounded-md ${
-            message.includes('error') || message.includes('Error') 
-              ? 'bg-red-50 text-red-700 border border-red-200' 
+            message !== SIGNUP_SENT
+              ? 'bg-red-50 text-red-700 border border-red-200'
               : 'bg-green-50 text-green-700 border border-green-200'
           }`}>
             {message}
