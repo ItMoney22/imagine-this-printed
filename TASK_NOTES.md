@@ -1,5 +1,27 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
+
+David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1
+(approval 3627e82e). Build: one grouped sidebar instead of 20 flat tabs; Overview leads with Ops
+Monitor / Mrs. Imagine / Etsy; fake System Health removed; drop vendors, models, tryon tabs; merge
+itc-pricing + imagination into Pricing and wallet into Users; Delivered tab in Orders; Users role
+picker offers only real roles; Toy Lab, Team Templates, Email, Orders in the nav.
+
+### File shortlist (approved scope — 2026-10-07 admin redo)
+- `src/pages/AdminDashboard.tsx`, `src/pages/OrderManagement.tsx`
+- `src/components/AdminMrsImagine.tsx` (mobile layout only, now that it leads the overview), `src/index.css` (hero drift keyframes)
+- `src/components/admin/*` (new: AdminShell / sidebar nav / hero), `src/components/AdminWalletManagement.tsx`
+- `src/pages/AdminEmail.tsx`, `src/pages/AdminToyLab.tsx`, `src/pages/AdminTeamTemplatesIndex.tsx` (wrap in the shell)
+- `src/App.tsx` (routes only), `public/admin/*` (generated art)
+- `supabase/migrations/20260728_email_unmatched_inbound.sql` (applied to prod 2026-10-07, verified)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (mason-blaze): applied email_unmatched_inbound to prod (table + RLS verified). Mockup sent and
+  approved by David (round 1). Starting the build.
+
+
 ## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
 
 David: "the team name step flow is horrible the look the way it works ... i dont
@@ -4528,3 +4550,12 @@ Terms awaiting David: APPROVE card fc2d2f1a (recommended: 20% off the whole orde
 
 ### Work log (append-only)
 - 2026-10-07 (dane-marsh): Findings — 2-for-$25 already applies in cart + server for ~8 active flagged products, but is permanent, has no end date, and Etsy cannot mirror a bundle. Coupon system (discount_codes) already enforces expires_at server-side and stores the code on orders.discount_codes, so a % code needs no pricing math. It is sitewide only (no product scoping). Approval card fc2d2f1a filed.
+- 2026-10-07 (mason-blaze): BUILT the approved redo. AdminShell (grouped sidebar: Run the shop / Make / Money / People)
+  wraps every admin route; AdminDashboard tab strip gone, hero + three art panels (Ops Monitor, Mrs. Imagine, Etsy)
+  lead the overview, fake System Health + Quick Actions removed; vendors/models/tryon tabs removed; itc-pricing +
+  imagination -> Pricing (toggle), wallet -> Users (Accounts/Wallets toggle), old ?tab= links map across; Delivered tab
+  in Orders; role picker = customer/vendor/admin (a retired role on an existing user still shows); + Create Product and
+  /admin/ai/products/create now open the Step Flow builder. Walked on 5287 at 1440 and 390 wide: no page errors.
+  Art is cropped from the approved mock (no page-art.ts on this checkout): swap for Flux finals when it lands.
+  Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.
+- 2026-10-07 (dane-marsh): merged main into branch (only TASK_NOTES.md conflicted; kept both sides). Offer stays dormant until David approves card fc2d2f1a.
