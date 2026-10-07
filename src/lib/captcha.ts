@@ -50,4 +50,4 @@ export const TURNSTILE_SCRIPT_SRC =
  * Turnstile labels each solve with an "action" so Cloudflare's analytics can
  * tell a signup flood apart from a password-reset flood. Keep these stable.
  */
-export type CaptchaAction = 'signup' | 'signin' | 'password-reset' | 'magic-link'
+export type CaptchaAction = 'signup' | 'signin' | 'password-reset' | 'magic-link' | 'contact'

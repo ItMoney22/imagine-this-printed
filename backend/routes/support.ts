@@ -4,6 +4,7 @@ import dotenv from 'dotenv'
 import { sendTicketConfirmationEmail, sendNewSupportTicketEmail } from '../utils/email.js'
 import { triageTicket, describeTicketTriage } from '../lib/jev-triage.js'
 import { checkTicketSpam } from '../lib/spam-guard.js'
+import { verifyTurnstile, readTurnstileToken } from '../lib/turnstile.js'
 
 dotenv.config()
 
@@ -129,6 +130,21 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
     if (spamCheck.spam) {
       await fileSpamTicket({ email, subject, description, name, order_id }, spamCheck.reasons.join(','))
       res.status(201).json(SPAM_REPLY)
+      return
+    }
+
+    // Human check (Turnstile), once TURNSTILE_SECRET_KEY is set on the API. A
+    // refusal is a visible 400, not a quiet file: if the widget failed for a real
+    // person, they must know to retry or email us rather than lose the message.
+    const captcha = await verifyTurnstile(readTurnstileToken(req.body), ip)
+    if (captcha.skipped && captcha.reason !== 'not_configured') {
+      console.warn('[Support] Turnstile check skipped:', captcha.reason)
+    }
+    if (!captcha.ok) {
+      console.log('[Support] Turnstile refused:', captcha.reason)
+      res.status(400).json({
+        error: 'Please complete the security check and send again, or email wecare@imaginethisprinted.com directly.'
+      })
       return
     }
 

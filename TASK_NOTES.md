@@ -1,6 +1,46 @@
 # TASK_NOTES
 
-## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
+## Current request (2026-10-07) — stop the spam, lock down the forms (Watchtower 673c0b4a)
+
+David 10/7: "secure ITP, make the spam go away." Bot protection on the contact form,
+signup and the Resend inbound webhook; confident spam filed silently; existing spam
+tickets and bot accounts MARKED, never deleted. Builds on 17ecd4c (main, same task:
+server-side contact-form spam guard, already live).
+
+Live state found 10/7: 571 tickets, 569 already category=spam/closed (status CHECK only
+allows open|in_progress|resolved|closed, so "spam" lives in category). All 152 signups
+since 2026-09-23 have random-letter first/last names on real people's scraped addresses
+(signup email-bombing); bot metadata keys match Signup.tsx exactly, so they drive the
+real form. Inbound mail: no external spam yet; the wecare inbox is full of our own
+"New Support Ticket" alerts from before 17ecd4c.
+
+### File shortlist (approved scope — 2026-10-07 spam lockdown)
+- `backend/lib/turnstile.ts` + `.test.ts` (new: server-side Turnstile siteverify)
+- `backend/routes/support.ts` (Turnstile gate on POST /tickets)
+- `backend/lib/inbound-spam.ts` + `.test.ts` (new: file-vs-forward decision for inbound mail)
+- `backend/routes/email.ts` (Resend inbound webhook: Jev spam + per-sender throttle, no forward)
+- `src/pages/Contact.tsx`, `src/lib/captcha.ts` (Turnstile widget on the contact form)
+- `src/components/HoneypotField.tsx` (new), `src/pages/Signup.tsx`, `src/components/AuthModal.tsx` (+ tests)
+- `supabase/migrations/20261007120000_signup_bot_flag.sql` (new: bot-name flag + backfill, marks only)
+- `backend/.env.example`, `.env.example`, `docs/SIGNUP_BOT_PROTECTION.md` (env + where keys go)
+- `CLAUDE_TASK.md`, `TASK_NOTES.md`
+- Added mid-task (tests + ledger): `backend/routes/support-captcha.test.ts`, `backend/routes/email-inbound-spam.test.ts`,
+  `src/pages/Signup.test.tsx`, `supabase/migrations/MIGRATION_LEDGER.md` (the migration was applied live, so it gets its row)
+
+### Work log (append-only)
+- 2026-10-07 (zero-nine): signup bot flag migration dry-run (rolled back) then APPLIED + tracked on prod:
+  152/152 bot accounts marked in user_profiles.metadata.bot_suspect (147 strong, 5 weak+new+never signed in+no
+  orders), 5 real accounts untouched, auth.users 157 before/after. Live probes via admin createUser: bot name
+  flagged (score -4.83), real name not, dormant gate refused the bot only while switched on; probes removed.
+- 2026-10-07 (zero-nine): live contact-form check on prod (17ecd4c): random-string bot, honeypot and SEO pitch
+  each filed closed/spam with no admin notification and no email; a real-shaped message opened ticket 67898f22
+  (high), fired the admin notification and the alert email to wecare@ (then closed as a test). Webhook: unsigned
+  and forged posts 401 live.
+- 2026-10-07 (zero-nine): code for the next deploy: Turnstile server check on the contact form, honeypot on
+  Signup/AuthModal/Contact, inbound-mail spam + per-sender flood filing. Full suite 135 files / 2084 tests green,
+  vite build OK, tsc clean on touched files, /signup + /contact walked at desktop and 390px (no visible change).
+
+## Previous request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
 
 David: "the team name step flow is horrible the look the way it works ... i dont
 want this style anymore ... research how to do it with gpt image 2.5 flare which

@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import TurnstileWidget from './TurnstileWidget'
+import HoneypotField from './HoneypotField'
 import { isCaptchaConfigured } from '../lib/captcha'
 
 interface AuthModalProps {
@@ -19,6 +20,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
   const [message, setMessage] = useState('')
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [captchaReset, setCaptchaReset] = useState(0)
+  const [honeypot, setHoneypot] = useState('')
   const { signIn, signUp, resetPassword } = useAuth()
 
   // Supabase applies Bot & Abuse Protection to sign-in and password reset as
@@ -31,6 +33,16 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // A bot filled the hidden field (HoneypotField): show the normal success for
+    // the mails this modal can trigger and send nothing.
+    if (honeypot && mode !== 'signin') {
+      setMessage(mode === 'signup'
+        ? 'Account created! Please check your email to verify your account.'
+        : 'Password reset email sent!')
+      return
+    }
+
     setLoading(true)
     setMessage('')
 
@@ -101,6 +113,7 @@ const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose, initialMode = 's
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <HoneypotField value={honeypot} onChange={setHoneypot} />
           {mode === 'signup' && (
             <div className="grid grid-cols-2 gap-4">
               <input
