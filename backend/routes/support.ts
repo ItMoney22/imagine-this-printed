@@ -207,7 +207,7 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
 
     // Send confirmation email to customer
     try {
-      await sendTicketConfirmationEmail(email, ticket.id, subject)
+      await sendTicketConfirmationEmail(email, ticket.id, subject, name)
       console.log('[Support] Confirmation email sent to:', email)
     } catch (emailError) {
       console.error('[Support] Failed to send confirmation email:', emailError)

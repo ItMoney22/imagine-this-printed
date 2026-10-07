@@ -13,7 +13,7 @@ import { getSuppression } from '../services/email-suppression.js'
 import { resolveCarrier } from './carrier-tracking.js'
 import { buildOrderStatusUrl } from './order-status-token.js'
 import { buildAccountClaimUrl } from './account-claim-token.js'
-import { couponBlockHtml, type EmailCoupon } from './email-blocks.js'
+import { couponBlockHtml, buildTotalsRows, totalsFootHtml, typedName, type EmailCoupon, type OrderTotals } from './email-blocks.js'
 
 // ---------------------------------------------------------------------------
 // Config
@@ -574,14 +574,17 @@ export const sendNewWholesaleApplicationEmail = async (
 export const sendTicketConfirmationEmail = async (
   email: string,
   ticketId: string,
-  subject: string
+  subject: string,
+  customerName?: string | null
 ): Promise<boolean> => {
+  const typed = typedName(customerName)
   // Try AI-powered email first
   if (AI_EMAIL_ENABLED && generateAIEmail) {
     try {
       const aiEmail = await generateAIEmail({
         templateKey: 'ticket_confirmation',
         customerEmail: email,
+        customerName: typed || undefined,
         ticketId,
         ticketSubject: subject
       })
@@ -604,7 +607,7 @@ export const sendTicketConfirmationEmail = async (
     htmlContent: `
       <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
         <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #7c3aed; margin: 0;">We Got Your Request! ✅</h1>
+          <h1 style="color: #7c3aed; margin: 0;">${typed ? `Got it, ${esc(typed)}!` : 'We Got Your Request!'} ✅</h1>
         </div>
 
         <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 30px; margin-bottom: 20px;">
@@ -867,6 +870,8 @@ interface OrderItem {
 export interface OrderEmailOptions {
   orderId?: string
   customerName?: string
+  /** Subtotal / discount / shipping / tax off the order row, for the totals block. */
+  totals?: OrderTotals
   /**
    * Thank-you coupon earned by a delivered order (see
    * backend/services/delivery-coupon.ts). Rendered as an exact, copyable code —
@@ -976,7 +981,7 @@ export const sendOrderConfirmationEmail = async (
             <a href="${esc(claimUrl)}" style="display: inline-block; background: #7c3aed; color: white; padding: 11px 24px; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 14px;">
               Create My Account
             </a>
-            <p style="color: #9ca3af; font-size: 11px; margin: 10px 0 0;">Totally optional — your order is on its way either way.</p>
+            <p style="color: #9ca3af; font-size: 11px; margin: 10px 0 0;">Totally optional — your order is confirmed either way.</p>
           </div>` : ''
 
   // Try AI-powered email first
@@ -989,7 +994,8 @@ export const sendOrderConfirmationEmail = async (
         orderNumber: orderRef,
         orderId: options.orderId,
         items,
-        total
+        total,
+        totals: options.totals
       })
 
       return sendEmail({
@@ -1052,10 +1058,7 @@ export const sendOrderConfirmationEmail = async (
               ${itemsHtml}
             </tbody>
             <tfoot>
-              <tr>
-                <td colspan="2" style="padding: 12px; font-weight: bold; color: #374151;">Total</td>
-                <td style="padding: 12px; text-align: right; font-weight: bold; color: #059669; font-size: 18px;">$${total.toFixed(2)}</td>
-              </tr>
+              ${totalsFootHtml(buildTotalsRows(items, total, options.totals))}
             </tfoot>
           </table>
 
