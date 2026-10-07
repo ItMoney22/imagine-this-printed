@@ -366,8 +366,8 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* Blank Tees — David 2026-09-02: customers can buy the relabeled blanks
-          we print on, four quality rungs, priced just over wholesale. Own
+      {/* Blank Tees — David 2026-09-02: customers can buy the blanks
+          we print on, four quality rungs. Own
           component so it fetches the live "from" prices without touching
           this page's state. */}
       <BlankTeesSection />
