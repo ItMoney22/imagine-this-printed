@@ -1,5 +1,24 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — Mini-Me first real sample (task e0c81e3c, dr-dill)
+
+Run one Mini-Me end to end (photo -> concept -> Tripo -> STL -> slice -> A1) at 100 mm, NFC at the pause.
+Running it found the GLB -> STL step turns every model UPSIDE DOWN: `makeRotationX(-PI/2)` sends glTF's
++Y (up) to -Z, so the round base lands on top and the head on the plate. Proven on the sample: the raw
+GLB has its 39 mm disc at min Y; the STL had it at z 94.7-100. Fixing it is in scope because the sample
+cannot print without it.
+
+### File shortlist (approved scope — 2026-10-07 Mini-Me sample)
+- `backend/services/glb-to-stl.ts` (+ new `glb-to-stl.test.ts`): rotate +PI/2 so up stays up
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): scope added; sample run (subject/concept/Tripo) lives in
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-e0c81e3c-mini-me-sample/.
+- 2026-10-07 (dr-dill): glb-to-stl rotates +PI/2; new glb-to-stl.test.ts goes red on the old -PI/2. Re-converted
+  the sample GLB: base on the plate, 100.0 mm. Sliced with the runner's presets + NFC pocket + pause:
+  max_z 100.04, 19.38 g, 2h20m est. vitest 143 files / 2161 pass, app tsc 0, backend tsc 6 known TS2742.
+
 ## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
 David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):
