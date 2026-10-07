@@ -1,6 +1,28 @@
 # TASK_NOTES
 
-## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
+## Current request (2026-10-07) — Imagination Station redo (David, VS Code code-here; mock approval c591c12d, amelia-chan)
+
+David: "do this page sucks on the imagination station ... make sure that it has all the latest and greatest
+tools ... going back to the home page sucks." Mock approved round 1. Built to it: Back to Shop + site links in
+the station header, a Make / Polish / Place on sheet / Add to cart strip, tools grouped Make / Polish / Sheet with
+before/after pictures + price chips (Add Words, Magic Edit, Paint and Replace, Print Cleanup, Restyle and
+Variations now one click each), a welcome scene (idea box, Surprise me, drop zone, Ideas to try), the sheet open
+beside the studio on wide screens, and "Polish this piece" on a selected sheet piece (ITPEnhanceModal was never
+reachable).
+
+### File shortlist (approved scope)
+- src/pages/ImaginationStation.tsx, src/components/imagination/MrImagineModal.tsx (initialPrompt)
+- src/components/imagination/station/* (new), src/styles/station.css (new), public/station/* (new art)
+
+### Work log (append-only)
+- 2026-10-07 (amelia-chan): branch earth/amelia-chan/itp-imagination-station-redo = local main + Sal's guest
+  access (8c67fe67) merged, then the redo. Art: Flux 2 Pro x19 ($1.11, metered) + the real Mr. Imagine cutout.
+  NOT offered: "4x" sharpen (the backend charges upscale_4x but runs the same crisp upscale as 2x). Found:
+  token colours with an opacity (bg-primary/10, border-text/10) compile to nothing site-wide; the station's new
+  tints live in station.css with color-mix instead. tsc clean, vitest 146 files / 2184 pass, vite build ok,
+  guest walk 1440/1280/390 light + dark.
+
+## Previous request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
 David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):
 home, product page, catalog, cart + checkout, toys, Imagination Station, About + policies, account pages.
