@@ -735,19 +735,19 @@ const ProductPage: React.FC = () => {
             <ul className="text-muted space-y-2">
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Crafted for the Extraordinary</span>
+                <span>Made to order, just for you</span>
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Frequency-Aligned Print Quality</span>
+                <span>Professional-Grade Print Quality</span>
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>{productKind === 'metal' ? 'Museum-Grade Metal Finish' : productKind === '3d' ? 'Durable, Detail-Rich Build' : 'Truth in Every Thread'}</span>
+                <span>{productKind === 'metal' ? 'Museum-Grade Metal Finish' : productKind === '3d' ? 'Durable, Detail-Rich Build' : 'Soft, Durable Fabric'}</span>
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Consciously Produced</span>
+                <span>Backed by Our Satisfaction Guarantee</span>
               </li>
             </ul>
           </div>

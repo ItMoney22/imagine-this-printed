@@ -34,6 +34,7 @@ import ProductPage from './pages/ProductPage'
 import Cart from './pages/Cart'
 import OrderSuccess from './pages/OrderSuccess'
 import Contact from './pages/Contact'
+import About from './pages/About'
 import Referrals from './pages/Referrals'
 import UserProfile from './pages/UserProfile'
 import PrivacyPolicy from './pages/PrivacyPolicy'
@@ -206,6 +207,7 @@ function App() {
                   <Route path="/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><OrderManagement /></RoleRoute>} />
                   <Route path="/referrals" element={<Referrals />} />
                   <Route path="/contact" element={<Contact />} />
+                  <Route path="/about" element={<About />} />
                   <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
 
                   {/* Legal Pages */}

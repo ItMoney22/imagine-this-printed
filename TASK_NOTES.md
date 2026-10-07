@@ -4514,3 +4514,13 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
 ### Work log 2026-09-23 — team-plate lettering swapped to gpt-image-2.5-flare + crisp upscale (task 65d98dd9, jimmy-phix)
 - Per-order name/number is now a flare EDIT of the original back art (prompt schema in `backend/services/team-plate/lettering-prompt.ts`), cached as `<key>-base.png` (the preview) and upscaled by `recraft-crisp-upscale` (`upscaleToPng`, split out of `step-flow/print-resolution.ts`) into `<key>-press.png` at the template canvas. Paths: `users/team-plates/flare-v1/`. Vector engine quarantined in `team-plate/legacy-vector/`. Checkout waits 20s for the press file, else writes the deterministic gcsPath + `print_file_status: 'rendering'` and settles it in the background. Customer panel previews on a button press (paid call) with a staged progress bar. Result: 152/152 tests; live smoke `backend/scripts/team-plate-smoke.ts` on the real BEAR 9 art passed every check twice (RODRIGUEZ 27, LI 5 — spelled right, art held, 3600x4498 press).
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+
+## Request (2026-10-07) — ITP trust pass (Watchtower 563e6351)
+### File shortlist (approved scope)
+- `src/pages/About.tsx` (new), `src/App.tsx` (/about route), `src/components/Footer.tsx`, `src/pages/ProductPage.tsx`
+### Work log (append-only)
+- 2026-10-07 (zero-nine): About page (/about) with business name + wecare@ email + contact form link; footer About link; removed
+  "Truth cannot be killed" and the placeholder twitter/instagram/facebook icons (no real profiles exist in repo/config); replaced
+  Frequency-Aligned/"Truth in Every Thread"/etc quality bullets with plain ones. Live DB: unpublished (status=draft, is_active=false)
+  America's 250th Anniversary Hoodie 7551e1ee, America 250th Anniversary Tee b08e2ee3, New Year's 2026 Celebration T-Shirt ca4927a9
+  (last was already hidden as draft). Active products 114 -> 112. tsc clean for touched files.
