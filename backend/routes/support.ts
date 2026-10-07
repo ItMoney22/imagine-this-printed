@@ -4,6 +4,8 @@ import dotenv from 'dotenv'
 import { sendTicketConfirmationEmail, sendNewSupportTicketEmail } from '../utils/email.js'
 import { triageTicket, describeTicketTriage } from '../lib/jev-triage.js'
 import { checkTicketSpam } from '../lib/spam-guard.js'
+import { verifyTurnstile, readTurnstileToken } from '../lib/turnstile.js'
+import { pingChristinaAboutTicket } from '../services/support-ping.js'
 
 dotenv.config()
 
@@ -132,6 +134,21 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       return
     }
 
+    // Human check (Turnstile), once TURNSTILE_SECRET_KEY is set on the API. A
+    // refusal is a visible 400, not a quiet file: if the widget failed for a real
+    // person, they must know to retry or email us rather than lose the message.
+    const captcha = await verifyTurnstile(readTurnstileToken(req.body), ip)
+    if (captcha.skipped && captcha.reason !== 'not_configured') {
+      console.warn('[Support] Turnstile check skipped:', captcha.reason)
+    }
+    if (!captcha.ok) {
+      console.log('[Support] Turnstile refused:', captcha.reason)
+      res.status(400).json({
+        error: 'Please complete the security check and send again, or email wecare@imaginethisprinted.com directly.'
+      })
+      return
+    }
+
     console.log('[Support] Creating ticket from:', email)
 
     // Jev triage: category + priority from what the customer actually wrote.
@@ -229,6 +246,18 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       console.error('[Support] Failed to send support team notification:', emailError)
       // Don't fail the request if email fails
     }
+
+    // Becky tells Christina on her phone; her answer comes back through /api/print-bridge/ticket-reply.
+    await pingChristinaAboutTicket({
+      kind: 'ticket',
+      ticketId: ticket.id,
+      subject: String(subject),
+      message: String(description),
+      customerName: name,
+      customerEmail: email,
+      priority: triage.dbPriority,
+      category: triage.category ?? category,
+    })
 
     res.status(201).json({
       success: true,
