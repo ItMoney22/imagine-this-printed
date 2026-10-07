@@ -2,7 +2,10 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import TurnstileWidget from '../components/TurnstileWidget'
-import { isCaptchaConfigured } from '../lib/captcha'
+import HoneypotField from '../components/HoneypotField'
+import { isCaptchaConfigured, friendlySignupError } from '../lib/captcha'
+
+const SIGNUP_SENT = 'Account created! Please check your email to verify your account.'
 
 const Signup: React.FC = () => {
   const [email, setEmail] = useState('')
@@ -13,6 +16,7 @@ const Signup: React.FC = () => {
   const [message, setMessage] = useState('')
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [captchaReset, setCaptchaReset] = useState(0)
+  const [honeypot, setHoneypot] = useState('')
   const { signUp, user } = useAuth()
 
   // Every Turnstile token is single-use. Burning one on a failed attempt and
@@ -32,6 +36,14 @@ const Signup: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+
+    // A bot filled the hidden field: show the normal success and send nothing,
+    // so no confirmation email goes to the stranger whose address it typed.
+    if (honeypot) {
+      setMessage(SIGNUP_SENT)
+      return
+    }
+
     setLoading(true)
     setMessage('')
 
@@ -58,12 +70,12 @@ const Signup: React.FC = () => {
         console.error('❌ Signup: Account creation failed:', {
           error: result.error
         })
-        setMessage(result.error)
+        setMessage(friendlySignupError(result.error))
         return
       }
       
       console.log('✅ Signup: Account creation successful')
-      setMessage('Account created! Please check your email to verify your account.')
+      setMessage(SIGNUP_SENT)
     } catch (error: any) {
       setCaptchaReset((n) => n + 1)
       console.error('❌ Signup: Form submission error:', {
@@ -95,6 +107,7 @@ const Signup: React.FC = () => {
         </div>
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          <HoneypotField value={honeypot} onChange={setHoneypot} />
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <input
@@ -156,8 +169,8 @@ const Signup: React.FC = () => {
 
         {message && (
           <div className={`mt-4 p-3 rounded-md ${
-            message.includes('error') || message.includes('Error') 
-              ? 'bg-red-50 text-red-700 border border-red-200' 
+            message !== SIGNUP_SENT
+              ? 'bg-red-50 text-red-700 border border-red-200'
               : 'bg-green-50 text-green-700 border border-green-200'
           }`}>
             {message}

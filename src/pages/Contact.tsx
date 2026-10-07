@@ -1,5 +1,8 @@
 import React, { useState } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import TurnstileWidget from '../components/TurnstileWidget'
+import HoneypotField from '../components/HoneypotField'
+import { isCaptchaConfigured } from '../lib/captcha'
 
 const Contact: React.FC = () => {
   const { user } = useAuth()
@@ -15,6 +18,11 @@ const Contact: React.FC = () => {
   const [submitted, setSubmitted] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [honeypot, setHoneypot] = useState('') // Spam protection
+  // Human check; the API verifies the token (backend/lib/turnstile.ts). Single-use,
+  // so a fresh challenge is issued after every attempt.
+  const [captchaToken, setCaptchaToken] = useState<string | null>(null)
+  const [captchaReset, setCaptchaReset] = useState(0)
+  const captchaRequired = isCaptchaConfigured()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,6 +36,11 @@ const Contact: React.FC = () => {
 
     if (!formData.name || !formData.email || !formData.subject || !formData.message) {
       setError('Please fill in all required fields')
+      return
+    }
+
+    if (captchaRequired && !captchaToken) {
+      setError('Please complete the security check below.')
       return
     }
 
@@ -48,7 +61,8 @@ const Contact: React.FC = () => {
           description: formData.message,
           category: formData.category,
           order_id: formData.orderId || null,
-          user_id: user?.id || null
+          user_id: user?.id || null,
+          ...(captchaToken ? { captchaToken } : {})
         }),
       })
 
@@ -62,6 +76,8 @@ const Contact: React.FC = () => {
       console.error('[Contact] Error submitting ticket:', err)
       setError(err.message || 'Failed to submit your request. Please try again.')
     } finally {
+      setCaptchaToken(null)
+      setCaptchaReset((n) => n + 1)
       setSubmitting(false)
     }
   }
@@ -108,15 +124,7 @@ const Contact: React.FC = () => {
         <div className="bg-card rounded-lg shadow-lg p-8">
           <form onSubmit={handleSubmit} className="space-y-6">
             {/* Honeypot field - hidden from users */}
-            <input
-              type="text"
-              name="website"
-              value={honeypot}
-              onChange={(e) => setHoneypot(e.target.value)}
-              style={{ display: 'none' }}
-              tabIndex={-1}
-              autoComplete="off"
-            />
+            <HoneypotField value={honeypot} onChange={setHoneypot} />
 
             {error && (
               <div className="bg-red-50 border border-red-200 rounded-md p-4">
@@ -221,9 +229,16 @@ const Contact: React.FC = () => {
               />
             </div>
 
+            <TurnstileWidget
+              action="contact"
+              onVerify={setCaptchaToken}
+              resetSignal={captchaReset}
+              className="flex justify-center"
+            />
+
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting || (captchaRequired && !captchaToken)}
               className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center"
             >
               {submitting ? (
