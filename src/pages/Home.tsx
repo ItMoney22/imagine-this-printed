@@ -2,6 +2,7 @@ import React, { useState, useEffect, Suspense, lazy, memo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star, Play, Boxes, Package } from 'lucide-react'
 import { Hero } from '../components/Hero'
+import SeasonalOfferBanner from '../components/SeasonalOfferBanner'
 import ProductCard from '../components/ProductCard'
 import BlankTeesSection from '../components/BlankTeesSection'
 import type { Product } from '../types'
@@ -261,6 +262,7 @@ const Home: React.FC = () => {
   return (
     <div className="bg-bg">
       {/* Hero Section - Full Screen Video */}
+      <SeasonalOfferBanner />
       <Hero />
 
       {/* Toy Creator — David 2026-08-19: the 3D toy lab had NO front-page entry
