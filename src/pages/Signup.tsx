@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import TurnstileWidget from '../components/TurnstileWidget'
+import { GateBanner } from '../components/GuestGate'
 import { isCaptchaConfigured } from '../lib/captcha'
+import { gateBannerFor } from '../lib/guest-gate'
 
 const Signup: React.FC = () => {
   const [email, setEmail] = useState('')
@@ -21,6 +23,7 @@ const Signup: React.FC = () => {
   const captchaRequired = isCaptchaConfigured()
   const navigate = useNavigate()
   const location = useLocation()
+  const gateBanner = gateBannerFor(location.state)
 
   // Redirect if already logged in
   useEffect(() => {
@@ -88,10 +91,18 @@ const Signup: React.FC = () => {
           </h2>
           <p className="mt-2 text-center text-sm text-muted">
             Already have an account?{' '}
-            <Link to="/login" className="font-medium text-purple-600 hover:text-purple-500">
+            <Link to="/login" state={location.state} className="font-medium text-purple-600 hover:text-purple-500">
               Sign in
             </Link>
           </p>
+          {gateBanner && (
+            <div className="mt-6">
+              <GateBanner
+                title={gateBanner.title}
+                why={`${gateBanner.why} Once you confirm your email you come straight back to where you were.`}
+              />
+            </div>
+          )}
         </div>
         
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>

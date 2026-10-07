@@ -685,7 +685,7 @@ const Home: React.FC = () => {
               </ul>
 
               <button
-                onClick={() => navigate('/account/designs')}
+                onClick={() => navigate('/imagination-station')}
                 className="btn-primary group"
               >
                 <Sparkles className="w-5 h-5" />
@@ -817,7 +817,7 @@ const Home: React.FC = () => {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <button
-              onClick={() => navigate('/account/designs')}
+              onClick={() => navigate('/imagination-station')}
               className="group w-full sm:w-auto flex items-center justify-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-white text-purple-700 font-semibold rounded-full hover:bg-purple-50 transition-all duration-300 shadow-xl hover:shadow-2xl hover:-translate-y-1 text-sm sm:text-base"
             >
               <Sparkles className="w-4 h-4 sm:w-5 sm:h-5" />

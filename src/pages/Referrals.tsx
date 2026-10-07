@@ -1,7 +1,122 @@
 import React, { useState, useEffect } from 'react'
+import { Gift, Link2, Lock, Share2, ShoppingBag, UserPlus } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useGuestGate } from '../components/GuestGate'
+import { REFERRAL_REWARDS } from '../lib/referral-program'
 import { referralSystem } from '../utils/referral-system'
 import type { ReferralCode, ReferralTransaction } from '../types'
+
+const { signup: SIGNUP_REWARD, firstOrder: FIRST_ORDER_REWARD } = REFERRAL_REWARDS
+
+// Logged out: what the program is and how it pays, readable by anyone.
+// The dashboard (your link, your friends, your rewards) stays private.
+const ReferralsPublic: React.FC = () => {
+  const { startAccount } = useGuestGate()
+
+  const steps = [
+    {
+      icon: UserPlus,
+      title: 'Make a free account',
+      body: 'Your account comes with your own referral link.',
+    },
+    {
+      icon: Share2,
+      title: 'Share your link',
+      body: 'Text it, post it, or email it to friends who would love custom prints.',
+    },
+    {
+      icon: Gift,
+      title: 'You both get rewarded',
+      body: `When a friend joins with your link, you get ${SIGNUP_REWARD.referrerPoints} points and ${SIGNUP_REWARD.referrerItc} ITC, and they get ${SIGNUP_REWARD.friendPoints} points and ${SIGNUP_REWARD.friendItc} ITC.`,
+    },
+    {
+      icon: ShoppingBag,
+      title: 'Bonus on their first order',
+      body: `When that friend places their first order, you get another ${FIRST_ORDER_REWARD.referrerItc} ITC.`,
+    },
+  ]
+
+  return (
+    <div className="bg-bg">
+      {/* Hero */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-14 pb-10">
+        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+          <div className="animate-fade-in">
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold uppercase tracking-wider mb-4">
+              <Link2 className="w-3.5 h-3.5" />
+              Referral Program
+            </span>
+            <h1 className="font-display text-4xl sm:text-5xl leading-tight text-text mb-4">
+              Share the shop. Get rewarded.
+            </h1>
+            <p className="text-muted text-base sm:text-lg leading-relaxed mb-6 max-w-xl">
+              Send friends your personal link. When they join, you both get points and ITC in your
+              wallets, and you earn a bonus when they place their first order.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button type="button" onClick={() => startAccount('referral-link')} className="btn-primary w-full sm:w-auto">
+                Get my referral link
+              </button>
+              <button
+                type="button"
+                onClick={() => startAccount('referral-link', '/login')}
+                className="btn-secondary w-full sm:w-auto !py-3"
+              >
+                I have an account
+              </button>
+            </div>
+          </div>
+          <div className="relative">
+            <div className="absolute -inset-3 rounded-[2rem] bg-gradient-to-br from-primary/20 via-secondary/10 to-accent/20 blur-2xl" aria-hidden="true" />
+            <img
+              src="/home/how-4-earn.webp"
+              alt="A customer smiling at the rewards in their wallet"
+              className="relative w-full aspect-[4/3] object-cover rounded-3xl shadow-soft-xl"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+        <h2 className="font-display text-2xl sm:text-3xl text-text mb-6">How it works</h2>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {steps.map((step, i) => (
+            <div key={step.title} className="card-editorial p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-9 h-9 rounded-full bg-primary text-white flex items-center justify-center font-semibold text-sm">
+                  {i + 1}
+                </span>
+                <step.icon className="w-5 h-5 text-primary" />
+              </div>
+              <h3 className="font-semibold text-text mb-1">{step.title}</h3>
+              <p className="text-sm text-muted leading-relaxed">{step.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* The dashboard gate, explained */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+        <div className="rounded-3xl border border-border bg-card p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center gap-5">
+          <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Lock className="w-6 h-6 text-primary" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-semibold text-text text-lg mb-1">Your referral dashboard is private</h2>
+            <p className="text-muted text-sm leading-relaxed">
+              Your link, the friends who joined with it and the rewards you have earned live on your
+              account, so only you can see them. Making an account is free.
+            </p>
+          </div>
+          <button type="button" onClick={() => startAccount('referral-link')} className="btn-primary w-full sm:w-auto shrink-0">
+            Create free account
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
 
 const Referrals: React.FC = () => {
   const { user } = useAuth()
@@ -64,13 +179,7 @@ const Referrals: React.FC = () => {
     : null
 
   if (!user) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-          <p className="text-yellow-800">Please sign in to access your referral dashboard.</p>
-        </div>
-      </div>
-    )
+    return <ReferralsPublic />
   }
 
   if (isLoading) {
@@ -203,7 +312,7 @@ const Referrals: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-medium text-text">Friend Signs Up</h4>
-                    <p className="text-sm text-muted">Your friend creates an account using your referral code and gets 50 bonus points</p>
+                    <p className="text-sm text-muted">Your friend creates an account using your referral code and gets {SIGNUP_REWARD.friendPoints} points and {SIGNUP_REWARD.friendItc} ITC</p>
                   </div>
                 </div>
                 
@@ -213,7 +322,7 @@ const Referrals: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-medium text-text">You Earn Rewards</h4>
-                    <p className="text-sm text-muted">Get 10 ITC when they sign up, plus 50 ITC when they make their first purchase</p>
+                    <p className="text-sm text-muted">Get {SIGNUP_REWARD.referrerPoints} points and {SIGNUP_REWARD.referrerItc} ITC when they sign up, plus {FIRST_ORDER_REWARD.referrerItc} ITC when they make their first purchase</p>
                   </div>
                 </div>
               </div>
@@ -227,7 +336,7 @@ const Referrals: React.FC = () => {
                     <p className="font-medium text-green-900">Friend Signs Up</p>
                     <p className="text-sm text-green-700">One-time signup bonus</p>
                   </div>
-                  <span className="text-green-600 font-bold">10 ITC</span>
+                  <span className="text-green-600 font-bold">{SIGNUP_REWARD.referrerItc} ITC</span>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded">
@@ -235,7 +344,7 @@ const Referrals: React.FC = () => {
                     <p className="font-medium text-blue-900">Friend Makes First Purchase</p>
                     <p className="text-sm text-blue-700">Bonus when they buy</p>
                   </div>
-                  <span className="text-blue-600 font-bold">50 ITC</span>
+                  <span className="text-blue-600 font-bold">{FIRST_ORDER_REWARD.referrerItc} ITC</span>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-purple-50 rounded">

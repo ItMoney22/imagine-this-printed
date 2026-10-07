@@ -12,6 +12,7 @@ import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 import RoleRoute from './components/RoleRoute'
+import { GuestGateProvider } from './components/GuestGate'
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
 import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
 import FloatingCart from './components/FloatingCart'
@@ -151,6 +152,7 @@ function App() {
                 <SidebarProvider>
                   <Router>
                     <ScrollToTop />
+                    <GuestGateProvider>
                     <AppLayout>
                 <Suspense fallback={
                   <div className="min-h-[40vh] flex items-center justify-center">
@@ -191,8 +193,10 @@ function App() {
                   <Route path="/toys" element={<ToyLand />} />
                   <Route path="/models" element={<ToyLand />} />
                   <Route path="/3d-models" element={<ToyLand />} />
-                  <Route path="/toy-creator" element={<ProtectedRoute><ToyCreator /></ProtectedRoute>} />
-                  <Route path="/metal-art" element={<ProtectedRoute><MetalArtStudio /></ProtectedRoute>} />
+                  {/* PUBLIC — guests build a toy or a metal print; the account is
+                      asked for only at the step that saves or spends (task 8c67fe67). */}
+                  <Route path="/toy-creator" element={<ToyCreator />} />
+                  <Route path="/metal-art" element={<MetalArtStudio />} />
                   {/* PUBLIC — opened by scanning the NFC tag in a printed figurine */}
                   <Route path="/ar/:modelId" element={<ToyAR />} />
                   <Route path="/wallet" element={<Wallet />} />
@@ -207,7 +211,8 @@ function App() {
                   <Route path="/referrals" element={<Referrals />} />
                   <Route path="/about" element={<About />} />
                   <Route path="/contact" element={<Contact />} />
-                  <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
+                  {/* PUBLIC — anyone can read the feed; voting/posting ask for an account. */}
+                  <Route path="/community" element={<Community />} />
 
                   {/* Legal Pages */}
                   <Route path="/privacy" element={<PrivacyPolicy />} />
@@ -282,13 +287,13 @@ function App() {
                       </ImaginationErrorBoundary>
                     }
                   />
+                  {/* PUBLIC — a guest gets an in-memory sheet and can try the studio;
+                      saving, ordering and the AI tools ask for an account. */}
                   <Route
                     path="/imagination-station"
                     element={
                       <ImaginationErrorBoundary>
-                        <ProtectedRoute>
-                          <ImaginationStation />
-                        </ProtectedRoute>
+                        <ImaginationStation />
                       </ImaginationErrorBoundary>
                     }
                   />
@@ -296,9 +301,7 @@ function App() {
                     path="/imagination-station/:id"
                     element={
                       <ImaginationErrorBoundary>
-                        <ProtectedRoute>
-                          <ImaginationStation />
-                        </ProtectedRoute>
+                        <ImaginationStation />
                       </ImaginationErrorBoundary>
                     }
                   />
@@ -309,8 +312,9 @@ function App() {
                   {/* Kiosk Routes */}
                   <Route path="/kiosk/:kioskId" element={<KioskRoute />} />
 
-                  {/* Business Routes */}
-                  <Route path="/wholesale" element={<ProtectedRoute><WholesalePortal /></ProtectedRoute>} />
+                  {/* Business Routes — PUBLIC info + apply; the portal itself shows
+                      only to a signed-in account. */}
+                  <Route path="/wholesale" element={<WholesalePortal />} />
 
                   {/* Debug Route */}
                   <Route path="/debug/images" element={<ImageDebug />} />
@@ -331,6 +335,7 @@ function App() {
                   </Routes>
                   </Suspense>
                   </AppLayout>
+                  </GuestGateProvider>
                 </Router>
                 </SidebarProvider>
               </MrImagineNotificationProvider>
