@@ -25,6 +25,7 @@ Decisions (noted for the handoff):
 - `public/icons/itp-bulb.png` (cut from itp-logo-v3)
 - page 2 (product page, approval 394b217c): `src/pages/ProductPage.tsx`, `src/components/product/*` (new: SizeGuide, YouMayAlsoLike), `src/lib/size-charts.ts` + test, `src/lib/plain-text.ts` + test, `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD), `src/config/business-info.ts` (SHOP_PLACE, ETSY_SHOP_URL)
 - page 3 (catalog, approval c71ae9d0): `src/pages/ProductCatalog.tsx`, `src/pages/catalog.css` (new), `public/catalog/hero.webp`
+- page 4 (cart + checkout, approval 0c21434e): `src/pages/Cart.tsx`, `src/pages/Checkout.tsx` (presentation only, payment logic untouched), `src/components/checkout/*` (new ProgressNote), `src/components/product/YouMayAlsoLike.tsx` (excludeIds/title)
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
@@ -47,6 +48,12 @@ Decisions (noted for the handoff):
   compact cards in a 2/3/4 grid, round pagination, skeleton tiles. The mock's Shop Now / Explore buttons were left
   out (on the catalog itself they go nowhere). Old sidebar, stat box and list view gone. Walked 1440 + 390, search ?q=.
   Found + filed 7af6d41d: the $40 Midnight Misfits hoodie carries the 2-for-$25 flag (sells at $25).
+- 2026-10-07 (amelia-chan): merged iahhm c0deea6 (placement words, task 7b51795e: completed but unmerged) so the cart/checkout
+  rebuild sits on it. Page 4 approved round 1 at 21:10Z (approval 0c21434e). Cart: line cards with plain-word chips (L,
+  Black, Front print, quality), stepper, Remove; summary with free-shipping bar and ONE Check out; Add one more (4 whole
+  cards). Checkout: light top bar, primary step line, numbered form cards, inputs at 16px on phones, progress notes with
+  stage text + seconds instead of spinners and the yellow payment box, folded summary row on phones, three quiet facts.
+  Payment logic untouched. Walked 1440 + 390.
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
