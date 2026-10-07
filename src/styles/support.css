@@ -1,0 +1,151 @@
+/* Help + contact + shop chat (task 5878a61f, mockup approval dca0616d).
+   Colours are the theme tokens from index.css only; tints are mixed from them, never typed as hex. */
+
+.sp-root {
+  --sp-tint-primary: color-mix(in srgb, var(--primary) 9%, var(--card));
+  --sp-tint-accent: color-mix(in srgb, var(--accent) 9%, var(--card));
+  --sp-tint-secondary: color-mix(in srgb, var(--secondary) 9%, var(--card));
+  --sp-glow-primary: color-mix(in srgb, var(--primary) 30%, transparent);
+  --sp-glow-accent: color-mix(in srgb, var(--accent) 30%, transparent);
+  --sp-glow-secondary: color-mix(in srgb, var(--secondary) 30%, transparent);
+  --sp-line: var(--border);
+}
+
+/* ---- Hero ------------------------------------------------------------- */
+.sp-hero { position: relative; overflow: hidden; isolation: isolate; }
+.sp-hero-img {
+  position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 70% 50%;
+  z-index: -2; animation: sp-drift 28s ease-in-out infinite alternate;
+  /* The photo fades out on its own, so a drifted edge can never peek under the overlay as a hairline. */
+  mask-image: linear-gradient(to top, transparent 0, black 26%);
+  -webkit-mask-image: linear-gradient(to top, transparent 0, black 26%);
+}
+.sp-noscrollbar { scrollbar-width: none; }
+.sp-noscrollbar::-webkit-scrollbar { display: none; }
+.sp-hero::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background:
+    linear-gradient(90deg, var(--bg) 0%, color-mix(in srgb, var(--bg) 88%, transparent) 34%, color-mix(in srgb, var(--bg) 20%, transparent) 62%, transparent 80%),
+    linear-gradient(0deg, var(--bg) 0%, transparent 28%);
+}
+@media (max-width: 767px) {
+  .sp-hero-img { object-position: 78% 50%; opacity: 0.55; }
+  .sp-hero::before {
+    background: linear-gradient(0deg, var(--bg) 6%, color-mix(in srgb, var(--bg) 70%, transparent) 60%, color-mix(in srgb, var(--bg) 40%, transparent) 100%);
+  }
+}
+.sp-mascot { animation: sp-bob 5s ease-in-out infinite; transform-origin: 50% 90%; filter: drop-shadow(0 18px 30px var(--sp-glow-primary)); }
+.sp-live-dot { animation: sp-pulse 2.2s ease-in-out infinite; }
+.sp-help-word { color: var(--primary); text-shadow: 0 6px 30px var(--sp-glow-primary); }
+
+/* ---- Entrance --------------------------------------------------------- */
+.sp-rise { opacity: 0; animation: sp-rise 0.7s cubic-bezier(.2,.8,.2,1) forwards; }
+.sp-d1 { animation-delay: .08s } .sp-d2 { animation-delay: .16s } .sp-d3 { animation-delay: .24s }
+.sp-d4 { animation-delay: .32s } .sp-d5 { animation-delay: .40s } .sp-d6 { animation-delay: .48s }
+
+/* ---- Doors ------------------------------------------------------------ */
+.sp-door {
+  position: relative; display: flex; flex-direction: column; overflow: hidden; border-radius: 1.25rem;
+  background: var(--card); border: 1.5px solid var(--sp-line); text-align: left;
+  transition: transform .25s ease, box-shadow .25s ease, border-color .25s ease;
+}
+.sp-door:hover, .sp-door:focus-visible { transform: translateY(-4px); }
+.sp-door[data-tone='primary']:hover, .sp-door[data-tone='primary']:focus-visible { border-color: var(--primary); box-shadow: 0 18px 40px -12px var(--sp-glow-primary); }
+.sp-door[data-tone='accent']:hover, .sp-door[data-tone='accent']:focus-visible { border-color: var(--accent); box-shadow: 0 18px 40px -12px var(--sp-glow-accent); }
+.sp-door[data-tone='secondary']:hover, .sp-door[data-tone='secondary']:focus-visible { border-color: var(--secondary); box-shadow: 0 18px 40px -12px var(--sp-glow-secondary); }
+.sp-door-img { height: 10.5rem; width: 100%; object-fit: cover; transition: transform .6s ease; }
+.sp-door:hover .sp-door-img { transform: scale(1.06); }
+.sp-door::after {
+  content: ''; position: absolute; top: 0; left: -60%; width: 40%; height: 10.5rem; pointer-events: none;
+  background: linear-gradient(100deg, transparent, color-mix(in srgb, var(--card) 55%, transparent), transparent);
+  transform: skewX(-18deg); transition: left .7s ease;
+}
+.sp-door:hover::after { left: 120%; }
+.sp-door-chip {
+  position: absolute; top: .85rem; left: .85rem; width: 2.6rem; height: 2.6rem; border-radius: 999px;
+  display: grid; place-items: center; color: var(--card); box-shadow: 0 8px 20px -6px var(--sp-glow-primary);
+}
+.sp-door[data-tone='primary'] .sp-door-chip { background: var(--primary); }
+.sp-door[data-tone='accent'] .sp-door-chip { background: var(--accent); }
+.sp-door[data-tone='secondary'] .sp-door-chip { background: var(--secondary); }
+.sp-arrow { transition: transform .25s ease; }
+.sp-door:hover .sp-arrow, .sp-qa:hover .sp-arrow { transform: translateX(4px); }
+
+/* ---- Quick answers + cards ------------------------------------------- */
+.sp-card { background: var(--card); border: 1px solid var(--sp-line); border-radius: 1rem; }
+.sp-qa { transition: border-color .2s ease, box-shadow .2s ease, transform .2s ease; }
+.sp-qa:hover, .sp-qa:focus-visible { border-color: var(--primary); box-shadow: 0 10px 28px -14px var(--sp-glow-primary); transform: translateY(-2px); }
+.sp-icon-chip { background: var(--sp-tint-primary); color: var(--primary); }
+.sp-tint { background: var(--sp-tint-primary); }
+.sp-banner {
+  position: relative; overflow: hidden; border-radius: 1.25rem;
+  background: linear-gradient(90deg, var(--card) 35%, color-mix(in srgb, var(--card) 30%, transparent) 70%), var(--sp-tint-primary);
+}
+.sp-banner-img { position: absolute; right: 0; top: 0; height: 100%; width: 46%; object-fit: cover; z-index: 0; mask-image: linear-gradient(90deg, transparent, black 45%); -webkit-mask-image: linear-gradient(90deg, transparent, black 45%); }
+
+.sp-input {
+  width: 100%; border-radius: .75rem; border: 1.5px solid var(--sp-line); background: var(--bg); color: var(--text);
+  padding: .7rem 1rem; transition: border-color .15s ease, box-shadow .15s ease;
+}
+.sp-input::placeholder { color: var(--muted); }
+.sp-input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px var(--sp-glow-primary); }
+.sp-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border-radius: .9rem;
+  background: var(--primary); color: var(--card); font-weight: 600; padding: .85rem 1.4rem;
+  box-shadow: 0 12px 26px -12px var(--sp-glow-primary); transition: transform .15s ease, background .15s ease;
+}
+.sp-btn:hover { background: var(--primary-dark); transform: translateY(-1px); }
+.sp-btn:active { transform: translateY(1px) scale(.99); }
+.sp-btn:disabled { opacity: .55; cursor: not-allowed; transform: none; }
+.sp-btn-ghost {
+  display: inline-flex; align-items: center; justify-content: center; gap: .5rem; border-radius: .9rem;
+  border: 1.5px solid var(--sp-line); background: var(--card); color: var(--text); font-weight: 600; padding: .8rem 1.3rem;
+  transition: border-color .15s ease, color .15s ease;
+}
+.sp-btn-ghost:hover { border-color: var(--primary); color: var(--primary); }
+
+/* Accordion */
+.sp-acc summary { list-style: none; cursor: pointer; }
+.sp-acc summary::-webkit-details-marker { display: none; }
+.sp-acc[open] .sp-acc-chev { transform: rotate(180deg); }
+.sp-acc-chev { transition: transform .2s ease; }
+.sp-acc[open] { background: var(--sp-tint-primary); }
+
+/* ---- Shop chat -------------------------------------------------------- */
+.sp-chat-panel { background: var(--card); border: 1px solid var(--sp-line); box-shadow: 0 30px 60px -20px color-mix(in srgb, var(--text) 35%, transparent); }
+.sp-chat-head { background: linear-gradient(120deg, var(--primary) 0%, var(--primary-dark) 100%); color: var(--card); }
+.sp-chat-body { background: linear-gradient(180deg, var(--bg-warm) 0%, var(--card) 100%); }
+.sp-bubble-them { background: var(--card); border: 1px solid var(--sp-line); color: var(--text); }
+.sp-bubble-me { background: var(--primary); color: var(--card); }
+.sp-bubble-person { background: var(--sp-tint-accent); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--card)); color: var(--text); }
+.sp-avatar-person { background: linear-gradient(135deg, var(--accent), var(--primary)); color: var(--card); }
+.sp-chip {
+  border: 1.5px solid color-mix(in srgb, var(--primary) 35%, var(--card)); color: var(--primary); background: var(--card);
+  border-radius: 999px; padding: .4rem .8rem; font-size: .8rem; font-weight: 600; transition: background .15s ease;
+}
+.sp-chip:hover { background: var(--sp-tint-primary); }
+.sp-chip-person { border-color: var(--accent); color: var(--accent); }
+.sp-chip-person:hover { background: var(--sp-tint-accent); }
+.sp-wait { background: var(--card); border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--card)); }
+.sp-progress { height: .4rem; border-radius: 999px; background: var(--sp-tint-primary); overflow: hidden; position: relative; }
+.sp-progress > span {
+  position: absolute; inset: 0; width: 40%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--primary), var(--accent));
+  animation: sp-slide 1.8s ease-in-out infinite;
+}
+.sp-progress[data-done='true'] > span { width: 100%; animation: none; }
+.sp-launcher { box-shadow: 0 10px 30px -8px var(--sp-glow-primary); }
+.sp-badge { background: var(--accent); color: var(--card); }
+
+/* ---- Keyframes -------------------------------------------------------- */
+@keyframes sp-drift { from { transform: scale(1.04) translate3d(0,0,0); } to { transform: scale(1.12) translate3d(-2%, -1.5%, 0); } }
+@keyframes sp-bob { 0%, 100% { transform: translateY(0) rotate(-1deg); } 50% { transform: translateY(-10px) rotate(1.5deg); } }
+@keyframes sp-pulse { 0%, 100% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--primary) 50%, transparent); } 50% { box-shadow: 0 0 0 6px transparent; } }
+@keyframes sp-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes sp-slide { 0% { left: -40%; } 100% { left: 100%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-hero-img, .sp-mascot, .sp-live-dot, .sp-progress > span { animation: none !important; }
+  .sp-rise { animation: none !important; opacity: 1 !important; }
+  .sp-door, .sp-door-img, .sp-door::after, .sp-qa, .sp-arrow { transition: none !important; }
+}

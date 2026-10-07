@@ -3,6 +3,7 @@ import { PICKUP_HOURS, SHIPPING_TRANSIT, STANDARD_FULFILLMENT_DAYS, PROCESSING_L
 import BusinessContactBlock from '../components/BusinessContactBlock'
 import { BUSINESS_ADDRESS_LINE, POLICY_UPDATED } from '../config/business-info'
 import { ArrowLeft, Truck, Clock, Mail, Package } from 'lucide-react'
+import { HelpStrip } from '../components/support/SupportParts'
 
 export default function ShippingPolicy() {
   return (
@@ -162,6 +163,7 @@ export default function ShippingPolicy() {
 
         </div>
       </div>
+      <HelpStrip />
     </div>
   )
 }

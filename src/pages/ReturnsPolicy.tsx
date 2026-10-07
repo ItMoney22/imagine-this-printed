@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import BusinessContactBlock from '../components/BusinessContactBlock'
 import { POLICY_UPDATED } from '../config/business-info'
 import { ArrowLeft, RotateCcw, Mail, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import { HelpStrip } from '../components/support/SupportParts'
 
 export default function ReturnsPolicy() {
   return (
@@ -179,6 +180,7 @@ export default function ReturnsPolicy() {
 
         </div>
       </div>
+      <HelpStrip />
     </div>
   )
 }

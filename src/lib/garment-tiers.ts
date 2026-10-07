@@ -14,6 +14,7 @@
 // the manufacturer brand as OUR name; it may only appear as "Compared to …".
 
 import { BLANK_LINE, compareToLabel, type BlankTierSpec } from '../../backend/shared/blank-line'
+import { getGarment } from '../../backend/shared/catalog-capability'
 
 export interface GarmentTier {
   id: string
@@ -44,6 +45,34 @@ export const GARMENT_TIERS: GarmentTier[] = BLANK_LINE.map(t => ({
   blurb: t.tagline,
   weightOz: t.specs.weightOz
 }))
+
+// Hoodie blanks (David 2026-10-07 site walk: the hoodie page was offering the
+// T-shirt blanks above). A hoodie is printed on the capability table's
+// standard hoodie (backend/shared/catalog-capability.ts GARMENTS 'hoodie',
+// Gildan 18500; the live hoodie rows record style G185 and nothing else), so
+// it shows that one blank and never the tee tiers. No upcharge. A premium
+// hoodie goes here AND into GARMENT_TIER_UPCHARGE_CENTS in
+// backend/services/order-pricing.ts together, under its own id.
+const HOODIE_GARMENT = getGarment('hoodie')
+
+export const HOODIE_TIERS: GarmentTier[] = [
+  {
+    id: 'standard',
+    grade: 'Good',
+    label: 'Classic Heavy Blend Hoodie',
+    compareTo: compareToLabel({ compareTo: { brand: 'Gildan', style: '18500' } }),
+    upcharge: 0,
+    blurb: 'Warm cotton-poly fleece pullover with a lined hood and a front pouch pocket.',
+    weightOz: HOODIE_GARMENT?.weightOz ?? 8
+  }
+]
+
+/** The blanks a printed listing offers: tee blanks for a tee, hoodie blanks for a hoodie. */
+export function garmentTiersFor(picker: 'tee' | 'hoodie' | null): GarmentTier[] {
+  if (picker === 'tee') return GARMENT_TIERS
+  if (picker === 'hoodie') return HOODIE_TIERS
+  return []
+}
 
 export const DEFAULT_GARMENT_TIER_ID = 'standard'
 

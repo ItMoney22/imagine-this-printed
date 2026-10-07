@@ -1,6 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
-import { sendEmail } from '../utils/email.js'
+import { sendEmail, sendTicketReplyEmail } from '../utils/email.js'
+import { escapeHtml, pickTicket, ticketRef } from '../services/support-ping.js'
+import { nameFromTicketDescription } from '../utils/ticket-emails.js'
 import { matchMaterials, describeMaterialPlan, type PaletteEntry, type MaterialMatch } from '../services/print-palette.js'
 import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
 import { randomUUID } from 'crypto'
@@ -539,6 +541,115 @@ router.post('/design-draft', requireBridgeAuth, async (req: Request, res: Respon
   } catch (err: any) {
     console.error('[print-bridge] design-draft failed:', err?.message || err)
     return res.status(500).json({ error: 'Could not save the design to the library' })
+  }
+})
+
+/**
+ * Support from Christina's phone (David 2026-10-07): Becky pings her about a ticket (services/support-ping.ts) and
+ * she answers in Becky's chat. These two calls are Becky's side of it.
+ *
+ *   GET  /api/print-bridge/tickets            -> open tickets, newest first, with the customer's last words
+ *   POST /api/print-bridge/ticket-reply { ticket, message, name? }
+ *        -> her answer as an agent message: it shows up in the customer's live chat window (the widget polls
+ *           for sender_type 'agent') and is emailed to them. `ticket` is the full id or the 8-character
+ *           reference Becky shows her; with none, the newest ticket still waiting for an answer.
+ */
+const OPEN_TICKET_STATUSES = ['open', 'waiting', 'in_progress']
+
+async function openTickets(limit: number) {
+  const { data, error } = await supabase
+    .from('support_tickets')
+    .select('id, subject, email, status, priority, category, description, user_id, created_at, updated_at')
+    .in('status', OPEN_TICKET_STATUSES)
+    .neq('category', 'spam')
+    .order('updated_at', { ascending: false })
+    .limit(limit)
+  if (error) throw new Error(error.message)
+  return data ?? []
+}
+
+router.get('/tickets', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const limit = Math.min(Math.max(Number(req.query.limit) || 5, 1), 20)
+    const tickets = await openTickets(limit)
+    const ids = tickets.map((t) => t.id)
+    const { data: msgs } = ids.length
+      ? await supabase
+          .from('ticket_messages')
+          .select('ticket_id, sender_type, message, created_at')
+          .in('ticket_id', ids)
+          .eq('is_internal', false)
+          .order('created_at', { ascending: false })
+      : { data: [] as any[] }
+    return res.json({
+      tickets: tickets.map((t) => {
+        const thread = (msgs ?? []).filter((m: any) => m.ticket_id === t.id)
+        const lastCustomer = thread.find((m: any) => m.sender_type === 'user')
+        return {
+          ref: ticketRef(t.id),
+          id: t.id,
+          subject: t.subject,
+          status: t.status,
+          priority: t.priority,
+          customerEmail: t.email,
+          lastCustomerMessage: lastCustomer?.message?.slice(0, 600) ?? null,
+          answered: thread[0]?.sender_type === 'agent',
+          updatedAt: t.updated_at,
+        }
+      }),
+    })
+  } catch (err: any) {
+    console.error('[print-bridge] tickets failed:', err?.message || err)
+    return res.status(500).json({ error: 'Could not read the tickets' })
+  }
+})
+
+router.post('/ticket-reply', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
+  const { ticket: ref, message, name } = (req.body ?? {}) as { ticket?: unknown; message?: unknown; name?: unknown }
+  const text = typeof message === 'string' ? message.trim().slice(0, 4000) : ''
+  if (!text) return res.status(400).json({ error: 'message required' })
+  try {
+    const ticket = pickTicket(typeof ref === 'string' ? ref : '', await openTickets(50))
+    if (!ticket) return res.status(404).json({ error: 'No open ticket matches that reference' })
+
+    const now = new Date().toISOString()
+    const { error: msgError } = await supabase.from('ticket_messages').insert({
+      ticket_id: ticket.id,
+      sender_type: 'agent',
+      sender_id: null,
+      message: text,
+      is_internal: false,
+    })
+    if (msgError) throw new Error(msgError.message)
+
+    await supabase.from('support_tickets').update({ status: 'in_progress', updated_at: now }).eq('id', ticket.id)
+    // A customer waiting in the chat window sees "connected" from here on.
+    const { data: session } = await supabase
+      .from('chat_sessions')
+      .update({ status: 'active' })
+      .eq('ticket_id', ticket.id)
+      .neq('status', 'ended')
+      .select('id')
+      .maybeSingle()
+
+    let emailed = false
+    if (ticket.email && ticket.email.toLowerCase() !== 'anonymous@customer.com') {
+      const agentName = (typeof name === 'string' && name.trim().slice(0, 40)) || process.env.BRIDGE_AGENT_NAME || 'Christina'
+      // Greet the name they typed (contact form / chat), else their account first name.
+      let customerName = nameFromTicketDescription(ticket.description)
+      if (!customerName && ticket.user_id) {
+        const { data: profile } = await supabase.from('user_profiles').select('first_name').eq('id', ticket.user_id).maybeSingle()
+        customerName = profile?.first_name || null
+      }
+      emailed = await sendTicketReplyEmail(ticket.email, ticket.id, ticket.subject, escapeHtml(text), agentName, customerName).catch((e) => {
+        console.error('[print-bridge] ticket reply email failed:', e?.message || e)
+        return false
+      })
+    }
+    return res.json({ ok: true, ref: ticketRef(ticket.id), subject: ticket.subject, liveChat: !!session, emailed })
+  } catch (err: any) {
+    console.error('[print-bridge] ticket-reply failed:', err?.message || err)
+    return res.status(500).json({ error: 'Could not send the reply' })
   }
 })
 

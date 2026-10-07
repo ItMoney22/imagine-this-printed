@@ -1,3 +1,4 @@
+import AnalyticsTracker from './components/AnalyticsTracker'
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useEffect, lazy, Suspense } from 'react'
 import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
@@ -35,6 +36,7 @@ import ProductPage from './pages/ProductPage'
 import Cart from './pages/Cart'
 import OrderSuccess from './pages/OrderSuccess'
 import Contact from './pages/Contact'
+import Help from './pages/Help'
 import About from './pages/About'
 import Referrals from './pages/Referrals'
 import UserProfile from './pages/UserProfile'
@@ -127,6 +129,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           !isFullScreen ? `pt-16 lg:pt-0 ${isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''
         }`}
       >
+        {!isFullScreen && <CookieConsent inline />}
         {children}
         {!isFullScreen && <Footer />}
       </main>
@@ -135,7 +138,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <FloatingCart />
       <WatchtowerTaskButton />
       <ToastContainer />
-      <CookieConsent />
+      {isFullScreen && <CookieConsent />}
     </div>
   )
 }
@@ -151,6 +154,7 @@ function App() {
                 <SidebarProvider>
                   <Router>
                     <ScrollToTop />
+                    <AnalyticsTracker />
                     <AppLayout>
                 <Suspense fallback={
                   <div className="min-h-[40vh] flex items-center justify-center">
@@ -208,6 +212,7 @@ function App() {
                   <Route path="/referrals" element={<Referrals />} />
                   <Route path="/about" element={<About />} />
                   <Route path="/contact" element={<Contact />} />
+                  <Route path="/help" element={<Help />} />
                   <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
 
                   {/* Legal Pages */}
