@@ -9,15 +9,8 @@ import {
   ShoppingCart,
   User,
   LayoutDashboard,
-  Settings,
-  ClipboardList,
-  UsersRound,
-  Megaphone,
   Package,
-  DollarSign,
-  Monitor,
   BarChart3,
-  Share2,
   Sparkles,
   TrendingUp,
   FileText,
@@ -29,8 +22,6 @@ import {
   Menu,
   X,
   Contact,
-  Mail,
-  Inbox,
   Blocks,
   Shirt
 } from 'lucide-react'
@@ -315,129 +306,16 @@ export function Sidebar() {
           </Section>
         )}
 
-        {/* Admin Section */}
+        {/* Admin: one door. Every admin page carries its own grouped menu (components/admin/AdminShell.tsx),
+            so listing the admin pages here too drew two menus side by side (David 2026-10-07 screenshot). */}
         {(user?.role === 'admin' || user?.role === 'manager') && (
           <Section title="Admin" isCollapsed={isCollapsed}>
             <NavItem
-              to="/admin/dashboard"
+              to="/admin"
               icon={<LayoutDashboard className="w-5 h-5" />}
-              label="Dashboard"
+              label="Shop Admin"
               isCollapsed={isCollapsed}
-              isActive={isActive('/admin/dashboard')}
-              onClick={closeMobile}
-            />
-            <NavItem
-              to="/admin/control-panel"
-              icon={<Settings className="w-5 h-5" />}
-              label="Control Panel"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/admin/control-panel')}
-              onClick={closeMobile}
-            />
-            <NavItem
-              to="/admin/orders"
-              icon={<ClipboardList className="w-5 h-5" />}
-              label="Order Management"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/admin/orders')}
-              onClick={closeMobile}
-            />
-            <NavItem
-              to="/admin/crm"
-              icon={<UsersRound className="w-5 h-5" />}
-              label="CRM & Customers"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/admin/crm')}
-              onClick={closeMobile}
-            />
-            <NavItem
-              to="/admin/marketing"
-              icon={<Megaphone className="w-5 h-5" />}
-              label="Marketing Tools"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/admin/marketing')}
-              onClick={closeMobile}
-            />
-            <NavItem
-              to="/admin/team-templates"
-              icon={<Shirt className="w-5 h-5" />}
-              label="Team Templates"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/admin/team-templates')}
-              onClick={closeMobile}
-            />
-            <NavItem
-              to="/admin/email"
-              icon={<Inbox className="w-5 h-5" />}
-              label="Email Inbox"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/admin/email')}
-              onClick={closeMobile}
-            />
-            <NavItem
-              to="/admin/email-templates"
-              icon={<Mail className="w-5 h-5" />}
-              label="Email Templates"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/admin/email-templates')}
-              onClick={closeMobile}
-            />
-            {user?.role === 'admin' && (
-              <>
-                <NavItem
-                  to="/admin/cost-override"
-                  icon={<DollarSign className="w-5 h-5" />}
-                  label="Cost Override"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive('/admin/cost-override')}
-                  onClick={closeMobile}
-                />
-                <NavItem
-                  to="/admin/kiosks"
-                  icon={<Monitor className="w-5 h-5" />}
-                  label="Kiosk Management"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive('/admin/kiosks')}
-                  onClick={closeMobile}
-                />
-                <NavItem
-                  to="/admin/kiosk-analytics"
-                  icon={<BarChart3 className="w-5 h-5" />}
-                  label="Kiosk Analytics"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive('/admin/kiosk-analytics')}
-                  onClick={closeMobile}
-                />
-                <NavItem
-                  to="/admin/social-content"
-                  icon={<Share2 className="w-5 h-5" />}
-                  label="Social Content"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive('/admin/social-content')}
-                  onClick={closeMobile}
-                />
-                <NavItem
-                  to="/admin/ai/products/create"
-                  icon={<Sparkles className="w-5 h-5" />}
-                  label="AI Product Builder"
-                  isCollapsed={isCollapsed}
-                  isActive={isActive('/admin/ai/products/create')}
-                  onClick={closeMobile}
-                />
-              </>
-            )}
-          </Section>
-        )}
-
-        {/* Manager Section */}
-        {(user?.role === 'manager' || user?.role === 'admin' || user?.role === 'founder') && (
-          <Section title="Manager" isCollapsed={isCollapsed}>
-            <NavItem
-              to="/manager/dashboard"
-              icon={<DollarSign className="w-5 h-5" />}
-              label="Cost Controls"
-              isCollapsed={isCollapsed}
-              isActive={isActive('/manager/dashboard')}
+              isActive={isActive('/admin')}
               onClick={closeMobile}
             />
           </Section>
