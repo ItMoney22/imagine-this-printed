@@ -4637,3 +4637,14 @@ Work log (append-only):
 ### Work log (append-only)
 - 2026-10-07 zero-nine: shipping root cause = finalize() preselected Free Local Pickup (cheapest) so a $25 tee read "Free". Default now cheapest carrier; pickup labelled "Free (pickup)". Rule kept: free standard shipping at $50+.
 - 2026-10-07 zero-nine (merge-dupes): merged the 4 duplicate dispatch branches onto main. Kept: signup honeypot + friendly gate error, contact-form Turnstile (API check stays off until TURNSTILE_SECRET_KEY is on Render), inbound-mail spam/flood filing, signup_bot_flag migration file (already live), order attribution + GA4 loader (no-op until VITE_GA4_MEASUREMENT_ID), carrier-rate default at checkout + "Free (pickup)", shirt_color as the one colour, chat bubble off the buying pages on phones, honest shipping copy. Dropped (main already had it): About branch c116803 (merged -s ours; keeps the footer book line), cookie banner/recommendations/preselect hunks. Result: vite build green, backend tsc clean, vitest 2097/2097.
+
+## Current request (2026-10-07) — ITP phone: nothing may cover the buy buttons (task 5e10e099)
+Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlaps content.
+
+### File shortlist (approved scope — 2026-10-07 phone floating UI)
+- `src/components/CookieConsent.tsx`, `MrImagineChatWidget.tsx`, `Header.tsx`, `Navbar.tsx`, `FloatingCart.tsx`, `Sidebar.tsx`
+- `src/App.tsx` (layout mount points), `src/index.css` (layout vars)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.

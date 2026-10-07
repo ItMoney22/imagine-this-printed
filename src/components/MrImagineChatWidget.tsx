@@ -324,16 +324,19 @@ export function MrImagineChatWidget() {
         }
     }
 
+
     return (
-        <div className={`fixed bottom-6 right-6 z-50 flex-col items-end pointer-events-none ${onBuyingPage ? 'hidden sm:flex' : 'flex'}`}>
+        // Phones: the launcher lives in the header band (never over page content); the open panel drops
+        // in below the header. sm+: classic bottom-right corner.
+        <div className={`fixed z-50 flex-col items-end pointer-events-none sm:inset-auto sm:bottom-6 sm:right-6 ${isOpen ? 'inset-x-3 top-[72px]' : 'top-3 right-[6.5rem]'} ${onBuyingPage ? 'hidden sm:flex' : 'flex'}`}>
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
                         initial={{ opacity: 0, y: 20, scale: 0.9 }}
                         animate={{ opacity: 1, y: 0, scale: 1 }}
                         exit={{ opacity: 0, y: 20, scale: 0.9 }}
-                        className="mb-4 w-[350px] max-w-[calc(100vw-2rem)] bg-white/90 backdrop-blur-xl border border-white/20 shadow-2xl rounded-2xl overflow-hidden pointer-events-auto flex flex-col"
-                        style={{ maxHeight: '600px', height: '500px' }}
+                        className="mb-4 w-full sm:w-[350px] max-w-[calc(100vw-1.5rem)] bg-white/90 backdrop-blur-xl border border-white/20 shadow-2xl rounded-2xl overflow-hidden pointer-events-auto flex flex-col"
+                        style={{ maxHeight: 'min(600px, calc(100dvh - 96px))', height: '500px' }}
                     >
                         {/* Header */}
                         <div className="bg-gradient-to-r from-purple-600 to-blue-600 p-4 flex items-center justify-between shadow-md shrink-0">
@@ -435,7 +438,7 @@ export function MrImagineChatWidget() {
         `} />
 
                 <div className={`
-          relative w-16 h-16 rounded-full border-4 border-white shadow-2xl flex items-center justify-center overflow-hidden transition-all duration-300 bg-white
+          relative w-10 h-10 sm:w-16 sm:h-16 rounded-full border-2 sm:border-4 border-white shadow-2xl flex items-center justify-center overflow-hidden transition-all duration-300 bg-white
           ${isOpen ? 'opacity-0 scale-50' : 'opacity-100 scale-100'}
         `}>
                     <img src="/mr-imagine/mr-imagine-head-happy.png" alt="Chat" className="w-full h-full object-cover" />
@@ -459,7 +462,7 @@ export function MrImagineChatWidget() {
           If closed, show the head. If open, hide the head. 
       */}
             {!isOpen && (
-                <div className="absolute -top-12 right-0 bg-white px-4 py-2 rounded-xl shadow-lg border border-purple-100 whitespace-nowrap pointer-events-auto origin-bottom-right animate-fade-in-up">
+                <div className="hidden sm:block absolute -top-12 right-0 bg-white px-4 py-2 rounded-xl shadow-lg border border-purple-100 whitespace-nowrap pointer-events-auto origin-bottom-right animate-fade-in-up">
                     <p className="text-sm font-bold text-gray-800 flex items-center gap-2">
                         Need help? <span className="text-purple-600">Chat with me!</span>
                     </p>

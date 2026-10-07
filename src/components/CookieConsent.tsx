@@ -5,9 +5,11 @@ const COOKIE_CONSENT_KEY = 'itp_cookie_consent'
 interface CookieConsentProps {
   onAccept?: () => void
   onDecline?: () => void
+  /** In normal flow at the top of the page (pushes content down) instead of fixed over it. */
+  inline?: boolean
 }
 
-export function CookieConsent({ onAccept, onDecline }: CookieConsentProps) {
+export function CookieConsent({ onAccept, onDecline, inline = false }: CookieConsentProps) {
   const [showBanner, setShowBanner] = useState(false)
 
   useEffect(() => {
@@ -38,10 +40,10 @@ export function CookieConsent({ onAccept, onDecline }: CookieConsentProps) {
   if (!showBanner) return null
 
   return (
-    // One slim row on phones: the old stacked banner sat over the Add to Cart button.
-    <div className="fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:p-4 bg-card/95 backdrop-blur-sm border-t border-primary/20 shadow-lg animate-slideUp">
+    // Solid bar. `inline` puts it in the page flow so it can never sit on a button.
+    <div className={`${inline ? 'relative' : 'fixed bottom-0 left-0 right-0 z-50'} px-3 py-2 sm:px-4 bg-white text-gray-900 border-b border-primary/30 shadow-sm`}>
       <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-3">
-        <p className="flex-1 text-text text-xs sm:text-sm">
+        <p className="flex-1 text-gray-900 text-xs sm:text-sm">
           We use cookies for referral credit.{' '}
           <a href="/privacy" className="text-primary hover:text-primary/80 underline">Privacy</a>
         </p>

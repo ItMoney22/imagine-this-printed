@@ -27,6 +27,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Menu,
+  Search,
   X,
   Contact,
   Mail,
@@ -541,17 +542,38 @@ export function Sidebar() {
   )
 }
 
-// Mobile menu button component for use in layouts
+// Phone header: a solid fixed bar (menu, logo, search, cart count). AppLayout pads
+// <main> by the same h-16 so nothing ever sits underneath it. Desktop uses the sidebar.
 export function MobileMenuButton() {
   const { toggleMobile } = useSidebar()
+  const { state: cartState } = useCart()
+  const cartCount = cartState ? cartState.items.reduce((sum: number, item: any) => sum + item.quantity, 0) : 0
 
   return (
-    <button
-      onClick={toggleMobile}
-      className="lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl bg-white shadow-lg border border-purple-100 text-purple-600 hover:bg-purple-50 transition-colors"
-      aria-label="Toggle menu"
-    >
-      <Menu className="w-5 h-5" />
-    </button>
+    <header className="lg:hidden fixed top-0 inset-x-0 h-16 z-40 flex items-center justify-between gap-2 px-3 bg-white border-b border-purple-100 shadow-sm">
+      <button
+        onClick={toggleMobile}
+        className="p-2.5 rounded-xl text-purple-600 hover:bg-purple-50 transition-colors"
+        aria-label="Toggle menu"
+      >
+        <Menu className="w-5 h-5" />
+      </button>
+      <Link to="/" className="flex items-center min-w-0" aria-label="Imagine This Printed home">
+        <img src="/itp-logo-transparent.png" alt="Imagine This Printed" className="h-9 w-auto max-w-[180px] object-contain" />
+      </Link>
+      <div className="flex items-center">
+        <Link to="/catalog" className="p-2.5 rounded-xl text-purple-600 hover:bg-purple-50 transition-colors" aria-label="Search products">
+          <Search className="w-5 h-5" />
+        </Link>
+        <Link to="/cart" className="relative p-2.5 rounded-xl text-purple-600 hover:bg-purple-50 transition-colors" aria-label={`Cart, ${cartCount} items`}>
+          <ShoppingCart className="w-5 h-5" />
+          {cartCount > 0 && (
+            <span className="absolute top-0.5 right-0.5 min-w-5 h-5 px-1 flex items-center justify-center text-xs font-bold rounded-full bg-pink-500 text-white">
+              {cartCount > 99 ? '99+' : cartCount}
+            </span>
+          )}
+        </Link>
+      </div>
+    </header>
   )
 }
