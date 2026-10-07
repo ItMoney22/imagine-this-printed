@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
+import { getColorName } from '../utils/color-presets'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
@@ -76,7 +77,7 @@ const Cart: React.FC = () => {
                       <p className="text-sm text-muted mt-1">Size: <span className="font-medium text-text">{item.selectedSize}</span></p>
                     )}
                     {item.selectedColor && (
-                      <p className="text-sm text-muted mt-1">Color: <span className="font-medium text-text">{item.selectedColor}</span></p>
+                      <p className="text-sm text-muted mt-1">Color: <span className="font-medium text-text">{getColorName(item.selectedColor)}</span></p>
                     )}
                     {item.selectedTier && getGarmentTier(item.selectedTier) && (
                       <p className="text-sm text-muted mt-1">

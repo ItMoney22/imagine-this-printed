@@ -4514,3 +4514,11 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
 ### Work log 2026-09-23 — team-plate lettering swapped to gpt-image-2.5-flare + crisp upscale (task 65d98dd9, jimmy-phix)
 - Per-order name/number is now a flare EDIT of the original back art (prompt schema in `backend/services/team-plate/lettering-prompt.ts`), cached as `<key>-base.png` (the preview) and upscaled by `recraft-crisp-upscale` (`upscaleToPng`, split out of `step-flow/print-resolution.ts`) into `<key>-press.png` at the template canvas. Paths: `users/team-plates/flare-v1/`. Vector engine quarantined in `team-plate/legacy-vector/`. Checkout waits 20s for the press file, else writes the deterministic gcsPath + `print_file_status: 'rendering'` and settles it in the background. Customer panel previews on a button press (paid call) with a staged progress bar. Result: 152/152 tests; live smoke `backend/scripts/team-plate-smoke.ts` on the real BEAR 9 art passed every check twice (RODRIGUEZ 27, LI 5 — spelled right, art held, 3600x4498 press).
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+
+## Current request (2026-10-07) — ITP product-to-checkout flow (task 9462ebbf)
+### File shortlist (approved scope — 2026-10-07, replaces stale lists above for this task)
+- `src/utils/shipping-calculator.ts`, `src/pages/Checkout.tsx`, `src/pages/Cart.tsx`
+- `src/pages/ProductPage.tsx`, `src/components/ProductRecommendations.tsx`
+- cookie banner + chat bubble components (to be located), `src/context/CartContext.tsx`
+### Work log (append-only)
+- 2026-10-07 zero-nine: shipping root cause = finalize() preselected Free Local Pickup (cheapest) so a $25 tee read "Free". Default now cheapest carrier; pickup labelled "Free (pickup)". Rule kept: free standard shipping at $50+.

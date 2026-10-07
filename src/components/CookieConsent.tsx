@@ -38,16 +38,16 @@ export function CookieConsent({ onAccept, onDecline }: CookieConsentProps) {
   if (!showBanner) return null
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 p-4 bg-card/95 backdrop-blur-sm border-t border-primary/20 shadow-lg animate-slideUp">
+    <div className="fixed bottom-0 left-0 right-0 z-50 px-4 py-3 sm:p-4 bg-card/95 backdrop-blur-sm border-t border-primary/20 shadow-lg animate-slideUp">
       <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
         <div className="flex-1 text-center sm:text-left">
-          <p className="text-text text-sm">
+          <p className="text-text text-xs sm:text-sm">
             We use cookies to track referrals and improve your experience.
             Referral cookies are stored for 90 days to ensure you get credit for sharing ImagineThisPrinted.
           </p>
           <a
             href="/privacy"
-            className="text-primary hover:text-primary/80 text-sm underline"
+            className="text-primary hover:text-primary/80 text-xs sm:text-sm underline"
           >
             Learn more in our Privacy Policy
           </a>
