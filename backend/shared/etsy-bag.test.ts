@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { ETSY_BAG, cameFromEtsyBagQr, summarizeEtsyBagWeeks, usedEtsyBagCode, weekStartUtc, type EtsyBagOrderRow } from './etsy-bag.js'
+import {
+  ETSY_BAG,
+  cameFromEtsyBagQr,
+  checkEtsyShopCoupon,
+  readEtsyShopCoupon,
+  summarizeEtsyBagWeeks,
+  usedEtsyBagCode,
+  weekStartUtc,
+  type EtsyBagOrderRow
+} from './etsy-bag.js'
 
 const QR = { utm_source: 'etsy', utm_medium: 'insert', utm_campaign: 'bag', landed_at: '2026-10-07T12:00:00Z' }
 
@@ -17,7 +26,7 @@ function order(over: Partial<EtsyBagOrderRow>): EtsyBagOrderRow {
 }
 
 describe('ETSY_BAG facts', () => {
-  it('the QR link is exactly the tracked URL David asked for', () => {
+  it('the website code keeps its tracked URL (still counted by the weekly report)', () => {
     expect(ETSY_BAG.url).toBe('https://imaginethisprinted.com/?utm_source=etsy&utm_medium=insert&utm_campaign=bag')
     const params = new URL(ETSY_BAG.url).searchParams
     expect(Object.fromEntries(params)).toEqual(ETSY_BAG.utm)
@@ -82,5 +91,52 @@ describe('matchers', () => {
     expect(cameFromEtsyBagQr({ attribution: QR })).toBe(true)
     expect(cameFromEtsyBagQr({ attribution: { utm_source: 'etsy' } })).toBe(false)
     expect(cameFromEtsyBagQr({ attribution: null })).toBe(false)
+  })
+})
+
+describe('checkEtsyShopCoupon (the Etsy shop code on the card, task d9a98efc)', () => {
+  it('accepts an Etsy-shaped code and percent, upper-casing the code', () => {
+    expect(checkEtsyShopCoupon({ code: ' thankyou15 ', percentOff: 15 })).toEqual({ ok: true, code: 'THANKYOU15', percentOff: 15 })
+    expect(checkEtsyShopCoupon({ code: 'COMEBACK10', percentOff: '10' })).toEqual({ ok: true, code: 'COMEBACK10', percentOff: 10 })
+  })
+
+  it('refuses an empty code, spaces, punctuation and the wrong length', () => {
+    expect(checkEtsyShopCoupon({ code: '', percentOff: 15 }).ok).toBe(false)
+    expect(checkEtsyShopCoupon({ code: 'THANK YOU', percentOff: 15 }).ok).toBe(false)
+    expect(checkEtsyShopCoupon({ code: 'THANKS-15', percentOff: 15 }).ok).toBe(false)
+    expect(checkEtsyShopCoupon({ code: 'ABCD', percentOff: 15 }).ok).toBe(false)
+    expect(checkEtsyShopCoupon({ code: 'A'.repeat(21), percentOff: 15 }).ok).toBe(false)
+  })
+
+  it('refuses the website code, so the card can never carry a site discount', () => {
+    const r = checkEtsyShopCoupon({ code: 'etsybag', percentOff: 15 })
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.error).toMatch(/website code/)
+  })
+
+  it('takes only a whole percent Etsy allows (5 to 75)', () => {
+    for (const bad of [4, 76, 12.5, '', 'abc', null, undefined]) {
+      expect(checkEtsyShopCoupon({ code: 'THANKYOU15', percentOff: bad }).ok).toBe(false)
+    }
+    expect(checkEtsyShopCoupon({ code: 'THANKYOU15', percentOff: 5 }).ok).toBe(true)
+    expect(checkEtsyShopCoupon({ code: 'THANKYOU15', percentOff: 75 }).ok).toBe(true)
+  })
+})
+
+describe('readEtsyShopCoupon', () => {
+  it('reads a saved setting back', () => {
+    expect(readEtsyShopCoupon({ code: 'THANKYOU15', percentOff: 15, savedAt: '2026-10-07T20:00:00Z', savedBy: 'c@example.com' })).toEqual({
+      code: 'THANKYOU15',
+      percentOff: 15,
+      savedAt: '2026-10-07T20:00:00Z',
+      savedBy: 'c@example.com'
+    })
+  })
+
+  it('treats a missing or bad setting as "no code yet" (the page stays on hold)', () => {
+    expect(readEtsyShopCoupon(null)).toBeNull()
+    expect(readEtsyShopCoupon(undefined)).toBeNull()
+    expect(readEtsyShopCoupon({})).toBeNull()
+    expect(readEtsyShopCoupon({ code: 'ETSYBAG', percentOff: 15 })).toBeNull()
   })
 })

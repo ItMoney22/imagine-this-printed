@@ -183,7 +183,7 @@ export default function AdminCouponManagement() {
           <h2 className="text-2xl font-display font-bold text-slate-900">Coupon Management</h2>
           <p className="text-slate-500 mt-1">Create and manage discount codes</p>
           <Link to="/admin/etsy-bag-card" className="mt-1 inline-block text-sm font-medium text-primary hover:underline">
-            Etsy bag card: print it and see weekly redemptions
+            Etsy bag card: set the Etsy code and print it
           </Link>
         </div>
         <button

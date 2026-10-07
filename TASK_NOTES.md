@@ -1,6 +1,32 @@
 # TASK_NOTES
 
-## Current request (2026-10-07) — Etsy bag coupon card (Watchtower 8cde2a1d, zero-pluto)
+## Current request (2026-10-07) — Etsy bag card goes Etsy-safe (Watchtower d9a98efc, zero-pluto, Nine's gate)
+
+Decision: option A. Etsy's Off-Platform Transactions Policy (updated 2026-10-05, re-read live 10/7) bans
+"off-platform discounts ... that encourage members to purchase off Etsy", "using a QR code to direct members
+off Etsy" AND "instructing a member to purchase an item through an off-platform destination, such as a
+personal website". The card did all three. It now carries an Etsy SHOP promo code (Etsy: "share codes ...
+anywhere"), keeps the thank-you + brand, drops the site discount, the QR, the "only on our website" list and
+the off-Etsy email. Christina types her Etsy code + % on the print page (admin_settings key etsy_bag_card,
+table already live); until she does, printing stays on hold. ETSYBAG stays live for pickup/markets/social.
+
+### File shortlist (approved scope — 2026-10-07 Etsy-safe bag card)
+Rationale: same feature as the section below; one new admin GET/PUT for the shop code.
+- `backend/shared/etsy-bag.ts` + `.test.ts`, `backend/routes/admin/coupons.ts`
+- `backend/services/etsy-bag-card-settings.ts` + `.test.ts` (new: load/save the shop code), `backend/services/etsy-bag-report.ts` (comment only)
+- `src/components/etsy-bag/EtsyBagCard.tsx`, `src/pages/admin/EtsyBagCardPage.tsx` + `.test.tsx` (new), `public/etsy-bag/etsy-bag-qr.svg` (delete)
+- `src/components/AdminCouponManagement.tsx` (link text only), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-pluto): built on d2d564e (dispatch branch reset onto it, no commits of mine lost). Card now:
+  thank-you + brand, "{n}% off your next order in our Etsy shop" + the saved Etsy code, three come-back-on-Etsy
+  lines (favorite, search ImagineThisPrinted1, message us on Etsy); no QR, no URL, no site code, no email. Print
+  page: Etsy steps, code + % form (GET/PUT /api/admin/coupons/etsy-bag/card, admin_settings key etsy_bag_card,
+  refuses ETSYBAG and non-Etsy-shaped codes), print buttons off until saved, ETSYBAG section kept for
+  pickup/markets/social (QR column dropped). Proven on prod admin_settings with a throwaway key (upsert, read,
+  delete; real key reads null = on hold). Tests: backend 1701/1701, frontend src 398/398, app tsc 0 errors.
+
+## Earlier request (2026-10-07) — Etsy bag coupon card (Watchtower 8cde2a1d, zero-pluto)
 
 David 10/7: "when we sell something on Etsy, we're going to add a coupon code for the site, a little
 coupon in the bag." Restated: Christina (packer) drops a 4x6 thank-you card in every Etsy order; an Etsy
@@ -30,6 +56,12 @@ Rationale: the previous shortlist was for Team Studio and does not cover coupons
   Off-Platform Transactions Policy (updated 2026-10-05, read live) bans off-Etsy discounts AND QR codes that
   send Etsy buyers off Etsy, so the page shows a hold until David rules. Tests: backend 1691/1691, frontend
   pages/context/lib 106/106, both tsconfigs clean.
+- 2026-10-07 (zero-pluto, send-back "not on main"): the ship tool refused ITP twice (counts origin/master; ITP has
+  only main) and its verify gate would have gone red (ITP's `verify` was the broken puppeteer check). Fixed the tool on
+  david-trinidad-com f2a0aca8 (task cf612fb0) and made `verify` = typecheck + vitest here (cdd5525). Merged origin/main
+  (7c3cfc9) and the Etsy-safe card 4d3a7ae (d9a98efc) so one ship carries all of it. Patched tool rehearsed end to end
+  on a local copy of ITP: rules -> main merged -> verify green -> main fast-forwarded, no master created. Merged tree:
+  npm run verify green, 141 files / 2165 tests.
 
 ## Current request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
 
