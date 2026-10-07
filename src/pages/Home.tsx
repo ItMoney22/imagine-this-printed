@@ -42,11 +42,16 @@ const Home: React.FC = () => {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const autoScrollRef = React.useRef<NodeJS.Timeout | null>(null)
 
+  // Move exactly one card (card width + the 24px gap) so the strip always lands
+  // on a card edge. Scrolling by the container width stopped mid-card, which
+  // left the first visible card cut off on desktop.
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
       const { current } = scrollRef
-      const scrollAmount = direction === 'left' ? -current.offsetWidth : current.offsetWidth
-      current.scrollBy({ left: scrollAmount, behavior: 'smooth' })
+      const first = current.firstElementChild as HTMLElement | null
+      const gap = parseFloat(getComputedStyle(current).columnGap) || 0
+      const step = first ? first.offsetWidth + gap : current.offsetWidth
+      current.scrollBy({ left: direction === 'left' ? -step : step, behavior: 'smooth' })
     }
   }
 
