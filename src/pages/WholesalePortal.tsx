@@ -1,9 +1,135 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { BadgePercent, Building2, ClipboardList, Lock, Repeat } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useCart } from '../context/CartContext'
+import { useGuestGate } from '../components/GuestGate'
 import { apiFetch } from '../lib/api'
+import { wholesalePricingCalculator } from '../utils/wholesale-pricing'
 import type { WholesaleProduct } from '../types'
+
+// Logged out: what wholesale is and how to apply, readable by anyone. Applying
+// and the portal itself need an account (task 8c67fe67).
+const WholesalePublic: React.FC = () => {
+  const { startAccount } = useGuestGate()
+  // Same tier table the server charges from (backend/services/order-pricing.ts
+  // WHOLESALE_TIER_DISCOUNT_RATES mirrors it).
+  const tiers = wholesalePricingCalculator.getAllTiers()
+  const lowest = Math.round(Math.min(...tiers.map(t => t.discountPercentage)) * 100)
+  const highest = Math.round(Math.max(...tiers.map(t => t.discountPercentage)) * 100)
+
+  const perks = [
+    { icon: BadgePercent, title: `${lowest}% to ${highest}% off`, body: 'Approved accounts pay wholesale prices on the catalog, set by your account tier.' },
+    { icon: Repeat, title: 'Quick reorder', body: 'Repeat your last order into the cart in one tap.' },
+    { icon: ClipboardList, title: 'Orders in one place', body: 'Your wholesale orders and totals live on your portal.' },
+  ]
+
+  const steps = [
+    'Make a free account.',
+    'Tell us about your business: its name, its type, and a tax ID if you have one.',
+    'We review applications within 2 to 3 business days.',
+    'Once approved, wholesale prices show up whenever you sign in.',
+  ]
+
+  return (
+    <div className="bg-bg">
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 sm:pt-14 pb-10">
+        <div className="grid lg:grid-cols-2 gap-8 lg:gap-12 items-center">
+          <div className="animate-fade-in">
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-semibold uppercase tracking-wider mb-4">
+              <Building2 className="w-3.5 h-3.5" />
+              Wholesale
+            </span>
+            <h1 className="font-display text-4xl sm:text-5xl leading-tight text-text mb-4">
+              Wholesale prices for shops, teams and resellers.
+            </h1>
+            <p className="text-muted text-base sm:text-lg leading-relaxed mb-6 max-w-xl">
+              Buying for a store, a team or an event? Apply once, and approved accounts save {lowest}% to {highest}% on
+              everything in our catalog.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button type="button" onClick={() => startAccount('wholesale-apply')} className="btn-primary w-full sm:w-auto">
+                Apply for wholesale
+              </button>
+              <button
+                type="button"
+                onClick={() => startAccount('wholesale-apply', '/login')}
+                className="btn-secondary w-full sm:w-auto !py-3"
+              >
+                I have an account
+              </button>
+            </div>
+          </div>
+          <div className="relative">
+            <div className="absolute -inset-3 rounded-[2rem] bg-gradient-to-br from-primary/20 via-secondary/10 to-accent/20 blur-2xl" aria-hidden="true" />
+            <img
+              src="/hub/hub-apparel.webp"
+              alt="A printed black tee with a glowing dragon design"
+              className="relative w-full aspect-[4/3] object-cover rounded-3xl shadow-soft-xl"
+            />
+          </div>
+        </div>
+      </section>
+
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+        <div className="grid sm:grid-cols-3 gap-4">
+          {perks.map(p => (
+            <div key={p.title} className="card-editorial p-5">
+              <p.icon className="w-6 h-6 text-primary mb-3" />
+              <h3 className="font-semibold text-text mb-1">{p.title}</h3>
+              <p className="text-sm text-muted leading-relaxed">{p.body}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-10">
+        <div className="grid lg:grid-cols-2 gap-6">
+          <div className="card-editorial p-6">
+            <h2 className="font-display text-2xl text-text mb-4">Tiers</h2>
+            <ul className="divide-y divide-border">
+              {tiers.map(t => (
+                <li key={t.id} className="flex items-center justify-between py-3">
+                  <span className="text-text font-medium">{t.name}</span>
+                  <span className="text-primary font-semibold">{Math.round(t.discountPercentage * 100)}% off</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="card-editorial p-6">
+            <h2 className="font-display text-2xl text-text mb-4">How to apply</h2>
+            <ol className="space-y-3">
+              {steps.map((s, i) => (
+                <li key={s} className="flex items-start gap-3">
+                  <span className="w-7 h-7 rounded-full bg-primary text-white flex items-center justify-center text-sm font-semibold shrink-0">{i + 1}</span>
+                  <span className="text-muted leading-relaxed pt-0.5">{s}</span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-16">
+        <div className="rounded-3xl border border-border bg-card p-6 sm:p-8 flex flex-col sm:flex-row sm:items-center gap-5">
+          <div className="w-12 h-12 rounded-2xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Lock className="w-6 h-6 text-primary" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-semibold text-text text-lg mb-1">The wholesale portal is private</h2>
+            <p className="text-muted text-sm leading-relaxed">
+              Your application, your prices and your orders are tied to your account, so you apply
+              after making a free one.
+            </p>
+          </div>
+          <button type="button" onClick={() => startAccount('wholesale-apply')} className="btn-primary w-full sm:w-auto shrink-0">
+            Create free account
+          </button>
+        </div>
+      </section>
+    </div>
+  )
+}
 
 // Real account shape returned by GET /api/wholesale/account (backend/routes/wholesale.ts).
 // Deliberately NOT the fabricated src/types WholesaleAccount interface — that
@@ -79,13 +205,7 @@ const WholesalePortal: React.FC = () => {
   const isLoading = portalStatus === 'loading'
 
   if (!user) {
-    return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4">
-          <p className="text-yellow-800">Please sign in to access the wholesale portal.</p>
-        </div>
-      </div>
-    )
+    return <WholesalePublic />
   }
 
   if (isLoading) {

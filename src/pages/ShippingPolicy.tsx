@@ -78,7 +78,7 @@ export default function ShippingPolicy() {
               </table>
             </div>
             <p className="text-sm text-muted mt-4">
-              * Shipping costs are calculated at checkout based on destination and package weight. Free standard shipping is available on orders over $50. Free pickup is at {BUSINESS_ADDRESS_LINE} during {PICKUP_HOURS}. Local delivery is available within a 20-mile radius of our Rockmart, GA warehouse.
+              * Shipping costs are calculated at checkout based on destination and package weight. Free standard shipping is available on orders of $50 or more. Free pickup is at {BUSINESS_ADDRESS_LINE} during {PICKUP_HOURS}. Local delivery is available within a 20-mile radius of our Rockmart, GA warehouse.
             </p>
           </section>
 

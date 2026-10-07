@@ -130,8 +130,9 @@ const REWARD_REVERSED_STATUS = 'reversed'
 // actually paid" — used to find the order that triggered a referral bonus.
 // Excludes 'pending' (never paid) so an abandoned/cancelled order never
 // outranks the real first purchase. See reverseReferralBonus() for why this
-// ranking exists at all.
-const EVER_PAID_STATUSES = new Set(['paid', 'refunded', 'partially_refunded', 'disputed'])
+// ranking exists at all. Also read by referral-service.ts: an account with an
+// ever-paid order is not a new customer and cannot join through a referral.
+export const EVER_PAID_STATUSES = new Set(['paid', 'refunded', 'partially_refunded', 'disputed'])
 
 // Marker written on the compensating inventory movement when the atomic
 // reverse_blank_sale RPC is unavailable (migration not yet applied). Used both

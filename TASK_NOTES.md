@@ -1,5 +1,41 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — guests use the toy maker + read info pages (task 8c67fe67, sal-moretti)
+
+Zero Nine's logged-out walk: Imagination Station, home "Start Creating Free" and toys "Make my toy!" all
+land on "Sign in to your account"; Community, Referral Program (/referrals = a bare yellow "Please sign
+in" box), /metal-art and /wholesale all need an account. Fix: a guest opens and tries the tools; an
+account is asked for only at the step that saves or charges (and that ask says why, with a sign-up
+button); the info pages read logged out; dashboards stay behind sign-in; Turnstile stays on sign-up.
+
+### File shortlist (approved scope — 2026-10-07 guest access)
+- `src/App.tsx` (routes only: unwrap /imagination-station, /toy-creator, /metal-art, /community, /wholesale)
+- `src/lib/guest-gate.ts` + `.test.ts` (new: one module for every "why we need an account" line)
+- `src/components/GuestGate.tsx` + `.test.tsx` (new: provider + the explained account modal)
+- `src/pages/ImaginationStation.tsx` (guest sheet in memory; server actions ask for an account)
+- `src/pages/ToyCreator.tsx` (guest builds; "Mix" asks; picks kept across sign-up), `src/pages/ToyLand.tsx` (copy)
+- `src/pages/MetalArtStudio.tsx` (guest sees studio; generate/upload ask)
+- `src/pages/Community.tsx`, `src/components/community/CommunityPostCard.tsx` (vote/submit ask)
+- `src/pages/Referrals.tsx`, `src/pages/WholesalePortal.tsx` (public content + explained dashboard gate)
+- `src/pages/Login.tsx`, `src/pages/Signup.tsx` (reason line + sign-up button on any remaining wall)
+- `src/pages/Home.tsx` ("Start Creating Free" target only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (sal-moretti): scoped. Facts read live: referral RPC pays 500 pts + 5 ITC (referrer) /
+  250 pts + 2.5 ITC (friend) at sign-up and 50 ITC on the friend's first order, but 0 referral codes
+  and 0 referrals exist and nothing on the site ever applies ?ref (follow-up card). New wallets start at
+  0 ITC; Imagination "generate" gives 2 free tries; toy "Mix" needs 20 ITC and ignores its 1 free try
+  (follow-up card).
+- 2026-10-07 (sal-moretti): built. Scope add: `src/lib/referral-program.ts` (the reward numbers, one
+  module for the public page + dashboard, which said 10 ITC / 50 pts and was wrong). One shared account
+  card (GuestGate) on every save/spend step; guest studio sheet lives in memory, uploads stay local,
+  prices + new-account free tries read from the public price table; toy picks survive sign-up; public
+  Referral + Wholesale pages; Login/Signup say why. Also fixed while there: mojibake dashes on
+  /metal-art (now public), and the studio rail no longer names the engine ("Flare Lab" / "9 GPT Image
+  2.5 tools" -> Imagination Lab / 9 Imagination tools). tsc 0 errors, vitest 134 files / 2085 pass,
+  vite build OK, fleet-browser walk logged out at 390px + desktop on :5197 passed.
+
 ## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
 David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):
@@ -4771,4 +4807,36 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
+
+## Current request (2026-10-07) — ITP referrals: capture ?ref, apply once at first sign-in, honest rewards (task bdfa6939, dr-dill)
+
+Live read: referral_codes 0 / referral_transactions 0 / referred_by 0. Nothing called the apply route, the
+dashboard invented its code in the browser (never saved), the apply route looked profiles up by the NULL
+user_id column, and process_referral_reward was EXECUTE-able by anon. Built on Sal's unshipped 8c67fe67
+branch (merged in) because /referrals + src/lib/referral-program.ts live there.
+
+### File shortlist (approved scope — 2026-10-07 referrals)
+- `supabase/migrations/20261007210000_referral_attribution.sql` (APPLIED LIVE + tracked 2026-10-07)
+- `backend/services/referral-service.ts` (+ new test), `backend/routes/wallet.ts` (/referral/apply only)
+- `backend/services/order-refunds.ts` (export EVER_PAID_STATUSES), `backend/services/order-payment.ts` +
+  `backend/routes/orders.ts` (pass the order id to the first-order bonus)
+- new `src/utils/referral-capture.ts` (+ test), new `src/components/ReferralApplier.tsx` (+ test),
+  `src/main.tsx` (capture call), `src/App.tsx` (mount the applier)
+- `src/utils/referral-system.ts` (+ new test), `src/lib/referral-program.ts`, `src/pages/Referrals.tsx`
+- `src/pages/PrivacyPolicy.tsx` + `src/components/CookieConsent.tsx` (they claimed a 90-day referral cookie that never existed)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): migration live (anon EXECUTE revoked, sign-up records the link at 0 reward,
+  award_referral_first_order pays 50 ITC atomically, one signup row per referee + one active code per user).
+  Site captures ?ref on any route, applies once after sign-in, clears it. Live test on two throwaway
+  accounts (qa+referral-*-bdfa6939@imaginethisprinted.com): code REFR9449Q -> friend joined -> referred_by
+  set, signup row, repeat = no-op, first-order bonus 50 ITC paid once.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+- 2026-10-07 (dr-dill): scope +1 file with rationale: `backend/routes/stripe.ts` create-payment-intent read
+  user_profiles by the NULL user_id column, same root cause as the referral route; proven live (non-admin
+  account -> 500 "Failed to fetch user profile" on api.imaginethisprinted.com). Re-keyed on id.
+- 2026-10-07 (dr-dill): scope +1 file: `supabase/migrations/20261007213000_revoke_anon_secdef_money_functions.sql`
+  (APPLIED LIVE + tracked). Sweep of SECURITY DEFINER functions anon could EXECUTE found award_order_rewards
+  (writes points + ITC), record/reverse_blank_sale (stock) and next_design_qa_submission_no; all callers are
+  the service-role API/worker. Revoked; anon now 401 permission denied, service role still 200.

@@ -6,7 +6,7 @@
 
 import { supabase } from '../lib/supabase.js'
 import { calculateReferralRewards } from '../utils/reward-calculator.js'
-import { addBalance } from '../lib/webhook-helpers.js'
+import { EVER_PAID_STATUSES } from './order-refunds.js'
 
 export interface ReferralCodeData {
   userId: string
@@ -32,45 +32,47 @@ export function generateReferralCode(username?: string): string {
 }
 
 /**
- * Create a new referral code for a user
+ * Create a new referral code for a user. A user holds at most one active code
+ * (idx_referral_codes_one_active_per_user): when two requests race (the
+ * dashboard's first load can fire twice), the loser returns the winner's code.
  */
 export async function createReferralCode(data: ReferralCodeData) {
   try {
-    const code = data.code || generateReferralCode()
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = (attempt === 0 && data.code) || generateReferralCode()
 
-    // Check if code already exists
-    const { data: existing } = await supabase
-      .from('referral_codes')
-      .select('id')
-      .eq('code', code)
-      .single()
+      const { data: newCode, error } = await supabase
+        .from('referral_codes')
+        .insert({
+          user_id: data.userId,
+          code,
+          description: data.description || 'Personal referral code',
+          max_uses: data.maxUses || null,
+          expires_at: data.expiresAt || null,
+          is_active: true
+        })
+        .select()
+        .single()
 
-    if (existing) {
-      throw new Error('Referral code already exists')
+      if (!error) {
+        console.log(`[ReferralService] Created referral code ${code} for user ${data.userId}`)
+        return { success: true, code: newCode }
+      }
+
+      if (error.code !== '23505') throw error
+
+      // Unique violation: either this user already has an active code (a
+      // concurrent create won) or the random code collided with someone's.
+      const { data: active } = await supabase
+        .from('referral_codes')
+        .select('*')
+        .eq('user_id', data.userId)
+        .eq('is_active', true)
+        .maybeSingle()
+      if (active) return { success: true, code: active }
+      if (data.code) throw new Error('Referral code already exists')
     }
-
-    // Create the code
-    const { data: newCode, error } = await supabase
-      .from('referral_codes')
-      .insert({
-        user_id: data.userId,
-        code,
-        description: data.description || 'Personal referral code',
-        max_uses: data.maxUses || null,
-        expires_at: data.expiresAt || null,
-        is_active: true
-      })
-      .select()
-      .single()
-
-    if (error) throw error
-
-    console.log(`[ReferralService] Created referral code ${code} for user ${data.userId}`)
-
-    return {
-      success: true,
-      code: newCode
-    }
+    throw new Error('Could not pick a free referral code')
   } catch (error: any) {
     console.error('[ReferralService] Error creating referral code:', error)
     return {
@@ -136,65 +138,109 @@ export async function validateReferralCode(code: string): Promise<ReferralValida
 }
 
 /**
- * Process referral signup reward
+ * How new an account must be to join through a referral link. The link is
+ * applied at the account's first sign-in (src/utils/referral-capture.ts), so a
+ * real referred sign-up is minutes old; an older account is an existing
+ * customer, not a referral.
+ */
+export const REFERRAL_NEW_ACCOUNT_DAYS = 7
+
+export type ReferralSignupRefusal =
+  | 'invalid_code'
+  | 'own_code'
+  | 'already_referred'
+  | 'not_new_account'
+  | 'bad_type'
+
+export interface ReferralSignupResult {
+  success: boolean
+  /** The same link was already recorded for this account: a no-op. */
+  already?: boolean
+  transactionId?: string
+  referrerId?: string
+  referrerRewards?: { points: number; itc: number }
+  refereeRewards?: { points: number; itc: number }
+  /** Set on a refusal the client should treat as final (it clears the stored link). */
+  reason?: ReferralSignupRefusal
+  error?: string
+}
+
+/**
+ * Pure: is this account new enough, and has it never paid for an order?
+ * Returns the refusal, or null when the account may join through a referral.
+ */
+export function newAccountRefusal(
+  accountCreatedAt: string | null | undefined,
+  everPaidOrderCount: number,
+  now: number = Date.now()
+): 'not_new_account' | null {
+  if (everPaidOrderCount > 0) return 'not_new_account'
+  const created = accountCreatedAt ? Date.parse(accountCreatedAt) : NaN
+  if (Number.isNaN(created)) return 'not_new_account'
+  return now - created > REFERRAL_NEW_ACCOUNT_DAYS * 24 * 60 * 60 * 1000 ? 'not_new_account' : null
+}
+
+/**
+ * Record that a new account joined through a referral link.
+ *
+ * Sign-up pays nothing (task bdfa6939, 2026-10-07: bot sign-ups could farm
+ * it). process_referral_reward() writes the 'signup' referral_transactions row,
+ * user_profiles.referred_by and referral_codes.total_uses in one transaction,
+ * and refuses a second link for the same account. The referrer is paid later,
+ * by processReferralFirstPurchase(), when this account's first order is paid.
  */
 export async function processReferralSignup(
   referralCode: string,
   newUserId: string,
   newUserEmail: string
-) {
+): Promise<ReferralSignupResult> {
   try {
-    console.log(`[ReferralService] Processing signup referral for ${newUserEmail} with code ${referralCode}`)
+    const code = String(referralCode || '').trim().toUpperCase()
+    console.log(`[ReferralService] Recording signup referral for ${newUserId} with code ${code}`)
 
-    // Validate the code
-    const validation = await validateReferralCode(referralCode)
-    if (!validation.valid || !validation.code) {
-      throw new Error(validation.error || 'Invalid referral code')
+    // A new customer only: account age off auth.users (user_profiles.created_at
+    // is a timestamp without time zone), paid orders off the payment truth.
+    const { data: authUser, error: authErr } = await supabase.auth.admin.getUserById(newUserId)
+    if (authErr || !authUser?.user) {
+      throw new Error(authErr?.message || 'Account not found')
+    }
+    const { data: orders, error: ordersErr } = await supabase
+      .from('orders')
+      .select('id, payment_status')
+      .eq('user_id', newUserId)
+    if (ordersErr) throw ordersErr
+    const everPaid = (orders || []).filter((o: { payment_status?: string | null }) =>
+      EVER_PAID_STATUSES.has(String(o.payment_status))
+    ).length
+    const refusal = newAccountRefusal(authUser.user.created_at, everPaid)
+    if (refusal) {
+      return { success: false, reason: refusal, error: 'Referral links are for new accounts only' }
     }
 
-    // Prevent self-referral
-    if (validation.code.user_id === newUserId) {
-      throw new Error('Cannot use your own referral code')
-    }
-
-    // Check if user already used a referral code
-    const { data: existingReferral } = await supabase
-      .from('referral_transactions')
-      .select('id')
-      .eq('referee_id', newUserId)
-      .single()
-
-    if (existingReferral) {
-      throw new Error('User has already used a referral code')
-    }
-
-    // Call the database function to process the reward
     const { data: result, error } = await supabase.rpc('process_referral_reward', {
-      p_referral_code: referralCode.toUpperCase(),
+      p_referral_code: code,
       p_referee_id: newUserId,
-      p_referee_email: newUserEmail,
+      p_referee_email: newUserEmail || '',
       p_reward_type: 'signup'
     })
 
     if (error) throw error
 
     if (!result || !result.success) {
-      throw new Error(result?.error || 'Failed to process referral reward')
+      return {
+        success: false,
+        reason: result?.reason,
+        error: result?.error || 'Failed to record referral'
+      }
     }
 
-    console.log(`[ReferralService] Referral signup processed successfully:`, result)
-
-    // Update user profile with referral info
-    await supabase
-      .from('user_profiles')
-      .update({
-        referred_by: validation.code.user_id
-      })
-      .eq('user_id', newUserId)
+    console.log(`[ReferralService] Referral signup recorded:`, result)
 
     return {
       success: true,
+      already: !!result.already,
       transactionId: result.transaction_id,
+      referrerId: result.referrer_id,
       referrerRewards: result.referrer_rewards,
       refereeRewards: result.referee_rewards
     }
@@ -208,116 +254,36 @@ export async function processReferralSignup(
 }
 
 /**
- * Process first purchase referral bonus
+ * Pay the referrer's first-order bonus (50 ITC, set in the
+ * award_referral_first_order() database function) when a referred account's
+ * first order is paid. Lifetime-once per referred account; the bonus row, the
+ * wallet credit and the ledger row commit together. Safe to call on every paid
+ * order: anything after the first is a no-op.
  */
 export async function processReferralFirstPurchase(
   userId: string,
-  orderTotal: number
+  orderTotal: number,
+  orderId?: string | null
 ) {
   try {
-    // Check if user was referred
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('referred_by')
-      .eq('user_id', userId)
-      .single()
-
-    if (!profile || !profile.referred_by) {
-      return { success: false, message: 'User was not referred' }
-    }
-
-    // Check if first purchase bonus already given
-    const { data: existingBonus } = await supabase
-      .from('referral_transactions')
-      .select('id')
-      .eq('referee_id', userId)
-      .eq('type', 'purchase')
-      .single()
-
-    if (existingBonus) {
-      return { success: false, message: 'First purchase bonus already awarded' }
-    }
-
-    // Get referral code
-    const { data: referralCode } = await supabase
-      .from('referral_codes')
-      .select('id, code')
-      .eq('user_id', profile.referred_by)
-      .eq('is_active', true)
-      .single()
-
-    if (!referralCode) {
-      return { success: false, message: 'Referral code not found' }
-    }
-
-    // Flat 50 ITC bonus for referrer when referred user makes first purchase
-    const bonusITC = 50
-
-    // Create referral transaction
-    const { data: transaction, error: txError } = await supabase
-      .from('referral_transactions')
-      .insert({
-        referral_code_id: referralCode.id,
-        referrer_id: profile.referred_by,
-        referee_id: userId,
-        referee_email: '', // We don't need email for purchase bonus
-        type: 'purchase',
-        referrer_reward_points: 0,
-        referrer_reward_itc: bonusITC,
-        referee_reward_points: 0,
-        referee_reward_itc: 0,
-        status: 'completed',
-        completed_at: new Date().toISOString()
-      })
-      .select()
-      .single()
-
-    if (txError) throw txError
-
-    // Award ITC to referrer's wallet
-    const { data: wallet } = await supabase
-      .from('user_wallets')
-      .select('itc_balance')
-      .eq('user_id', profile.referred_by)
-      .single()
-
-    // Supabase returns NUMERIC columns as strings — plain `+` here previously
-    // string-concatenated ("100" + 50 -> "10050") instead of adding whenever
-    // itc_balance hadn't already been parsed. addBalance() coerces first.
-    const newBalance = addBalance(wallet?.itc_balance, bonusITC)
-
-    // Live itc_transactions shape is (user_id, type, amount, reference,
-    // balance_after, metadata) — the old insert wrote reason/related_entity_*
-    // (nonexistent) so referral bonuses silently wrote NO ledger row.
-    const { error: ledgerErr } = await supabase.from('itc_transactions').insert({
-      user_id: profile.referred_by,
-      type: 'earned',
-      amount: bonusITC,
-      balance_after: newBalance,
-      reference: `referral:${transaction.id}`,
-      metadata: {
-        source: 'referral',
-        reason: 'Referral first purchase bonus',
-        related_entity_type: 'referral',
-        related_entity_id: transaction.id,
-      },
+    const { data: result, error } = await supabase.rpc('award_referral_first_order', {
+      p_referee_id: userId,
+      p_order_id: orderId || null
     })
-    if (ledgerErr) console.error('[referral-service] itc_transactions insert failed:', ledgerErr.message)
 
-    await supabase
-      .from('user_wallets')
-      .update({
-        itc_balance: newBalance,
-        updated_at: new Date().toISOString()
-      })
-      .eq('user_id', profile.referred_by)
+    if (error) throw error
 
-    console.log(`[ReferralService] First purchase bonus awarded: ${bonusITC} ITC to ${profile.referred_by}`)
+    if (!result || !result.success) {
+      return { success: false, message: result?.message || 'No referral bonus' }
+    }
+
+    console.log(`[ReferralService] First purchase bonus awarded: ${result.bonus_itc} ITC to ${result.referrer_id} (order total ${orderTotal})`)
 
     return {
       success: true,
-      bonusITC,
-      referrerId: profile.referred_by
+      bonusITC: Number(result.bonus_itc),
+      referrerId: result.referrer_id as string,
+      transactionId: result.transaction_id as string
     }
   } catch (error: any) {
     console.error('[ReferralService] Error processing first purchase bonus:', error)
@@ -339,17 +305,22 @@ export async function getReferralStats(userId: string) {
       .select('*')
       .eq('user_id', userId)
 
-    // Get referral transactions
+    // Get referral transactions, newest first
     const { data: transactions } = await supabase
       .from('referral_transactions')
       .select('*')
       .eq('referrer_id', userId)
       .eq('status', 'completed')
+      .order('created_at', { ascending: false })
 
-    // Calculate totals
-    const totalReferrals = transactions?.length || 0
-    const totalPointsEarned = transactions?.reduce((sum, t) => sum + (t.referrer_reward_points || 0), 0) || 0
-    const totalITCEarned = transactions?.reduce((sum, t) => sum + (t.referrer_reward_itc || 0), 0) || 0
+    // One 'signup' row per friend who joined; a 'purchase' row when that
+    // friend's first order paid. NUMERIC columns arrive as strings, so every
+    // sum goes through Number() (a bare + concatenated "0" + "50").
+    const rows = transactions || []
+    const totalReferrals = rows.filter(t => t.type === 'signup').length
+    const firstOrders = rows.filter(t => t.type === 'purchase').length
+    const totalPointsEarned = rows.reduce((sum, t) => sum + Number(t.referrer_reward_points || 0), 0)
+    const totalITCEarned = rows.reduce((sum, t) => sum + Number(t.referrer_reward_itc || 0), 0)
 
     // Get active code
     const activeCode = codes?.find(c => c.is_active)
@@ -358,11 +329,13 @@ export async function getReferralStats(userId: string) {
       success: true,
       stats: {
         totalReferrals,
+        firstOrders,
         totalPointsEarned,
         totalITCEarned,
         activeCodes: codes?.filter(c => c.is_active).length || 0,
         activeCode: activeCode?.code || null,
-        recentReferrals: transactions?.slice(0, 10) || []
+        referralCode: activeCode || null,
+        recentReferrals: rows.slice(0, 50)
       }
     }
   } catch (error: any) {
@@ -443,7 +416,7 @@ export async function getPlatformReferralStats(): Promise<{
     const purchases = rows.filter(t => t.type === 'purchase')
 
     const totalReferrals = signups.length
-    const totalEarnings = rows.reduce((sum, t) => sum + (t.referrer_reward_itc || 0), 0)
+    const totalEarnings = rows.reduce((sum, t) => sum + Number(t.referrer_reward_itc || 0), 0)
     const conversionRate = totalReferrals > 0 ? purchases.length / totalReferrals : 0
 
     // Aggregate per referrer for the leaderboard
@@ -451,7 +424,7 @@ export async function getPlatformReferralStats(): Promise<{
     for (const t of rows) {
       const entry = byReferrer.get(t.referrer_id) || { referralCount: 0, earnings: 0 }
       entry.referralCount += 1
-      entry.earnings += t.referrer_reward_itc || 0
+      entry.earnings += Number(t.referrer_reward_itc || 0)
       byReferrer.set(t.referrer_id, entry)
     }
 
