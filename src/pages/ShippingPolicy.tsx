@@ -1,5 +1,8 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Truck, Clock, MapPin, Mail, Package } from 'lucide-react'
+import { PICKUP_HOURS, SHIPPING_TRANSIT, STANDARD_FULFILLMENT_DAYS, PROCESSING_LINE } from '../utils/shipping-calculator'
+import BusinessContactBlock from '../components/BusinessContactBlock'
+import { BUSINESS_ADDRESS_LINE, POLICY_UPDATED } from '../config/business-info'
+import { ArrowLeft, Truck, Clock, Mail, Package } from 'lucide-react'
 
 export default function ShippingPolicy() {
   return (
@@ -15,7 +18,7 @@ export default function ShippingPolicy() {
             <Truck className="w-12 h-12 text-white" />
             <div>
               <h1 className="text-4xl font-bold text-white">Shipping Policy</h1>
-              <p className="text-white/80 mt-2">Last updated: January 1, 2026</p>
+              <p className="text-white/80 mt-2">Last updated: {POLICY_UPDATED.shipping}</p>
             </div>
           </div>
         </div>
@@ -28,21 +31,7 @@ export default function ShippingPolicy() {
           <section>
             <h2 className="text-2xl font-bold text-text mb-4">1. Processing Time</h2>
             <div className="space-y-4 text-muted leading-relaxed">
-              <p>All orders are custom-made just for you! Here's what to expect:</p>
-              <div className="bg-purple-50 dark:bg-purple-900/20 rounded-xl p-4 space-y-3">
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-purple-600" />
-                  <span><strong className="text-text">Standard Products:</strong> 2-5 business days</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-purple-600" />
-                  <span><strong className="text-text">Custom Designs:</strong> 3-7 business days</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <Clock className="w-5 h-5 text-purple-600" />
-                  <span><strong className="text-text">Large Orders (10+ items):</strong> 5-10 business days</span>
-                </div>
-              </div>
+              <p>{PROCESSING_LINE} Everything is custom-made just for you.</p>
               <p className="text-sm">
                 Processing time begins after payment confirmation. You'll receive a confirmation email when your order ships.
               </p>
@@ -51,6 +40,7 @@ export default function ShippingPolicy() {
 
           <section>
             <h2 className="text-2xl font-bold text-text mb-4">2. Shipping Options</h2>
+            <p className="text-muted mb-4">Delivery time is counted from the day your order ships, after the {STANDARD_FULFILLMENT_DAYS}-business-day processing above.</p>
             <div className="overflow-x-auto">
               <table className="w-full text-left">
                 <thead>
@@ -62,35 +52,32 @@ export default function ShippingPolicy() {
                 </thead>
                 <tbody className="text-muted">
                   <tr className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-3 px-4">Standard Ground</td>
-                    <td className="py-3 px-4">5-8 business days</td>
-                    <td className="py-3 px-4">$5.99+</td>
+                    <td className="py-3 px-4">Free Pickup (Rockmart, GA)</td>
+                    <td className="py-3 px-4">Ready within {STANDARD_FULFILLMENT_DAYS} business days</td>
+                    <td className="py-3 px-4">Free</td>
                   </tr>
+                  {SHIPPING_TRANSIT.map(row => (
+                    <tr key={row.id} className="border-b border-gray-100 dark:border-gray-800">
+                      <td className="py-3 px-4">{row.label}</td>
+                      <td className="py-3 px-4">{row.days}</td>
+                      <td className="py-3 px-4">{row.from}</td>
+                    </tr>
+                  ))}
                   <tr className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-3 px-4">Express</td>
-                    <td className="py-3 px-4">2-4 business days</td>
-                    <td className="py-3 px-4">$12.99+</td>
-                  </tr>
-                  <tr className="border-b border-gray-100 dark:border-gray-800">
-                    <td className="py-3 px-4">Priority Overnight</td>
-                    <td className="py-3 px-4">1-2 business days</td>
-                    <td className="py-3 px-4">$24.99+</td>
-                  </tr>
-                  <tr>
                     <td className="py-3 px-4">Local Delivery (within 10 mi)</td>
-                    <td className="py-3 px-4">Same day - 2 days</td>
+                    <td className="py-3 px-4">Within {STANDARD_FULFILLMENT_DAYS} business days</td>
                     <td className="py-3 px-4">$10.00 flat</td>
                   </tr>
                   <tr>
                     <td className="py-3 px-4">Local Delivery (10-20 mi)</td>
-                    <td className="py-3 px-4">Same day - 2 days</td>
+                    <td className="py-3 px-4">Within {STANDARD_FULFILLMENT_DAYS} business days</td>
                     <td className="py-3 px-4">$15.00 flat</td>
                   </tr>
                 </tbody>
               </table>
             </div>
             <p className="text-sm text-muted mt-4">
-              * Shipping costs are calculated at checkout based on destination and package weight. Free standard shipping is available on orders over $50. Local delivery is available within a 20-mile radius of our Rockmart, GA warehouse.
+              * Shipping costs are calculated at checkout based on destination and package weight. Free standard shipping is available on orders over $50. Free pickup is at {BUSINESS_ADDRESS_LINE} during {PICKUP_HOURS}. Local delivery is available within a 20-mile radius of our Rockmart, GA warehouse.
             </p>
           </section>
 
@@ -169,10 +156,7 @@ export default function ShippingPolicy() {
                   wecare@imaginethisprinted.com
                 </a>
               </div>
-              <div className="flex items-center gap-3 text-muted">
-                <MapPin className="w-5 h-5 text-purple-600" />
-                <span>Imagine This Printed, United States</span>
-              </div>
+              <BusinessContactBlock />
             </div>
           </section>
 

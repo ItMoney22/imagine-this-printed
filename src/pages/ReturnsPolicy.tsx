@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, RotateCcw, Mail, MapPin, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
+import BusinessContactBlock from '../components/BusinessContactBlock'
+import { POLICY_UPDATED } from '../config/business-info'
+import { ArrowLeft, RotateCcw, Mail, CheckCircle, XCircle, AlertCircle } from 'lucide-react'
 
 export default function ReturnsPolicy() {
   return (
@@ -15,7 +17,7 @@ export default function ReturnsPolicy() {
             <RotateCcw className="w-12 h-12 text-white" />
             <div>
               <h1 className="text-4xl font-bold text-white">Returns & Refunds</h1>
-              <p className="text-white/80 mt-2">Last updated: January 1, 2026</p>
+              <p className="text-white/80 mt-2">Last updated: {POLICY_UPDATED.returns}</p>
             </div>
           </div>
         </div>
@@ -152,7 +154,7 @@ export default function ReturnsPolicy() {
           <section>
             <h2 className="text-2xl font-bold text-text mb-4">Creator/Vendor Products</h2>
             <p className="text-muted leading-relaxed">
-              For products created by our community creators or vendors, the same return policy applies. We handle all customer service and quality issues directly. Creators receive their royalties only after the return/refund period has passed.
+              For products created by our community creators or vendors, the same return policy applies. We handle all customer service and quality issues directly.
             </p>
           </section>
 
@@ -168,10 +170,7 @@ export default function ReturnsPolicy() {
                   wecare@imaginethisprinted.com
                 </a>
               </div>
-              <div className="flex items-center gap-3 text-muted">
-                <MapPin className="w-5 h-5 text-purple-600" />
-                <span>Imagine This Printed, United States</span>
-              </div>
+              <BusinessContactBlock />
             </div>
             <p className="text-sm text-muted mt-4">
               Response time: Within 24-48 hours (Monday-Friday)

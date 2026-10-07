@@ -1,5 +1,18 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
+
+### File shortlist (approved scope — 2026-10-07 policies)
+- `src/pages/ShippingPolicy.tsx`, `ReturnsPolicy.tsx`, `PrivacyPolicy.tsx`, `TermsOfService.tsx` (Terms governing law untouched: card f02213ca)
+- `src/pages/Home.tsx` (shipping line), `src/pages/ProductPage.tsx` (shipping box)
+- `src/utils/shipping-calculator.ts` (+ test): add the shared timing story next to STANDARD_FULFILLMENT_DAYS
+- new `src/config/business-info.ts`, new `src/components/BusinessContactBlock.tsx`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dane-marsh): scope added; no real business phone exists in repo (only placeholder), so phone reads from VITE_BUSINESS_PHONE and is never invented.
+
+
 ## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
 
 David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1
@@ -4544,3 +4557,4 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   /admin/ai/products/create now open the Step Flow builder. Walked on 5287 at 1440 and 390 wide: no page errors.
   Art is cropped from the approved mock (no page-art.ts on this checkout): swap for Flux finals when it lands.
   Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.
+- 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
