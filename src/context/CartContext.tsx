@@ -306,6 +306,19 @@ const cartReducer = (state: CartState, action: CartAction): CartState => {
   }
 }
 
+/**
+ * The dollars a coupon takes off this cart. A percentage coupon follows the
+ * cart as it changes (the amount /api/coupons/validate answered was for the
+ * cart at the moment it was applied, and checkout pricing re-applies the
+ * percentage to the real subtotal); other coupons keep the validated amount.
+ */
+export function couponDiscountFor(coupon: AppliedCoupon, cartTotal: number): number {
+  if (coupon.type !== 'percentage') return coupon.discount || 0
+  let amount = Math.round(Math.max(0, cartTotal) * Number(coupon.value || 0)) / 100
+  if (coupon.maxDiscount != null && coupon.maxDiscount > 0) amount = Math.min(amount, coupon.maxDiscount)
+  return Math.min(amount, Math.max(0, cartTotal))
+}
+
 export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   // Lazy initializers so we read localStorage exactly once on mount, not
   // on every render. The third arg to useReducer + the initializer
@@ -418,7 +431,8 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         value: data.coupon.value,
         discount: data.discount,
         couponId: data.coupon.id,
-        freeShipping: data.freeShipping || false
+        freeShipping: data.freeShipping || false,
+        maxDiscount: data.coupon.max_discount_amount ?? null
       })
       setCouponLoading(false)
       return { success: true }
@@ -436,7 +450,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setPersistError(null)
   }, [])
 
-  const discount = appliedCoupon?.discount || 0
+  const discount = appliedCoupon ? couponDiscountFor(appliedCoupon, state.total) : 0
   const finalTotal = Math.max(0, state.total - discount)
 
   return (

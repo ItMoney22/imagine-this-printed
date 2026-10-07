@@ -8,7 +8,8 @@ import {
   processReferralSignup,
   processReferralFirstPurchase,
   getReferralStats,
-  getPlatformReferralStats
+  getPlatformReferralStats,
+  getWelcomeCodeForUser
 } from '../services/referral-service.js'
 import {
   createExpressAccount,
@@ -290,6 +291,25 @@ router.post('/referral/apply', requireAuth, async (req: Request, res: Response):
     })
   } catch (error: any) {
     console.error('[wallet/referral/apply] Error:', error)
+    return res.status(500).json({ error: error.message })
+  }
+})
+
+// GET /api/wallet/referral/welcome - The signed-in account's unused welcome
+// code (10% off a first order, minted when it joined through a friend's link;
+// task 4cebbf83), or null. The site puts it in the cart once there is
+// something in it (src/components/ReferralApplier.tsx). Read off the account,
+// so it works on any device the friend signs in on.
+router.get('/referral/welcome', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.sub
+    if (!userId) {
+      return res.status(401).json({ error: 'Unauthorized' })
+    }
+    const welcome = await getWelcomeCodeForUser(userId)
+    return res.json({ ok: true, welcome })
+  } catch (error: any) {
+    console.error('[wallet/referral/welcome] Error:', error)
     return res.status(500).json({ error: error.message })
   }
 })

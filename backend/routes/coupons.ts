@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
+import { COUPON_OWNER_ERRORS, couponNeedsOwnerCheck, couponNeedsPaidOrderCount, couponOwnerRefusal } from '../shared/coupon-owner.js'
+import { EVER_PAID_STATUSES } from '../services/order-refunds.js'
 
 dotenv.config()
 
@@ -64,6 +66,25 @@ export async function validateCouponForOrder(
 
     if (error || !coupon) {
         return { valid: false, discountAmount: 0, freeShipping: false, error: 'Invalid coupon code' }
+    }
+
+    // A code bound to one account (the referral welcome code): only its owner,
+    // and only before their first paid order. Checkout pricing re-checks this
+    // with the server-trusted user id (order-pricing.ts).
+    if (couponNeedsOwnerCheck(coupon.metadata)) {
+        let paidOrders: number | null = 0
+        if (userId && couponNeedsPaidOrderCount(coupon.metadata)) {
+            const { count, error: paidError } = await db
+                .from('orders')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', userId)
+                .in('payment_status', Array.from(EVER_PAID_STATUSES))
+            paidOrders = paidError || count == null ? null : count
+        }
+        const refusal = couponOwnerRefusal(coupon.metadata, userId, paidOrders)
+        if (refusal) {
+            return { valid: false, discountAmount: 0, freeShipping: false, error: COUPON_OWNER_ERRORS[refusal] }
+        }
     }
 
     if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) {

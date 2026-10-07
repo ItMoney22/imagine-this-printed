@@ -667,13 +667,13 @@ export async function reverseOrderRewards(
  * Claw back the referral first-purchase bonus paid to a REFERRER when the
  * order that triggered it is refunded.
  *
- * referral_transactions has no order_id column — processReferralFirstPurchase()
- * (services/referral-service.ts) never writes one, only referee_id — so which
- * order "caused" a given bonus row can't be read off a foreign key. Instead
- * this mirrors the award path's own trigger condition: the bonus is a
- * lifetime-once award (guarded by an existing referee_id+type='purchase' row)
- * that fires on the referred user's first order to ever actually get paid.
- * So the refunded order only owns this bonus if it is, by created_at, the
+ * Bonus rows written by award_referral_first_order() (tasks bdfa6939 +
+ * 4cebbf83) record the order that earned them in related_order_id; only a
+ * refund of THAT order reverses the bonus. Older rows carry no order, so for
+ * them this mirrors the old award path's trigger condition: a lifetime-once
+ * award (guarded by an existing referee_id+type='purchase' row) that fired on
+ * the referred user's first order to ever actually get paid.
+ * So the refunded order only owns such a bonus if it is, by created_at, the
  * EARLIEST order for that user among orders whose payment_status shows they
  * were ever paid (EVER_PAID_STATUSES — excludes 'pending' so an abandoned
  * cart never outranks the real first purchase). Refunding any other order for
@@ -716,7 +716,7 @@ export async function reverseReferralBonus(
 
     const { data: bonusRows, error: bonusErr } = await db
       .from('referral_transactions')
-      .select('id, referrer_id, referrer_reward_itc, status')
+      .select('id, referrer_id, referrer_reward_itc, status, related_order_id')
       .eq('referee_id', buyerId)
       .eq('type', 'purchase')
     if (bonusErr) {
@@ -733,8 +733,19 @@ export async function reverseReferralBonus(
       return { ok: true, skipped: true, reason: `referral bonus status is '${bonus.status}' — nothing to reverse` }
     }
 
-    // Correlation: only reverse if this order is the buyer's earliest
-    // ever-paid order — see function doc comment.
+    // Correlation. Since task 4cebbf83 the bonus row names the order that
+    // earned it (related_order_id): award_referral_first_order() pays on the
+    // friend's first order with $15+ of products, which need not be their
+    // first paid order. Reverse only for THAT order.
+    if (bonus.related_order_id) {
+      if (bonus.related_order_id !== orderId) {
+        return { ok: true, skipped: true, reason: 'the referral bonus was earned by a different order' }
+      }
+      return await debitReferralBonus(db, bonus, orderId, buyerId, log)
+    }
+
+    // Older rows carry no order: only reverse if this order is the buyer's
+    // earliest ever-paid order — see function doc comment.
     const { data: buyerOrders, error: ordersErr } = await db
       .from('orders')
       .select('id, created_at, payment_status')
@@ -755,6 +766,20 @@ export async function reverseReferralBonus(
       }
     }
 
+    return await debitReferralBonus(db, bonus, orderId, buyerId, log)
+  } catch (err: unknown) {
+    return { ok: false, skipped: false, reason: `unexpected error: ${errMessage(err)}` }
+  }
+}
+
+async function debitReferralBonus(
+  db: RefundDb,
+  bonus: { id: string; referrer_id: string | null; referrer_reward_itc: unknown },
+  orderId: string,
+  buyerId: string,
+  log?: Logger
+): Promise<StepResult> {
+  try {
     const bonusItc = Math.max(0, Number(bonus.referrer_reward_itc) || 0)
     if (bonusItc <= 0) {
       return { ok: true, skipped: true, reason: 'referral bonus had no ITC amount' }

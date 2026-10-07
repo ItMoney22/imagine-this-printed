@@ -4807,3 +4807,30 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
   (APPLIED LIVE + tracked). Sweep of SECURITY DEFINER functions anon could EXECUTE found award_order_rewards
   (writes points + ITC), record/reverse_blank_sale (stock) and next_design_qa_submission_no; all callers are
   the service-role API/worker. Revoked; anon now 401 permission denied, service role still 200.
+
+## Current request (2026-10-07) — ITP referral reward model, Nine's gate: option C (task 4cebbf83, dr-dill)
+
+Decision: C. Referrer 500 ITC ($5 store credit) when the friend's first order with $15+ of products (after
+discounts) is paid; friend gets a personal 10%-off first-order code (30 days, one use, bound to their account,
+auto-put in their cart). Sign-up still pays nothing. One code per order, so it never stacks with another code.
+Live read: real paid orders are $20-$40 of products; cheapest live listings are $3.07, hence the $15 floor.
+Built on the bdfa6939 referrals branch (19a5381, fast-forwarded in).
+
+### File shortlist (approved scope — 2026-10-07 referral reward C)
+- new `supabase/migrations/20261007233000_referral_reward_first_order_c.sql` (process_referral_reward mints the
+  welcome code; award_referral_first_order 500 ITC, order must be the friend's, paid, $15+ of products)
+- new `backend/shared/coupon-owner.ts` (one rule: owner_user_id + first_order_only), `backend/services/order-pricing.ts`
+  (+ test), `backend/routes/coupons.ts` (+ test)
+- `backend/services/referral-service.ts` (+ test), `backend/routes/wallet.ts` (GET /referral/welcome only),
+  `backend/services/order-refunds.ts` (+ test: reverse by related_order_id), `backend/utils/reward-calculator.ts` (mirror)
+- `src/lib/referral-program.ts`, `src/pages/Referrals.tsx`, `src/utils/referral-system.ts` (share pitch),
+  `src/utils/referral-capture.ts` + `src/components/ReferralApplier.tsx` (+ test), `src/context/CartContext.tsx`
+  (+ test: a percentage coupon follows the cart), `src/types/index.ts` (AppliedCoupon.maxDiscount)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): migration dry-run on the live DB in a rolled-back transaction: signup pays 0 + mints
+  WELCOME10-xxxxxx bound to the friend; repeat returns the same code; no order / unpaid / someone else's /
+  $14 order -> refused; $22.50 order -> referrer +500 ITC once, ledger + related_order_id; second order no-op;
+  anon/authenticated EXECUTE false. Checkout + /validate refuse the code for anyone else, guests, or after a
+  paid order. tsc app 0, backend 0 (known TS2742 only), vitest 148 files / 2239 pass.

@@ -1270,3 +1270,59 @@ describe('calculateOrderPricing — fetchMetalProductIds wires size pricing end-
     expect(result.productSubtotalCents).toBe(2500)
   })
 })
+
+describe('referral welcome code at checkout (task 4cebbf83)', () => {
+  const WELCOME: PricingDiscountCodeRow = {
+    id: 'coupon-w',
+    code: 'WELCOME10-ABC234',
+    type: 'percentage',
+    value: 10,
+    is_active: true,
+    expires_at: null,
+    max_uses: 1,
+    current_uses: 0,
+    min_order_amount: 0,
+    max_discount_amount: null,
+    per_user_limit: 1,
+    metadata: { source: 'referral_welcome', owner_user_id: 'friend-1', first_order_only: true }
+  }
+  const price = (userId: string | null, overrides: Partial<PricingDependencies> = {}) =>
+    calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_A, quantity: 1 }], // $25.00
+        shippingAddress: { state: 'OR' }, // 0% tax
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        couponCode: 'welcome10-abc234',
+        userId
+      },
+      makeFakeDeps({
+        fetchProductPrices: async () => new Map([[PRODUCT_A, 25]]),
+        fetchDiscountCode: async code => (code === 'WELCOME10-ABC234' ? WELCOME : null),
+        countEverPaidOrdersForUser: async () => 0,
+        ...overrides
+      })
+    )
+
+  it('takes 10% off the friend\'s first order', async () => {
+    const result = await price('friend-1')
+    expect(result.couponError).toBeUndefined()
+    expect(result.discountCents).toBe(250)
+    expect(result.totalCents).toBe(2250)
+  })
+
+  it('takes nothing off for another account, a guest, or a friend who already paid once', async () => {
+    const stranger = await price('someone-else')
+    expect(stranger).toMatchObject({ discountCents: 0, totalCents: 2500, couponError: 'This code belongs to another account' })
+    const guest = await price(null)
+    expect(guest).toMatchObject({ discountCents: 0, couponError: 'Sign in to use this code' })
+    const repeat = await price('friend-1', { countEverPaidOrdersForUser: async () => 1 })
+    expect(repeat).toMatchObject({ discountCents: 0, couponError: 'This code is for a first order only' })
+  })
+
+  it('fails closed when the paid-order count cannot be read', async () => {
+    const unreadable = await price('friend-1', { countEverPaidOrdersForUser: async () => null })
+    expect(unreadable).toMatchObject({ discountCents: 0, couponError: 'This code is for a first order only' })
+    const noDep = await price('friend-1', { countEverPaidOrdersForUser: undefined })
+    expect(noDep.discountCents).toBe(0)
+  })
+})
