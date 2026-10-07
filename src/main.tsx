@@ -7,10 +7,12 @@ import { attachAuthDebug } from './lib/authDebug'
 import { ThemeProvider } from './components/ThemeProvider'
 import { forceRefreshSession, hardResetAuth } from './utils/forceRefreshSession'
 import { captureLandingUtms } from './utils/utm'
+import { initAnalytics } from './utils/analytics'
 
 // Capture ?utm_* BEFORE React mounts and the router rewrites the URL — social
 // links carry attribution only on the very first url of a visit.
 captureLandingUtms()
+initAnalytics()
 
 // Attach auth debugging hooks
 attachAuthDebug()
