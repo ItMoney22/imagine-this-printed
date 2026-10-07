@@ -23,6 +23,10 @@ since listing went off) -> follow-up card for the private subsets (inbound email
 ### Work log (append-only)
 - 2026-10-07 (daisy-carter): code + tests (model-files 7, route tests 8 of which 6 fail on old code, storefront
   3D 2); vitest 149 files / 2231 passed; backend tsc only the 6 known rate-limits.ts TS2742.
+- 2026-10-07 (daisy-carter): LIVE. 35 meshes copied (35/35 md5) + 37 rows -> gs:// refs + public originals
+  deleted -> all 35 plain URLs 404, 18 concept.png 200. Migration 20261007210000 applied (shopper INSERT/PATCH
+  201/200 before -> 403 after). 6,999 design sources (25.67 GB) moved, 6,999/6,999 md5, public 404. Real routers on
+  live data: entitled download 200 + md5 = original, unentitled 402, bridge 4/4 links fetch md5 = original.
 
 ## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
