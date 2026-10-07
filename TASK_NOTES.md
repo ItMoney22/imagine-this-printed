@@ -4834,3 +4834,11 @@ Built on the bdfa6939 referrals branch (19a5381, fast-forwarded in).
   $14 order -> refused; $22.50 order -> referrer +500 ITC once, ledger + related_order_id; second order no-op;
   anon/authenticated EXECUTE false. Checkout + /validate refuse the code for anyone else, guests, or after a
   paid order. tsc app 0, backend 0 (known TS2742 only), vitest 148 files / 2239 pass.
+- 2026-10-07 (dr-dill): applied 20261007233000 live, walked it (fleet browser, local build of this branch + a
+  wallet/coupons-only API on :4242 against the live DB): fresh friend account landed on a ?ref link, signed in,
+  apply recorded the link + minted WELCOME10-N65KTA; adding a $25 tee put the code in the cart with a toast;
+  checkout showed -$2.50 / $22.50. Validate: friend valid, referrer "belongs to another account", guest "sign in".
+  Rolled-back live txn: $14 first order -> below_minimum, $25-$2.50 order -> referrer +500 ITC. Then REVERTED
+  the live functions to option A at the 01dd112c ship's request (it ships 19a5381's 50 ITC copy tonight; one ITP
+  ship a day): 20261007210000 bodies re-applied, 20261007233000 tracking row removed, QA code deactivated.
+  Apply 20261007233000 when this branch ships. Toast line shortened to fit one line at 390px.

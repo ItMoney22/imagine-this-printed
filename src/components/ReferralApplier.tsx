@@ -45,7 +45,9 @@ export default function ReferralApplier() {
       addToast({
         type: 'success',
         title: `${welcome.percent}% off your first order`,
-        message: "Thanks for joining through a friend's link. It's taken off your cart.",
+        // One line on a phone (Toast truncates): the cart page shows no codes,
+        // checkout does.
+        message: 'Comes off at checkout. Thanks to a friend!',
       })
     })()
   }, [userId, hasItems, appliedCoupon, applyCoupon, addToast])
