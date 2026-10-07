@@ -13,6 +13,7 @@ import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blan
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
 import { getLandingUtms } from '../utils/utm'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
+import { getColorName } from '../utils/color-presets'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
@@ -1538,11 +1539,13 @@ const Checkout: React.FC = () => {
                         </span>
                       )}
                       {item.selectedColor && (
-                        <span
-                          className="w-4 h-4 rounded-full border-2 border-white/20"
-                          style={{ backgroundColor: item.selectedColor }}
-                          title={item.selectedColor}
-                        />
+                        <span className="inline-flex items-center gap-1 text-xs text-muted">
+                          <span
+                            className="w-4 h-4 rounded-full border-2 border-white/20"
+                            style={{ backgroundColor: item.selectedColor }}
+                          />
+                          {getColorName(item.selectedColor)}
+                        </span>
                       )}
                       {item.printLocation && (
                         <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
@@ -1712,7 +1715,7 @@ const Checkout: React.FC = () => {
                         // No rate picked yet (no address): $0 here is "unknown", not "free".
                         <span className="text-muted">Calculated after address</span>
                       ) : baseShipping === 0 ? (
-                        'Free'
+                        selectedRate?.type === 'pickup' ? 'Free (pickup)' : 'Free'
                       ) : (
                         `$${baseShipping.toFixed(2)}`
                       )}

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { X, Send } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -58,6 +59,10 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
 
 export function MrImagineChatWidget() {
     const { user } = useAuth()
+    const { pathname } = useLocation()
+    // On phones the bubble sits on top of the Buy / checkout buttons, so it
+    // steps aside on the buying pages (it stays on every other page).
+    const onBuyingPage = /^\/(product|cart|checkout)(\/|$)/.test(pathname)
     const [isOpen, setIsOpen] = useState(false)
     const [unreadCount, setUnreadCount] = useState(0) // Start with 0, will increment on invite
     const [messages, setMessages] = useState<Message[]>([
@@ -320,7 +325,7 @@ export function MrImagineChatWidget() {
     }
 
     return (
-        <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end pointer-events-none">
+        <div className={`fixed bottom-6 right-6 z-50 flex-col items-end pointer-events-none ${onBuyingPage ? 'hidden sm:flex' : 'flex'}`}>
             <AnimatePresence>
                 {isOpen && (
                     <motion.div

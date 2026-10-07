@@ -4564,3 +4564,10 @@ Work log (append-only):
   (organic/referral), direct fallback `{utm_source:"(direct)",utm_medium:"(none)"}` on order create, GA4 loader gated on
   VITE_GA4_MEASUREMENT_ID + SPA page_view tracker. 169 tests + vite build green. GA4 property / Search Console need David's Google
   sign-in: fleet browser parked on the analytics.google.com login wall (Sifu asked).
+## Current request (2026-10-07) — ITP product-to-checkout flow (task 9462ebbf)
+### File shortlist (approved scope — 2026-10-07, replaces stale lists above for this task)
+- `src/utils/shipping-calculator.ts`, `src/pages/Checkout.tsx`, `src/pages/Cart.tsx`
+- `src/pages/ProductPage.tsx`, `src/components/ProductRecommendations.tsx`
+- cookie banner + chat bubble components (to be located), `src/context/CartContext.tsx`
+### Work log (append-only)
+- 2026-10-07 zero-nine: shipping root cause = finalize() preselected Free Local Pickup (cheapest) so a $25 tee read "Free". Default now cheapest carrier; pickup labelled "Free (pickup)". Rule kept: free standard shipping at $50+.

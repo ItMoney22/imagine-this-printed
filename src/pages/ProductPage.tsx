@@ -124,7 +124,9 @@ const ProductPage: React.FC = () => {
             // sizes/colors live on the products columns (set at approval); fall
             // back to metadata for legacy rows.
             sizes: data.sizes || data.metadata?.sizes || [],
-            colors: data.colors || data.metadata?.colors || [],
+            // A garment with no colour list but a recorded shirt_color is a
+            // one-colour product: expose it so the buy box preselects it.
+            colors: (data.colors?.length ? data.colors : data.metadata?.colors?.length ? data.metadata.colors : (data.metadata?.shirt_color ? [data.metadata.shirt_color] : [])),
             // products.print_locations TEXT[] — the actual root cause of the
             // "no consumer" bug: this mapping never read the column at all,
             // so product.print_locations was always undefined here regardless
@@ -561,7 +563,7 @@ const ProductPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-28 sm:pb-8">
       <button
         onClick={() => navigate(-1)}
         className="mb-6 text-primary hover:text-secondary flex items-center transition-colors"
@@ -1197,9 +1199,10 @@ const ProductPage: React.FC = () => {
           <div className="bg-card card-border p-4 rounded-lg">
             <h4 className="font-semibold mb-2 text-text">Shipping Information</h4>
             <p className="text-sm text-muted">
-              • Free shipping on orders over $50<br />
-              • Standard delivery: 3-5 business days<br />
-              • Express delivery: 1-2 business days
+              • Free standard shipping on orders of $50 or more<br />
+              • Under $50, shipping is calculated at checkout<br />
+              • Free pickup in Rockmart, GA<br />
+              • Standard delivery: 3-5 business days after printing
             </p>
           </div>
 
