@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import api from '../lib/api'
 import { useToast } from '../hooks/useToast'
+import { printFilePlacementsOf } from '../../backend/shared/creator-product'
 
 interface CreatorProduct {
   id: string
@@ -79,10 +80,13 @@ function missingGenerations(p: { category?: string; metadata?: any; images?: str
   const meta: any = p.metadata || {}
   const assets = meta.assets && typeof meta.assets === 'object' ? meta.assets : {}
   const hasMockup = !!(meta.mockup_url || (Array.isArray(assets.mockups) && assets.mockups.length))
+  // A Merch Studio upload is already print-ready (kept private, so the row
+  // lists only which placements have a file): no halftone/DTF to generate.
+  const isDirectPrint = printFilePlacementsOf(meta).includes('front')
   const missing: string[] = []
   if (!assets.clean && !(Array.isArray(p.images) && p.images.length)) missing.push('clean design')
   if (!hasMockup) missing.push('mockup')
-  if (kind === 'apparel') {
+  if (kind === 'apparel' && !isDirectPrint) {
     if (!assets.halftone) missing.push('halftone')
     if (!assets.dtf) missing.push('DTF')
   }

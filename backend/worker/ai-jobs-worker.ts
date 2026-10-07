@@ -15,6 +15,7 @@ import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, TOY_MODE_CLAUSE, C
 import { generate3DModel } from '../services/trellis-client.js'
 import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
+import { modelFilePath, storeModelFile, storeModelFileFromUrl } from '../services/model-files.js'
 import { addWatermark } from '../services/watermark.js'
 import { extractPalette } from '../services/print-palette.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
@@ -2050,18 +2051,18 @@ async function process3DModelTrellis(job: any) {
 
     await updateJobProgress(job.id, '📤 Uploading GLB and converting to STL...', 2, 3)
 
-    // Upload GLB to GCS
-    const glbPath = `3d-models/${model_id}/model.glb`
-    const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(glbUrl, glbPath)
+    // Save the GLB to the PRIVATE bucket: it is a paid deliverable. The row
+    // keeps a gs:// reference; links are signed on read (task 1417e863).
+    const glbRef = await storeModelFileFromUrl(glbUrl, modelFilePath(model_id, 'glb'), 'glb')
 
-    console.log('[worker] ✅ GLB uploaded:', glbPublicUrl.substring(0, 60) + '...')
+    console.log('[worker] ✅ GLB saved:', glbRef)
 
     // Convert GLB to STL. Legacy TRELLIS path doesn't carry a size tier; default
     // to 100mm (matches the "small" tier on the modern Tripo flow) and apply the
     // same Z-up + ground-on-buildplate transforms.
     await updateJobProgress(job.id, '🔧 Converting GLB to STL for 3D printing...', 3, 3)
 
-    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl, {
+    const { stlBuffer, triangleCount } = await convertGlbToStl(glbUrl, {
       targetHeightMm: 100,
       yUpToZUp: true,
       centerAndGround: true,
@@ -2069,18 +2070,16 @@ async function process3DModelTrellis(job: any) {
 
     console.log('[worker] ✅ STL converted:', triangleCount, 'triangles')
 
-    // Upload STL to GCS
-    const stlPath = `3d-models/${model_id}/model.stl`
-    const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
+    const stlRef = await storeModelFile(stlBuffer, modelFilePath(model_id, 'stl'), 'stl')
 
-    console.log('[worker] ✅ STL uploaded:', stlPublicUrl.substring(0, 60) + '...')
+    console.log('[worker] ✅ STL saved:', stlRef)
 
     // Update model with 3D files
     await supabase
       .from('user_3d_models')
       .update({
-        glb_url: glbPublicUrl,
-        stl_url: stlPublicUrl,
+        glb_url: glbRef,
+        stl_url: stlRef,
         status: 'ready',
         itc_charged: (model?.itc_charged || 0) + ITC_3D_COSTS.convert,
         updated_at: new Date().toISOString()
@@ -2093,8 +2092,8 @@ async function process3DModelTrellis(job: any) {
       .update({
         status: 'succeeded',
         output: {
-          glb_url: glbPublicUrl,
-          stl_url: stlPublicUrl,
+          glb_url: glbRef,
+          stl_url: stlRef,
           processing_time: processingTime,
           triangle_count: triangleCount
         },
@@ -2167,21 +2166,20 @@ async function process3DModelTripo(job: any) {
 
     console.log('[worker] ✅ Tripo3D mesh ready in', processingTimeSec.toFixed(1) + 's')
 
-    // Upload GLB to GCS for permanent hosting
+    // Save the GLB to the PRIVATE bucket: it is a paid deliverable. The row
+    // keeps a gs:// reference; links are signed on read (task 1417e863).
     await updateJobProgress(job.id, '📤 Uploading GLB to cloud storage...', 2, 4)
-    const glbPath = `3d-models/${model_id}/model.glb`
-    const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(tripoGlbUrl, glbPath)
+    const glbRef = await storeModelFileFromUrl(tripoGlbUrl, modelFilePath(model_id, 'glb'), 'glb')
 
     // Convert to STL (print-ready). Pass tier height + Bambu-friendly options
     // so the STL imports at the right size, oriented Z-up, sitting on the build plate.
     await updateJobProgress(job.id, '🔧 Converting to STL for 3D printing...', 3, 4)
-    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl, {
+    const { stlBuffer, triangleCount } = await convertGlbToStl(tripoGlbUrl, {
       targetHeightMm: tier.printHeightMm,
       yUpToZUp: true,
       centerAndGround: true,
     })
-    const stlPath = `3d-models/${model_id}/model.stl`
-    const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
+    const stlRef = await storeModelFile(stlBuffer, modelFilePath(model_id, 'stl'), 'stl')
 
     console.log('[worker] ✅ STL ready —', triangleCount, 'triangles')
 
@@ -2193,8 +2191,8 @@ async function process3DModelTripo(job: any) {
     const richUpdate = await supabase
       .from('user_3d_models')
       .update({
-        glb_url: glbPublicUrl,
-        stl_url: stlPublicUrl,
+        glb_url: glbRef,
+        stl_url: stlRef,
         status: 'ready',
         size_tier,
         print_height_mm: tier.printHeightMm,
@@ -2223,8 +2221,8 @@ async function process3DModelTripo(job: any) {
       await supabase
         .from('user_3d_models')
         .update({
-          glb_url: glbPublicUrl,
-          stl_url: stlPublicUrl,
+          glb_url: glbRef,
+          stl_url: stlRef,
           status: 'ready',
           itc_charged: (model?.itc_charged || 0) + tier.itcCost,
           updated_at: updatedAt,
@@ -2237,8 +2235,8 @@ async function process3DModelTripo(job: any) {
       .update({
         status: 'succeeded',
         output: {
-          glb_url: glbPublicUrl,
-          stl_url: stlPublicUrl,
+          glb_url: glbRef,
+          stl_url: stlRef,
           tier: size_tier,
           print_height_mm: tier.printHeightMm,
           triangle_count: triangleCount,

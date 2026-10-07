@@ -5,6 +5,8 @@ import { escapeHtml, pickTicket, ticketRef } from '../services/support-ping.js'
 import { nameFromTicketDescription } from '../utils/ticket-emails.js'
 import { matchMaterials, describeMaterialPlan, type PaletteEntry, type MaterialMatch } from '../services/print-palette.js'
 import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
+import { signOwnModelFile, meshLinkFor } from '../services/model-files.js'
+import { PRINT_FILE_LINK_TTL_MINUTES } from '../services/print-files.js'
 import { randomUUID } from 'crypto'
 
 /**
@@ -159,8 +161,9 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           line: 'custom-mini',
           title: printItem.name || 'Custom figurine',
           concept: model?.prompt || printItem.name || 'Custom 3D print',
-          glbUrl: model?.glb_url || undefined,
-          stlUrl: model?.stl_url || undefined,
+          // Mesh files are private (task 1417e863): fresh press-floor links per pull.
+          glbUrl: (model && await signOwnModelFile(model, 'glb', { ttlMinutes: PRINT_FILE_LINK_TTL_MINUTES })) || undefined,
+          stlUrl: (model && await signOwnModelFile(model, 'stl', { ttlMinutes: PRINT_FILE_LINK_TTL_MINUTES })) || undefined,
           referenceUrl: model?.concept_image_url || undefined,
           quantity: printItem.quantity || 1,
           material: 'PLA',
@@ -255,8 +258,8 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
             line: 'custom-toy',
             title: it.product_name || p.name || 'Catalog 3D print',
             concept: p.name || it.product_name || 'Catalog 3D print',
-            glbUrl: p.metadata?.print3d?.glb_url || p.metadata?.glb_url || undefined,
-            stlUrl: p.metadata?.print3d?.stl_url || undefined,
+            glbUrl: await meshLinkFor(p.metadata?.print3d?.glb_url || p.metadata?.glb_url, PRINT_FILE_LINK_TTL_MINUTES),
+            stlUrl: await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
             referenceUrl: Array.isArray(p.images) && p.images[0] ? p.images[0] : undefined,
             quantity: it.quantity || 1,
             material: p.metadata?.print3d?.material || 'PLA',

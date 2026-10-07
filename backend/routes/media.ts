@@ -54,7 +54,8 @@ function getBucket(): Bucket {
 // (comma separated) if a new asset folder needs a permanent address.
 const DEFAULT_PREFIXES = [
   'design-library/',   // flattened design PNGs (the catalog product image)
-  'design-sources/',   // .ai/.svg/.eps/.psd originals for the same designs
+  // NOT design-sources/: the .ai/.svg/.eps/.psd originals are David's masters
+  // and live in the private bucket now (task 1417e863).
   'graphics/',         // product graphics uploaded through the admin
   'stock-models/',     // model photos used by the mockup pipeline
   'products/',
