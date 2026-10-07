@@ -7,7 +7,9 @@ import {
     sendTicketResolvedEmail
 } from '../../utils/email.js'
 import { sortTicketQueue } from '../../lib/jev-triage.js'
-import { christinaReachable, pingChristinaAboutTicket } from '../../services/support-ping.js'
+import { pingChristinaAboutTicket } from '../../services/support-ping.js'
+import { nameFromTicketDescription } from '../../utils/ticket-emails.js'
+import { agentAvailability } from '../../services/live-chat.js'
 
 dotenv.config()
 
@@ -158,23 +160,7 @@ const resolveTicketEmail = async (ticket: any): Promise<string | null> => {
  * pings her and her answer lands in the customer's chat (services/support-ping.ts). Nobody ever set agent_status
  * online, so before 2026-10-07 "talk to a person" always ended in "no agents are available".
  */
-export const checkAgentAvailability = async (): Promise<{ available: boolean; count: number }> => {
-    const viaBecky = christinaReachable() ? 1 : 0
-    try {
-        const { data, error } = await supabase
-            .from('agent_status')
-            .select('id')
-            .eq('is_online', true)
-
-        if (error) throw error
-
-        const count = (data?.length || 0) + viaBecky
-        return { available: count > 0, count }
-    } catch (error) {
-        console.error('[Agent Availability] Error:', error)
-        return { available: viaBecky > 0, count: viaBecky }
-    }
-}
+export const checkAgentAvailability = (): Promise<{ available: boolean; count: number }> => agentAvailability(supabase)
 
 // ===============================
 // TICKET ENDPOINTS
@@ -385,7 +371,8 @@ router.post('/tickets/:id/reply', requireSupportAccess, async (req: Request, res
         if (!isInternal) {
             if (ticket?.email) {
                 const agentName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Support Team'
-                await sendTicketReplyEmail(ticket.email, id, ticket.subject, content, agentName)
+                const customerName = nameFromTicketDescription(ticket.description) || ticket.user?.first_name || null
+                await sendTicketReplyEmail(ticket.email, id, ticket.subject, content, agentName, customerName)
             } else {
                 res.json({
                     message,
@@ -867,6 +854,8 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
             // 'waiting' is live too: the customer is in the chat waiting for the person. Counting only 'active'
             // dropped every handoff on its first poll ("The support agent has left the chat").
             isLive: session?.status === 'active' || session?.status === 'waiting',
+            // waiting = handed off, nobody has answered yet; active = Christina has replied; ended = closed.
+            sessionStatus: session?.status ?? null,
             agentName
         })
     } catch (error: any) {

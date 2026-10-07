@@ -6,6 +6,7 @@ import { sendNewSupportTicketEmail, sendTicketConfirmationEmail } from '../../ut
 import { createNotification, checkAgentAvailability } from '../admin/support.js'
 import { optionalAuth } from '../../middleware/supabaseAuth.js'
 import { pingChristinaAboutTicket } from '../../services/support-ping.js'
+import { startLiveChat } from '../../services/live-chat.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -352,86 +353,34 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                     const args = JSON.parse(toolCall.function.arguments)
 
                     try {
-                        // Check availability first
-                        const availability = await checkAgentAvailability()
+                        // One hand-off path for this tool and the widget's Talk to a person button (services/live-chat.ts).
+                        const result = supabase
+                            ? await startLiveChat(supabase, {
+                                userId,
+                                email: providedEmail,
+                                reason: args.reason,
+                                message,
+                                ticketId: UUID_RE.test(String(args.ticket_id || '')) ? args.ticket_id : (meta.ticket_id || null),
+                            }, { checkAgentAvailability, createNotification, pingChristinaAboutTicket })
+                            : { ok: false, live: false, ticketId: null, email: null }
 
-                        // The chat window polls a real ticket for the person's replies, so the handoff needs one:
-                        // the id the model passed (only if it is a real row id), one made earlier this turn, or a new one.
-                        let liveTicketId: string | null = UUID_RE.test(String(args.ticket_id || '')) ? args.ticket_id : (meta.ticket_id || null)
-                        if (availability.available && !liveTicketId && supabase) {
-                            const { data: created } = await supabase
-                                .from('support_tickets')
-                                .insert({
-                                    user_id: userId || null,
-                                    email: providedEmail || null,
-                                    subject: `Live chat: ${String(args.reason || 'customer asked for a person').slice(0, 120)}`,
-                                    description: `${args.reason || ''}\n\nLast message: ${String(message || '').slice(0, 1000)}`.trim(),
-                                    priority: 'high',
-                                    category: 'general',
-                                    status: 'waiting'
-                                })
-                                .select('id')
-                                .single()
-                            liveTicketId = created?.id ?? null
-                        }
-
-                        if (availability.available && liveTicketId && supabase) {
-                            await supabase
-                                .from('support_tickets')
-                                .update({
-                                    status: 'waiting',
-                                    priority: 'high',
-                                    updated_at: new Date().toISOString()
-                                })
-                                .eq('id', liveTicketId)
-
-                            // Create chat session
-                            const { error: sessionError } = await supabase
-                                .from('chat_sessions')
-                                .upsert({
-                                    ticket_id: liveTicketId,
-                                    user_id: userId || null,
-                                    status: 'waiting',
-                                    started_at: new Date().toISOString()
-                                }, {
-                                    onConflict: 'ticket_id'
-                                })
-                            // A guest (no account) needs migration 20261007180000; until then this says so out loud.
-                            if (sessionError) console.error('[chat] live chat session not created:', sessionError.message)
-
-                            // Create notification
-                            await createNotification(
-                                'agent_needed',
-                                'Customer Requesting Live Chat',
-                                args.reason,
-                                liveTicketId,
-                                userId
-                            )
-
-                            // Christina picks it up from Becky; her reply lands in this chat window.
-                            await pingChristinaAboutTicket({
-                                kind: 'live_chat',
-                                ticketId: liveTicketId,
-                                subject: String(args.reason || 'A customer wants a person'),
-                                message: String(message || args.reason || ''),
-                                customerEmail: providedEmail
-                            })
-
+                        if (result.ticketId) meta.ticket_id = result.ticketId
+                        if (result.live) {
                             meta.handoff = true
                             meta.live_chat = true
-                            meta.ticket_id = liveTicketId
-
                             toolOutput = JSON.stringify({
                                 success: true,
                                 handoff: true,
-                                message: "I just sent your message to a real person on our team. Stay right here: their reply will show up in this chat. If you have to go, give me your email and the reply goes there too."
+                                message: "Christina from our shop has your message and will answer right here in this chat. If you have to go, add your email in the box below and her reply goes there too."
+                            })
+                        } else if (result.ok) {
+                            toolOutput = JSON.stringify({
+                                success: true,
+                                handoff: false,
+                                message: "Christina is away from the shop right now. Your message is saved as a ticket and she will write back by email."
                             })
                         } else {
-                            toolOutput = JSON.stringify({
-                                success: false,
-                                handoff: false,
-                                message: "Unfortunately, no agents are available right now. A ticket has been created and someone will respond soon."
-                            })
+                            toolOutput = JSON.stringify({ success: false, error: "Could not reach a person right now" })
                         }
                     } catch (e) {
                         console.error('[chat] Error requesting live chat:', e)

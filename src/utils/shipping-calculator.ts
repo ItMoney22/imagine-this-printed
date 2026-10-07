@@ -47,6 +47,10 @@ export const LOCAL_DELIVERY_TIERS = [
   { maxMiles: 20, fee: 15.00, label: 'Local Delivery (10-20 miles)' }
 ]
 export const MAX_DELIVERY_RADIUS_MILES = 20
+
+// Standard carrier shipping is free once the products reach this. Server truth:
+// FREE_SHIPPING_THRESHOLD_CENTS in backend/services/order-pricing.ts.
+export const FREE_SHIPPING_THRESHOLD = 50
 // Warehouse is in Rockmart, GA — Eastern Time. Including the timezone so the
 // pickup-hours copy doesn't lie to West Coast customers reading "8 PM".
 export const PICKUP_HOURS = '10:00 AM - 8:00 PM ET'
@@ -96,7 +100,7 @@ export function getRushUnavailableReason(): string {
 }
 
 export class ShippingCalculator {
-  private freeShippingThreshold = 50.00
+  private freeShippingThreshold = FREE_SHIPPING_THRESHOLD
 
   async calculateShipping(
     items: any[],

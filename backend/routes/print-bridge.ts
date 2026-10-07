@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { sendEmail, sendTicketReplyEmail } from '../utils/email.js'
 import { escapeHtml, pickTicket, ticketRef } from '../services/support-ping.js'
+import { nameFromTicketDescription } from '../utils/ticket-emails.js'
 import { matchMaterials, describeMaterialPlan, type PaletteEntry, type MaterialMatch } from '../services/print-palette.js'
 import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
 import { randomUUID } from 'crypto'
@@ -558,7 +559,7 @@ const OPEN_TICKET_STATUSES = ['open', 'waiting', 'in_progress']
 async function openTickets(limit: number) {
   const { data, error } = await supabase
     .from('support_tickets')
-    .select('id, subject, email, status, priority, category, created_at, updated_at')
+    .select('id, subject, email, status, priority, category, description, user_id, created_at, updated_at')
     .in('status', OPEN_TICKET_STATUSES)
     .neq('category', 'spam')
     .order('updated_at', { ascending: false })
@@ -634,7 +635,13 @@ router.post('/ticket-reply', requireBridgeAuth, async (req: Request, res: Respon
     let emailed = false
     if (ticket.email && ticket.email.toLowerCase() !== 'anonymous@customer.com') {
       const agentName = (typeof name === 'string' && name.trim().slice(0, 40)) || process.env.BRIDGE_AGENT_NAME || 'Christina'
-      emailed = await sendTicketReplyEmail(ticket.email, ticket.id, ticket.subject, escapeHtml(text), agentName).catch((e) => {
+      // Greet the name they typed (contact form / chat), else their account first name.
+      let customerName = nameFromTicketDescription(ticket.description)
+      if (!customerName && ticket.user_id) {
+        const { data: profile } = await supabase.from('user_profiles').select('first_name').eq('id', ticket.user_id).maybeSingle()
+        customerName = profile?.first_name || null
+      }
+      emailed = await sendTicketReplyEmail(ticket.email, ticket.id, ticket.subject, escapeHtml(text), agentName, customerName).catch((e) => {
         console.error('[print-bridge] ticket reply email failed:', e?.message || e)
         return false
       })

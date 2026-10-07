@@ -1,5 +1,29 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — ITP customer support A1 (task 5878a61f, amelia-chan)
+
+David 10/7: "work our support as this page sucks, make it A1 for the customer experience." Mockup approved round 1
+(page_mockup_approvals dca0616d). Built: /contact remodel, /help (new FAQ), shop chat widget with a designed
+talk-to-a-person flow (waiting / leave-with-email / Christina's messages / end of chat), ticket reply email that greets
+the typed name with a specific header, help strip on /shipping /returns /about /order-status.
+
+### File shortlist (approved scope — 2026-10-07 support redo)
+- `src/pages/Contact.tsx`, `src/pages/Help.tsx` (new), `src/components/MrImagineChatWidget.tsx`
+- `src/components/support/*` (new: SupportParts, chat-events, live-chat-state + test), `src/styles/support.css` (new)
+- `src/lib/help-facts.ts` (new: the ONE facts module), `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD)
+- `src/pages/ShippingPolicy.tsx`, `ReturnsPolicy.tsx`, `About.tsx`, `OrderStatus.tsx` (help strip only; policy text is card 5c713452's)
+- `src/App.tsx` (/help route), `src/components/Footer.tsx` (Help & FAQ link), `public/support/*` + `scripts/generate-support-art.mjs`
+- `backend/services/live-chat.ts` (+test), `backend/routes/support.ts` (live-chat, contact-email, end-chat), `backend/routes/ai/chat.ts`
+- `backend/routes/admin/support.ts` (poll sessionStatus, reply name), `backend/routes/print-bridge.ts` (reply name)
+- `backend/utils/ticket-emails.ts` (+test), `backend/utils/email.ts`, `backend/services/emailAI.ts` (confirmation CTA -> /help)
+- `backend/shared/size-charts.ts` (moved out of `backend/services/step-flow/details-card.ts`, numbers unchanged)
+
+### Work log (append-only)
+- 2026-10-07 (amelia-chan): merged live main (Becky hand-off cbeb163+5f39784) and dr-dill 4c586fd (phone header, task
+  5e10e099) into the branch first. Mockup approved. Built everything above. A real-DB walk caught that the LIVE
+  support_tickets_status_check has no 'waiting' (open|in_progress|resolved|closed): waiting lives on chat_sessions only.
+  vitest 142 files / 2160 tests, tsc app + backend clean, vite build green, walked at 390 + 1440.
+
 ## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
 
 David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1

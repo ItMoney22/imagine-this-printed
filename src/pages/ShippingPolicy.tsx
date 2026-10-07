@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Truck, Clock, MapPin, Mail, Package } from 'lucide-react'
+import { HelpStrip } from '../components/support/SupportParts'
 
 export default function ShippingPolicy() {
   return (
@@ -178,6 +179,7 @@ export default function ShippingPolicy() {
 
         </div>
       </div>
+      <HelpStrip />
     </div>
   )
 }
