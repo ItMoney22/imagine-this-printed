@@ -1,10 +1,11 @@
 import { Link } from 'react-router-dom'
-import { ArrowRight, Shirt, Boxes, Image as ImageIcon, Layers, Package } from 'lucide-react'
+import { ArrowRight, Shirt, Boxes, Image as ImageIcon, Layers, Package, Snowflake } from 'lucide-react'
 import type { DoorId } from './useHomeShop'
 import { useReveal } from './useReveal'
 
 const DOORS: { id: DoorId; to: string; title: string; line: string; img: string; icon: typeof Shirt }[] = [
-  { id: 'apparel', to: '/catalog/shirts', title: 'Shirts and Hoodies', line: 'Original designs, printed to order', img: '/home/cat-apparel.webp', icon: Shirt },
+  { id: 'tees', to: '/catalog/shirts', title: 'T-Shirts', line: 'Original designs, printed to order', img: '/home/cat-tees.webp', icon: Shirt },
+  { id: 'hoodies', to: '/catalog/hoodies', title: 'Hoodies', line: 'Heavy, warm, printed to order', img: '/home/cat-hoodies.webp', icon: Snowflake },
   { id: 'toys', to: '/catalog/3d-prints', title: '3D Prints', line: 'Toy figures, charms and decor', img: '/home/cat-toys.webp', icon: Boxes },
   // Metal art is made to order in the Metal Art studio, so its door opens the studio.
   { id: 'metal', to: '/metal-art', title: 'Metal Art', line: 'Your picture on aluminum', img: '/home/cat-metal.webp', icon: ImageIcon },
@@ -23,7 +24,7 @@ export function CategoryDoors({ counts, loading }: { counts: Record<DoorId, numb
     <section ref={ref} className="home-reveal py-12 sm:py-16 bg-bg">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 className="font-display text-2xl sm:text-3xl text-text uppercase tracking-wide mb-6 sm:mb-8">Shop by category</h2>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-5">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-5">
           {doors.map(({ id, to, title, line, img, icon: Icon }, i) => {
             // An odd last door spans both phone columns; a wide crop keeps it from towering.
             const spans = i === doors.length - 1 && doors.length % 2 === 1

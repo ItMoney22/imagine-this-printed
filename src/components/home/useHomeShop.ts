@@ -20,7 +20,7 @@ export const SEASONAL_PICKS = {
   leadId: '43d607e5-e8e1-4b57-a52f-110a5cd6a1c3',
 }
 
-export type DoorId = 'apparel' | 'toys' | 'metal' | 'dtf' | 'blanks'
+export type DoorId = 'tees' | 'hoodies' | 'toys' | 'metal' | 'dtf' | 'blanks'
 
 export interface HomeShop {
   loading: boolean
@@ -31,7 +31,7 @@ export interface HomeShop {
   counts: Record<DoorId, number>
 }
 
-const EMPTY_COUNTS: Record<DoorId, number> = { apparel: 0, toys: 0, metal: 0, dtf: 0, blanks: 0 }
+const EMPTY_COUNTS: Record<DoorId, number> = { tees: 0, hoodies: 0, toys: 0, metal: 0, dtf: 0, blanks: 0 }
 
 function doorOf(p: Product): DoorId {
   if (isBlankProduct(p)) return 'blanks'
@@ -39,7 +39,8 @@ function doorOf(p: Product): DoorId {
   if (kind === 'metal') return 'metal'
   if (kind === '3d') return 'toys'
   if (String(p.category).includes('dtf')) return 'dtf'
-  return 'apparel'
+  if (String(p.category).includes('hood')) return 'hoodies'
+  return 'tees'
 }
 
 /** A Toy Factory figurine, not other 3D decor (the candle holder is 3D too). */

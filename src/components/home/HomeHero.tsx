@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ArrowRight, MapPin, Store, ShieldCheck, MessageCircle } from 'lucide-react'
-import { SHOP_FACTS } from '../../lib/shop-facts'
+import { SHOP_PLACE } from '../../config/business-info'
 
 /**
  * Home hero (approved mock 7eb9469c, 2026-10-07): what the shop is, where it
@@ -13,7 +13,7 @@ export function HomeHero() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-10 sm:pt-12 lg:py-16 grid grid-cols-1 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] gap-8 lg:gap-12 items-center">
         <div className="text-center lg:text-left">
           <p className="home-rise home-rise-1 text-[11px] sm:text-xs font-semibold tracking-[0.18em] uppercase text-primary mb-3 sm:mb-4">
-            Printed to order in {SHOP_FACTS.town}, {SHOP_FACTS.stateName}
+            Printed to order in {SHOP_PLACE.town}, {SHOP_PLACE.stateName}
           </p>
           <h1 className="home-rise home-rise-2 font-display text-5xl sm:text-6xl xl:text-7xl text-text leading-[1.02] mb-4 sm:mb-6">
             Imagine It.
@@ -54,8 +54,8 @@ export function HomeHero() {
 }
 
 const TRUST = [
-  { icon: MapPin, text: `Printed in ${SHOP_FACTS.town}, ${SHOP_FACTS.stateCode}` },
-  { icon: Store, text: `Free local pickup in ${SHOP_FACTS.town}` },
+  { icon: MapPin, text: `Printed in ${SHOP_PLACE.town}, ${SHOP_PLACE.stateCode}` },
+  { icon: Store, text: `Free local pickup in ${SHOP_PLACE.town}` },
   { icon: ShieldCheck, text: 'Secure checkout' },
   { icon: MessageCircle, text: 'Real people answer', to: '/contact', cta: 'Contact us' },
 ]

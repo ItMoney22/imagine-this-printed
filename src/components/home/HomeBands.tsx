@@ -2,7 +2,8 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Boxes, Sparkles } from 'lucide-react'
 import type { Product } from '../../types'
 import { getGalleryImages } from '../../lib/product-kind'
-import { SHOP_FACTS } from '../../lib/shop-facts'
+import { SHOP_PLACE } from '../../config/business-info'
+import { PROCESSING_LINE } from '../../utils/shipping-calculator'
 import { useReveal } from './useReveal'
 
 /**
@@ -54,8 +55,8 @@ export function ToyBand({ toys, toyFrom }: { toys: Product[]; toyFrom: number | 
 
 const STEPS = [
   { img: '/home/made-1.webp', title: 'Pick a design or make your own.', line: 'Shop our designs, or start from your own idea.' },
-  { img: '/home/made-2.webp', title: `We print it in our ${SHOP_FACTS.town} shop.`, line: 'On our own DTF and 3D printers.' },
-  { img: '/home/made-3.webp', title: 'Shipped to your door, or pick it up free.', line: `Free local pickup in ${SHOP_FACTS.town}, ${SHOP_FACTS.stateCode}.` },
+  { img: '/home/made-2.webp', title: `We print it in our ${SHOP_PLACE.town} shop.`, line: 'On our own DTF and 3D printers.' },
+  { img: '/home/made-3.webp', title: 'Shipped to your door, or pick it up free.', line: PROCESSING_LINE },
 ]
 
 /** How it gets made: the shopper's three steps (no seller pitch here). */
