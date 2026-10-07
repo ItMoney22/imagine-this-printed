@@ -13,7 +13,8 @@ import {
   toFilamentPlan,
   customerColorSentence,
   floorFilamentLine,
-  getMiniMeFilamentPlan
+  getMiniMeFilamentPlan,
+  nfcUrlForPrint
 } from './mini-me.js'
 
 describe('buildMiniMePrompt', () => {
@@ -62,6 +63,21 @@ describe('createRateLimiter', () => {
     expect(rl.take('u2')).toBe(true)
     t = 1500
     expect(rl.take('u1')).toBe(true)
+  })
+})
+
+describe('nfcUrlForPrint', () => {
+  it('a Mini-Me gets a tag only when the video base was bought or a video uploaded', () => {
+    const mm = { source: 'mini_me' }
+    expect(nfcUrlForPrint({ modelId: 'm1', modelMeta: mm, addons: [] })).toBeNull()
+    expect(nfcUrlForPrint({ modelId: 'm1', modelMeta: mm, addons: [{ id: 'nfc_video', name: 'Video base' }] })).toBe('https://imaginethisprinted.com/ar/m1')
+    expect(nfcUrlForPrint({ modelId: 'm1', modelMeta: mm, itemMeta: { addons: ['nfc_video'] } })).toBe('https://imaginethisprinted.com/ar/m1')
+    expect(nfcUrlForPrint({ modelId: 'm1', modelMeta: { ...mm, nfc: { enabled: true } } })).toBe('https://imaginethisprinted.com/ar/m1')
+  })
+
+  it('toys keep their AR page on every print, with a custom experience url winning', () => {
+    expect(nfcUrlForPrint({ modelId: 't1', modelMeta: { source: 'toy_creator' } })).toBe('https://imaginethisprinted.com/ar/t1')
+    expect(nfcUrlForPrint({ modelId: 't1', modelMeta: { nfc: { experience_url: 'https://x.test/t' } } })).toBe('https://x.test/t')
   })
 })
 

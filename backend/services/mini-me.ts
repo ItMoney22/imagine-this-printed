@@ -205,6 +205,40 @@ export function floorFilamentLine(plan: MiniMeFilamentSlot[]): string {
   return `Load AMS: ${slots}${toBuy.length ? ` — not in stock, buy before printing: ${toBuy.join(', ')}` : ''}`
 }
 
+// ---------------------------------------------------------------------------
+// Print floor: does this line get an NFC tag, and with which URL?
+// ---------------------------------------------------------------------------
+
+const SITE = 'https://imaginethisprinted.com'
+
+function addonIdsOf(addons: unknown): string[] {
+  if (!Array.isArray(addons)) return []
+  return addons.map((a: any) => (typeof a === 'string' ? a : a?.id)).filter((x): x is string => typeof x === 'string')
+}
+
+/**
+ * The URL to write on the line's NFC tag, or null when no tag goes in.
+ * A Mini-Me gets a tag ONLY when the customer bought the video base (or uploaded
+ * a video): it is a paid add-on. Toys keep today's behaviour (every custom toy
+ * gets its AR page). The tag always carries the permanent /ar/<id> page, which
+ * signs fresh media links per tap.
+ */
+export function nfcUrlForPrint(input: {
+  modelId: string | null
+  modelMeta?: Record<string, any> | null
+  itemMeta?: Record<string, any> | null
+  addons?: unknown
+}): string | null {
+  const meta = input.modelMeta || {}
+  const nfc = (meta.nfc && typeof meta.nfc === 'object' ? meta.nfc : {}) as Record<string, any>
+  const page = nfc.experience_url || (input.modelId ? `${SITE}/ar/${input.modelId}` : null)
+  if (meta.source === 'mini_me') {
+    const bought = addonIdsOf(input.addons).includes('nfc_video') || addonIdsOf(input.itemMeta?.addons).includes('nfc_video')
+    return bought || nfc.enabled === true ? page : null
+  }
+  return nfc.experience_url || input.itemMeta?.nfc_url || page
+}
+
 /** One print_materials read: the plan for a palette, never throws. */
 export async function getMiniMeFilamentPlan(palette: PaletteEntry[] | null | undefined): Promise<MiniMeFilamentSlot[]> {
   const pal = Array.isArray(palette) ? palette.slice(0, MINI_ME_MAX_COLORS) : []

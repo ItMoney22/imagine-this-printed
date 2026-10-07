@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { sendEmail, sendTicketReplyEmail } from '../utils/email.js'
 import { escapeHtml, pickTicket, ticketRef } from '../services/support-ping.js'
+import { nfcUrlForPrint, toFilamentPlan, floorFilamentLine } from '../services/mini-me.js'
 import { matchMaterials, describeMaterialPlan, type PaletteEntry, type MaterialMatch } from '../services/print-palette.js'
 import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
 import { randomUUID } from 'crypto'
@@ -128,15 +129,17 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
 
         // Resolve print attributes from order item metadata (if present) then model metadata
         const itemMeta = (tablePrint as any)?.metadata ?? (metaPrint as any)?.metadata ?? {}
-        const customColorMode: 'grey' | 'color4' =
-          itemMeta?.color_mode === 'color4' ? 'color4'
-          : (model?.metadata as any)?.color_mode === 'color4' ? 'color4'
-          : 'grey'
+        const modelMeta = (model?.metadata as any) || {}
+        const isMiniMe = modelMeta.source === 'mini_me' || itemMeta?.source === 'mini_me'
+        const pickMode = (v: unknown): 'grey' | 'white' | 'color4' | null => (v === 'color4' || v === 'white' || v === 'grey' ? v : null)
+        const customColorMode: 'grey' | 'white' | 'color4' =
+          pickMode(itemMeta?.color_mode) ?? pickMode(modelMeta.color_mode) ?? (isMiniMe ? 'white' : 'grey')
+        // White always ships with its paint kit (Mini-Me and toys alike).
         const customPaintKit: boolean =
-          itemMeta?.include_paint_kit === true || itemMeta?.include_paint_kit === 'true'
-        const customNfcExperienceUrl: string | undefined = (model?.metadata as any)?.nfc?.experience_url
-          ? (model.metadata as any).nfc.experience_url
-          : `https://imaginethisprinted.com/ar/${modelId}`
+          customColorMode === 'white' || itemMeta?.include_paint_kit === true || itemMeta?.include_paint_kit === 'true'
+        // A Mini-Me gets an NFC tag only when the video base was bought; toys keep their AR tag.
+        const customNfcExperienceUrl: string | undefined =
+          nfcUrlForPrint({ modelId, modelMeta, itemMeta, addons: (metaPrint as any)?.addons ?? itemMeta?.addons }) ?? undefined
 
         // Material plans from the concept palette (≤4 colors, AMS limit).
         // Full-color prints get a filament plan; paint kits get a paint plan.
@@ -153,10 +156,16 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
             ? await matchMaterials(customPalette, 'paint')
             : null
 
+        // Mini-Me full color: Mrs. Imagine's AMS line ("Load AMS: 1. ... — buy before printing: ...").
+        const miniMeFilamentNote =
+          isMiniMe && customColorMode === 'color4' && customPalette.length
+            ? floorFilamentLine(toFilamentPlan(customFilamentPlan, customPalette))
+            : undefined
+
         out.push({
           itpOrderId: o.id,
           line: 'custom-mini',
-          title: printItem.name || 'Custom figurine',
+          title: printItem.name || (isMiniMe ? 'Mini-Me statue' : 'Custom figurine'),
           concept: model?.prompt || printItem.name || 'Custom 3D print',
           glbUrl: model?.glb_url || undefined,
           stlUrl: model?.stl_url || undefined,
@@ -164,9 +173,12 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           quantity: printItem.quantity || 1,
           material: 'PLA',
           colorMode: customColorMode,
+          ...(isMiniMe ? { product: 'mini_me', miniMeSize: modelMeta.mini_me_size ?? itemMeta?.mini_me_size ?? 'small' } : {}),
+          ...(miniMeFilamentNote ? { filamentNote: miniMeFilamentNote } : {}),
           style: model?.style ?? 'cartoon',
-          magnetSockets: 2,
-          magnetPlan: 'palms', // magnets go in both palms so accessories (weapons/pets) snap into the hands
+          // A Mini-Me statue has no accessory magnets; toys get one in each palm.
+          magnetSockets: isMiniMe ? 0 : 2,
+          magnetPlan: isMiniMe ? 'none' : 'palms', // toys: magnets in both palms so accessories snap into the hands
           paintKit: customPaintKit,
           palette: customPalette.length ? customPalette : undefined,
           filamentPlan: customFilamentPlan ?? undefined,
@@ -408,17 +420,28 @@ export async function notifyWorkers(
   }
 
   const itemLineParts: string[] = []
+  let anyNfc = false
+  let anyMagnets = false
   for (const i of lineSource) {
     const rawId = String(i.client_product_id || i.id || '')
     const modelId = rawId.startsWith(PRINT_ITEM_PREFIX) ? rawId.slice(PRINT_ITEM_PREFIX.length) : null
     const sourceMeta = modelId ? (modelMetaById.get(modelId) ?? {}) : (productMetaById.get(rawId) ?? {})
-    const nfcUrl = i.metadata?.nfc_url
-      || (modelId ? `https://imaginethisprinted.com/ar/${modelId}` : null)
-    const isColor4 = i.metadata?.color_mode === 'color4'
-      || sourceMeta?.color_mode === 'color4'
-      || sourceMeta?.print3d?.color_mode === 'color4'
+    const isMiniMe = sourceMeta?.source === 'mini_me' || i.source === 'mini_me'
     const addons: any[] = Array.isArray(i.metadata?.addons) ? i.metadata.addons : (Array.isArray(i.addons) ? i.addons : [])
-    const hasPaintKit = i.metadata?.include_paint_kit === true
+    // Snapshot items carry no `metadata` key, so the old i.metadata?.nfc_url read
+    // never matched: the tag URL now comes from the model / catalog product itself.
+    const nfcUrl = modelId
+      ? nfcUrlForPrint({ modelId, modelMeta: sourceMeta, itemMeta: i.metadata, addons })
+      : (sourceMeta?.print3d?.nfc_url || i.metadata?.nfc_url || null)
+    if (nfcUrl) anyNfc = true
+    if (!isMiniMe) anyMagnets = true
+    const modeOf = (v: unknown) => (v === 'color4' || v === 'white' ? v : null)
+    const lineMode = modeOf(i.color_mode) ?? modeOf(i.metadata?.color_mode) ?? modeOf(sourceMeta?.color_mode) ?? modeOf(sourceMeta?.print3d?.color_mode) ?? (isMiniMe ? 'white' : 'grey')
+    const isColor4 = lineMode === 'color4'
+    const isWhite = lineMode === 'white'
+    const hasPaintKit = isWhite
+      || i.include_paint_kit === true
+      || i.metadata?.include_paint_kit === true
       || i.metadata?.include_paint_kit === 'true'
       || addons.some((a: any) => a?.id === 'toy_paint_kit')
     const palette: PaletteEntry[] = Array.isArray(sourceMeta?.palette)
@@ -430,12 +453,15 @@ export async function notifyWorkers(
     if (palette.length && isColor4) filamentPlan = await matchMaterials(palette, 'filament')
     if (palette.length && hasPaintKit) paintPlan = await matchMaterials(palette, 'paint')
 
-    const colorMode = isColor4 ? 'FULL COLOR (4 max)' : 'matte grey'
-    const filamentLine = describeMaterialPlan(filamentPlan, 'filament')
+    const colorMode = isColor4 ? 'FULL COLOR (4 max)' : isWhite ? 'WHITE PLA' : 'matte grey'
+    // Mini-Me full color: Mrs. Imagine names every color and what to BUY before printing.
+    const filamentLine = isMiniMe && isColor4 && palette.length
+      ? floorFilamentLine(toFilamentPlan(filamentPlan, palette))
+      : describeMaterialPlan(filamentPlan, 'filament')
     const paintLine = describeMaterialPlan(paintPlan, 'paint')
-    const accessoryAddons = addons.filter((a: any) => a?.id && a.id !== 'toy_paint_kit')
+    const accessoryAddons = addons.filter((a: any) => a?.id && a.id !== 'toy_paint_kit' && a.id !== 'nfc_video')
     itemLineParts.push(
-      `<li><strong>${i.name || i.product_name || 'Toy'}</strong> × ${i.quantity || 1} — ${colorMode}` +
+      `<li><strong>${i.name || i.product_name || (isMiniMe ? 'Mini-Me statue' : 'Toy')}</strong> × ${i.quantity || 1} — ${colorMode}` +
       (filamentLine ? `<br/><strong>${filamentLine}</strong>` : '') +
       (hasPaintKit ? `<br/>🎨 PAINT KIT ordered${paintLine ? ` — <strong>${paintLine}</strong>` : ' — pack paints matching the toy'}` : '') +
       (accessoryAddons.length ? `<br/>🧲 Extra parts ordered: ${accessoryAddons.map((a: any) => a.name || a.id).join(', ')} (magnet-mount)` : '') +
@@ -446,17 +472,18 @@ export async function notifyWorkers(
   const itemLines = itemLineParts.join('')
 
   const isPause = status === 'insert_pause'
+  const needs = [anyMagnets ? 'magnets' : null, anyNfc ? 'NFC tag' : null].filter(Boolean).join(' + ')
   const subject = isPause
-    ? `Insert pause — order ${order.id.slice(0, 8)} needs magnets + NFC tag`
+    ? `Insert pause — order ${order.id.slice(0, 8)}${needs ? ` needs ${needs}` : ''}`
     : `Ready for packing — order ${order.id.slice(0, 8)}`
   const todo = isPause
     ? `<p><strong>The printer is paused.</strong> Please:</p>
        <ol>
-         <li>Place the <strong>magnets</strong> into the sockets — one in <strong>each palm</strong> so weapons/pets snap into the hands (plus base socket if present)</li>
-         <li>Write the <strong>NFC tag</strong> with the URL below (NFC Tools → Write → URL), place it in the base</li>
+         ${anyMagnets ? `<li>Place the <strong>magnets</strong> into the sockets — one in <strong>each palm</strong> so weapons/pets snap into the hands (plus base socket if present)</li>` : ''}
+         ${anyNfc ? `<li>Write the <strong>NFC tag</strong> with the URL below (NFC Tools → Write → URL), place it in the base</li>` : ''}
          <li>Resume the print</li>
        </ol>`
-    : `<p>The print is finished. Verify the NFC tag responds (tap it with a phone), then pack and mark the tag as written in the Toy Lab.</p>`
+    : `<p>The print is finished. ${anyNfc ? 'Verify the NFC tag responds (tap it with a phone), then pack and mark the tag as written in the Toy Lab.' : 'Pack it (paint kit in the box when the item says so).'}</p>`
 
   await sendEmail({
     to: recipients.join(','),
