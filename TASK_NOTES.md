@@ -24,6 +24,7 @@ Decisions (noted for the handoff):
 - `src/pages/ProductCatalog.tsx` (shared row mapper + ?q= from the header search), `src/lib/shop-facts.ts`, `src/lib/storefront-row.ts` (new)
 - `public/icons/itp-bulb.png` (cut from itp-logo-v3)
 - page 2 (product page, approval 394b217c): `src/pages/ProductPage.tsx`, `src/components/product/*` (new: SizeGuide, YouMayAlsoLike), `src/lib/size-charts.ts` + test, `src/lib/plain-text.ts` + test, `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD), `src/config/business-info.ts` (SHOP_PLACE, ETSY_SHOP_URL)
+- page 3 (catalog, approval c71ae9d0): `src/pages/ProductCatalog.tsx`, `src/pages/catalog.css` (new), `public/catalog/hero.webp`
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
@@ -41,6 +42,11 @@ Decisions (noted for the handoff):
   small links, three true facts, plain description with Read more (markdown stripped), Details / Shipping / Returns
   collapsibles, You may also like (4 whole cards). Removed: giant gradient sheet button, separate Buy Now button, Earn
   ITC box, blank Similar Products tiles. Walked tee, hoodie, 3D, blank, DTF at 1440 and tee at 390. vitest 2147/2147.
+- 2026-10-07 (amelia-chan): page 3 catalog approved round 1 at 20:58Z (approval c71ae9d0). Built: warm banner with the real
+  lion tee art (Shop everything), search, live count, shelf pills with counts (scroll sideways on a phone), sort, whole
+  compact cards in a 2/3/4 grid, round pagination, skeleton tiles. The mock's Shop Now / Explore buttons were left
+  out (on the catalog itself they go nowhere). Old sidebar, stat box and list view gone. Walked 1440 + 390, search ?q=.
+  Found + filed 7af6d41d: the $40 Midnight Misfits hoodie carries the 2-for-$25 flag (sells at $25).
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
