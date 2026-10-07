@@ -3,6 +3,7 @@ import { useParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
 import { canonicalCategoryOf, categoryValuesFor } from '../lib/product-kind'
+import { mapProductRow } from '../lib/storefront-row'
 // The approval predicate now lives in the shared visibility module so the
 // catalog and the recommendation widget cannot answer "is this sellable?"
 // differently again — they did, and drafts leaked into recommendations.
@@ -12,31 +13,6 @@ import type { Product } from '../types'
 // Products per page. Chosen as a multiple of the 3-column xl grid so the
 // last row on desktop doesn't dangle with 1-2 orphaned cards.
 const PAGE_SIZE = 24
-
-function mapProductRow(p: any): Product {
-  return {
-    // isUserSubmitted below isn't a declared Product field (ProductCard.tsx
-    // reads it via `(product as any).isUserSubmitted`) — cast at the return,
-    // same as this file's previous `as Product[]`, so it still compiles.
-    id: p.id,
-    name: p.name,
-    description: p.description || '',
-    price: p.price || 0,
-    images: p.images || [],
-    // Classify by kind (column → metadata.product_template fallback) so
-    // metal/3D products with a null category stop landing under T-Shirts.
-    category: canonicalCategoryOf({ category: p.category, metadata: p.metadata }) as Product['category'],
-    inStock: p.is_active !== false,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at,
-    metadata: p.metadata || {},
-    isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false,
-    // sizes/colors live on the columns (set at approval); metadata fallback for legacy rows
-    sizes: p.sizes || p.metadata?.sizes || [],
-    colors: p.colors || p.metadata?.colors || [],
-    isUserSubmitted: p.metadata?.is_user_submitted || false
-  } as Product
-}
 
 // Server-side mirror of canonicalCategoryOf (src/lib/product-kind.ts). Metal
 // and 3D-print products often carry a null `category` column and rely on
@@ -109,8 +85,13 @@ const ProductCatalog: React.FC = () => {
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'popular'>('newest')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  // ?q= comes from the phone header search (task 5e10e099).
+  const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(location.search).get('q')?.trim() || '')
+  const [debouncedSearch, setDebouncedSearch] = useState(() => new URLSearchParams(location.search).get('q')?.trim() || '')
+  useEffect(() => {
+    const q = new URLSearchParams(location.search).get('q')?.trim() || ''
+    if (q) setSearchQuery(q)
+  }, [location.search])
   const [page, setPage] = useState(1)
   // Server-computed count for the CURRENT category+search filter (drives the
   // toolbar count + pagination), distinct from catalogTotalCount below.
