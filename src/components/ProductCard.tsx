@@ -9,18 +9,10 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor } from '../lib/product-kind'
+import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, printLocationLabel } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
-
-// Customer-facing labels for products.print_locations values. Mirrors
-// ProductPage.tsx's PRINT_LOCATION_LABELS for the product-page selector.
-const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
-  front_image: 'Front',
-  back_image: 'Back',
-  pocket: 'Pocket'
-}
 
 interface ProductCardProps {
   product: Product
@@ -460,7 +452,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                       : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
                   }`}
                 >
-                  {PRINT_LOCATION_LABELS[loc] || loc}
+                  {printLocationLabel(loc)}
                 </button>
               ))}
             </div>

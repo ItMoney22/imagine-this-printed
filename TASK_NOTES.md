@@ -4544,3 +4544,4 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   /admin/ai/products/create now open the Step Flow builder. Walked on 5287 at 1440 and 390 wide: no page errors.
   Art is cropped from the approved mock (no page-art.ts on this checkout): swap for Flux finals when it lands.
   Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.
+- 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).

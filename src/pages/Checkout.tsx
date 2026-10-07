@@ -7,7 +7,7 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
-import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
+import { addonsUnitTotal, lineBasePrice, printLocationLabel } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
@@ -1539,9 +1539,9 @@ const Checkout: React.FC = () => {
                           title={item.selectedColor}
                         />
                       )}
-                      {item.printLocation && (
+                      {printLocationLabel(item.printLocation) && (
                         <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
-                          {item.printLocation}
+                          Print location: {printLocationLabel(item.printLocation)}
                         </span>
                       )}
                       {item.selectedTier && getGarmentTier(item.selectedTier) && (

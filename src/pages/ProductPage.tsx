@@ -14,7 +14,7 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor, printLocationLabel } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
@@ -29,15 +29,6 @@ function isLightHex(hex: string | undefined): boolean {
   const n = parseInt(m[1], 16)
   const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
   return 0.299 * r + 0.587 * g + 0.114 * b > 186
-}
-
-// Customer-facing labels for products.print_locations values. Mirrors the
-// admin wizard's PrintLocationsDropdown (src/components/AdminCreateProductWizard.tsx),
-// shortened for a compact selector on the storefront product page.
-const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
-  front_image: 'Front',
-  back_image: 'Back',
-  pocket: 'Pocket'
 }
 
 const ProductPage: React.FC = () => {
@@ -988,7 +979,7 @@ const ProductPage: React.FC = () => {
                           : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
                           }`}
                       >
-                        {PRINT_LOCATION_LABELS[loc] || loc}
+                        {printLocationLabel(loc)}
                       </button>
                     )
                   })}

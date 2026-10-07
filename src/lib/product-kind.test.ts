@@ -371,3 +371,17 @@ describe('resolveProductAddons — metal prints offer the catalog by default', (
     expect(resolveProductAddons(p({ category: 'shirts', metadata: {} }))).toEqual([])
   })
 })
+
+import { printLocationLabel as _pll } from './product-kind'
+describe('printLocationLabel', () => {
+  it('maps placement codes to shopper words', () => {
+    expect(_pll('front_image')).toBe('Front')
+    expect(_pll('back_image')).toBe('Back')
+    expect(_pll('pocket')).toBe('Pocket')
+  })
+  it('never shows a raw code and tolerates missing values', () => {
+    expect(_pll('sleeve_image')).toBe('Sleeve')
+    expect(_pll(undefined)).toBe('')
+    expect(_pll('')).toBe('')
+  })
+})
