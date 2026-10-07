@@ -170,6 +170,7 @@ function App() {
                   <Route path="/july4" element={<Navigate to="/catalog" replace />} />
                   <Route path="/world-cup" element={<Navigate to="/catalog" replace />} />
                   <Route path="/worldcup" element={<Navigate to="/catalog" replace />} />
+                  <Route path="/catalog/t-shirts" element={<Navigate to="/catalog/shirts" replace />} />
                   <Route path="/catalog/:category" element={<ProductCatalog />} />
                   {/* PUBLIC — the blank-tee lane (Good / Better / Best / Top Line),
                       David 2026-09-02. Buying goes through the normal cart. */}

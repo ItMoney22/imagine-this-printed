@@ -1,5 +1,23 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — ITP catalog structure (task 66d0f303, rico-fernandez)
+
+One shirts category (slug `shirts`: products_print_locations_valid already keys on it), no NULL/empty
+categories, products first on phones, Popular Products carousel starts on a whole card, promoted nav links
+distinct from the active page.
+
+### File shortlist (approved scope — 2026-10-07 catalog structure)
+- `src/pages/ProductCatalog.tsx`, `src/pages/Home.tsx` (Popular Products carousel only)
+- `src/components/Sidebar.tsx` (the real nav; `Navbar.tsx` is not rendered anywhere), `src/App.tsx` (redirect route only)
+- `src/lib/product-kind.ts` (+ test) if the alias map needs it
+- `supabase/migrations/20261007200000_merge_shirt_categories.sql` (applied live 2026-10-07)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (rico-fernandez): applied the merge migration live in one transaction: active categories now
+  shirts 27 / 3d-prints 4 / hoodies 3 / dtf 2, zero NULL, zero t-shirts; added normalize trigger so create paths
+  that still write 't-shirts' fold to 'shirts' once a print location exists.
+
 ## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
 
 David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1

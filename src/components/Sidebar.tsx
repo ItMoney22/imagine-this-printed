@@ -48,8 +48,13 @@ interface NavItemProps {
 
 function NavItem({ to, icon, label, isCollapsed, isActive, highlight, badge, onClick }: NavItemProps) {
   const baseClasses = 'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative group'
+  // Promoted links (Toy Factory, Imagination Station) stay an outlined pink
+  // chip until you are on them, then fill; the plain current-page style is the
+  // soft purple fill, so a promoted link never reads as "you are here".
   const activeClasses = highlight
-    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30'
+    ? isActive
+      ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30'
+      : 'ring-1 ring-inset ring-pink-300 text-pink-600 hover:bg-pink-50'
     : isActive
       ? 'bg-purple-100 text-purple-700'
       : 'text-gray-600 hover:bg-purple-50 hover:text-purple-600'
@@ -64,7 +69,7 @@ function NavItem({ to, icon, label, isCollapsed, isActive, highlight, badge, onC
       <span className="flex-shrink-0">{icon}</span>
       {!isCollapsed && <span className="text-sm font-medium truncate">{label}</span>}
       {badge !== undefined && (
-        <span className={`absolute ${isCollapsed ? '-top-1 -right-1' : 'right-3'} min-w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full ${highlight ? 'bg-white text-purple-600' : 'bg-pink-500 text-white'
+        <span className={`absolute ${isCollapsed ? '-top-1 -right-1' : 'right-3'} min-w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full ${highlight && isActive ? 'bg-white text-purple-600' : 'bg-pink-500 text-white'
           }`}>
           {typeof badge === 'number' && badge > 99 ? '99+' : badge}
         </span>
