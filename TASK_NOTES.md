@@ -4738,3 +4738,28 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
+
+## Current request (2026-10-07) — ITP referrals: capture ?ref, apply once at first sign-in, honest rewards (task bdfa6939, dr-dill)
+
+Live read: referral_codes 0 / referral_transactions 0 / referred_by 0. Nothing called the apply route, the
+dashboard invented its code in the browser (never saved), the apply route looked profiles up by the NULL
+user_id column, and process_referral_reward was EXECUTE-able by anon. Built on Sal's unshipped 8c67fe67
+branch (merged in) because /referrals + src/lib/referral-program.ts live there.
+
+### File shortlist (approved scope — 2026-10-07 referrals)
+- `supabase/migrations/20261007210000_referral_attribution.sql` (APPLIED LIVE + tracked 2026-10-07)
+- `backend/services/referral-service.ts` (+ new test), `backend/routes/wallet.ts` (/referral/apply only)
+- `backend/services/order-refunds.ts` (export EVER_PAID_STATUSES), `backend/services/order-payment.ts` +
+  `backend/routes/orders.ts` (pass the order id to the first-order bonus)
+- new `src/utils/referral-capture.ts` (+ test), new `src/components/ReferralApplier.tsx` (+ test),
+  `src/main.tsx` (capture call), `src/App.tsx` (mount the applier)
+- `src/utils/referral-system.ts` (+ new test), `src/lib/referral-program.ts`, `src/pages/Referrals.tsx`
+- `src/pages/PrivacyPolicy.tsx` + `src/components/CookieConsent.tsx` (they claimed a 90-day referral cookie that never existed)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): migration live (anon EXECUTE revoked, sign-up records the link at 0 reward,
+  award_referral_first_order pays 50 ITC atomically, one signup row per referee + one active code per user).
+  Site captures ?ref on any route, applies once after sign-in, clears it. Live test on two throwaway
+  accounts (qa+referral-*-bdfa6939@imaginethisprinted.com): code REFR9449Q -> friend joined -> referred_by
+  set, signup row, repeat = no-op, first-order bonus 50 ITC paid once.

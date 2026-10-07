@@ -22,6 +22,7 @@ import { MrImagineNotificationProvider } from './components/MrImagineNotificatio
 import { ToastContainer } from './components/ToastContainer'
 import { ImaginationErrorBoundary } from './components/imagination'
 import CookieConsent from './components/CookieConsent'
+import ReferralApplier from './components/ReferralApplier'
 
 // Eagerly-loaded pages: public/landing routes that should be on the first
 // paint (the rest is below as React.lazy chunks). Auth + catalog + cart are
@@ -156,6 +157,7 @@ function App() {
                   <Router>
                     <ScrollToTop />
                     <AnalyticsTracker />
+                    <ReferralApplier />
                     <GuestGateProvider>
                     <AppLayout>
                 <Suspense fallback={

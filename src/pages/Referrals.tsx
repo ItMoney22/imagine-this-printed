@@ -1,12 +1,34 @@
 import React, { useState, useEffect } from 'react'
-import { Gift, Link2, Lock, Share2, ShoppingBag, UserPlus } from 'lucide-react'
+import {
+  BarChart3,
+  ClipboardList,
+  Facebook,
+  Link2,
+  Lock,
+  Mail,
+  MessageCircle,
+  Share2,
+  ShoppingBag,
+  Twitter,
+  UserCheck,
+  UserPlus,
+  Users,
+} from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useGuestGate } from '../components/GuestGate'
-import { REFERRAL_REWARDS } from '../lib/referral-program'
+import { REFERRAL_LINK_DAYS, REFERRAL_REWARDS } from '../lib/referral-program'
+import { itcToUsdLabel } from '../lib/itc-pricing'
 import { referralSystem } from '../utils/referral-system'
 import type { ReferralCode, ReferralTransaction } from '../types'
 
-const { signup: SIGNUP_REWARD, firstOrder: FIRST_ORDER_REWARD } = REFERRAL_REWARDS
+const { firstOrder: FIRST_ORDER_REWARD } = REFERRAL_REWARDS
+
+const SHARE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  email: Mail,
+  twitter: Twitter,
+  facebook: Facebook,
+  whatsapp: MessageCircle,
+}
 
 // Logged out: what the program is and how it pays, readable by anyone.
 // The dashboard (your link, your friends, your rewards) stays private.
@@ -25,14 +47,14 @@ const ReferralsPublic: React.FC = () => {
       body: 'Text it, post it, or email it to friends who would love custom prints.',
     },
     {
-      icon: Gift,
-      title: 'You both get rewarded',
-      body: `When a friend joins with your link, you get ${SIGNUP_REWARD.referrerPoints} points and ${SIGNUP_REWARD.referrerItc} ITC, and they get ${SIGNUP_REWARD.friendPoints} points and ${SIGNUP_REWARD.friendItc} ITC.`,
+      icon: UserCheck,
+      title: 'A friend joins',
+      body: `They make their free account on the phone or computer they opened your link on, within ${REFERRAL_LINK_DAYS} days.`,
     },
     {
       icon: ShoppingBag,
-      title: 'Bonus on their first order',
-      body: `When that friend places their first order, you get another ${FIRST_ORDER_REWARD.referrerItc} ITC.`,
+      title: 'You get rewarded on their first order',
+      body: `When that friend's first order is paid, you get ${FIRST_ORDER_REWARD.referrerItc} ITC in your wallet.`,
     },
   ]
 
@@ -50,8 +72,8 @@ const ReferralsPublic: React.FC = () => {
               Share the shop. Get rewarded.
             </h1>
             <p className="text-muted text-base sm:text-lg leading-relaxed mb-6 max-w-xl">
-              Send friends your personal link. When they join, you both get points and ITC in your
-              wallets, and you earn a bonus when they place their first order.
+              Send friends your personal link. When a friend joins with it and their first order is
+              paid, you get {FIRST_ORDER_REWARD.referrerItc} ITC in your wallet.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <button type="button" onClick={() => startAccount('referral-link')} className="btn-primary w-full sm:w-auto">
@@ -125,6 +147,7 @@ const Referrals: React.FC = () => {
   const [transactions, setTransactions] = useState<ReferralTransaction[]>([])
   const [totalEarnings, setTotalEarnings] = useState(0)
   const [totalReferrals, setTotalReferrals] = useState(0)
+  const [firstOrders, setFirstOrders] = useState(0)
   const [isLoading, setIsLoading] = useState(true)
   const [_showShareModal, _setShowShareModal] = useState(false)
   const [copiedText, setCopiedText] = useState('')
@@ -140,19 +163,19 @@ const Referrals: React.FC = () => {
     
     setIsLoading(true)
     try {
-      const stats = await referralSystem.getUserReferralStats(user.id)
-      
-      // If user doesn't have a referral code, generate one
-      if (!stats.referralCode) {
-        const newCode = referralSystem.generateReferralCode(user.id, (user as any).firstName || user.email?.split('@')[0] || 'User')
-        setReferralCode(newCode)
-      } else {
-        setReferralCode(stats.referralCode)
-      }
-      
+      const stats = await referralSystem.getUserReferralStats()
+
+      // No code yet: create it on the server, so the link shown here is one
+      // the API will accept. (It used to be invented in the browser and never
+      // saved, so every shared link pointed at a code that did not exist.)
+      const code = stats.referralCode
+        || await referralSystem.createReferralCode((user as any).firstName || user.email?.split('@')[0] || 'Member')
+      setReferralCode(code)
+
       setTransactions(stats.transactions)
-      setTotalEarnings(stats.totalEarnings)
+      setTotalEarnings(stats.totalItcEarned)
       setTotalReferrals(stats.totalReferrals)
+      setFirstOrders(stats.firstOrders)
     } catch (error) {
       console.error('Error loading referral data:', error)
     } finally {
@@ -175,7 +198,7 @@ const Referrals: React.FC = () => {
   }
 
   const sharingContent = referralCode 
-    ? referralSystem.generateSharingContent(referralCode.code, (user as any)?.firstName || 'Friend')
+    ? referralSystem.generateSharingContent(referralCode.code)
     : null
 
   if (!user) {
@@ -196,7 +219,7 @@ const Referrals: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-text mb-2">Referral Program</h1>
-        <p className="text-muted">Earn points by referring friends to ImagineThisPrinted</p>
+        <p className="text-muted">Earn {FIRST_ORDER_REWARD.referrerItc} ITC when a friend you refer places their first order</p>
       </div>
 
       {/* Stats Cards */}
@@ -234,9 +257,9 @@ const Referrals: React.FC = () => {
         <div className="bg-gradient-to-r from-blue-400 to-blue-600 rounded-lg p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-blue-100 text-sm font-medium">Points Earned</p>
+              <p className="text-blue-100 text-sm font-medium">ITC Earned</p>
               <p className="text-3xl font-bold">{totalEarnings.toLocaleString()}</p>
-              <p className="text-blue-100 text-sm">≈ ${(totalEarnings * 0.01).toFixed(2)} value</p>
+              <p className="text-blue-100 text-sm">≈ {itcToUsdLabel(totalEarnings)} to spend</p>
             </div>
             <div className="p-3 bg-blue-500 rounded-full">
               <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
@@ -251,9 +274,9 @@ const Referrals: React.FC = () => {
             <div>
               <p className="text-yellow-100 text-sm font-medium">Conversion Rate</p>
               <p className="text-3xl font-bold">
-                {totalReferrals > 0 ? Math.round((transactions.filter(t => t.type === 'purchase').length / totalReferrals) * 100) : 0}%
+                {totalReferrals > 0 ? Math.round((firstOrders / totalReferrals) * 100) : 0}%
               </p>
-              <p className="text-yellow-100 text-sm">Friends who purchased</p>
+              <p className="text-yellow-100 text-sm">Friends who ordered</p>
             </div>
             <div className="p-3 bg-yellow-500 rounded-full">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -266,23 +289,23 @@ const Referrals: React.FC = () => {
 
       {/* Tabs */}
       <div className="border-b card-border mb-6">
-        <nav className="-mb-px flex space-x-8">
+        <nav className="-mb-px flex space-x-8 overflow-x-auto">
           {[
-            { id: 'overview', label: 'Overview', icon: '📊' },
-            { id: 'share', label: 'Share & Invite', icon: '📤' },
-            { id: 'history', label: 'Transaction History', icon: '📋' },
-            { id: 'leaderboard', label: 'Leaderboard', icon: '🏆' }
+            { id: 'overview', label: 'Overview', icon: BarChart3 },
+            { id: 'share', label: 'Share & Invite', icon: Share2 },
+            { id: 'history', label: 'Transaction History', icon: ClipboardList },
+            { id: 'leaderboard', label: 'Your Standing', icon: Users }
           ].map((tab) => (
             <button
               key={tab.id}
               onClick={() => setSelectedTab(tab.id as any)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center ${
+              className={`py-2 px-1 border-b-2 font-medium text-sm flex items-center shrink-0 whitespace-nowrap ${
                 selectedTab === tab.id
                   ? 'border-purple-500 text-purple-600'
                   : 'border-transparent text-muted hover:text-text hover:card-border'
               }`}
             >
-              <span className="mr-2">{tab.icon}</span>
+              <tab.icon className="w-4 h-4 mr-2" aria-hidden="true" />
               {tab.label}
             </button>
           ))}
@@ -311,8 +334,8 @@ const Referrals: React.FC = () => {
                     <span className="text-purple-600 font-semibold">2</span>
                   </div>
                   <div>
-                    <h4 className="font-medium text-text">Friend Signs Up</h4>
-                    <p className="text-sm text-muted">Your friend creates an account using your referral code and gets {SIGNUP_REWARD.friendPoints} points and {SIGNUP_REWARD.friendItc} ITC</p>
+                    <h4 className="font-medium text-text">Friend Joins</h4>
+                    <p className="text-sm text-muted">Your friend makes a free account on the phone or computer they opened your link on, within {REFERRAL_LINK_DAYS} days</p>
                   </div>
                 </div>
                 
@@ -322,7 +345,7 @@ const Referrals: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-medium text-text">You Earn Rewards</h4>
-                    <p className="text-sm text-muted">Get {SIGNUP_REWARD.referrerPoints} points and {SIGNUP_REWARD.referrerItc} ITC when they sign up, plus {FIRST_ORDER_REWARD.referrerItc} ITC when they make their first purchase</p>
+                    <p className="text-sm text-muted">Get {FIRST_ORDER_REWARD.referrerItc} ITC when their first order is paid</p>
                   </div>
                 </div>
               </div>
@@ -331,28 +354,20 @@ const Referrals: React.FC = () => {
             <div className="bg-card rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-text mb-4">Reward Structure</h3>
               <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-green-50 rounded">
-                  <div>
-                    <p className="font-medium text-green-900">Friend Signs Up</p>
-                    <p className="text-sm text-green-700">One-time signup bonus</p>
-                  </div>
-                  <span className="text-green-600 font-bold">{SIGNUP_REWARD.referrerItc} ITC</span>
-                </div>
-
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded">
                   <div>
-                    <p className="font-medium text-blue-900">Friend Makes First Purchase</p>
-                    <p className="text-sm text-blue-700">Bonus when they buy</p>
+                    <p className="font-medium text-blue-900">Friend's First Order</p>
+                    <p className="text-sm text-blue-700">Paid to you once per friend</p>
                   </div>
                   <span className="text-blue-600 font-bold">{FIRST_ORDER_REWARD.referrerItc} ITC</span>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-purple-50 rounded">
                   <div>
-                    <p className="font-medium text-purple-900">Tracking Cookie</p>
-                    <p className="text-sm text-purple-700">Referral link active for</p>
+                    <p className="font-medium text-purple-900">Your Link Is Remembered</p>
+                    <p className="text-sm text-purple-700">On the device your friend opened it on</p>
                   </div>
-                  <span className="text-purple-600 font-bold">90 days</span>
+                  <span className="text-purple-600 font-bold">{REFERRAL_LINK_DAYS} days</span>
                 </div>
               </div>
             </div>
@@ -362,7 +377,7 @@ const Referrals: React.FC = () => {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-lg font-semibold mb-2">Ready to Start Earning?</h3>
-                <p className="text-purple-100">Share your referral code and start earning points today!</p>
+                <p className="text-purple-100">Share your link with friends who would love custom prints.</p>
               </div>
               <button
                 onClick={() => setSelectedTab('share')}
@@ -426,30 +441,32 @@ const Referrals: React.FC = () => {
               <div>
                 <h4 className="text-md font-semibold text-text mb-4">Share on Social Media</h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  {sharingContent.messages.map((share) => (
-                    <button
-                      key={share.platform}
-                      onClick={() => openShareUrl(share.url)}
-                      className={`p-4 rounded-lg border-2 transition-colors text-center hover:shadow-md ${
-                        share.platform === 'email' ? 'card-border hover:border-gray-400' :
-                        share.platform === 'twitter' ? 'border-blue-300 hover:border-blue-400' :
-                        share.platform === 'facebook' ? 'border-blue-600 hover:border-blue-700' :
-                        'border-green-400 hover:border-green-500'
-                      }`}
-                    >
-                      <div className={`text-2xl mb-2 ${
-                        share.platform === 'email' ? 'text-muted' :
-                        share.platform === 'twitter' ? 'text-blue-500' :
-                        share.platform === 'facebook' ? 'text-blue-600' :
-                        'text-green-500'
-                      }`}>
-                        {share.platform === 'email' ? '📧' :
-                         share.platform === 'twitter' ? '🐦' :
-                         share.platform === 'facebook' ? '📘' : '📱'}
-                      </div>
-                      <div className="font-medium capitalize text-text">{share.platform}</div>
-                    </button>
-                  ))}
+                  {sharingContent.messages.map((share) => {
+                    const ShareIcon = SHARE_ICONS[share.platform] || Share2
+                    return (
+                      <button
+                        key={share.platform}
+                        onClick={() => openShareUrl(share.url)}
+                        className={`p-4 rounded-lg border-2 transition-colors text-center hover:shadow-md ${
+                          share.platform === 'email' ? 'card-border hover:border-gray-400' :
+                          share.platform === 'twitter' ? 'border-blue-300 hover:border-blue-400' :
+                          share.platform === 'facebook' ? 'border-blue-600 hover:border-blue-700' :
+                          'border-green-400 hover:border-green-500'
+                        }`}
+                      >
+                        <ShareIcon
+                          aria-hidden="true"
+                          className={`w-7 h-7 mx-auto mb-2 ${
+                            share.platform === 'email' ? 'text-muted' :
+                            share.platform === 'twitter' ? 'text-blue-500' :
+                            share.platform === 'facebook' ? 'text-blue-600' :
+                            'text-green-500'
+                          }`}
+                        />
+                        <div className="font-medium capitalize text-text">{share.platform}</div>
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -504,11 +521,11 @@ const Referrals: React.FC = () => {
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
                         transaction.type === 'signup' ? 'bg-green-100 text-green-800' : 'bg-blue-100 text-blue-800'
                       }`}>
-                        {transaction.type === 'signup' ? 'Sign Up' : 'Purchase'}
+                        {transaction.type === 'signup' ? 'Joined' : 'First order'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
-                      +{transaction.referrerReward} points
+                      {transaction.referrerReward > 0 ? `+${transaction.referrerReward} ITC` : <span className="text-muted">Paid on first order</span>}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -546,36 +563,15 @@ const Referrals: React.FC = () => {
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 rounded-lg border border-purple-200 bg-purple-50">
                 <div className="flex items-center">
-                  <span className="text-2xl mr-3">👤</span>
+                  <Users className="w-7 h-7 mr-3 text-purple-600" aria-hidden="true" />
                   <div>
                     <div className="font-medium text-purple-900">You</div>
-                    <div className="text-sm text-muted">{totalReferrals} referral{totalReferrals === 1 ? '' : 's'}</div>
+                    <div className="text-sm text-muted">{totalReferrals} friend{totalReferrals === 1 ? '' : 's'} joined, {firstOrders} ordered</div>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="font-semibold text-purple-600">{totalEarnings} points</div>
-                  <div className="text-sm text-muted">≈ ${(totalEarnings * 0.01).toFixed(2)}</div>
-                </div>
-              </div>
-              <p className="text-sm text-muted text-center py-2">
-                Community leaderboard unlocks as more referrers join — keep sharing your link to claim the top spot.
-              </p>
-            </div>
-          </div>
-
-          <div className="bg-gradient-to-r from-yellow-400 to-orange-500 rounded-lg p-6 text-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold mb-2">🏆 Monthly Challenge</h3>
-                <p className="text-yellow-100">Refer 10 friends this month and earn a 500 point bonus!</p>
-                <div className="mt-2">
-                  <div className="bg-yellow-300 rounded-full h-2 w-64">
-                    <div 
-                      className="bg-card rounded-full h-2 transition-all duration-300"
-                      style={{ width: `${Math.min((totalReferrals / 10) * 100, 100)}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-sm text-yellow-100 mt-1">{totalReferrals}/10 referrals</p>
+                  <div className="font-semibold text-purple-600">{totalEarnings} ITC</div>
+                  <div className="text-sm text-muted">≈ {itcToUsdLabel(totalEarnings)}</div>
                 </div>
               </div>
             </div>
