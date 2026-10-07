@@ -9,6 +9,7 @@
 // 'metal-art' in metadata — without the fallback they'd render as t-shirts.
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 import { isBlankGarmentMeta, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
+import { MINI_ME_NFC_ADDON_ID, MINI_ME_PRICE_CENTS } from '../../backend/shared/mini-me'
 import {
   normalizeGarment,
   adultSizesForGarment,
@@ -61,6 +62,8 @@ export const TOY_ADDONS: { id: string; name: string; price: number; printed: boo
   { id: 'toy_weapon_pack',   name: 'Snap-on weapon pack',        price: 6.99, printed: true,  blurb: '3 magnet-mount weapons that snap right into your figure\'s hands.' },
   { id: 'toy_pet_companion', name: 'Pet companion',              price: 9.99, printed: true,  blurb: 'A mini magnet-base sidekick printed to match your figure.' },
   { id: 'toy_magnet_pair',   name: 'Extra magnet pair',          price: 2.99, printed: false, blurb: 'Spare 5mm magnets for your own snap-on creations.' },
+  // Mini-Me NFC base: price from backend/shared/mini-me.ts (PENDING DAVID APPROVAL).
+  { id: MINI_ME_NFC_ADDON_ID, name: 'Video base (NFC)', price: MINI_ME_PRICE_CENTS.nfcVideo / 100, printed: false, blurb: 'Tap a phone on the base and your video plays.' },
 ]
 
 export function getAddonById(id: string) {

@@ -22,10 +22,12 @@ const {
   computeSubtotalCents,
   computeTaxCents,
   evaluateCheckoutAmount,
-  resolveShipping
+  resolveShipping,
+  MINI_ME_PRICE_KEY
 } = await import('./order-pricing.js')
 import type { PricingDependencies, PricingDiscountCodeRow } from './order-pricing.js'
 import { signShippingQuote } from './shipping-quote.js'
+import { MINI_ME_PRICE_CENTS, MINI_ME_NFC_ADDON_ID } from '../shared/mini-me.js'
 
 const PRODUCT_A = '11111111-1111-1111-1111-111111111111'
 const PRODUCT_B = '22222222-2222-2222-2222-222222222222'
@@ -375,6 +377,45 @@ describe('computeLineItemCents', () => {
       // backend/routes/3d-models.ts POST /:id/order exactly. Paint kit only
       // applies to grey mode, so it's NOT added here even though requested.
       expect(cents).toBe(3299)
+    })
+
+    it("white mode always includes the paint kit (white PLA + kit), even when the client didn't ask", () => {
+      const customMap = new Map([['3d-print-m1', 25]])
+      const { cents } = computeLineItemCents(
+        { productId: '3d-print-m1', quantity: 1, metadata: { color_mode: 'white' } },
+        new Map(),
+        customMap
+      )
+      expect(cents).toBe(2500 + 1500)
+    })
+
+    it('prices a Mini-Me from its own table, ignoring the tier price and the client price', () => {
+      // fetchCustomItemPrices stores the tier price AND the Mini-Me size index (0 small, 1 medium).
+      const customMap = new Map([['3d-print-mm', 11.99], [MINI_ME_PRICE_KEY('3d-print-mm'), 1]])
+      const white = computeLineItemCents(
+        { productId: '3d-print-mm', quantity: 1, clientUnitPriceDollars: 1, metadata: { color_mode: 'white' } },
+        new Map(),
+        customMap
+      )
+      const color = computeLineItemCents(
+        { productId: '3d-print-mm', quantity: 1, metadata: { color_mode: 'color4' } },
+        new Map(),
+        customMap
+      )
+      expect(white.errors).toEqual([])
+      expect(white.cents).toBe(MINI_ME_PRICE_CENTS.white.medium)
+      expect(color.cents).toBe(MINI_ME_PRICE_CENTS.white.medium + MINI_ME_PRICE_CENTS.color4Upcharge.medium)
+    })
+
+    it('adds the Mini-Me NFC video base as a server-priced add-on', () => {
+      const customMap = new Map([['3d-print-mm', 11.99], [MINI_ME_PRICE_KEY('3d-print-mm'), 0]])
+      const { cents, errors } = computeLineItemCents(
+        { productId: '3d-print-mm', quantity: 1, metadata: { color_mode: 'white' }, selectedAddonIds: [MINI_ME_NFC_ADDON_ID] },
+        new Map(),
+        customMap
+      )
+      expect(errors).toEqual([])
+      expect(cents).toBe(MINI_ME_PRICE_CENTS.white.small + MINI_ME_PRICE_CENTS.nfcVideo)
     })
 
     it('rejects a 3d-print id that could not be resolved (model not found / not ready)', () => {

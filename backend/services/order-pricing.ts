@@ -78,6 +78,7 @@ import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normaliz
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
+import { MINI_ME_NFC_ADDON_ID, MINI_ME_PRICE_CENTS, isMiniMeSize, miniMeBaseCents, miniMeColorMode } from '../shared/mini-me.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -100,7 +101,9 @@ const TOY_ADDONS_CENTS: Record<string, number> = {
   toy_paint_kit: 1500,
   toy_weapon_pack: 699,
   toy_pet_companion: 999,
-  toy_magnet_pair: 299
+  toy_magnet_pair: 299,
+  // Mini-Me NFC video base (David 2026-10-07). Price lives in shared/mini-me.ts, PENDING DAVID APPROVAL.
+  [MINI_ME_NFC_ADDON_ID]: MINI_ME_PRICE_CENTS.nfcVideo
 }
 
 // All server-verifiable per-unit add-ons, by id. Ids are globally unique
@@ -360,15 +363,32 @@ export interface OrderPricingResult {
 // color_mode/include_paint_kit are OPTIONS read from cart-item metadata —
 // they select which formula branch runs, they don't supply a dollar amount.
 function resolve3dPrintUnitCents(tierPrintPriceDollars: number, item: PricingCartItem): number {
-  const colorMode: 'grey' | 'color4' = item.metadata?.color_mode === 'color4' ? 'color4' : 'grey'
+  const raw = item.metadata?.color_mode
+  const colorMode: 'grey' | 'white' | 'color4' = raw === 'color4' ? 'color4' : raw === 'white' ? 'white' : 'grey'
   const basePriceDollars =
     colorMode === 'color4'
       ? Math.ceil(tierPrintPriceDollars * PRINT_3D_COLOR4_PREMIUM_MULTIPLIER) - 0.01
       : tierPrintPriceDollars
-  const includePaintKit = colorMode === 'grey' && Boolean(item.metadata?.include_paint_kit)
+  // White PLA always ships with its paint kit; grey only when chosen; color4 never.
+  const includePaintKit = colorMode === 'white' || (colorMode === 'grey' && Boolean(item.metadata?.include_paint_kit))
   const paintKitDollars = includePaintKit ? PRINT_3D_PAINT_KIT_DOLLARS : 0
   return Math.round((basePriceDollars + paintKitDollars) * 100)
 }
+
+/** fetchCustomItemPrices marks a Mini-Me model with this key (value = its size's white price, dollars). */
+export const MINI_ME_PRICE_KEY = (cartId: string) => `mini-me:${cartId}`
+
+/**
+ * A Mini-Me's unit price from the server's own table (shared/mini-me.ts), never
+ * the client's: white (paint kit included) or full color. The NFC base is an
+ * add-on priced by computeExtrasCentsPerUnit like every other add-on.
+ */
+export function resolveMiniMeUnitCents(size: string, item: PricingCartItem): number {
+  return miniMeBaseCents(isMiniMeSize(size) ? size : 'small', miniMeColorMode(item.metadata?.color_mode))
+}
+
+/** Size codes stored in the price map for Mini-Me rows (the map holds numbers). */
+const MINI_ME_SIZE_CODES = ['small', 'medium'] as const
 
 // Per-unit extras that apply on top of an item's base price regardless of
 // whether that base price came from a flat catalog lookup or the pooled
@@ -503,9 +523,13 @@ export function computeLineItemCents(
   } else if (id.startsWith('3d-print-')) {
     // GAP 1 CLOSED: priced from user_3d_models.print_price_usd via the same
     // color4/paint-kit formula the order route uses — see fetchCustomItemPrices.
+    // A Mini-Me is priced from its own table instead (shared/mini-me.ts).
     const tierPriceDollars = customItemPriceMap.get(id)
+    const miniMeSizeCode = customItemPriceMap.get(MINI_ME_PRICE_KEY(id))
     if (tierPriceDollars === undefined) {
       errors.push(`3D print model not found, not ready, or could not be priced: ${id}`)
+    } else if (miniMeSizeCode !== undefined) {
+      unitCents = resolveMiniMeUnitCents(MINI_ME_SIZE_CODES[miniMeSizeCode] ?? 'small', item)
     } else {
       unitCents = resolve3dPrintUnitCents(tierPriceDollars, item)
     }
@@ -938,7 +962,7 @@ const defaultDependencies: PricingDependencies = {
     if (modelIds.length > 0) {
       const { data, error } = await supabase
         .from('user_3d_models')
-        .select('id, print_price_usd')
+        .select('id, print_price_usd, metadata')
         .in('id', modelIds)
       if (error) {
         console.error('[order-pricing] Failed to load user_3d_models for pricing:', error.message)
@@ -946,6 +970,12 @@ const defaultDependencies: PricingDependencies = {
         for (const row of data || []) {
           const tierPrice = row.print_price_usd != null ? Number(row.print_price_usd) : PRINT_3D_BASE_PRICE_DOLLARS
           map.set(`3d-print-${row.id}`, tierPrice)
+          // Mini-Me rows: remember the size (as its index) so the line prices from the Mini-Me table.
+          const meta = (row as any).metadata || {}
+          if (meta.source === 'mini_me') {
+            const sizeIndex = MINI_ME_SIZE_CODES.indexOf(isMiniMeSize(meta.mini_me_size) ? meta.mini_me_size : 'small')
+            map.set(MINI_ME_PRICE_KEY(`3d-print-${row.id}`), sizeIndex)
+          }
         }
       }
     }

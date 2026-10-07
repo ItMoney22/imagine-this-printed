@@ -225,7 +225,10 @@ function snapshotCartItems(items: any[] | undefined | null) {
     // worker email always said "matte grey" (Watchtower 2026-08-19 wave).
     color_mode: i.product?.metadata?.color_mode ?? i.product?.metadata?.print3d?.color_mode ?? null,
     include_paint_kit: i.product?.metadata?.include_paint_kit === true || null,
-    model_id: i.product?.metadata?.model_id ?? null
+    model_id: i.product?.metadata?.model_id ?? null,
+    // Mini-Me (photo statue): which product line + size, for the print floor.
+    source: i.product?.metadata?.source === 'mini_me' ? 'mini_me' : null,
+    mini_me_size: i.product?.metadata?.source === 'mini_me' ? (i.product?.metadata?.mini_me_size ?? null) : null
   }))
 }
 
@@ -406,6 +409,8 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
         color_mode: item.product?.metadata?.color_mode ?? item.product?.metadata?.print3d?.color_mode ?? null,
         include_paint_kit: item.product?.metadata?.include_paint_kit === true || null,
         model_id: item.product?.metadata?.model_id ?? null,
+        source: item.product?.metadata?.source === 'mini_me' ? 'mini_me' : null,
+        mini_me_size: item.product?.metadata?.source === 'mini_me' ? (item.product?.metadata?.mini_me_size ?? null) : null,
         // Personalized team shirt. These are the SERVER's values and the
         // SERVER's file — print_file_path is the durable GCS path, because a
         // signed URL expires long before an order stops mattering.
