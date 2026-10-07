@@ -4842,3 +4842,5 @@ Built on the bdfa6939 referrals branch (19a5381, fast-forwarded in).
   the live functions to option A at the 01dd112c ship's request (it ships 19a5381's 50 ITC copy tonight; one ITP
   ship a day): 20261007210000 bodies re-applied, 20261007233000 tracking row removed, QA code deactivated.
   Apply 20261007233000 when this branch ships. Toast line shortened to fit one line at 390px.
+- 2026-10-07 (dr-dill): scope +1 file: `public/home/how-4-earn.webp` restored (byte-identical to the live file).
+  The home remodel b88f86c2 deleted it but /referrals still shows it; the 390px walk showed a broken hero.
