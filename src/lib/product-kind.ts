@@ -557,3 +557,19 @@ export function getDeliverables(product: Pick<Product, 'metadata'>): { kind: 'de
   if (a.dtf) out.push({ kind: 'dtf', label: 'DTF print-ready (PNG)', url: a.dtf })
   return out
 }
+
+// Shopper-facing words for products.print_locations / cart printLocation values.
+export const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
+  front_image: 'Front',
+  back_image: 'Back',
+  pocket: 'Pocket'
+}
+
+// Label for a placement value. Unknown values never show raw: "sleeve_image" reads "Sleeve".
+export function printLocationLabel(loc: string | null | undefined): string {
+  if (!loc) return ''
+  const known = PRINT_LOCATION_LABELS[loc as TshirtPrintLocation]
+  if (known) return known
+  const words = loc.replace(/_image$/i, '').replace(/[_-]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : ''
+}

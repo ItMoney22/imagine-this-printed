@@ -19,7 +19,7 @@ import { SizeGuide } from '../components/product/SizeGuide'
 import { YouMayAlsoLike } from '../components/product/YouMayAlsoLike'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
+import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
@@ -36,9 +36,6 @@ function isLightHex(hex: string | undefined): boolean {
   return 0.299 * r + 0.587 * g + 0.114 * b > 186
 }
 
-// Customer-facing labels for products.print_locations values. Mirrors the
-// admin wizard's PrintLocationsDropdown (src/components/AdminCreateProductWizard.tsx),
-// shortened for a compact selector on the storefront product page.
 // Breadcrumb names for the catalog shelves (ProductCatalog's category ids).
 const SHELF_LABELS: Record<string, string> = {
   shirts: 'T-Shirts',
@@ -47,12 +44,6 @@ const SHELF_LABELS: Record<string, string> = {
   'metal-art': 'Metal Art',
   'dtf-transfers': 'DTF Transfers',
   tumblers: 'Tumblers'
-}
-
-const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
-  front_image: 'Front',
-  back_image: 'Back',
-  pocket: 'Pocket'
 }
 
 const ProductPage: React.FC = () => {
@@ -976,7 +967,7 @@ const ProductPage: React.FC = () => {
                         }}
                         className={`${chip(isSelected)} px-4 min-h-[2.75rem]`}
                       >
-                        {PRINT_LOCATION_LABELS[loc] || loc}
+                        {printLocationLabel(loc)}
                       </button>
                     )
                   })}

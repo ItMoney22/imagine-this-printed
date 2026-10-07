@@ -4,7 +4,7 @@ import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { getColorName } from '../utils/color-presets'
-import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
+import { addonsUnitTotal, lineBasePrice, printLocationLabel } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 
@@ -108,8 +108,8 @@ const Cart: React.FC = () => {
                     {item.customDesign && !item.designData?.mockupUrl && (
                       <p className="text-sm text-purple-600 mt-1">Custom Design Included</p>
                     )}
-                    {item.printLocation && (
-                      <p className="text-sm text-muted mt-1">Print location: {item.printLocation}</p>
+                    {printLocationLabel(item.printLocation) && (
+                      <p className="text-sm text-muted mt-1">Print location: {printLocationLabel(item.printLocation)}</p>
                     )}
                     <p className="text-lg font-bold text-purple-600 mt-2">
                       ${lineBasePrice(item.product, item.selectedSize, item.selectedColor).toFixed(2)}
