@@ -29,6 +29,13 @@ Daisy's c25fa1e (isCreatorProductMeta) so both ship together (28f1a972).
   queries now null, 0/2,605 products carry a creator print path. Real-DB proof: local publish of a throwaway
   product + Walk By Faith checkout (Stripe refused on purpose) wrote print_file_refs; the floor code signed
   the private copy, HTTP 200, 1,625,476 bytes; all proof rows/objects deleted.
+- 2026-10-07 (zero-pluto): Walk By Faith's assets.display was a 3072x4096 copy of the full design with one small
+  corner watermark (made from the print file at approval), public and shown first on the live page. Stripped from
+  the row + object deleted (script now covers display); approval no longer makes one for creator products (test
+  added: 2/3 fail on the old route). Live page re-walked at 390: leads with the maroon garment photo.
+  Main bucket imagine-this-printed-main: allUsers objectViewer (read + LIST) swapped for legacyObjectReader (read
+  only). Anonymous listing now 401/403; 58/58 live product images still load. Old policy saved in
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-b312de9c-main-bucket-iam-before.json.
 
 ## Current request (2026-10-07) — creator products get creator treatment + 2XL +$2.50 (Watchtower d6822874)
 

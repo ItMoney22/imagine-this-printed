@@ -11,10 +11,12 @@
 //      imagine-this-printed-products) under print-files/<old path>, and checks the copy's size;
 //   2. records bucket + paths in product_print_files (service role only);
 //   3. strips print_files, assets.clean, assets.dtf, assets.back_print from the public row and sets
-//      metadata.print_file_placements;
-//   4. with --delete-public, deletes the old public object, which also kills every signed URL ever
-//      handed out for it. The main bucket keeps soft-deleted objects 7 days
-//      (gcloud storage restore gs://imagine-this-printed-main/<path>#<generation>).
+//      metadata.print_file_placements. Also strips assets.display: approval used to make it from the
+//      print file — the full design at 3072x4096 with one small corner watermark, i.e. a printable copy.
+//      A creator's page shows only garment photos (src/lib/product-kind.ts), so nothing needs it;
+//   4. with --delete-public, deletes the old public objects (print files + that display copy), which
+//      also kills every signed URL ever handed out for them. The main bucket keeps soft-deleted objects
+//      7 days (gcloud storage restore gs://imagine-this-printed-main/<path>#<generation>).
 //
 // Idempotent: a product already in product_print_files is not copied again; a row with nothing left to
 // strip is skipped. Dry run unless --apply. Never prints a signed URL.
@@ -67,7 +69,7 @@ function legacyPrintFiles(metadata) {
   return { front, back }
 }
 
-const STRIP_ASSET_KEYS = ['clean', 'dtf', 'back_print']
+const STRIP_ASSET_KEYS = ['clean', 'dtf', 'back_print', 'display']
 
 function strippedMetadata(metadata, placements) {
   const { print_files: _drop, ...rest } = metadata || {}
@@ -117,7 +119,8 @@ async function main() {
     const entry = { product_id: row.id, name: row.name, status: row.status, actions: [] }
     manifest.push(entry)
     const { front, back } = legacyPrintFiles(row.metadata)
-    entry.public_objects = [front, back].filter(Boolean).map(o => `${o.bucket}/${o.path}`)
+    const display = gcsObjectOf(row.metadata?.assets?.display)
+    entry.public_objects = [front, back, display].filter(Boolean).map(o => `${o.bucket}/${o.path}`)
 
     if (!needsWork(row.metadata) && refsById.has(row.id)) {
       entry.actions.push('already private, nothing to strip')
@@ -133,7 +136,7 @@ async function main() {
       entry.actions.push(`note: front was in bucket ${front.bucket}`)
     }
 
-    console.log(`- ${row.id} "${row.name}" [${row.status}]: front=${front ? `${front.bucket}/${front.path}` : '(private already)'}${back ? ` back=${back.bucket}/${back.path}` : ''}`)
+    console.log(`- ${row.id} "${row.name}" [${row.status}]: front=${front ? `${front.bucket}/${front.path}` : '(private already)'}${back ? ` back=${back.bucket}/${back.path}` : ''}${display ? ` display=${display.bucket}/${display.path}` : ''}`)
     if (!APPLY) { entry.actions.push('dry run'); continue }
 
     let refs = refsById.get(row.id)
@@ -161,7 +164,7 @@ async function main() {
     entry.actions.push(`public row stripped (${entry.removed_metadata_keys.join(', ')}), print_file_placements=${placements.join('+')}`)
 
     if (DELETE_PUBLIC) {
-      for (const obj of [front, back].filter(Boolean)) {
+      for (const obj of [front, back, display].filter(Boolean)) {
         if (obj.bucket !== PUBLIC_BUCKET) continue
         const file = storage.bucket(obj.bucket).file(obj.path)
         const [exists] = await file.exists()
