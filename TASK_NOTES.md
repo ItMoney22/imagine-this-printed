@@ -4803,3 +4803,7 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
 - 2026-10-07 (dr-dill): scope +1 file with rationale: `backend/routes/stripe.ts` create-payment-intent read
   user_profiles by the NULL user_id column, same root cause as the referral route; proven live (non-admin
   account -> 500 "Failed to fetch user profile" on api.imaginethisprinted.com). Re-keyed on id.
+- 2026-10-07 (dr-dill): scope +1 file: `supabase/migrations/20261007213000_revoke_anon_secdef_money_functions.sql`
+  (APPLIED LIVE + tracked). Sweep of SECURITY DEFINER functions anon could EXECUTE found award_order_rewards
+  (writes points + ITC), record/reverse_blank_sale (stock) and next_design_qa_submission_no; all callers are
+  the service-role API/worker. Revoked; anon now 401 permission denied, service role still 200.
