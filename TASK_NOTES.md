@@ -87,6 +87,39 @@ the typed name with a specific header, help strip on /shipping /returns /about /
   support_tickets_status_check has no 'waiting' (open|in_progress|resolved|closed): waiting lives on chat_sessions only.
   vitest 142 files / 2160 tests, tsc app + backend clean, vite build green, walked at 390 + 1440.
 
+## Current request (2026-10-07) — image queue pauses on out-of-credit (task dbce13a8, dr-dill)
+
+On a Replicate 402 "Insufficient credit" or an OpenAI no-credits error the image queue PAUSES for that
+provider: the job that hit it and every queued job that needs the same provider go to status 'blocked'
+(not 'failed'), ONE alert goes out per outage (team email + admin bell + Becky/Jessica ping), and a probe
+every 5 min resumes the queue on its own once credit is back. Prod evidence (read-only, 2026-10-07): 77
+ai_jobs failed on Replicate 402 (65 mockups, 12 rembg, 8/24-8/30); ai_jobs.status has NO check
+constraint, so 'blocked' needs no migration; admin_settings (key PK) holds the outage rows.
+
+### File shortlist (approved scope — 2026-10-07 credit pause)
+- `backend/worker/ai-jobs-worker.ts`, `backend/services/replicate.ts`,
+  `backend/services/image-flow/providers/openai-image.ts` (the brief's three)
+- Added, with rationale: `backend/services/image-flow/providers/replicate.ts` — every mockup 402 in prod
+  came from THIS file ("replicate google/imagen-4-fast 402"), not services/replicate.ts;
+  `backend/services/image-flow/worker-helpers.ts` — the flux single-call catch fell back to the 2-step
+  chain on ANY error, so a 402 could surface as the chain's error instead (3-line rethrow);
+  `backend/services/provider-credit.ts` (new, pure classifier + error type) and
+  `backend/services/image-credit-outage.ts` (new, the pause state machine), plus their tests.
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): built. Credit errors are typed at all three provider edges; the worker and the
+  inline Step Flow paths block instead of fail; per-provider outage rows in admin_settings give one alert
+  each; probes resume. Verified: full vitest 135 files / 2104 pass (new: 14 classifier, 9 alert, 10
+  end-to-end through the real worker loop; two mutations turn it red), backend tsc clean bar the known
+  node_modules-junction TS2742 noise. Live: Replicate probe accepted + cancelled in 135 ms (no compute),
+  OpenAI probe rendered on gpt-image-2.5-flare, Jessica's notify route accepts ITP's secret (400 empty
+  body vs 401 wrong secret). Gaps filed: Becky's /api/phone/ops-ping does not exist yet (404), and the
+  Render WORKER lacks WATCHTOWER_INTERNAL_SECRET + PRINT_BRIDGE_TOKEN (the API service has both).
+- 2026-10-07 (zero-nine, ship f4fffab8): merged the whole branch (head f5539f2) onto local main c468bd6; its other
+  commits (8e5ae93, 74dfc89, b605833) were already on main, so only 3febb10 + f5539f2 came in. TASK_NOTES was the only
+  conflict (kept both sides). Merged tree: app tsc 0, backend tsc only the known TS2742 junction noise, vitest 145 / 2193.
+
 ## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
 
 David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1
