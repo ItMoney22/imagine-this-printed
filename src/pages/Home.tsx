@@ -8,6 +8,7 @@ import type { Product } from '../types'
 
 import { supabase } from '../lib/supabase'
 import { applyStorefrontVisibility } from '../lib/product-visibility'
+import { PROCESSING_LINE } from '../utils/shipping-calculator'
 
 // Lazy load heavy components - they load AFTER initial render
 const ProductRecommendations = lazy(() => import('../components/ProductRecommendations'))
@@ -776,7 +777,7 @@ const Home: React.FC = () => {
               </div>
               <h3 className="font-display text-lg sm:text-xl text-text mb-2 sm:mb-3">Fast Turnaround</h3>
               <p className="text-muted text-sm sm:text-base">
-                Quick processing and shipping to get your orders to you fast. Most orders ship within 2-3 business days.
+                {PROCESSING_LINE}
               </p>
             </div>
 
