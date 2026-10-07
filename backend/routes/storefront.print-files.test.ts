@@ -256,3 +256,42 @@ describe('POST /api/storefront/checkout — the order line points at the private
     expect(items[0].metadata).not.toHaveProperty('print_file_refs')
   })
 })
+
+// Watchtower task 1417e863: the creator 3D lane's mesh (model_file) is a
+// print-ready deliverable too, so it follows the print files into the private
+// bucket and the row holds only a gs:// reference.
+describe('POST /api/storefront/products — a creator 3D mesh stays private', () => {
+  async function publish3d(filename: string) {
+    const fd = new FormData()
+    fd.set('name', 'Robo Charm')
+    fd.set('retailPrice', '24.99')
+    fd.set('categorySlug', '3d-prints')
+    fd.set('placement', JSON.stringify({ print3d: { material: 'PLA', color_mode: 'grey' } }))
+    fd.set('front_print', png(), 'front.png')
+    fd.set('model_file', new Blob([new Uint8Array([0x73, 0x6f, 0x6c, 0x69, 0x64])]), filename)
+    const res = await fetch(`${base}/api/storefront/products`, { method: 'POST', body: fd })
+    return { status: res.status, body: await res.json() as any }
+  }
+
+  it('saves the STL to the private bucket and stores a gs:// reference, not a link', async () => {
+    const { status, body } = await publish3d('robo.stl')
+    expect(status).toBe(201)
+    const mesh = privateUploads.find(u => u.path.endsWith('/model.stl'))
+    expect(mesh?.bucket).toBe(PRIVATE_BUCKET)
+    expect(mesh?.path).toMatch(/^print-files\/merch-studio\/darrell\/[\w-]{10}\/model\.stl$/)
+    expect(publicUploads.some(p => /model\.(stl|glb)$/.test(p))).toBe(false)
+
+    const print3d = productInsert().metadata.print3d
+    expect(print3d.stl_url).toBe(`gs://${PRIVATE_BUCKET}/${mesh!.path}`)
+    expect(print3d.glb_url).toBeNull()
+    expect(JSON.stringify(productInsert())).not.toMatch(/model\.stl\?|https?:\/\/[^"]*model\.stl/)
+    // The storefront can check what it sent with a 60-minute link.
+    expect(body.files.model).toBe(`https://signed.test/${PRIVATE_BUCKET}/${mesh!.path}?ttl=60`)
+  })
+
+  it('a GLB lands the same way, as print3d.glb_url', async () => {
+    await publish3d('robo.glb')
+    const mesh = privateUploads.find(u => u.path.endsWith('/model.glb'))
+    expect(productInsert().metadata.print3d.glb_url).toBe(`gs://${PRIVATE_BUCKET}/${mesh!.path}`)
+  })
+})

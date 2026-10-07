@@ -5,12 +5,14 @@ import { nanoid } from 'nanoid'
 import { supabase } from '../lib/supabase.js'
 import { requireStorefrontSecret } from '../middleware/requireStorefrontSecret.js'
 import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { storeModelFile, signModelFileRef } from '../services/model-files.js'
 import {
   PRINT_FILES_BUCKET,
   type PrintFileRefs,
   getPrintFileRefsFor,
   placementsOf,
   printFilePath,
+  printModelFilePath,
   savePrintFileRefs,
   signPrintFileRefs,
   storePrintFile,
@@ -482,10 +484,11 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
 //                magnet_sockets, size_tier, stl_url, glb_url, ... }) is lifted
 //                into metadata.print3d — see model_file below.
 //   model_file   optional — a 3D-print mesh (.stl or .glb) for a 3D-print
-//                product (categorySlug '3d-prints'). Uploaded to ITP storage
-//                and recorded as metadata.print3d.stl_url / glb_url (by
-//                extension), taking precedence over any URL already present
-//                in placement.print3d.
+//                product (categorySlug '3d-prints'). Saved to ITP's PRIVATE
+//                bucket and recorded as a gs:// reference in
+//                metadata.print3d.stl_url / glb_url (by extension), taking
+//                precedence over any URL already present in placement.print3d.
+//                The reply's files.model is a 60-minute link to check it.
 //   externalRef  optional — the storefront's draft id, echoed for reconciliation
 //
 // The product is created AS the mapped creator: created_by_user_id=<creator>,
@@ -647,12 +650,14 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
     const placementPrint3d = (placement && typeof placement === 'object' && placement.print3d && typeof placement.print3d === 'object')
       ? placement.print3d as Record<string, unknown>
       : null
-    let modelUpload: { publicUrl: string; ext: 'stl' | 'glb' } | null = null
+    // The mesh is the print-ready deliverable, so it goes to the PRIVATE
+    // bucket like the print files; the row stores its gs:// reference and the
+    // print bridge signs it per pull (task 1417e863).
+    let modelUpload: { ref: string; ext: 'stl' | 'glb' } | null = null
     if (modelFile) {
       const modelExt = (modelFile.originalname.split('.').pop() || '').toLowerCase() === 'glb' ? 'glb' : 'stl'
-      const modelContentType = modelExt === 'glb' ? 'model/gltf-binary' : 'model/stl'
-      const uploaded = await uploadImageFromBuffer(modelFile.buffer, `${basePath}/model.${modelExt}`, modelContentType)
-      modelUpload = { publicUrl: uploaded.publicUrl, ext: modelExt }
+      const ref = await storeModelFile(modelFile.buffer, printModelFilePath(vendor, batchId, modelExt), modelExt)
+      modelUpload = { ref, ext: modelExt }
     }
     const print3d = (placementPrint3d || modelUpload) ? {
       material: (typeof placementPrint3d?.material === 'string' && placementPrint3d.material) || 'PLA',
@@ -660,10 +665,10 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       magnet_sockets: typeof placementPrint3d?.magnet_sockets === 'number' ? placementPrint3d.magnet_sockets : 2,
       size_tier: typeof placementPrint3d?.size_tier === 'string' ? placementPrint3d.size_tier : null,
       stl_url: modelUpload?.ext === 'stl'
-        ? modelUpload.publicUrl
+        ? modelUpload.ref
         : (typeof placementPrint3d?.stl_url === 'string' ? placementPrint3d.stl_url : null),
       glb_url: modelUpload?.ext === 'glb'
-        ? modelUpload.publicUrl
+        ? modelUpload.ref
         : (typeof placementPrint3d?.glb_url === 'string' ? placementPrint3d.glb_url : null),
     } : null
 
@@ -799,6 +804,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
     // The publishing storefront may check what it sent: short-lived links,
     // never stored anywhere.
     const signedPrints = await signPrintFileRefs(printRefs, 60)
+    const signedModel = modelUpload ? await signModelFileRef(modelUpload.ref, { ttlMinutes: 60 }) : null
 
     return res.status(201).json({
       productId: product.id,
@@ -809,6 +815,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       costUsd,
       files: {
         ...signedPrints,
+        ...(signedModel ? { model: signedModel } : {}),
         mockups: mockupUrls,
       },
       ...(print3d ? { print3d } : {}),

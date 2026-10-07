@@ -1,5 +1,29 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — paid 3D files out of the public bucket (Watchtower 1417e863, daisy-carter)
+
+model.stl / model.glb (35 objects, 17 toy models, all David's account) answered 200 to anyone by plain path in
+imagine-this-printed-main; rows carried 1-year links (user_3d_models x17, 3 live toy products' public
+metadata.print3d, ai_jobs.output x17); GET /api/3d-models/:id and /list handed the owner the STL without a license;
+and any signed-in user could PATCH their own user_3d_models row (purchased_licenses, print_price_usd).
+design-sources/ (6,999 editable masters, 25.7 GB, sequential names) was public by path AND via /api/media/.
+
+Built on zero-pluto's unshipped b312de9c branch (merged in: print-files.ts + signObjectInBucket).
+File shortlist (approved scope): backend/services/model-files.ts (+test, new), google-cloud-storage.ts
+(signObjectInBucket download name), print-files.ts (printModelFilePath), routes/3d-models.ts (+ new route test),
+routes/print-bridge.ts, routes/storefront.ts (+ print-files test), routes/media.ts, worker/ai-jobs-worker.ts,
+scripts/{reconvert-3d-stl.ts, inline-3d-dragon.ts, lib/design-media.mjs, move-3d-model-files-private.mjs,
+move-design-sources-private.mjs}, supabase/migrations/20261007210000_user_3d_models_server_writes_only.sql + ledger.
+
+Decisions: rows store gs://<private bucket>/<path> refs in the existing *_url fields; links signed per request
+(60 min download/preview/AR, 12 h print bridge = PRINT_FILE_LINK_TTL_MINUTES); a model row can only sign its own
+3d-models/<id>/model.<fmt>. users/ NOT moved (live product imagery + stored links point there; names unguessable
+since listing went off) -> follow-up card for the private subsets (inbound email attachments, customer uploads).
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): code + tests (model-files 7, route tests 8 of which 6 fail on old code, storefront
+  3D 2); vitest 149 files / 2231 passed; backend tsc only the 6 known rate-limits.ts TS2742.
+
 ## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
 David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):

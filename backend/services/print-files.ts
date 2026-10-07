@@ -40,6 +40,15 @@ export function printFilePath(vendor: string, batchId: string, placement: PrintP
   return `print-files/merch-studio/${vendor}/${batchId}/${placement}.png`
 }
 
+/**
+ * Object path for a creator's 3D-print mesh (Merch Studio model_file) in the
+ * private bucket. Stored on the product as a gs:// reference by
+ * services/model-files.ts and signed only for the print bridge (task 1417e863).
+ */
+export function printModelFilePath(vendor: string, batchId: string, format: 'stl' | 'glb'): string {
+  return `print-files/merch-studio/${vendor}/${batchId}/model.${format}`
+}
+
 /** The placements a set of refs covers, for the public metadata marker. */
 export function placementsOf(refs: Pick<PrintFileRefs, 'front' | 'back'>): PrintPlacement[] {
   return refs.back ? ['front', 'back'] : ['front']

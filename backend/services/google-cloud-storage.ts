@@ -225,15 +225,22 @@ export async function uploadBufferToBucket(
   return destinationPath
 }
 
-/** Short-lived read link for an object in a named bucket. */
+/**
+ * Short-lived read link for an object in a named bucket. `downloadName` makes
+ * the browser save the file under that name instead of opening it.
+ */
 export async function signObjectInBucket(
   targetBucket: string,
   path: string,
-  expiresInMinutes: number = 60
+  expiresInMinutes: number = 60,
+  downloadName?: string
 ): Promise<string> {
   const [url] = await storage.bucket(targetBucket).file(path).getSignedUrl({
     action: 'read',
     expires: Date.now() + expiresInMinutes * 60 * 1000,
+    ...(downloadName
+      ? { responseDisposition: `attachment; filename="${downloadName.replace(/["\\\r\n]/g, '')}"` }
+      : {}),
   })
   return url
 }
