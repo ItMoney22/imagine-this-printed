@@ -128,6 +128,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
           !isFullScreen ? `pt-16 lg:pt-0 ${isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''
         }`}
       >
+        {!isFullScreen && <CookieConsent inline />}
         {children}
         {!isFullScreen && <Footer />}
       </main>
@@ -136,7 +137,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       <FloatingCart />
       <WatchtowerTaskButton />
       <ToastContainer />
-      <CookieConsent />
+      {isFullScreen && <CookieConsent />}
     </div>
   )
 }
