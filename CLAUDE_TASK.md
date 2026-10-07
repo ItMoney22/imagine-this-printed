@@ -1,6 +1,12 @@
 # Claude Task Brief
 
-## Request
+## Request (2026-10-07, Watchtower 673c0b4a) — stop the spam, lock down the forms
+David: "secure ITP, make the spam go away." Bot protection on the contact form, signup and the
+Resend inbound webhook; confident spam filed silently (stored category=spam/closed, no alert);
+existing spam tickets and bot accounts marked, never deleted. Scope + work log: TASK_NOTES.md.
+Runbook + key placement: docs/SIGNUP_BOT_PROTECTION.md section 6.
+
+## Previous request
 Imagine Studio Step Flow follow-ups (Watchtower task 934dd6ed-6ae3-44a9-8658-5cfbdab0414b):
 1. `etsy-seo-composer` should ingest `step_flow.colors.extras`, not just `metadata.shirt_color`.
 2. Verify/fix the product details card re-rendering after a product-shot redo.
