@@ -1,5 +1,27 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
+
+David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1
+(approval 3627e82e). Build: one grouped sidebar instead of 20 flat tabs; Overview leads with Ops
+Monitor / Mrs. Imagine / Etsy; fake System Health removed; drop vendors, models, tryon tabs; merge
+itc-pricing + imagination into Pricing and wallet into Users; Delivered tab in Orders; Users role
+picker offers only real roles; Toy Lab, Team Templates, Email, Orders in the nav.
+
+### File shortlist (approved scope — 2026-10-07 admin redo)
+- `src/pages/AdminDashboard.tsx`, `src/pages/OrderManagement.tsx`
+- `src/components/AdminMrsImagine.tsx` (mobile layout only, now that it leads the overview), `src/index.css` (hero drift keyframes)
+- `src/components/admin/*` (new: AdminShell / sidebar nav / hero), `src/components/AdminWalletManagement.tsx`
+- `src/pages/AdminEmail.tsx`, `src/pages/AdminToyLab.tsx`, `src/pages/AdminTeamTemplatesIndex.tsx` (wrap in the shell)
+- `src/App.tsx` (routes only), `public/admin/*` (generated art)
+- `supabase/migrations/20260728_email_unmatched_inbound.sql` (applied to prod 2026-10-07, verified)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (mason-blaze): applied email_unmatched_inbound to prod (table + RLS verified). Mockup sent and
+  approved by David (round 1). Starting the build.
+
+
 ## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
 
 David: "the team name step flow is horrible the look the way it works ... i dont
@@ -4514,3 +4536,11 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
 ### Work log 2026-09-23 — team-plate lettering swapped to gpt-image-2.5-flare + crisp upscale (task 65d98dd9, jimmy-phix)
 - Per-order name/number is now a flare EDIT of the original back art (prompt schema in `backend/services/team-plate/lettering-prompt.ts`), cached as `<key>-base.png` (the preview) and upscaled by `recraft-crisp-upscale` (`upscaleToPng`, split out of `step-flow/print-resolution.ts`) into `<key>-press.png` at the template canvas. Paths: `users/team-plates/flare-v1/`. Vector engine quarantined in `team-plate/legacy-vector/`. Checkout waits 20s for the press file, else writes the deterministic gcsPath + `print_file_status: 'rendering'` and settles it in the background. Customer panel previews on a button press (paid call) with a staged progress bar. Result: 152/152 tests; live smoke `backend/scripts/team-plate-smoke.ts` on the real BEAR 9 art passed every check twice (RODRIGUEZ 27, LI 5 — spelled right, art held, 3600x4498 press).
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+- 2026-10-07 (mason-blaze): BUILT the approved redo. AdminShell (grouped sidebar: Run the shop / Make / Money / People)
+  wraps every admin route; AdminDashboard tab strip gone, hero + three art panels (Ops Monitor, Mrs. Imagine, Etsy)
+  lead the overview, fake System Health + Quick Actions removed; vendors/models/tryon tabs removed; itc-pricing +
+  imagination -> Pricing (toggle), wallet -> Users (Accounts/Wallets toggle), old ?tab= links map across; Delivered tab
+  in Orders; role picker = customer/vendor/admin (a retired role on an existing user still shows); + Create Product and
+  /admin/ai/products/create now open the Step Flow builder. Walked on 5287 at 1440 and 390 wide: no page errors.
+  Art is cropped from the approved mock (no page-art.ts on this checkout): swap for Flux finals when it lands.
+  Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.

@@ -9,7 +9,8 @@ import { productKindOf } from '../lib/product-kind'
 import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 import { BUNDLE_DEAL } from '../../backend/shared/promos'
 import type { User, VendorProduct, ThreeDModel, SystemMetrics, AuditLog, Product, TshirtPrintLocation } from '../types'
-import AdminCreateProductWizard from '../components/AdminCreateProductWizard'
+import { LEGACY_TABS } from '../components/admin/AdminShell'
+import { ArrowRight, ShoppingCart, Package } from 'lucide-react'
 import AdminWalletManagement from '../components/AdminWalletManagement'
 import AdminSupport from '../components/AdminSupport'
 import { AdminCreatorProductsTab as CreatorProductsTab } from '../components/AdminCreatorProductsTab'
@@ -54,12 +55,57 @@ const PRINT_LOCATION_OPTIONS: { value: TshirtPrintLocation; label: string; hint:
 const ASSIGNABLE_ROLES: { value: User['role']; label: string; blurb: string; privileged: boolean }[] = [
   { value: 'customer', label: 'Customer', blurb: 'Shop and design. The default every new account starts on.', privileged: false },
   { value: 'vendor', label: 'Vendor', blurb: 'Unlocks the Vendor Dashboard at /vendor: submit products, track sales and payouts. Submissions always land as unapproved drafts — only an admin can publish them.', privileged: true },
-  { value: 'wholesale', label: 'Wholesale', blurb: 'Tiered bulk pricing in the wholesale portal.', privileged: false },
-  { value: 'founder', label: 'Founder', blurb: 'Assigned orders and the 35% profit share. Founders can also change other users’ roles.', privileged: true },
-  { value: 'manager', label: 'Manager', blurb: 'Order and cost management across the platform.', privileged: true },
-  { value: 'support_agent', label: 'Support Agent', blurb: 'Works the support ticket queue.', privileged: true },
   { value: 'admin', label: 'Admin', blurb: 'Full control of the platform — roles, payouts, ITC, every dashboard. Grant sparingly.', privileged: true },
 ]
+
+const ADMIN_TABS = ['overview', 'users', 'products', 'creator-products', 'inventory', 'materials', 'outbox', 'designs', 'audit', 'support', 'pricing', 'coupons', 'gift-cards', 'connect', 'invoices'] as const
+type AdminTab = typeof ADMIN_TABS[number]
+
+const TAB_TITLES: Record<AdminTab, string> = {
+  overview: 'Overview', users: 'Users', products: 'Products', 'creator-products': 'Creator Products',
+  inventory: 'Inventory', materials: 'Filament & Paint', outbox: 'Social Outbox', designs: 'Designs',
+  audit: 'Audit', support: 'Support', pricing: 'Pricing', coupons: 'Coupons', 'gift-cards': 'Gift Cards',
+  connect: 'Cash Out', invoices: 'Invoices',
+}
+
+function SegmentedToggle<T extends string>({ value, onChange, options }: {
+  value: T
+  onChange: (v: T) => void
+  options: { value: T; label: string }[]
+}) {
+  return (
+    <div role="tablist" className="inline-flex rounded-xl border border-slate-200 bg-white p-1 mb-4">
+      {options.map(o => (
+        <button
+          key={o.value}
+          role="tab"
+          aria-selected={value === o.value}
+          onClick={() => onChange(o.value)}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${value === o.value ? 'bg-purple-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// A live admin panel under a picture banner: the shop's own tools lead the overview.
+function ArtPanel({ art, title, blurb, children }: { art: string; title: string; blurb: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-2xl overflow-hidden border border-slate-100 shadow-soft bg-white">
+      <div className="relative h-28 sm:h-32">
+        <img src={art} alt="" className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+        <div className="absolute inset-0 bg-gradient-to-r from-purple-950/85 via-purple-900/45 to-transparent" />
+        <div className="relative z-10 flex h-full flex-col justify-end p-5 text-white">
+          <h2 className="text-xl font-display font-bold">{title}</h2>
+          <p className="text-sm text-purple-100">{blurb}</p>
+        </div>
+      </div>
+      <div className="p-2 sm:p-3">{children}</div>
+    </section>
+  )
+}
 
 const roleLabel = (role: string) => ASSIGNABLE_ROLES.find(r => r.value === role)?.label || role
 
@@ -182,11 +228,22 @@ const AdminDashboard: React.FC = () => {
   const toast = useToast()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabFromUrl = searchParams.get('tab') as 'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon' || 'overview'
-  const [selectedTab, setSelectedTab] = useState<'overview' | 'users' | 'vendors' | 'products' | 'creator-products' | 'inventory' | 'materials' | 'outbox' | 'designs' | 'models' | 'audit' | 'wallet' | 'support' | 'itc-pricing' | 'imagination' | 'coupons' | 'gift-cards' | 'connect' | 'invoices' | 'tryon'>(tabFromUrl)
+  const rawTab = searchParams.get('tab') || 'overview'
+  const tabFromUrl: AdminTab = (ADMIN_TABS as readonly string[]).includes(LEGACY_TABS[rawTab] || rawTab)
+    ? ((LEGACY_TABS[rawTab] || rawTab) as AdminTab)
+    : 'overview' // vendors / models / tryon were retired: old links land on the overview
+  const [selectedTab, setSelectedTab] = useState<AdminTab>(tabFromUrl)
+  const [usersView, setUsersView] = useState<'accounts' | 'wallets'>(rawTab === 'wallet' ? 'wallets' : 'accounts')
+  const [pricingView, setPricingView] = useState<'itc' | 'products'>(rawTab === 'imagination' ? 'products' : 'itc')
+  // The sidebar changes ?tab= without remounting this page, so follow the URL.
+  useEffect(() => {
+    setSelectedTab(tabFromUrl)
+    if (rawTab === 'wallet') setUsersView('wallets')
+    if (rawTab === 'imagination') setPricingView('products')
+  }, [tabFromUrl, rawTab])
   // One place that moves the dashboard to a tab, so the overview cards and the
-  // tab bar can never drift apart on how the URL is kept in sync.
-  const goToTab = (tab: typeof selectedTab) => {
+  // sidebar can never drift apart on how the URL is kept in sync.
+  const goToTab = (tab: AdminTab) => {
     setSelectedTab(tab)
     setSearchParams({ tab })
   }
@@ -932,7 +989,7 @@ const AdminDashboard: React.FC = () => {
 
   // Load pricing when tab is selected
   useEffect(() => {
-    if (selectedTab === 'itc-pricing') {
+    if (selectedTab === 'pricing') {
       loadItcPricing()
     }
   }, [selectedTab])
@@ -2350,28 +2407,54 @@ const AdminDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-slate-50 pb-16">
-      {/* Header */}
-      {/* overflow-hidden lives on the decorative layer, not here: clipping the banner
-          would also clip the notification dropdown, which has to escape the header. */}
-      <div className="bg-gradient-to-br from-purple-600 via-purple-700 to-pink-600 relative">
-        <div className="absolute inset-0 opacity-10 overflow-hidden">
-          <div className="absolute inset-0" style={{
-            backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
-          }} />
+      {/* Header: a hero on the overview, a slim title bar on every other section */}
+      {/* overflow-hidden lives on the art layer, not here: clipping the header
+          would also clip the notification dropdown, which has to escape it. */}
+      <div className="relative bg-gradient-to-br from-purple-950 via-purple-800 to-fuchsia-700">
+        <div className="absolute inset-0 overflow-hidden">
+          {selectedTab === 'overview' && (
+            <>
+              <img src="/admin/hero-orb.webp" alt="" className="absolute right-0 top-0 h-full w-full object-cover object-right opacity-70 admin-hero-drift" />
+              <div className="absolute inset-0 bg-gradient-to-r from-purple-950 via-purple-950/70 to-transparent" />
+            </>
+          )}
         </div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12 relative z-10">
-          <div className="flex items-start justify-between">
-            <div>
-              <h1 className="text-2xl sm:text-3xl lg:text-4xl font-display font-bold text-white mb-2">Admin Dashboard</h1>
-              <p className="text-purple-100">Manage users, approvals, and monitor system performance</p>
-            </div>
+        <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative z-10 ${selectedTab === 'overview' ? 'py-12 sm:py-16' : 'py-6 sm:py-8'}`}>
+          <div className="flex items-start justify-between gap-4">
+            {selectedTab === 'overview' ? (
+              <div className="max-w-xl">
+                <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs font-medium text-purple-100">
+                  <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" aria-hidden="true" /> Live: ITP Admin
+                </p>
+                <h1 className="text-3xl sm:text-5xl font-display font-bold uppercase leading-tight text-white">
+                  Turn ideas into <span className="text-fuchsia-300">imagination</span>
+                </h1>
+                <p className="mt-3 text-purple-100">Manage users, approvals, and monitor system performance</p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <button
+                    onClick={() => goToTab('products')}
+                    className="inline-flex items-center gap-2 rounded-xl bg-purple-500 px-5 py-2.5 font-medium text-white shadow-lg shadow-purple-500/30 transition hover:bg-purple-400 hover:-translate-y-0.5"
+                  >
+                    <Package className="h-4 w-4" aria-hidden="true" /> Go to Products <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                  </button>
+                  <button
+                    onClick={() => navigate('/admin/orders')}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/30 bg-white/10 px-5 py-2.5 font-medium text-white backdrop-blur transition hover:bg-white/20 hover:-translate-y-0.5"
+                  >
+                    <ShoppingCart className="h-4 w-4" aria-hidden="true" /> View Orders
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-display font-bold text-white">{TAB_TITLES[selectedTab]}</h1>
+                <p className="text-purple-100">ITP Admin</p>
+              </div>
+            )}
             <div className="relative z-50">
               <AdminNotificationBell
                 buttonClassName="text-white/90 hover:text-white bg-white/10 hover:bg-white/20"
-                onNotificationClick={(ticketId) => {
-                  setSelectedTab('support')
-                  setSearchParams({ tab: 'support' })
-                }}
+                onNotificationClick={() => goToTab('support')}
               />
             </div>
           </div>
@@ -2380,7 +2463,7 @@ const AdminDashboard: React.FC = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {/* System Overview Cards — every tile is a door into the rows behind it */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 2xl:grid-cols-4 gap-4 sm:gap-6 mb-8">
           <StatCard
             label="Total Users"
             value={String(systemMetrics.totalUsers)}
@@ -2441,138 +2524,23 @@ const AdminDashboard: React.FC = () => {
           />
         </div>
 
-        {/* Tabs */}
-        <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-3 mb-8">
-          <nav className="flex flex-wrap gap-2">
-            {['overview', 'users', 'vendors', 'products', 'creator-products', 'designs', 'inventory', 'materials', 'outbox', 'models', 'wallet', 'connect', 'invoices', 'itc-pricing', 'imagination', 'tryon', 'coupons', 'gift-cards', 'audit', 'support'].map((tab) => (
-              <button
-                key={tab}
-                onClick={() => {
-                  setSelectedTab(tab as any)
-                  setSearchParams({ tab })
-                }}
-                className={`px-3 py-2 rounded-lg font-medium text-sm transition-all ${selectedTab === tab
-                  ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/25'
-                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 bg-slate-50'
-                  }`}
-              >
-                {tab === 'creator-products' ? 'Creator Products' : tab === 'itc-pricing' ? 'ITC Pricing' : tab === 'imagination' ? 'Imagination Products' : tab === 'tryon' ? 'Virtual Try-On' : tab === 'gift-cards' ? 'Gift Cards' : tab === 'connect' ? 'Cash Out' : tab === 'invoices' ? 'Invoices' : tab === 'materials' ? 'Filament & Paint' : tab.charAt(0).toUpperCase() + tab.slice(1)}
-              </button>
-            ))}
-          </nav>
-        </div>
-
-        {/* Overview Tab */}
+        {/* Overview Tab: the tools that run the shop lead, each with its own live panel */}
         {selectedTab === 'overview' && (
           <div className="space-y-6">
-            <AdminOpsMonitor />
-            <AdminMrsImagine />
-            <AdminEtsyPanel />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">Quick Actions</h3>
-                <div className="space-y-3">
-                  <button
-                    onClick={() => setSelectedTab('creator-products')}
-                    className="w-full text-left p-4 bg-pink-50 hover:bg-pink-100 rounded-xl transition-colors border border-pink-100"
-                  >
-                    <div className="font-semibold text-pink-900">Review Creator Products</div>
-                    <div className="text-sm text-pink-600">User-submitted designs awaiting approval</div>
-                  </button>
-                  <button
-                    onClick={() => setSelectedTab('vendors')}
-                    className="w-full text-left p-4 bg-blue-50 hover:bg-blue-100 rounded-xl transition-colors border border-blue-100"
-                  >
-                    <div className="font-semibold text-blue-900">Review Vendor Products</div>
-                    <div className="text-sm text-blue-600">{vendorProducts.filter(p => !p.approved).length} pending approval</div>
-                  </button>
-                  <button
-                    onClick={() => setSelectedTab('models')}
-                    className="w-full text-left p-4 bg-emerald-50 hover:bg-emerald-100 rounded-xl transition-colors border border-emerald-100"
-                  >
-                    <div className="font-semibold text-emerald-900">Review 3D Models</div>
-                    <div className="text-sm text-emerald-600">{models.filter(m => !m.approved).length} pending approval</div>
-                  </button>
-                  <button
-                    onClick={() => setSelectedTab('users')}
-                    className="w-full text-left p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors border border-purple-100"
-                  >
-                    <div className="font-semibold text-purple-900">Manage User Roles</div>
-                    <div className="text-sm text-purple-600">{users.length} total users</div>
-                  </button>
-                  <button
-                    onClick={() => setSelectedTab('wallet')}
-                    className="w-full text-left p-4 bg-amber-50 hover:bg-amber-100 rounded-xl transition-colors border border-amber-100"
-                  >
-                    <div className="font-semibold text-amber-900">Manage Wallets</div>
-                    <div className="text-sm text-amber-600">Credit/Debit user balances</div>
-                  </button>
-                  <div className="grid grid-cols-2 gap-3 pt-1">
-                    <Link
-                      to="/admin/email"
-                      className="block text-left p-4 bg-indigo-50 hover:bg-indigo-100 rounded-xl transition-colors border border-indigo-100"
-                    >
-                      <div className="font-semibold text-indigo-900">Email Inbox</div>
-                      <div className="text-sm text-indigo-600">Company mailboxes</div>
-                    </Link>
-                    <Link
-                      to="/admin/toys"
-                      className="block text-left p-4 bg-cyan-50 hover:bg-cyan-100 rounded-xl transition-colors border border-cyan-100"
-                    >
-                      <div className="font-semibold text-cyan-900">Toy Lab</div>
-                      <div className="text-sm text-cyan-600">Toy Creator pipeline</div>
-                    </Link>
-                    <Link
-                      to="/admin/marketing"
-                      className="block text-left p-4 bg-rose-50 hover:bg-rose-100 rounded-xl transition-colors border border-rose-100"
-                    >
-                      <div className="font-semibold text-rose-900">Marketing Tools</div>
-                      <div className="text-sm text-rose-600">Campaigns & AI content</div>
-                    </Link>
-                    <Link
-                      to="/admin/cost-override"
-                      className="block text-left p-4 bg-teal-50 hover:bg-teal-100 rounded-xl transition-colors border border-teal-100"
-                    >
-                      <div className="font-semibold text-teal-900">Cost Override</div>
-                      <div className="text-sm text-teal-600">Pricing & cost controls</div>
-                    </Link>
-                    <Link
-                      to="/admin/team-templates"
-                      className="block text-left p-4 bg-purple-50 hover:bg-purple-100 rounded-xl transition-colors border border-purple-100"
-                    >
-                      <div className="font-semibold text-purple-900">Team Templates</div>
-                      <div className="text-sm text-purple-600">Name &amp; number shirts</div>
-                    </Link>
-                  </div>
-                </div>
-              </div>
+            <ArtPanel art="/admin/card-ops.webp" title="Ops Monitor" blurb="Is the shop healthy right now: API, worker, mail, payments.">
+              <AdminOpsMonitor />
+            </ArtPanel>
+            <ArtPanel art="/admin/card-scout.webp" title="Mrs. Imagine, Scout" blurb="Every morning she sweeps Etsy and pitches ten designs with proven buyers.">
+              <AdminMrsImagine />
+            </ArtPanel>
+            <ArtPanel art="/admin/card-etsy.webp" title="Etsy" blurb="Your Etsy shop: listings, queue and sales.">
+              <AdminEtsyPanel />
+            </ArtPanel>
 
-              <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-                <h3 className="text-lg font-display font-bold text-slate-900 mb-4">System Health</h3>
-                <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">Database Status</span>
-                    <span className="px-3 py-1 text-xs font-semibold rounded-full bg-emerald-100 text-emerald-700">Healthy</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">API Response Time</span>
-                    <span className="text-sm font-semibold text-slate-900">45ms</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">Storage Usage</span>
-                    <span className="text-sm font-semibold text-slate-900">68% of 100GB</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl">
-                    <span className="text-sm font-medium text-slate-700">Active Vendors</span>
-                    <span className="text-sm font-semibold text-slate-900">{systemMetrics.activeVendors}</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
+            <section className="rounded-2xl bg-white border border-slate-100 shadow-soft p-6">
               <h3 className="text-lg font-display font-bold text-slate-900 mb-4">Recent Activity</h3>
               <div className="space-y-2">
+                {auditLogs.length === 0 && <p className="text-sm text-slate-500">Nothing logged yet.</p>}
                 {auditLogs.slice(0, 5).map((log) => (
                   <div key={log.id} className="flex items-center justify-between p-4 bg-slate-50 hover:bg-slate-100 rounded-xl transition-colors">
                     <div>
@@ -2583,12 +2551,20 @@ const AdminDashboard: React.FC = () => {
                   </div>
                 ))}
               </div>
-            </div>
+            </section>
           </div>
         )}
 
-        {/* Users Tab */}
+        {/* Users: accounts and wallets share one tab */}
         {selectedTab === 'users' && (
+          <SegmentedToggle
+            value={usersView}
+            onChange={setUsersView}
+            options={[{ value: 'accounts', label: 'Accounts' }, { value: 'wallets', label: 'Wallets' }]}
+          />
+        )}
+        {/* Users Tab */}
+        {selectedTab === 'users' && usersView === 'accounts' && (
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
             <div className="px-6 py-4 border-b border-slate-200">
               <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
@@ -2596,7 +2572,7 @@ const AdminDashboard: React.FC = () => {
                   <h3 className="text-lg font-display font-bold text-slate-900">User Management</h3>
                   <p className="text-sm text-slate-500 mt-0.5">
                     Set a role here to grant access. <span className="font-medium text-slate-700">Vendor</span> unlocks the Vendor Dashboard at /vendor,
-                    where submissions arrive as unapproved drafts for review on the Vendors tab.
+                    where submissions arrive as unapproved drafts for approval on the Products tab.
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2677,6 +2653,9 @@ const AdminDashboard: React.FC = () => {
                             className="text-sm bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-slate-900 focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
                             aria-label={`Role for ${row.email}`}
                           >
+                            {!ASSIGNABLE_ROLES.some(r => r.value === row.role) && (
+                              <option value={row.role}>{roleLabel(row.role)} (retired)</option>
+                            )}
                             {ASSIGNABLE_ROLES.map(r => (
                               <option key={r.value} value={r.value}>{r.label}</option>
                             ))}
@@ -2754,98 +2733,6 @@ const AdminDashboard: React.FC = () => {
           </div>
         )}
 
-        {/* Vendor Products Tab */}
-        {selectedTab === 'vendors' && (
-          <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-lg font-display font-bold text-slate-900">Vendor Product Approvals</h3>
-                  <p className="text-sm text-slate-500 mt-0.5">
-                    Everything submitted from the Vendor Dashboard. Approving publishes it to the store; rejecting takes it
-                    off the store without deleting it.
-                  </p>
-                </div>
-                <span className="px-3 py-1.5 text-xs font-semibold rounded-full bg-amber-100 text-amber-700">
-                  {vendorProducts.filter(p => !p.approved).length} pending
-                </span>
-              </div>
-            </div>
-            {vendorProducts.length === 0 ? (
-              <div className="px-6 py-12 text-center">
-                <p className="text-sm font-medium text-slate-700">No vendor submissions yet.</p>
-                <p className="text-sm text-slate-500 mt-1">
-                  Submissions appear here once an account with the <span className="font-medium">Vendor</span> role adds a
-                  product from /vendor. Grant the role on the Users tab.
-                </p>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-                {vendorProducts.map((product) => {
-                  const vendor = users.find(u => u.id === product.vendorId)
-                  const vendorName = [vendor?.firstName, vendor?.lastName].filter(Boolean).join(' ')
-                  const isRejected = product.status === 'rejected'
-                  return (
-                    <div key={product.id} className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-soft hover:shadow-soft-lg transition-shadow flex flex-col">
-                      {product.images?.[0] ? (
-                        <img
-                          src={product.images[0]}
-                          alt={product.title}
-                          className="w-full h-48 object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-48 bg-slate-100 flex items-center justify-center text-sm text-slate-400">
-                          No image submitted
-                        </div>
-                      )}
-                      <div className="p-4 flex flex-col flex-1">
-                        <h4 className="font-semibold text-slate-900 mb-2">{product.title}</h4>
-                        <p className="text-slate-600 text-sm mb-3 line-clamp-2">{product.description}</p>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-lg font-bold text-slate-900">${product.price}</span>
-                          <span className={`px-3 py-1 text-xs font-semibold rounded-full ${product.approved
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : isRejected
-                              ? 'bg-red-100 text-red-700'
-                              : 'bg-amber-100 text-amber-700'
-                            }`}>
-                            {product.approved ? 'Live' : isRejected ? 'Rejected' : 'Pending'}
-                          </span>
-                        </div>
-                        <p className="text-sm text-slate-500 mb-1">
-                          Vendor: {vendorName || vendor?.email || product.vendorId}
-                        </p>
-                        <p className="text-xs text-slate-400 mb-3">
-                          {product.category} · submitted {product.createdAt ? new Date(product.createdAt).toLocaleDateString() : 'unknown'}
-                        </p>
-
-                        <div className="flex space-x-2 mt-auto">
-                          {!product.approved && (
-                            <button
-                              onClick={() => approveVendorProduct(product)}
-                              className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
-                            >
-                              {isRejected ? 'Approve anyway' : 'Approve'}
-                            </button>
-                          )}
-                          {!isRejected && (
-                            <button
-                              onClick={() => rejectVendorProduct(product)}
-                              className="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-medium py-2.5 px-4 rounded-xl transition-colors"
-                            >
-                              {product.approved ? 'Take down' : 'Reject'}
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-        )}
-
         {/* Products Tab */}
         {selectedTab === 'products' && (
           <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
@@ -2861,8 +2748,9 @@ const AdminDashboard: React.FC = () => {
                     🏷️ Promo Pricing
                   </button>
                   <button
-                    onClick={openCreateProductModal}
+                    onClick={() => navigate('/imagination-station')}
                     className="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl transition-colors shadow-lg shadow-purple-500/25"
+                    title="Products are made in the Step Flow builder"
                   >
                     + Create Product
                   </button>
@@ -3342,78 +3230,23 @@ const AdminDashboard: React.FC = () => {
         )
         }
 
-        {/* 3D Models Tab */}
+        {/* Wallets live inside Users */}
         {
-          selectedTab === 'models' && (
-            <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden">
-              <div className="px-6 py-4 border-b border-slate-200">
-                <h3 className="text-lg font-display font-bold text-slate-900">3D Model Approvals</h3>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-                {models.map((model) => {
-                  const uploader = users.find(u => u.id === model.uploadedBy)
-                  return (
-                    <div key={model.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                      <div className="h-48 bg-slate-100 flex items-center justify-center">
-                        <svg className="w-16 h-16 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                        </svg>
-                      </div>
-                      <div className="p-4">
-                        <h4 className="font-semibold text-slate-900 mb-2">{model.title}</h4>
-                        <p className="text-slate-500 text-sm mb-3">{model.description}</p>
-                        <div className="flex justify-between items-center mb-2">
-                          <span className="text-sm text-slate-500">{model.fileType.toUpperCase()}</span>
-                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${model.approved
-                            ? 'bg-emerald-100 text-emerald-700'
-                            : 'bg-amber-100 text-amber-700'
-                            }`}>
-                            {model.approved ? 'Approved' : 'Pending'}
-                          </span>
-                        </div>
-                        <div className="flex justify-between items-center mb-3">
-                          <span className="text-sm text-slate-500">👍 {model.votes} votes</span>
-                          <span className="text-sm text-slate-500">⭐ {model.points} points</span>
-                        </div>
-                        <p className="text-sm text-slate-500 mb-3">
-                          By: {uploader?.firstName} {uploader?.lastName}
-                        </p>
-
-                        {!model.approved && (
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => approveModel(model.id)}
-                              className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white text-sm py-2 px-3 rounded-lg font-medium transition-colors"
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => rejectModel(model.id)}
-                              className="flex-1 bg-red-500 hover:bg-red-600 text-white text-sm py-2 px-3 rounded-lg font-medium transition-colors"
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )
-        }
-
-        {/* Wallet Management Tab */}
-        {
-          selectedTab === 'wallet' && (
+          selectedTab === 'users' && usersView === 'wallets' && (
             <AdminWalletManagement />
           )
         }
 
-        {/* ITC Pricing Tab */}
+        {/* Pricing: ITC prices and Imagination products share one tab */}
+        {selectedTab === 'pricing' && (
+          <SegmentedToggle
+            value={pricingView}
+            onChange={setPricingView}
+            options={[{ value: 'itc', label: 'ITC prices' }, { value: 'products', label: 'Imagination products' }]}
+          />
+        )}
         {
-          selectedTab === 'itc-pricing' && (
+          selectedTab === 'pricing' && pricingView === 'itc' && (
             <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
               <div className="flex items-center justify-between mb-6">
                 <div>
@@ -3537,7 +3370,7 @@ const AdminDashboard: React.FC = () => {
 
         {/* Imagination Products Tab */}
         {
-          selectedTab === 'imagination' && (
+          selectedTab === 'pricing' && pricingView === 'products' && (
             <AdminImaginationProducts />
           )
         }
@@ -3675,13 +3508,6 @@ const AdminDashboard: React.FC = () => {
                 </table>
               </div>
             </div>
-          )
-        }
-
-        {/* Virtual Try-On Tab */}
-        {
-          selectedTab === 'tryon' && (
-            <AdminVirtualTryOnReport />
           )
         }
 
