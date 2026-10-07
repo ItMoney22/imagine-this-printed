@@ -49,3 +49,88 @@ export function couponBlockHtml(coupon?: EmailCoupon | null): string {
     </div>
   `
 }
+
+// ---------------------------------------------------------------------------
+// Order totals — one implementation for the hand-written confirmation and the
+// AI writer's layout. Real order ITP-MTYGMM4V-UQ5X listed 2 x $20 with
+// "Total $30.42" and no lines in between: the order row carried subtotal,
+// discount, shipping and tax, but nothing handed them to the email.
+// ---------------------------------------------------------------------------
+
+export interface OrderTotals {
+  subtotal?: number | null
+  discount?: number | null
+  shipping?: number | null
+  tax?: number | null
+}
+
+export interface TotalsRow {
+  label: string
+  /** Signed dollars: negative renders as a minus. */
+  amount: number
+  strong?: boolean
+}
+
+const cents = (n: unknown): number => Math.round((Number(n) || 0) * 100)
+
+const money = (dollars: number): string =>
+  `${dollars < 0 ? '-' : ''}$${Math.abs(dollars).toFixed(2)}`
+
+/**
+ * Rows that always add up to `total`. Subtotal falls back to the item lines;
+ * discount/shipping/tax are shown when known (shipping always, "Free" at 0).
+ * If the pieces still don't reach the charged total (a legacy row, add-ons the
+ * lines don't carry), one "Adjustments" row makes up the gap rather than
+ * printing numbers that contradict each other.
+ */
+export function buildTotalsRows(
+  items: Array<{ quantity: number; price: number }>,
+  total: number,
+  totals: OrderTotals = {}
+): TotalsRow[] {
+  const itemsCents = items.reduce((n, i) => n + cents(i.price) * (Number(i.quantity) || 1), 0)
+  const subtotalCents = totals.subtotal != null ? cents(totals.subtotal) : itemsCents
+  const discountCents = Math.abs(cents(totals.discount))
+  const shippingCents = cents(totals.shipping)
+  const taxCents = cents(totals.tax)
+  const totalCents = cents(total)
+
+  const rows: TotalsRow[] = [{ label: 'Subtotal', amount: subtotalCents / 100 }]
+  if (discountCents > 0) rows.push({ label: 'Discount', amount: -discountCents / 100 })
+  rows.push({ label: 'Shipping', amount: shippingCents / 100 })
+  rows.push({ label: 'Tax', amount: taxCents / 100 })
+
+  const gap = totalCents - (subtotalCents - discountCents + shippingCents + taxCents)
+  if (gap !== 0) rows.splice(rows.length, 0, { label: 'Adjustments', amount: gap / 100 })
+
+  rows.push({ label: 'Total', amount: totalCents / 100, strong: true })
+  return rows
+}
+
+/** <tfoot> rows for the order table (3 columns: item, qty, price). */
+export function totalsFootHtml(rows: TotalsRow[]): string {
+  return rows
+    .map(r => {
+      const label = r.label
+      const value = r.label === 'Shipping' && r.amount === 0 ? 'Free' : money(r.amount)
+      return r.strong
+        ? `<tr><td colspan="2" style="padding: 12px; font-weight: bold; color: #374151; border-top: 2px solid #e5e7eb;">${esc(label)}</td><td style="padding: 12px; text-align: right; font-weight: bold; color: #059669; font-size: 18px; border-top: 2px solid #e5e7eb;">${value}</td></tr>`
+        : `<tr><td colspan="2" style="padding: 6px 12px; color: #6b7280; font-size: 14px;">${esc(label)}</td><td style="padding: 6px 12px; text-align: right; color: #6b7280; font-size: 14px;">${value}</td></tr>`
+    })
+    .join('')
+}
+
+/** Words that mean the parcel has moved. A confirmation must never say them. */
+const SHIPPED_WORDS = /\b(on (its|their|the) way|shipped|shipping soon|in transit|out for delivery|delivered|arriv(ed|ing)|heading your way|has left)\b/i
+
+/** True when a confirmation subject claims something that hasn't happened. */
+export function subjectClaimsShipped(subject: string): boolean {
+  return SHIPPED_WORDS.test(subject || '')
+}
+
+/** Greeting name for an inbound ticket: what the customer typed, else null. */
+export function typedName(raw?: string | null): string | null {
+  const name = (raw || '').trim().replace(/\s+/g, ' ')
+  if (!name || name.length > 60 || name.includes('@') || /^(not provided|anonymous|n\/a)$/i.test(name)) return null
+  return name
+}

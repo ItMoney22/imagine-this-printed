@@ -328,7 +328,16 @@ async function sendOrderConfirmation(order: any) {
     items,
     order.total || 0,
     customerName,
-    { orderId: order.id }
+    {
+      orderId: order.id,
+      // The order row already carries these; they just never reached the email.
+      totals: {
+        subtotal: order.subtotal,
+        discount: order.discount_amount,
+        shipping: order.shipping_amount,
+        tax: order.tax_amount
+      }
+    }
   )
   console.log(`[Email] Order confirmation sent to ${order.customer_email}: Order #${order.order_number}`)
 }
