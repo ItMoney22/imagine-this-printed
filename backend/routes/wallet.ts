@@ -921,7 +921,7 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
     let discountAmount = 0
     let validatedCouponId: string | null = null
     if (couponCode) {
-      const couponValidation = await validateCouponForOrder({ code: couponCode, userId, orderTotal: subtotal })
+      const couponValidation = await validateCouponForOrder({ code: couponCode, userId, email: shipping?.email || userEmail, orderTotal: subtotal })
       if (!couponValidation.valid) {
         return res.status(400).json({ error: couponValidation.error || 'Invalid coupon code' })
       }

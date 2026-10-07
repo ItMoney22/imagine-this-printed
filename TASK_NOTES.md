@@ -1,5 +1,32 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — Etsy bag coupon card (Watchtower 8cde2a1d, zero-pluto)
+
+David 10/7: "when we sell something on Etsy, we're going to add a coupon code for the site, a little
+coupon in the bag." Restated: Christina (packer) drops a 4x6 thank-you card in every Etsy order; an Etsy
+buyer reads it, scans the QR or types ETSYBAG on our site, and gets 15% off a first order, once.
+
+### File shortlist (approved scope — 2026-10-07 Etsy bag card)
+Rationale: the previous shortlist was for Team Studio and does not cover coupons/checkout.
+- `backend/services/coupon-customer-rules.ts` + `.test.ts` (new: one-per-customer + first-order-only, guests by email)
+- `backend/services/order-pricing.ts` + `.test.ts`, `backend/routes/coupons.ts`, `backend/routes/stripe.ts`, `backend/routes/wallet.ts`
+- `backend/shared/etsy-bag.ts` + `.test.ts` (new: the card's facts + weekly summary), `backend/services/etsy-bag-report.ts` (new)
+- `backend/routes/admin/coupons.ts` (GET /etsy-bag/weekly), `backend/scripts/etsy-bag-weekly.ts` (new)
+- `src/components/etsy-bag/EtsyBagCard.tsx`, `src/pages/admin/EtsyBagCardPage.tsx` (new), `public/etsy-bag/etsy-bag-qr.svg` (new)
+- `src/App.tsx` (route), `src/components/AdminCouponManagement.tsx` (link), `src/pages/Checkout.tsx`, `src/context/CartContext.tsx`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-pluto): ETSYBAG row created LIVE in discount_codes (id ca335691, 15%, per_user_limit 1,
+  metadata.first_order_only). Found guests could reuse any one-per-customer code (per_user_limit only read
+  coupon_usage.user_id, null for guests); now checked by checkout email against ever-paid orders, in both the
+  preview route and the server pricing engine; a refused code now returns 400 couponError and checkout drops it
+  with the reason instead of stalling on an amount mismatch. Card + admin print page (/admin/etsy-bag-card:
+  4x6 or letter 2-up, weekly table). QR generated from the URL and decoded back: exact match. Etsy's
+  Off-Platform Transactions Policy (updated 2026-10-05, read live) bans off-Etsy discounts AND QR codes that
+  send Etsy buyers off Etsy, so the page shows a hold until David rules. Tests: backend 1691/1691, frontend
+  pages/context/lib 106/106, both tsconfigs clean.
+
 ## Current request (2026-10-07) — stop the spam, lock down the forms (Watchtower 673c0b4a)
 
 David 10/7: "secure ITP, make the spam go away." Bot protection on the contact form,

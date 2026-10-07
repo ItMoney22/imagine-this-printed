@@ -527,6 +527,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         },
         couponCode: couponCode || null,
         userId: trustedUserId,
+        // How a guest is recognised for "one use per customer" / "first order
+        // only" coupons (services/coupon-customer-rules.ts).
+        customerEmail: shipping?.email || null,
         itcCreditRequested: Number(itcCreditAmount) || 0
       })
     } catch (pricingError: any) {
@@ -559,6 +562,14 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       taxRate: pricing.taxRate,
       total: serverAmountCents / 100
     }
+    // A code the server refuses (already used, first order only, expired
+    // since it was applied) used to surface only as an amount mismatch, which
+    // left checkout stuck with no reason shown. Name the refusal so the
+    // client can drop the code, tell the shopper, and retry at full price.
+    if (couponCode && pricing.couponError) {
+      return res.status(400).json({ error: pricing.couponError, couponError: pricing.couponError, pricing: pricingResponse })
+    }
+
     const amountCheck = evaluateCheckoutAmount(Number(amount), serverAmountCents)
     if (!amountCheck.ok) {
       req.log?.warn({ clientAmount: amount, serverAmount: serverAmountCents }, 'Checkout amount mismatch — rejecting (possible tampering or stale client estimate)')

@@ -85,6 +85,7 @@ const OrderStatus = lazy(() => import('./pages/OrderStatus'))
 const ClaimAccount = lazy(() => import('./pages/ClaimAccount'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminImaginationProducts = lazy(() => import('./pages/admin/ImaginationProducts'))
+const AdminEtsyBagCard = lazy(() => import('./pages/admin/EtsyBagCardPage'))
 const AdminTeamTemplatesIndex = lazy(() => import('./pages/AdminTeamTemplatesIndex'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
 const TeamStudio = lazy(() => import('./pages/TeamStudio'))
@@ -272,6 +273,7 @@ function App() {
                   <Route path="/admin/ai/products/create" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminAIProductBuilder /></RoleRoute>} />
                   <Route path="/admin/voice-settings" element={<RoleRoute allowedRoles={['admin']}><AdminVoiceSettings /></RoleRoute>} />
                   <Route path="/admin/imagination-products" element={<RoleRoute allowedRoles={['admin']}><AdminImaginationProducts /></RoleRoute>} />
+                  <Route path="/admin/etsy-bag-card" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminEtsyBagCard /></RoleRoute>} />
                   <Route path="/admin/email-templates" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminEmailTemplates /></RoleRoute>} />
 
                   {/* Imagination Station Routes */}

@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import dotenv from 'dotenv'
+import { loadEtsyBagWeeks } from '../../services/etsy-bag-report.js'
 
 dotenv.config()
 
@@ -35,6 +36,18 @@ router.get('/', async (req: Request, res: Response) => {
         res.json({ coupons })
     } catch (error: any) {
         console.error('Error fetching coupons:', error)
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// GET /api/admin/coupons/etsy-bag/weekly - Etsy bag card: redemptions per week
+// (paid ETSYBAG orders + orders that came in through the card's QR link).
+router.get('/etsy-bag/weekly', async (req: Request, res: Response) => {
+    try {
+        const weeks = await loadEtsyBagWeeks(supabase, { weeks: Number(req.query.weeks) || 8 })
+        res.json({ weeks })
+    } catch (error: any) {
+        console.error('Error loading Etsy bag weekly count:', error)
         res.status(500).json({ error: error.message })
     }
 })

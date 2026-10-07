@@ -78,6 +78,7 @@ import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normaliz
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
+import { checkCustomerCouponRules, supabaseCustomerOrderLookups, type CustomerOrderLookups } from './coupon-customer-rules.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -256,6 +257,8 @@ export interface PricingDiscountCodeRow {
   min_order_amount: number | null
   max_discount_amount: number | null
   per_user_limit: number | null
+  /** e.g. { first_order_only: true } — see coupon-customer-rules.ts. */
+  metadata?: Record<string, unknown> | null
 }
 
 export interface PricingDependencies {
@@ -283,6 +286,13 @@ export interface PricingDependencies {
   fetchMetalProductIds?: (ids: string[]) => Promise<Set<string>>
   fetchDiscountCode: (code: string) => Promise<PricingDiscountCodeRow | null>
   countCouponUsageForUser: (discountCodeId: string, userId: string) => Promise<number>
+  /**
+   * Paid-order lookups behind "one use per customer" and "first order only"
+   * for guests, who have no user id (coupon-customer-rules.ts). Optional so
+   * existing injected-deps tests keep compiling; absent = the old
+   * account-only per_user_limit check.
+   */
+  customerOrderLookups?: CustomerOrderLookups
   /** Returns the user's real ITC wallet balance (units), 0 if none. */
   fetchWalletItcBalance: (userId: string) => Promise<number>
   /**
@@ -319,8 +329,11 @@ export interface CalculateOrderPricingInput {
   shipping: PricingShippingInput
   couponCode?: string | null
   /** Authenticated user id ONLY (e.g. req.user.sub). Pass null for guests —
-   *  guests can never apply ITC credit or per-user coupon limits. */
+   *  guests can never apply ITC credit. */
   userId?: string | null
+  /** Checkout email — how a GUEST is recognised for per-customer coupon
+   *  rules (one use per customer, first order only). */
+  customerEmail?: string | null
   itcCreditRequested?: number
 }
 
@@ -891,6 +904,8 @@ const defaultDependencies: PricingDependencies = {
     return count
   },
 
+  customerOrderLookups: supabaseCustomerOrderLookups(supabase),
+
   async fetchWalletItcBalance(userId: string) {
     const { data, error } = await supabase.from('user_wallets').select('itc_balance').eq('user_id', userId).single()
     if (error || !data) return 0
@@ -999,7 +1014,16 @@ export async function calculateOrderPricing(
     if (row && input.userId) {
       usageCount = await deps.countCouponUsageForUser(row.id, input.userId)
     }
-    const result = computeDiscountFromCoupon(row, subtotalCents, usageCount)
+    let result = computeDiscountFromCoupon(row, subtotalCents, usageCount)
+    if (row && !result.error && deps.customerOrderLookups) {
+      const customerCheck = await checkCustomerCouponRules(
+        row,
+        { userId: input.userId, email: input.customerEmail },
+        deps.customerOrderLookups,
+        usageCount
+      )
+      if (!customerCheck.ok) result = { discountCents: 0, freeShipping: false, error: customerCheck.error }
+    }
     couponDiscountCents = result.discountCents
     freeShipping = result.freeShipping
     couponError = result.error
