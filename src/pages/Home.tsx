@@ -4,6 +4,7 @@ import { Palette, Sparkles, Zap, Shield, Heart, ArrowRight, Star, Play, Boxes, P
 import { Hero } from '../components/Hero'
 import ProductCard from '../components/ProductCard'
 import BlankTeesSection from '../components/BlankTeesSection'
+import { HomeSocialProof } from '../components/reviews/RealReviews'
 import type { Product } from '../types'
 
 import { supabase } from '../lib/supabase'
@@ -750,6 +751,9 @@ const Home: React.FC = () => {
           </Suspense>
         </div>
       </section>
+
+      {/* Real buyer reviews: renders nothing until a real one exists */}
+      <HomeSocialProof />
 
       {/* Why Choose Us */}
       <section className="py-12 sm:py-24 bg-bg">

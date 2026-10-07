@@ -1,5 +1,24 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) - ITP real social proof (task 36222110, iahhm)
+
+Real Etsy reviews + buyer photos on home and matching product pages, zero invented content.
+
+### Finding (2026-10-07, live API calls)
+- Etsy `GET /shops/67055923/reviews` with the app key returns 200, `count: 0`. Shop record: `transaction_sold_count: 0`, `num_favorers: 0`. There are no Etsy reviews or sales to import.
+- `product_reviews` (first-party verified-buyer reviews, backend/routes/reviews.ts) is NOT applied to prod (`42P01 relation does not exist`), and the storefront never called it. Prod has 3 paid orders.
+- So today neither source has a real review. Nothing is displayed; the pipeline is built so a real one appears with one command.
+
+### File shortlist (approved scope - 2026-10-07 social proof)
+- `src/data/realReviews.ts`, `src/lib/real-reviews.ts` + `.test.ts`, `src/components/reviews/RealReviews.tsx` (new)
+- `backend/scripts/import-etsy-reviews.mjs` (new)
+- `src/pages/Home.tsx`, `src/pages/ProductPage.tsx` (one mount each)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (iahhm): built dormant real-only reviews: data file (empty), importer (verbatim Etsy text, photos opt-in via --with-photos), HomeSocialProof + ProductSocialProof (render null when empty), provenance guard test. Dry run against live Etsy: 0 reviews. tsc/eslint clean, 6 tests pass.
+
+
 ## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
 
 David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1

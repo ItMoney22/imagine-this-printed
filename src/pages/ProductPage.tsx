@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { ProductSocialProof } from '../components/reviews/RealReviews'
 import { Sparkles, ShoppingCart, Zap, Check, Upload, Loader2 } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -1224,6 +1225,8 @@ const ProductPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ProductSocialProof productId={product.id} />
 
       {/* Similar Products Recommendations */}
       <div className="mt-16">
