@@ -5,6 +5,7 @@ import { sendTicketConfirmationEmail, sendNewSupportTicketEmail } from '../utils
 import { triageTicket, describeTicketTriage } from '../lib/jev-triage.js'
 import { checkTicketSpam } from '../lib/spam-guard.js'
 import { verifyTurnstile, readTurnstileToken } from '../lib/turnstile.js'
+import { pingChristinaAboutTicket } from '../services/support-ping.js'
 
 dotenv.config()
 
@@ -245,6 +246,18 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       console.error('[Support] Failed to send support team notification:', emailError)
       // Don't fail the request if email fails
     }
+
+    // Becky tells Christina on her phone; her answer comes back through /api/print-bridge/ticket-reply.
+    await pingChristinaAboutTicket({
+      kind: 'ticket',
+      ticketId: ticket.id,
+      subject: String(subject),
+      message: String(description),
+      customerName: name,
+      customerEmail: email,
+      priority: triage.dbPriority,
+      category: triage.category ?? category,
+    })
 
     res.status(201).json({
       success: true,
