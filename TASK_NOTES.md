@@ -1,5 +1,35 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — creator print files out of public products.metadata (Watchtower b312de9c, zero-pluto)
+
+Reproduced with the public anon key: GET /rest/v1/products?id=eq.e387149e...&select=metadata->assets->>dtf
+returned a 1-year signed URL (expires 2027-07-12) to Darrell's print-ready front.png; assets.clean and
+print_files.front held the same. Worse: imagine-this-printed-main grants allUsers objectViewer, so the
+plain path (next to the public mockups) and an anonymous bucket listing handed it out too.
+
+Mechanism: service-role-only TABLE product_print_files (bucket + object paths, never URLs; RLS on, no
+policies, grants revoked) + the PRIVATE bucket imagine-this-printed-products (public access prevention
+enforced; the API's service account is already admin on it). Public row keeps only
+metadata.print_file_placements. Links are signed at read time (12 h for the press floor). Built on
+Daisy's c25fa1e (isCreatorProductMeta) so both ship together (28f1a972).
+
+### File shortlist (approved scope — 2026-10-07 print files)
+- `supabase/migrations/20261007200000_product_print_files.sql` (applied to prod 2026-10-07, ledger row in)
+- `backend/services/print-files.ts` + `.test.ts` (new), `backend/services/google-cloud-storage.ts` (2 private-bucket helpers)
+- `backend/routes/storefront.ts` (publish + checkout) + `backend/routes/storefront.print-files.test.ts` (new)
+- `backend/routes/admin/user-product-approvals.ts` (direct-print gate, no public watermark of creator art)
+- `backend/services/product-files.ts` + `.test.ts` (press floor signs the private file / order-line refs)
+- `backend/shared/creator-product.ts` + `.test.ts` (printFilePlacementsOf), `src/components/AdminCreatorProductsTab.tsx` (mirror gate)
+- `backend/scripts/move-creator-print-files-private.mjs` (one-off move, run on prod 2026-10-07)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-pluto): code + tests (route test runs the real router; 7/8 fail on the old code). Table applied
+  to prod; 3 merch-studio rows moved (copy md5-verified, public originals deleted: soft-delete 7 days), anon
+  queries now null, 0/2,605 products carry a creator print path. Real-DB proof: local publish of a throwaway
+  product + Walk By Faith checkout (Stripe refused on purpose) wrote print_file_refs; the floor code signed
+  the private copy, HTTP 200, 1,625,476 bytes; all proof rows/objects deleted.
+
 ## Current request (2026-10-07) — creator products get creator treatment + 2XL +$2.50 (Watchtower d6822874)
 
 David's phone walk of Darrell McCutchen's "Walk By Faith" (e387149e) on ITP: no digital

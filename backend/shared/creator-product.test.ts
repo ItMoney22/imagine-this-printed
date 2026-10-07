@@ -4,6 +4,7 @@ import {
   creatorIdOf,
   creatorNameOf,
   creatorGarmentColor,
+  printFilePlacementsOf,
   isFaithListing,
   recommendationLane,
   fitsRecommendationLane,
@@ -117,5 +118,24 @@ describe('recommendation lanes', () => {
   it('a creator product with no recorded creator shows no row at all', () => {
     const lane = recommendationLane({ name: 'Mystery', metadata: { source: 'merch-studio' } })
     expect(ids(lane)).toEqual([])
+  })
+})
+
+describe('printFilePlacementsOf (task b312de9c: print files are private)', () => {
+  it('reads the public placement list a publish writes now', () => {
+    expect(printFilePlacementsOf({ source: 'merch-studio', print_file_placements: ['front', 'back'] })).toEqual(['front', 'back'])
+  })
+
+  it('still counts a row holding the old public print_files URLs', () => {
+    expect(printFilePlacementsOf({ print_files: { front: 'https://storage.googleapis.com/b/front.png?sig' } })).toEqual(['front'])
+  })
+
+  it('ignores empty or non-string entries and never repeats a placement', () => {
+    expect(printFilePlacementsOf({ print_file_placements: ['front', 7, null], print_files: { front: 'https://x/front.png', back: '' } })).toEqual(['front'])
+  })
+
+  it('is empty for a product with no print files', () => {
+    expect(printFilePlacementsOf({ assets: { clean: 'https://x/clean.png' } })).toEqual([])
+    expect(printFilePlacementsOf(null)).toEqual([])
   })
 })

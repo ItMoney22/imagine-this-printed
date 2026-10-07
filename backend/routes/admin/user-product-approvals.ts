@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { sendEmail, sendProductApprovalEmail } from '../../utils/email.js'
 import { generateSeoPackForProduct } from '../../services/seo-pack.js'
-import { isCreatorProductMeta } from '../../shared/creator-product.js'
+import { isCreatorProductMeta, printFilePlacementsOf } from '../../shared/creator-product.js'
 
 const router = Router()
 
@@ -109,10 +109,11 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
     const assets = (product.metadata?.assets && typeof product.metadata.assets === 'object') ? product.metadata.assets : {}
     const hasMockup = !!(product.metadata?.mockup_url || (Array.isArray(assets.mockups) && assets.mockups.length))
     // Direct-print products (Merch Studio publishes via POST
-    // /api/storefront/products) arrive with print-ready 300-DPI files —
-    // metadata.print_files — so the AI-generation artifacts (halftone) don't
-    // exist and must not hold up approval.
-    const isDirectPrint = !!product.metadata?.print_files?.front
+    // /api/storefront/products) arrive with print-ready 300-DPI files, so the
+    // AI-generation artifacts (halftone, DTF) don't exist and must not hold up
+    // approval. The files are private (product_print_files); the row lists
+    // only which placements have one.
+    const isDirectPrint = printFilePlacementsOf(product.metadata).includes('front')
     const missingGenerations: string[] = []
     if (!assets.clean && !(Array.isArray(product.images) && product.images.length)) missingGenerations.push('clean design')
     if (!hasMockup) missingGenerations.push('mockup')
@@ -125,9 +126,13 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
 
     // Produce a watermarked PUBLIC display variant of the clean art (the clean
     // original stays gated for paid digital delivery). Best-effort — never block
-    // approval on watermarking.
+    // approval on watermarking. Not for a creator's own apparel: its page shows
+    // only their garment photos (src/lib/product-kind.ts) and its art stays
+    // private (task b312de9c), so nothing public is made from it.
     let displayUrl: string | undefined
-    const cleanSource = assets.clean || (Array.isArray(product.images) ? product.images[0] : undefined)
+    const cleanSource = isCreatorProductMeta(product.metadata)
+      ? undefined
+      : (assets.clean || (Array.isArray(product.images) ? product.images[0] : undefined))
     if (cleanSource) {
       try {
         const { watermarkUrlToGcs } = await import('../../services/watermark.js')

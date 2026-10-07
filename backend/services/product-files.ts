@@ -17,9 +17,14 @@
  *    `products.metadata.assets` bundle instead of asset rows, and older ones
  *    still carry a single `metadata.mockup_url`. Both are folded in here so the
  *    UI has one contract.
+ * 3. A creator's print file (Merch Studio) is NOT on the product row or in
+ *    product_assets: it is private (services/print-files.ts, task b312de9c).
+ *    It is signed here, per read, as the design + DTF file, and an order line's
+ *    snapshotted `print_file_refs` become short-lived `print_files` links.
  */
 
 import { supabase } from '../lib/supabase.js'
+import { getPrintFileRefsFor, isPrintFileRefs, signPrintFileRefs } from './print-files.js'
 
 export interface ProductFiles {
   /** Clean artwork — the actual PNG. */
@@ -66,12 +71,13 @@ export async function getProductFilesFor(productIds: string[]): Promise<Record<s
   const out: Record<string, ProductFiles> = {}
   if (ids.length === 0) return out
 
-  const [assetsRes, productsRes] = await Promise.all([
+  const [assetsRes, productsRes, printRefs] = await Promise.all([
     supabase
       .from('product_assets')
       .select('id, product_id, kind, url, asset_role, is_primary, display_order')
       .in('product_id', ids),
     supabase.from('products').select('id, metadata').in('id', ids),
+    getPrintFileRefsFor(ids),
   ])
 
   // A failure here must not take the whole order list down — the floor still
@@ -126,7 +132,30 @@ export async function getProductFilesFor(productIds: string[]): Promise<Record<s
     }
   }
 
+  // Private creator print files: the uploaded print-ready front IS both the
+  // clean art and the DTF file, exactly as the old public bundle said.
+  await Promise.all(Object.entries(printRefs).map(async ([id, refs]) => {
+    const signed = await signPrintFileRefs(refs)
+    if (!signed.front) return
+    const files = (out[id] ??= emptyProductFiles())
+    files.design ||= signed.front
+    files.dtf ||= signed.front
+  }))
+
   return out
+}
+
+/**
+ * The order line's per-placement print files as links. A line written since
+ * task b312de9c carries `print_file_refs` (private bucket + paths); sign them
+ * now. Older lines keep whatever `print_files` they stored.
+ */
+async function withSignedPrintFiles(item: any): Promise<any> {
+  const refs = item?.metadata?.print_file_refs
+  if (!isPrintFileRefs(refs)) return item
+  const signed = await signPrintFileRefs(refs)
+  if (!signed.front && !signed.back) return item
+  return { ...item, metadata: { ...item.metadata, print_files: signed } }
 }
 
 /**
@@ -150,11 +179,11 @@ export async function attachProductFiles<T extends { order_items?: any[] }>(orde
   // order whose product has no generated assets.
   const filesById = ids.length > 0 ? await getProductFilesFor(ids) : {}
 
-  return orders.map((order) => ({
+  return Promise.all(orders.map(async (order) => ({
     ...order,
-    order_items: (order.order_items ?? []).map((item: any) => {
+    order_items: await Promise.all((order.order_items ?? []).map(async (item: any) => {
       const id = idOf(item)
-      return { ...item, product_files: (id && filesById[id]) || emptyProductFiles() }
-    }),
-  }))
+      return { ...(await withSignedPrintFiles(item)), product_files: (id && filesById[id]) || emptyProductFiles() }
+    })),
+  })))
 }

@@ -41,6 +41,24 @@ export function creatorNameOf(product: { metadata?: Meta } | null | undefined): 
 }
 
 /**
+ * Which placements ('front', 'back') carry a print-ready file. The files
+ * themselves live in a private bucket, recorded in product_print_files
+ * (service role only, backend/services/print-files.ts); the public row keeps
+ * only this list in metadata.print_file_placements, because products is
+ * readable by anyone (task b312de9c). A row still holding the old public
+ * metadata.print_files URLs counts too.
+ */
+export function printFilePlacementsOf(metadata: Meta): string[] {
+  const listed = Array.isArray(metadata?.print_file_placements)
+    ? metadata.print_file_placements.filter((p: unknown): p is string => typeof p === 'string')
+    : []
+  const legacy = metadata?.print_files && typeof metadata.print_files === 'object'
+    ? Object.keys(metadata.print_files).filter(k => typeof metadata.print_files[k] === 'string' && metadata.print_files[k])
+    : []
+  return [...new Set([...listed, ...legacy])]
+}
+
+/**
  * The garment colour the creator designed the art on (Merch Studio records it
  * as placement.colorName + placement.color). Used for the swatch so it matches
  * the photos rather than a CSS named colour.
