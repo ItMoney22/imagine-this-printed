@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { Search, Plus, Edit, Trash2, AlertCircle, CheckCircle, XCircle, Copy, Tag, Percent, DollarSign, Truck } from 'lucide-react'
 import api from '../lib/api'
 import type { Coupon } from '../types'
@@ -181,6 +182,9 @@ export default function AdminCouponManagement() {
         <div>
           <h2 className="text-2xl font-display font-bold text-slate-900">Coupon Management</h2>
           <p className="text-slate-500 mt-1">Create and manage discount codes</p>
+          <Link to="/admin/etsy-bag-card" className="mt-1 inline-block text-sm font-medium text-primary hover:underline">
+            Etsy bag card: print it and see weekly redemptions
+          </Link>
         </div>
         <button
           onClick={openCreateModal}

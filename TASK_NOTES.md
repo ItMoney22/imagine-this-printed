@@ -1,6 +1,73 @@
 # TASK_NOTES
 
-## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
+## Current request (2026-10-07) — Etsy bag coupon card (Watchtower 8cde2a1d, zero-pluto)
+
+David 10/7: "when we sell something on Etsy, we're going to add a coupon code for the site, a little
+coupon in the bag." Restated: Christina (packer) drops a 4x6 thank-you card in every Etsy order; an Etsy
+buyer reads it, scans the QR or types ETSYBAG on our site, and gets 15% off a first order, once.
+
+### File shortlist (approved scope — 2026-10-07 Etsy bag card)
+Rationale: the previous shortlist was for Team Studio and does not cover coupons/checkout.
+- `backend/services/coupon-customer-rules.ts` + `.test.ts` (new: one-per-customer + first-order-only, guests by email)
+- `backend/services/order-pricing.ts` + `.test.ts`, `backend/routes/coupons.ts`, `backend/routes/stripe.ts`, `backend/routes/wallet.ts`
+- `backend/shared/etsy-bag.ts` + `.test.ts` (new: the card's facts + weekly summary), `backend/services/etsy-bag-report.ts` (new)
+- `backend/routes/admin/coupons.ts` (GET /etsy-bag/weekly), `backend/scripts/etsy-bag-weekly.ts` (new)
+- `src/components/etsy-bag/EtsyBagCard.tsx`, `src/pages/admin/EtsyBagCardPage.tsx` (new), `public/etsy-bag/etsy-bag-qr.svg` (new)
+- `src/App.tsx` (route), `src/components/AdminCouponManagement.tsx` (link), `src/pages/Checkout.tsx`, `src/context/CartContext.tsx`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-pluto): ETSYBAG row created LIVE in discount_codes (id ca335691, 15%, per_user_limit 1,
+  metadata.first_order_only). Found guests could reuse any one-per-customer code (per_user_limit only read
+  coupon_usage.user_id, null for guests); now checked by checkout email against ever-paid orders, in both the
+  preview route and the server pricing engine; a refused code now returns 400 couponError and checkout drops it
+  with the reason instead of stalling on an amount mismatch. Card + admin print page (/admin/etsy-bag-card:
+  4x6 or letter 2-up, weekly table). QR generated from the URL and decoded back: exact match. Etsy's
+  Off-Platform Transactions Policy (updated 2026-10-05, read live) bans off-Etsy discounts AND QR codes that
+  send Etsy buyers off Etsy, so the page shows a hold until David rules. Tests: backend 1691/1691, frontend
+  pages/context/lib 106/106, both tsconfigs clean.
+
+## Current request (2026-10-07) — stop the spam, lock down the forms (Watchtower 673c0b4a)
+
+David 10/7: "secure ITP, make the spam go away." Bot protection on the contact form,
+signup and the Resend inbound webhook; confident spam filed silently; existing spam
+tickets and bot accounts MARKED, never deleted. Builds on 17ecd4c (main, same task:
+server-side contact-form spam guard, already live).
+
+Live state found 10/7: 571 tickets, 569 already category=spam/closed (status CHECK only
+allows open|in_progress|resolved|closed, so "spam" lives in category). All 152 signups
+since 2026-09-23 have random-letter first/last names on real people's scraped addresses
+(signup email-bombing); bot metadata keys match Signup.tsx exactly, so they drive the
+real form. Inbound mail: no external spam yet; the wecare inbox is full of our own
+"New Support Ticket" alerts from before 17ecd4c.
+
+### File shortlist (approved scope — 2026-10-07 spam lockdown)
+- `backend/lib/turnstile.ts` + `.test.ts` (new: server-side Turnstile siteverify)
+- `backend/routes/support.ts` (Turnstile gate on POST /tickets)
+- `backend/lib/inbound-spam.ts` + `.test.ts` (new: file-vs-forward decision for inbound mail)
+- `backend/routes/email.ts` (Resend inbound webhook: Jev spam + per-sender throttle, no forward)
+- `src/pages/Contact.tsx`, `src/lib/captcha.ts` (Turnstile widget on the contact form)
+- `src/components/HoneypotField.tsx` (new), `src/pages/Signup.tsx`, `src/components/AuthModal.tsx` (+ tests)
+- `supabase/migrations/20261007120000_signup_bot_flag.sql` (new: bot-name flag + backfill, marks only)
+- `backend/.env.example`, `.env.example`, `docs/SIGNUP_BOT_PROTECTION.md` (env + where keys go)
+- `CLAUDE_TASK.md`, `TASK_NOTES.md`
+- Added mid-task (tests + ledger): `backend/routes/support-captcha.test.ts`, `backend/routes/email-inbound-spam.test.ts`,
+  `src/pages/Signup.test.tsx`, `supabase/migrations/MIGRATION_LEDGER.md` (the migration was applied live, so it gets its row)
+
+### Work log (append-only)
+- 2026-10-07 (zero-nine): signup bot flag migration dry-run (rolled back) then APPLIED + tracked on prod:
+  152/152 bot accounts marked in user_profiles.metadata.bot_suspect (147 strong, 5 weak+new+never signed in+no
+  orders), 5 real accounts untouched, auth.users 157 before/after. Live probes via admin createUser: bot name
+  flagged (score -4.83), real name not, dormant gate refused the bot only while switched on; probes removed.
+- 2026-10-07 (zero-nine): live contact-form check on prod (17ecd4c): random-string bot, honeypot and SEO pitch
+  each filed closed/spam with no admin notification and no email; a real-shaped message opened ticket 67898f22
+  (high), fired the admin notification and the alert email to wecare@ (then closed as a test). Webhook: unsigned
+  and forged posts 401 live.
+- 2026-10-07 (zero-nine): code for the next deploy: Turnstile server check on the contact form, honeypot on
+  Signup/AuthModal/Contact, inbound-mail spam + per-sender flood filing. Full suite 135 files / 2084 tests green,
+  vite build OK, tsc clean on touched files, /signup + /contact walked at desktop and 390px (no visible change).
+
+## Previous request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
 
 David: "the team name step flow is horrible the look the way it works ... i dont
 want this style anymore ... research how to do it with gpt image 2.5 flare which
@@ -4514,3 +4581,21 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
 ### Work log 2026-09-23 — team-plate lettering swapped to gpt-image-2.5-flare + crisp upscale (task 65d98dd9, jimmy-phix)
 - Per-order name/number is now a flare EDIT of the original back art (prompt schema in `backend/services/team-plate/lettering-prompt.ts`), cached as `<key>-base.png` (the preview) and upscaled by `recraft-crisp-upscale` (`upscaleToPng`, split out of `step-flow/print-resolution.ts`) into `<key>-press.png` at the template canvas. Paths: `users/team-plates/flare-v1/`. Vector engine quarantined in `team-plate/legacy-vector/`. Checkout waits 20s for the press file, else writes the deterministic gcsPath + `print_file_status: 'rendering'` and settles it in the background. Customer panel previews on a button press (paid call) with a staged progress bar. Result: 152/152 tests; live smoke `backend/scripts/team-plate-smoke.ts` on the real BEAR 9 art passed every check twice (RODRIGUEZ 27, LI 5 — spelled right, art held, 3600x4498 press).
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+
+## Current request (2026-10-07) — GA4 + Search Console + order attribution (Watchtower 89a803de)
+File shortlist (approved scope): `src/utils/utm.ts`(+test), `src/utils/analytics.ts`, `src/components/AnalyticsTracker.tsx`,
+`src/App.tsx`, `src/main.tsx`, `backend/services/order-attribution.ts`(+test), `backend/routes/{stripe,wallet}.ts`,
+`src/pages/{Checkout,OrderSuccess}.tsx`, `supabase/migrations/20260816_orders_attribution.sql` (already live on prod).
+Work log (append-only):
+- 2026-10-07 (zero-nine): cherry-picked 80f33cf (orders.attribution write path + checkout forwarding), added external-referrer capture
+  (organic/referral), direct fallback `{utm_source:"(direct)",utm_medium:"(none)"}` on order create, GA4 loader gated on
+  VITE_GA4_MEASUREMENT_ID + SPA page_view tracker. 169 tests + vite build green. GA4 property / Search Console need David's Google
+  sign-in: fleet browser parked on the analytics.google.com login wall (Sifu asked).
+## Current request (2026-10-07) — ITP product-to-checkout flow (task 9462ebbf)
+### File shortlist (approved scope — 2026-10-07, replaces stale lists above for this task)
+- `src/utils/shipping-calculator.ts`, `src/pages/Checkout.tsx`, `src/pages/Cart.tsx`
+- `src/pages/ProductPage.tsx`, `src/components/ProductRecommendations.tsx`
+- cookie banner + chat bubble components (to be located), `src/context/CartContext.tsx`
+### Work log (append-only)
+- 2026-10-07 zero-nine: shipping root cause = finalize() preselected Free Local Pickup (cheapest) so a $25 tee read "Free". Default now cheapest carrier; pickup labelled "Free (pickup)". Rule kept: free standard shipping at $50+.
+- 2026-10-07 zero-nine (merge-dupes): merged the 4 duplicate dispatch branches onto main. Kept: signup honeypot + friendly gate error, contact-form Turnstile (API check stays off until TURNSTILE_SECRET_KEY is on Render), inbound-mail spam/flood filing, signup_bot_flag migration file (already live), order attribution + GA4 loader (no-op until VITE_GA4_MEASUREMENT_ID), carrier-rate default at checkout + "Free (pickup)", shirt_color as the one colour, chat bubble off the buying pages on phones, honest shipping copy. Dropped (main already had it): About branch c116803 (merged -s ours; keeps the footer book line), cookie banner/recommendations/preselect hunks. Result: vite build green, backend tsc clean, vitest 2097/2097.

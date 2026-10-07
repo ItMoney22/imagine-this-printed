@@ -121,7 +121,9 @@ interface CartContextType {
   appliedCoupon: AppliedCoupon | null
   discount: number
   finalTotal: number
-  applyCoupon: (code: string, userId?: string) => Promise<{ success: boolean; error?: string }>
+  /** `email` lets the server apply per-customer rules (one use per customer,
+   *  first order only) to guests, who have no user id. */
+  applyCoupon: (code: string, userId?: string, email?: string) => Promise<{ success: boolean; error?: string }>
   removeCoupon: () => void
   couponLoading: boolean
   // Set when the most recent localStorage write failed (quota, private-mode,
@@ -393,7 +395,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     dispatch({ type: 'RESTORE_FROM_ORDER', payload: cartItems })
   }, [])
 
-  const applyCoupon = useCallback(async (code: string, userId?: string): Promise<{ success: boolean; error?: string }> => {
+  const applyCoupon = useCallback(async (code: string, userId?: string, email?: string): Promise<{ success: boolean; error?: string }> => {
     setCouponLoading(true)
     try {
       const params = new URLSearchParams({
@@ -402,6 +404,9 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       })
       if (userId) {
         params.append('userId', userId)
+      }
+      if (email?.trim()) {
+        params.append('email', email.trim())
       }
 
       const response = await fetch(`${API_BASE}/api/coupons/validate?${params}`)

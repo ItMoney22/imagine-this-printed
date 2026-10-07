@@ -1270,3 +1270,51 @@ describe('calculateOrderPricing — fetchMetalProductIds wires size pricing end-
     expect(result.productSubtotalCents).toBe(2500)
   })
 })
+
+describe('calculateOrderPricing — Etsy bag coupon (first order, one per customer; task 8cde2a1d)', () => {
+  const ETSYBAG: PricingDiscountCodeRow = {
+    id: 'coupon-etsy',
+    code: 'ETSYBAG',
+    type: 'percentage',
+    value: 15,
+    is_active: true,
+    expires_at: null,
+    max_uses: null,
+    current_uses: 0,
+    min_order_amount: 0,
+    max_discount_amount: null,
+    per_user_limit: 1,
+    metadata: { first_order_only: true }
+  }
+  // One paid guest order on record, placed with ETSYBAG.
+  const paidOrders = [{ email: 'buyer@etsy.example', codes: ['ETSYBAG'] }]
+  const deps = makeFakeDeps({
+    fetchProductPrices: async () => new Map([[PRODUCT_A, 20]]),
+    fetchDiscountCode: async code => (code === 'ETSYBAG' ? ETSYBAG : null),
+    customerOrderLookups: {
+      countPaidOrders: async c => paidOrders.filter(o => o.email === c.email).length,
+      countPaidOrdersWithCode: async (c, code) => paidOrders.filter(o => o.email === c.email && o.codes.includes(code)).length
+    }
+  })
+  const cart = {
+    items: [{ productId: PRODUCT_A, quantity: 1 }],
+    shippingAddress: { state: 'OR' },
+    shipping: { type: 'pickup' as const, clientAmountCents: 0 },
+    couponCode: 'etsybag',
+    userId: null
+  }
+
+  it('takes 15% off a first order placed as a guest', async () => {
+    const result = await calculateOrderPricing({ ...cart, customerEmail: 'first@time.com' }, deps)
+    expect(result.couponError).toBeUndefined()
+    expect(result.couponDiscountCents).toBe(300) // 15% of $20
+    expect(result.totalCents).toBe(1700)
+  })
+
+  it('refuses a second redemption by the same guest email and charges full price', async () => {
+    const result = await calculateOrderPricing({ ...cart, customerEmail: 'BUYER@etsy.example' }, deps)
+    expect(result.couponError).toMatch(/first order/)
+    expect(result.couponDiscountCents).toBe(0)
+    expect(result.totalCents).toBe(2000)
+  })
+})

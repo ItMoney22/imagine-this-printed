@@ -11,7 +11,9 @@ import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
+import { getLandingUtms } from '../utils/utm'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
+import { getColorName } from '../utils/color-presets'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
 const stripePromise = loadStripe(import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY)
@@ -46,6 +48,20 @@ function extractPricingFromApiError(err: unknown): ServerPricing | null {
   try {
     const body = JSON.parse(match[1])
     return body?.pricing ?? null
+  } catch {
+    return null
+  }
+}
+
+// Same error body, the other field: the server names a coupon it refused
+// (already used, first order only, expired) so the shopper sees why.
+function extractCouponErrorFromApiError(err: unknown): string | null {
+  if (!(err instanceof Error)) return null
+  const match = err.message.match(/^HTTP \d+: ([\s\S]*)$/)
+  if (!match) return null
+  try {
+    const body = JSON.parse(match[1])
+    return typeof body?.couponError === 'string' ? body.couponError : null
   } catch {
     return null
   }
@@ -516,7 +532,7 @@ const Checkout: React.FC = () => {
   const handleApplyCoupon = async () => {
     if (!couponCode.trim()) return
     setCouponError(null)
-    const result = await applyCoupon(couponCode.trim(), user?.id)
+    const result = await applyCoupon(couponCode.trim(), user?.id, formData.email)
     if (!result.success) {
       setCouponError(result.error || 'Failed to apply coupon')
     } else {
@@ -527,6 +543,17 @@ const Checkout: React.FC = () => {
   const handleRemoveCoupon = () => {
     removeCoupon()
     setCouponError(null)
+  }
+
+  // A code applied before the email was typed is re-checked once we know who
+  // is buying (first-order-only and one-per-customer codes depend on it).
+  const handleEmailBlur = async () => {
+    if (!appliedCoupon || !formData.email.trim()) return
+    const result = await applyCoupon(appliedCoupon.code, user?.id, formData.email)
+    if (!result.success) {
+      removeCoupon()
+      setCouponError(result.error || 'This code no longer applies')
+    }
   }
 
   const createPaymentIntent = async () => {
@@ -589,7 +616,10 @@ const Checkout: React.FC = () => {
           isLocalDelivery: isLocalDelivery,
           // Pass existing payment intent ID to update instead of create new
           existingPaymentIntentId: paymentIntentId || undefined,
-          existingOrderId: orderId || undefined
+          existingOrderId: orderId || undefined,
+          // Last-touch landing UTMs captured before React mounted (see
+          // src/utils/utm.ts) — null when this visitor has no known campaign.
+          attribution: getLandingUtms()
         }),
       })
 
@@ -619,6 +649,11 @@ const Checkout: React.FC = () => {
       const serverPricingFromError = extractPricingFromApiError(error)
       if (serverPricingFromError) {
         setServerPricing(serverPricingFromError)
+      }
+      const refusedCoupon = extractCouponErrorFromApiError(error)
+      if (refusedCoupon) {
+        removeCoupon()
+        setCouponError(refusedCoupon)
       }
     } finally {
       creatingPaymentIntentRef.current = false
@@ -700,6 +735,7 @@ const Checkout: React.FC = () => {
             time: pickupTime || null,
             notes: pickupNotes || null
           } : null,
+          attribution: getLandingUtms()
         }),
       })
 
@@ -876,6 +912,7 @@ const Checkout: React.FC = () => {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
+                  onBlur={handleEmailBlur}
                   placeholder="Email address"
                   required
                   className="w-full px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
@@ -1533,11 +1570,13 @@ const Checkout: React.FC = () => {
                         </span>
                       )}
                       {item.selectedColor && (
-                        <span
-                          className="w-4 h-4 rounded-full border-2 border-white/20"
-                          style={{ backgroundColor: item.selectedColor }}
-                          title={item.selectedColor}
-                        />
+                        <span className="inline-flex items-center gap-1 text-xs text-muted">
+                          <span
+                            className="w-4 h-4 rounded-full border-2 border-white/20"
+                            style={{ backgroundColor: item.selectedColor }}
+                          />
+                          {getColorName(item.selectedColor)}
+                        </span>
                       )}
                       {item.printLocation && (
                         <span className="text-xs px-2 py-0.5 bg-primary/20 text-primary rounded">
@@ -1707,7 +1746,7 @@ const Checkout: React.FC = () => {
                         // No rate picked yet (no address): $0 here is "unknown", not "free".
                         <span className="text-muted">Calculated after address</span>
                       ) : baseShipping === 0 ? (
-                        'Free'
+                        selectedRate?.type === 'pickup' ? 'Free (pickup)' : 'Free'
                       ) : (
                         `$${baseShipping.toFixed(2)}`
                       )}

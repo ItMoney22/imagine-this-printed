@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { Send, RefreshCw, Trash2, Undo2, CheckCircle, PlusCircle } from 'lucide-react'
+import { Send, RefreshCw, Trash2, Undo2, CheckCircle, PlusCircle, Clock } from 'lucide-react'
 import api from '../lib/api'
 
 interface OutboxItem {
@@ -14,11 +14,29 @@ interface OutboxItem {
   status: 'draft' | 'approved' | 'claimed' | 'posted' | 'failed'
   post_url: string | null
   result_note: string | null
+  scheduled_for: string | null
   created_at: string
   products?: { name: string; slug: string | null; images: string[] } | null
 }
 
 const STATUSES: Array<OutboxItem['status']> = ['draft', 'approved', 'claimed', 'posted', 'failed']
+
+// <input type="datetime-local"> works in the browser's LOCAL time with no
+// timezone suffix ("2026-08-20T14:30") — these convert to/from the ISO the
+// API stores (scheduled_for), so the crew can pick "next Tuesday, 9am" and
+// have it mean 9am here, not 9am UTC.
+const toDatetimeLocal = (iso: string | null): string => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+const fromDatetimeLocal = (value: string): string | null => {
+  if (!value) return null
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? null : d.toISOString()
+}
 
 export default function AdminSocialOutbox() {
   const [items, setItems] = useState<OutboxItem[]>([])
@@ -28,7 +46,7 @@ export default function AdminSocialOutbox() {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [edits, setEdits] = useState<Record<string, { caption: string; hashtags: string }>>({})
+  const [edits, setEdits] = useState<Record<string, { caption: string; hashtags: string; scheduledFor: string }>>({})
 
   const flash = (msg: string) => {
     setNotice(msg)
@@ -58,7 +76,8 @@ export default function AdminSocialOutbox() {
     try {
       await api.put(`/api/social-outbox/${item.id}`, {
         caption: edit.caption,
-        hashtags: edit.hashtags.split(/[\s,]+/).filter(Boolean).map(h => (h.startsWith('#') ? h : `#${h}`))
+        hashtags: edit.hashtags.split(/[\s,]+/).filter(Boolean).map(h => (h.startsWith('#') ? h : `#${h}`)),
+        scheduled_for: fromDatetimeLocal(edit.scheduledFor)
       })
       return true
     } catch (err: any) {
@@ -73,8 +92,12 @@ export default function AdminSocialOutbox() {
       setError(null)
       if (action === 'approve') {
         if (!(await saveEdits(item))) return
-        await api.post(`/api/social-outbox/${item.id}/approve`)
-        flash('Approved — Rico will pick it up')
+        // Approve and schedule in one call — a week of content can be
+        // approved now and released on its own timetable (see
+        // routes/social-outbox.ts POST /:id/approve).
+        const scheduledFor = fromDatetimeLocal(edits[item.id]?.scheduledFor ?? toDatetimeLocal(item.scheduled_for))
+        await api.post(`/api/social-outbox/${item.id}/approve`, { scheduled_for: scheduledFor })
+        flash(scheduledFor ? `Approved — releases ${new Date(scheduledFor).toLocaleString()}` : 'Approved — Rico will pick it up')
       } else if (action === 'unapprove') {
         await api.post(`/api/social-outbox/${item.id}/unapprove`)
         flash('Pulled back to draft')
@@ -151,9 +174,11 @@ export default function AdminSocialOutbox() {
             {items.map(item => {
               const edit = edits[item.id] ?? {
                 caption: item.caption || '',
-                hashtags: (item.hashtags || []).join(' ')
+                hashtags: (item.hashtags || []).join(' '),
+                scheduledFor: toDatetimeLocal(item.scheduled_for)
               }
               const editable = ['draft', 'approved', 'failed'].includes(item.status)
+              const scheduledLabel = item.scheduled_for ? new Date(item.scheduled_for).toLocaleString() : null
               return (
                 <div key={item.id} className={`border rounded-xl p-4 flex gap-4 ${item.status === 'failed' ? 'border-red-200 bg-red-50' : 'border-slate-100'}`}>
                   {item.media_urls?.[0] && (
@@ -163,6 +188,11 @@ export default function AdminSocialOutbox() {
                     <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                       {item.products?.name || 'Product'}
                       <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 capitalize">{item.kind}</span>
+                      {item.status === 'approved' && scheduledLabel && (
+                        <span className="flex items-center gap-1 text-xs font-normal px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                          <Clock className="w-3 h-3" /> {scheduledLabel}
+                        </span>
+                      )}
                       {item.post_url && (
                         <a href={item.post_url} target="_blank" rel="noreferrer" className="text-xs text-purple-600 hover:underline">view post ↗</a>
                       )}
@@ -182,6 +212,26 @@ export default function AdminSocialOutbox() {
                           placeholder="#hashtags"
                           className="mt-1 w-full text-xs border border-slate-200 rounded-lg px-3 py-1.5 text-slate-500"
                         />
+                        <div className="mt-1.5 flex items-center gap-2">
+                          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+                            <Clock className="w-3.5 h-3.5" /> Release
+                          </label>
+                          <input
+                            type="datetime-local"
+                            value={edit.scheduledFor}
+                            onChange={e => setEdits(prev => ({ ...prev, [item.id]: { ...edit, scheduledFor: e.target.value } }))}
+                            className="text-xs border border-slate-200 rounded-lg px-2 py-1 text-slate-600"
+                          />
+                          {edit.scheduledFor && (
+                            <button
+                              type="button"
+                              onClick={() => setEdits(prev => ({ ...prev, [item.id]: { ...edit, scheduledFor: '' } }))}
+                              className="text-xs text-slate-400 hover:text-slate-600"
+                            >
+                              Clear (post ASAP)
+                            </button>
+                          )}
+                        </div>
                       </>
                     ) : (
                       <>
@@ -198,10 +248,25 @@ export default function AdminSocialOutbox() {
                       </button>
                     )}
                     {item.status === 'approved' && (
-                      <button onClick={() => act(item, 'unapprove')} disabled={busy === item.id}
-                        className="flex items-center gap-1 px-3 py-1.5 text-xs bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50">
-                        <Undo2 className="w-3.5 h-3.5" /> Pull back
-                      </button>
+                      <>
+                        {edits[item.id] && (
+                          <button
+                            onClick={async () => {
+                              setBusy(item.id)
+                              if (await saveEdits(item)) flash('Schedule updated')
+                              setBusy(null)
+                              fetchItems()
+                            }}
+                            disabled={busy === item.id}
+                            className="flex items-center gap-1 px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50">
+                            <Clock className="w-3.5 h-3.5" /> Save
+                          </button>
+                        )}
+                        <button onClick={() => act(item, 'unapprove')} disabled={busy === item.id}
+                          className="flex items-center gap-1 px-3 py-1.5 text-xs bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50">
+                          <Undo2 className="w-3.5 h-3.5" /> Pull back
+                        </button>
+                      </>
                     )}
                     {item.status !== 'claimed' && (
                       <button onClick={() => act(item, 'delete')} disabled={busy === item.id}

@@ -21,6 +21,7 @@ import {
 } from '../services/stripe-connect.js'
 import { ITC_TO_USD_RATE } from '../config/itc-pricing.js'
 import { validateCouponForOrder, recordCouponUsage } from './coupons.js'
+import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
 
 const router = Router()
 
@@ -852,8 +853,10 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
       couponCode,
       shippingMethod,
       shippingType,
-      pickupAppointment
+      pickupAppointment,
+      attribution
     } = req.body
+    const sanitizedAttribution = sanitizeAttribution(attribution)
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' })
@@ -918,7 +921,7 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
     let discountAmount = 0
     let validatedCouponId: string | null = null
     if (couponCode) {
-      const couponValidation = await validateCouponForOrder({ code: couponCode, userId, orderTotal: subtotal })
+      const couponValidation = await validateCouponForOrder({ code: couponCode, userId, email: shipping?.email || userEmail, orderTotal: subtotal })
       if (!couponValidation.valid) {
         return res.status(400).json({ error: couponValidation.error || 'Invalid coupon code' })
       }
@@ -958,6 +961,7 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
           country: shipping?.country || 'US'
         },
         discount_codes: couponCode ? [couponCode] : [],
+        attribution: sanitizedAttribution ?? { ...DIRECT_ATTRIBUTION },
         metadata: {
           items: items.map((item: any) => ({
             id: item.id,
