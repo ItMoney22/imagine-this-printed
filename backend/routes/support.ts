@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { sendTicketConfirmationEmail, sendNewSupportTicketEmail } from '../utils/email.js'
 import { triageTicket, describeTicketTriage } from '../lib/jev-triage.js'
+import { checkTicketSpam } from '../lib/spam-guard.js'
 
 dotenv.config()
 
@@ -63,6 +64,29 @@ const createNotification = async (
   }
 }
 
+/** What a bot sees: the same 201 a person gets, so it learns nothing. */
+const SPAM_REPLY = {
+  success: true,
+  message: 'Your support ticket has been created. We will respond within 24 hours.'
+}
+
+/** Keep spam on file (closed) so a false positive can be found, but alert and email no one. */
+const fileSpamTicket = async (
+  t: { email: string; subject: string; description: string; name?: string; order_id?: string },
+  reason: string
+) => {
+  const { error } = await supabase.from('support_tickets').insert({
+    email: t.email || null,
+    subject: t.subject,
+    description: `Name: ${t.name || 'Not provided'}\n\n${t.description}${t.order_id ? `\n\nOrder ID: ${t.order_id}` : ''}`,
+    category: 'spam',
+    priority: 'low',
+    status: 'closed'
+  })
+  if (error) console.error('[Support] Failed to file spam ticket:', error.message)
+  console.log('[Support] Spam filed quietly:', reason)
+}
+
 /**
  * PUBLIC: Create a new support ticket
  * No authentication required - anyone can submit a ticket via contact form
@@ -100,6 +124,14 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       return
     }
 
+    // Bot check first: spam is filed closed with no alert and no email (spam-guard.ts).
+    const spamCheck = checkTicketSpam({ name, subject, description, order_id, website: req.body.website })
+    if (spamCheck.spam) {
+      await fileSpamTicket({ email, subject, description, name, order_id }, spamCheck.reasons.join(','))
+      res.status(201).json(SPAM_REPLY)
+      return
+    }
+
     console.log('[Support] Creating ticket from:', email)
 
     // Jev triage: category + priority from what the customer actually wrote.
@@ -112,6 +144,13 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       customerCategory: category,
       orderId: order_id,
     })
+
+    // Jev sure it's spam: same quiet path. Unsure spam still reaches a human.
+    if (triage.category === 'spam' && !triage.needsReview) {
+      await fileSpamTicket({ email, subject, description, name, order_id }, 'jev')
+      res.status(201).json(SPAM_REPLY)
+      return
+    }
 
     // Create the support ticket
     const { data: ticket, error: ticketError } = await supabase
