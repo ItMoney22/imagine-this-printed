@@ -11,6 +11,7 @@ import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
+import { getLandingUtms } from '../utils/utm'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { Tag, X, ShoppingBag, Truck, CreditCard, CheckCircle, Shield, Lock, ArrowLeft, Package, MapPin, Calendar, Clock, Store, AlertCircle, Loader2, Coins, Wallet, Zap } from 'lucide-react'
 
@@ -589,7 +590,10 @@ const Checkout: React.FC = () => {
           isLocalDelivery: isLocalDelivery,
           // Pass existing payment intent ID to update instead of create new
           existingPaymentIntentId: paymentIntentId || undefined,
-          existingOrderId: orderId || undefined
+          existingOrderId: orderId || undefined,
+          // Last-touch landing UTMs captured before React mounted (see
+          // src/utils/utm.ts) — null when this visitor has no known campaign.
+          attribution: getLandingUtms()
         }),
       })
 
@@ -700,6 +704,7 @@ const Checkout: React.FC = () => {
             time: pickupTime || null,
             notes: pickupNotes || null
           } : null,
+          attribution: getLandingUtms()
         }),
       })
 
