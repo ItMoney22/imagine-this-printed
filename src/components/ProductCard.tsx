@@ -25,6 +25,8 @@ const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
 interface ProductCardProps {
   product: Product
   showSocialBadges?: boolean
+  /** Home-page tile (task b9656cc9): photo, name, price and one Add to cart button, nothing else. */
+  compact?: boolean
 }
 
 // Raw social_posts row shape returned by GET /api/social/posts (backend/routes/social.ts)
@@ -54,7 +56,7 @@ interface SocialPostRow {
   engagement?: { likes: number; shares: number; comments: number }
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true }) => {
+const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true, compact = false }) => {
   const navigate = useNavigate()
   const { addToCart } = useCart()
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([])
@@ -256,18 +258,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           </div>
         )}
 
-        {/* Stock Status Badge */}
-        <div className="absolute top-2 right-2 z-10">
-          {product.inStock ? (
-            <span className="bg-green-500/20 backdrop-blur-md border border-green-500/50 text-green-400 text-xs font-bold px-2 py-1 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.3)]">
-              In Stock
-            </span>
-          ) : (
+        {/* Stock Status Badge — everything here is printed to order, so there
+            is no "In Stock" to claim (task dda57173); only a listing that is
+            switched off says so. */}
+        {!product.inStock && (
+          <div className="absolute top-2 right-2 z-10">
             <span className="bg-red-500/20 backdrop-blur-md border border-red-500/50 text-red-400 text-xs font-bold px-2 py-1 rounded-full shadow-[0_0_10px_rgba(248,113,113,0.3)]">
               Out of Stock
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Promo Badge */}
         {isBundleEligible(product) && (
@@ -294,13 +294,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         <div className="absolute inset-0 bg-gradient-to-t from-bg/90 via-transparent to-transparent opacity-60"></div>
       </div>
 
-      <div className="p-5 relative">
+      <div className={compact ? 'p-3 sm:p-4 relative' : 'p-5 relative'}>
         <Link to={`/product/${product.slug || product.id}`}>
           <h3 className="text-lg font-display font-bold text-text mb-2 group-hover:text-primary transition-colors line-clamp-1">
             {product.name}
           </h3>
         </Link>
-        <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>
+        {!compact && <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>}
 
         {/* Social Stats */}
         {showSocialBadges && socialPosts.length > 0 && (
@@ -335,7 +335,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 )
               })()}
             </span>
-            {cardPrice > 0 && (
+            {cardPrice > 0 && !compact && (
               <span className="text-[11px] text-muted">or {usdToItcLabel(cardPrice)}</span>
             )}
           </span>
@@ -504,11 +504,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               }, 2000)
             }}
             disabled={!product.inStock}
-            className={`w-full font-bold py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider ${
+            className={`w-full font-bold py-2.5 rounded-lg transition-all flex items-center justify-center text-sm ${compact ? 'px-2 gap-1.5 whitespace-nowrap' : 'px-4 gap-2 uppercase tracking-wider'} ${
               addedToCart
                 ? 'bg-green-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.5)]'
                 : showSizePicker && !readyToAdd
                 ? 'bg-amber-500/80 hover:bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                : compact
+                ? 'bg-primary hover:opacity-90 text-white shadow-soft'
                 : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.3)] hover:shadow-[0_0_20px_rgba(34,197,94,0.5)]'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
@@ -525,22 +527,24 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             ) : (
               <>
                 <ShoppingCart className="w-4 h-4" />
-                {showSizePicker ? 'Add to Cart' : 'Quick Add'}
+                {showSizePicker || compact ? 'Add to Cart' : 'Quick Add'}
               </>
             )}
           </button>
 
-          {/* View Details Link */}
+          {/* View Details Link (the home tile links its photo and name instead) */}
+          {!compact && (
           <Link
             to={`/product/${product.slug || product.id}`}
             className="block w-full text-center py-2 text-sm text-muted hover:text-primary transition-colors"
           >
             View Details
           </Link>
+          )}
 
           {/* Add to Imagination Sheet â€” DTF/apparel only (metal & 3D are
               finished pieces, not designs to drop on a print sheet). */}
-          {options.gangSheet && (
+          {options.gangSheet && !compact && (
           <button
             onClick={async () => {
               setIsAddingToSheet(true)

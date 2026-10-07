@@ -7,7 +7,8 @@ import { KioskAuthProvider } from './context/KioskAuthContext'
 import { ToastProvider } from './context/ToastContext'
 import { SidebarProvider, useSidebar } from './context/SidebarContext'
 import ErrorBoundary from './components/ErrorBoundary'
-import { Sidebar, MobileMenuButton } from './components/Sidebar'
+import { Sidebar } from './components/Sidebar'
+import { MobileTopBar } from './components/MobileTopBar'
 import AdminShell from './components/admin/AdminShell'
 import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
@@ -125,7 +126,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen bg-bg text-text flex">
       {!isFullScreen && <Sidebar />}
-      {!isFullScreen && <MobileMenuButton />}
+      {!isFullScreen && <MobileTopBar />}
       <main
         className={`flex-1 min-w-0 overflow-x-hidden min-h-screen transition-all duration-300 ${
           !isFullScreen ? `pt-16 lg:pt-0 ${isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''

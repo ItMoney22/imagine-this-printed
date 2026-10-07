@@ -4,14 +4,15 @@
 // "Talk to a person" hands the customer to Christina: her reply, sent from Becky on her phone, lands right here
 // (backend/routes/print-bridge.ts /ticket-reply) and in their email. The waiting state says who they are waiting
 // for, how long it has been, and that they can leave: a guest adds an email so the reply still reaches them.
-// Phones: the launcher sits in the header band and the panel drops in under it (dr-dill, task 5e10e099).
+// Phones: no floating launcher (it covered buttons, task 5e10e099); the phone header's chat button opens the panel under it.
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { ArrowRight, Check, Mail, MessageCircle, Send, UserRound, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { helpTopic, shopChatKnowledge, type HelpItem } from '../lib/help-facts'
 import { OPEN_SHOP_CHAT, type OpenShopChatDetail } from './support/chat-events'
+import { OPEN_CHAT_EVENT } from './MobileTopBar'
 import {
     clearLiveChat, formatWait, isEmail, loadLiveChat, saveLiveChat, stageFromPoll, waitingLine, type HandoffStage,
 } from './support/live-chat-state'
@@ -61,10 +62,13 @@ const timeLabel = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minut
 
 export function MrImagineChatWidget() {
     const { user } = useAuth()
-    const { pathname } = useLocation()
-    // On phones the chat steps aside on the buying pages so nothing sits near Add to Cart / Pay (desktop keeps it).
-    const onBuyingPage = /^\/(product|cart|checkout)(\/|$)/.test(pathname)
     const [isOpen, setIsOpen] = useState(false)
+    // The phone header's chat button opens the panel through this event.
+    useEffect(() => {
+        const open = () => { setUnreadCount(0); setIsOpen(true) }
+        window.addEventListener(OPEN_CHAT_EVENT, open)
+        return () => window.removeEventListener(OPEN_CHAT_EVENT, open)
+    }, [])
     const [unreadCount, setUnreadCount] = useState(0)
     const [messages, setMessages] = useState<Message[]>([{ role: 'assistant', content: GREETING, timestamp: new Date() }])
     const [inputValue, setInputValue] = useState('')
@@ -335,7 +339,7 @@ export function MrImagineChatWidget() {
     return (
         // Phones: the launcher lives in the header band (never over page content); the open panel drops
         // in below the header. sm+: classic bottom-right corner.
-        <div className={`sp-root fixed z-50 flex-col items-end pointer-events-none sm:inset-auto sm:bottom-6 sm:right-6 ${isOpen ? 'inset-x-3 top-[72px]' : 'top-3 right-[6.5rem]'} ${onBuyingPage ? 'hidden sm:flex' : 'flex'}`}>
+        <div className={`sp-root fixed z-50 flex-col items-end pointer-events-none sm:inset-auto sm:bottom-6 sm:right-6 ${isOpen ? 'flex inset-x-3 top-[72px]' : 'max-lg:hidden flex'}`}>
             <AnimatePresence>
                 {isOpen && (
                     <motion.div

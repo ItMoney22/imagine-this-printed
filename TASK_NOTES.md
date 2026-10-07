@@ -36,6 +36,40 @@ button); the info pages read logged out; dashboards stay behind sign-in; Turnsti
   2.5 tools" -> Imagination Lab / 9 Imagination tools). tsc 0 errors, vitest 134 files / 2085 pass,
   vite build OK, fleet-browser walk logged out at 390px + desktop on :5197 passed.
 
+## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
+
+David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):
+home, product page, catalog, cart + checkout, toys, Imagination Station, About + policies, account pages.
+Each page: screenshot -> mockup -> David's "go" -> build -> walk (390px + desktop) -> next page.
+
+Decisions (noted for the handoff):
+- ITP is light-only by design (ThemeProvider pins light, DESIGN.md "Light mode is the default"); the
+  "dark" leg of each walk = the page under an OS dark preference must not flip half-dark.
+- Card mapping: home = dda57173 (home claims), d94aa3e2 (home blanks block), 66d0f303 (home carousel +
+  nav pinks), 5e10e099 (phone header + overlays, sitewide), 7fa5c8c5 (offer slot, terms need David),
+  36222110 (reviews slot, real Etsy reviews only). Product page = b2784c8d, 63520e95, 732f8a71 (product
+  side), 389defc8. Catalog = 66d0f303, 732f8a71. Toys = 389defc8 toy items, dda57173 toy claims.
+  Imagination Station = 8c67fe67. About + policies = 5c713452. Account pages = shopper pages only (no admin).
+
+### File shortlist (approved scope — page 1, home; widened per page as each mock is approved)
+- `src/pages/Home.tsx`, `src/components/Hero.tsx`, `src/components/home/*` (new home sections)
+- `src/components/ProductCard.tsx` (In Stock badge + extra buttons), `src/components/BlankTeesSection.tsx`
+- `src/components/Navbar.tsx` / header + `src/components/CookieConsent.tsx` + `src/components/MrImagineChatWidget.tsx` (phone overlays, 5e10e099)
+- `src/components/Footer.tsx` (LLC + Rockmart line), `src/index.css` (home keyframes), `public/home/*` (generated art)
+- `src/components/MobileTopBar.tsx` (new) + `src/App.tsx` (layout swap only) + `src/components/Sidebar.tsx` (drop floating menu button, promoted-link style), `src/components/FloatingCart.tsx` (pill lg+ only)
+- `src/pages/ProductCatalog.tsx` (shared row mapper + ?q= from the header search), `src/lib/shop-facts.ts`, `src/lib/storefront-row.ts` (new)
+- `public/icons/itp-bulb.png` (cut from itp-logo-v3)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (amelia-chan): live home shot at 1440 + 390 (evidence in E:/memory/watchtower/projects/
+  imagine-this-printed/2026-10-07-b9656cc9-shots/), home mockup sent to David's pop-up + email. Waiting on his go.
+- 2026-10-07 (amelia-chan): David approved round 1 at 19:56Z (approval 7eb9469c). Merged origin/main (branch was 14
+  behind live). Built the home to the mock: hero (real lion tee + Wizard Beast scene), trust strip, category doors,
+  Halloween picks (live, ends 11/1), popular grid, toy band, how it gets made, design band; phone header bar
+  (logo, search, chat, cart count), no chat bubble/cart pill under lg, solid cookie bar, no In Stock badge.
+  Reviews row left out: the Etsy shop has 0 reviews (API, 10/7). tsc 0, vitest 2139/2139, vite build OK,
+  fleet-browser walk at 1440 + 390.
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
@@ -112,6 +146,7 @@ picker offers only real roles; Toy Lab, Team Templates, Email, Orders in the nav
 
 
 ## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
+
 ## Current request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
 
 David's 10/7 live phone walk: the $5 "Patriotic Heartbeat DTF" transfer shows shirt sizes,
@@ -4710,6 +4745,7 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
 
+
 ## Current request (2026-10-07) — GA4 + Search Console + order attribution (Watchtower 89a803de)
 File shortlist (approved scope): `src/utils/utm.ts`(+test), `src/utils/analytics.ts`, `src/components/AnalyticsTracker.tsx`,
 `src/App.tsx`, `src/main.tsx`, `backend/services/order-attribution.ts`(+test), `backend/routes/{stripe,wallet}.ts`,
@@ -4763,3 +4799,4 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
   Site captures ?ref on any route, applies once after sign-in, clears it. Live test on two throwaway
   accounts (qa+referral-*-bdfa6939@imaginethisprinted.com): code REFR9449Q -> friend joined -> referred_by
   set, signup row, repeat = no-op, first-order bonus 50 ITC paid once.
+- 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
