@@ -3,7 +3,7 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import multer from 'multer'
 import { transcribeAudio } from '../../services/transcribe.js'
 import { uploadFromBuffer } from '../../utils/storage.js'
-import { generateConversationalResponse, AVAILABLE_VOICES, EMOTIONS } from '../../services/voiceGenerator.js'
+import { generateVoiceResponse } from '../../services/voiceGenerator.js'
 import { generateAssistantResponse, resetConversation, getDesignData, setGeneratedDesigns, setConversationStep, getConversationStep } from '../../services/designAssistant.js'
 import { generateProductImage } from '../../services/replicate.js'
 import { buildDTFPrompt } from '../../services/dtf-optimizer.js'
@@ -28,13 +28,13 @@ const upload = multer({ storage: multer.memoryStorage() })
  * 1. User speaks (audio uploaded)
  * 2. Transcribe using GPT-4o (Replicate)
  * 3. Generate AI text response
- * 4. Convert response to speech (Minimax Speech-02-Turbo)
+ * 4. Convert response to speech (Mr. Imagine, Gemini 3.8 Flash TTS)
  * 5. Return text + audio URL + next prompt
  *
  * Response format:
  * {
  *   "text": "Great! What style are you thinking?",
- *   "audio_url": "https://replicate.delivery/...",
+ *   "audio_url": "data:audio/mpeg;base64,...",
  *   "next_prompt": "What style are you thinking?",
  *   "is_complete": false,
  *   "ready_to_generate": false,
@@ -137,11 +137,7 @@ router.post('/', requireAuth, upload.single('audio'), async (req: Request, res: 
     debugLog('[voice-chat] 🎤 Generating Mr. Imagine voice response...')
     let voiceUrl: string
     try {
-      voiceUrl = await generateConversationalResponse(aiResponse.text, {
-        voiceId: AVAILABLE_VOICES.MR_IMAGINE,
-        emotion: EMOTIONS.AUTO,
-        speed: 0.95, // Slightly slower for clarity
-      })
+      voiceUrl = await generateVoiceResponse(aiResponse.text)
     } catch (voiceError: any) {
       console.error('[voice-chat] ❌ Voice synthesis failed:', voiceError)
       return res.status(500).json({
@@ -380,12 +376,9 @@ router.post('/test', async (req: Request, res: Response): Promise<any> => {
 
     debugLog('[voice-chat] 🧪 Test Mr. Imagine voice generation:', text.substring(0, 50) + '...')
 
-    const audioUrl = await generateConversationalResponse(text, {
-      voiceId: AVAILABLE_VOICES.MR_IMAGINE,
-      emotion: EMOTIONS.AUTO,
-    })
+    const audioUrl = await generateVoiceResponse(text)
 
-    debugLog('[voice-chat] ✅ Test voice generated:', audioUrl)
+    debugLog('[voice-chat] ✅ Test voice generated:', audioUrl.length, 'chars')
 
     res.json({
       text,

@@ -1,8 +1,8 @@
 // Mr. Imagine Configuration
 // Central configuration for the mascot system
 
-// Voice ID for Mr. Imagine (Minimax Speech-02-Turbo via Replicate)
-export const MR_IMAGINE_VOICE_ID = 'moss_audio_737a299c-734a-11f0-918f-4e0486034804'
+// Mr. Imagine's Gemini 3.8 Flash TTS voice (backend/services/voiceGenerator.ts PERSONAS speaks it; this is for display)
+export const MR_IMAGINE_VOICE_ID = 'Puck'
 
 export type MrImagineExpression =
   | 'default'    // Neutral, friendly
@@ -35,12 +35,11 @@ export const MR_IMAGINE_CONFIG = {
   // Character name
   name: 'Mr. Imagine',
 
-  // Voice configuration (Minimax Speech-02-Turbo via Replicate)
+  // Voice configuration (Gemini 3.8 Flash TTS, spoken by the backend)
   voice: {
     id: MR_IMAGINE_VOICE_ID,
-    model: 'minimax/speech-02-turbo',
-    defaultEmotion: 'auto',
-    defaultSpeed: 0.95,
+    model: 'gemini-3.8-flash-tts',
+    persona: 'mr-imagine',
   },
 
   // Personality for chat responses

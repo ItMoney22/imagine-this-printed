@@ -423,7 +423,7 @@ export default function MetalArtStudio() {
     })
   }, [])
 
-  // Speak a reply out loud in Mr. Imagine's cloned voice (best-effort).
+  // Speak a reply out loud in Mr. Imagine's voice (best-effort).
   const speakMr = useCallback(async (text: string) => {
     if (!text || mrMuted) return
     try {

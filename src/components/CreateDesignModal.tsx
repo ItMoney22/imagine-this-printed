@@ -393,11 +393,7 @@ export function CreateDesignModal({
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${session.access_token}`
         },
-        body: JSON.stringify({
-          text: message,
-          speed: 0.95,
-          emotion: 'auto'
-        })
+        body: JSON.stringify({ text: message })
       })
 
       if (!response.ok) {

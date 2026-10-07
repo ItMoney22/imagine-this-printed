@@ -1,11 +1,11 @@
 // One-time generator for Toy Creator assets:
 //  - 36 item card images (3D vinyl-toy style icons) via Replicate flux-schnell
-//  - Mr. Imagine host voice lines via Replicate minimax/speech-02-turbo
+//  - Mr. Imagine host voice lines via Gemini 3.8 Flash TTS (same voice + style as backend/services/voiceGenerator.ts)
 // Saves to public/toy-creator/{items,voice}/ + manifest.json.
 // Re-runnable: skips files that already exist (delete a file to regenerate it).
 //
-// Run from repo root:  REPLICATE_API_TOKEN=... node scripts/generate-toy-creator-assets.mjs
-// (or it reads backend/.env for the token)
+// Run from repo root:  REPLICATE_API_TOKEN=... GOOGLE_API_KEY=... node scripts/generate-toy-creator-assets.mjs
+// (or it reads backend/.env for both)
 
 import fs from 'fs'
 import path from 'path'
@@ -24,7 +24,14 @@ if (!TOKEN) {
 }
 if (!TOKEN) { console.error('No REPLICATE_API_TOKEN'); process.exit(1) }
 
-const MR_IMAGINE_VOICE = 'moss_audio_737a299c-734a-11f0-918f-4e0486034804'
+let GOOGLE_KEY = process.env.GOOGLE_API_KEY
+if (!GOOGLE_KEY) {
+  const env = fs.readFileSync(path.join(ROOT, 'backend', '.env'), 'utf8')
+  GOOGLE_KEY = env.match(/^GOOGLE_API_KEY=(.+)$/m)?.[1]?.trim()
+}
+
+// Mr. Imagine's Gemini voice: keep in step with PERSONAS['mr-imagine'] in backend/services/voiceGenerator.ts.
+const MR_IMAGINE = { voice: 'Puck', style: 'high-pitched, goofy cartoon mascot voice, warm and gentle, smiling' }
 
 // --- the item catalog (mirrored in src/pages/ToyCreator.tsx) ---
 const CATEGORIES = {
@@ -55,18 +62,18 @@ const itemPrompt = (label, category) => {
 
 // --- Mr. Imagine host lines ---
 const VOICE_LINES = {
-  intro: "Hi there! I'm Mister Imagine! <#0.3#> What awesome creature are we making today? Tap the microphone and TELL me... or build it piece by piece!",
+  intro: "Hi there! I'm Mister Imagine! <short pause> What awesome creature are we making today? Tap the microphone and TELL me... or build it piece by piece!",
   listening: 'Ooooh, I\'m listening!',
   'got-it': 'That sounds AMAZING! Let\'s mix that D N A!',
-  splicing: "Mixing your creature's D N A right now... <#0.3#> this is going to be EPIC!",
+  splicing: "Mixing your creature's D N A right now... <short pause> this is going to be EPIC!",
   reveal: 'Ta-daaa! Look what we made together! Do you LOVE it?',
   'pick-size': 'How big should your creature be? Pick a size!',
-  incubation: 'Your creature is growing in my lab right now! <#0.3#> Almost there...',
+  incubation: 'Your creature is growing in my lab right now! <short pause> Almost there...',
   // "alive" rephrased: the original "IT'S ALIVE" read as "it's LIVE" in TTS.
   // "fully alive" forces the right pronunciation. Two variants so the host
   // says the correct thing for the chosen finish (grey vs full color).
-  alive: 'Ta-daa! Your creature is fully alive! <#0.3#> We print it in matte grey... so YOU get to paint it any way you want!',
-  'alive-color': 'Ta-daa! Your creature is fully alive! <#0.3#> And it comes printed in FULL color... ready right out of the box!',
+  alive: 'Ta-daa! Your creature is fully alive! <short pause> We print it in matte grey... so YOU get to paint it any way you want!',
+  'alive-color': 'Ta-daa! Your creature is fully alive! <short pause> And it comes printed in FULL color... ready right out of the box!',
   error: 'Uh oh! The D N A got a little tangled! Don\'t worry... let\'s try again!',
 }
 
@@ -94,6 +101,26 @@ async function replicateRun(model, input) {
   if (pred.status !== 'succeeded') throw new Error(`${model}: ${pred.status} ${pred.error ?? ''}`)
   const out = pred.output
   return Array.isArray(out) ? out[0] : out
+}
+
+// MP3 of Mr. Imagine reading `text` (Gemini 3.8 Flash TTS, base64 back in the response).
+async function geminiSpeak(text) {
+  if (!GOOGLE_KEY) throw new Error('No GOOGLE_API_KEY')
+  const res = await fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+    method: 'POST',
+    headers: { 'x-goog-api-key': GOOGLE_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: 'gemini-3.8-flash-tts',
+      input: [{ type: 'user_input', content: [{ type: 'text', text, annotations: [{ type: 'speech_metadata', style: MR_IMAGINE.style }] }] }],
+      response_format: { type: 'audio', mime_type: 'audio/mp3' },
+      generation_config: { speech_config: [{ voice: MR_IMAGINE.voice }] },
+    }),
+  })
+  const body = await res.json()
+  if (!res.ok) throw new Error(`Gemini TTS: HTTP ${res.status} ${JSON.stringify(body).slice(0, 200)}`)
+  const clip = (body.steps ?? []).filter(s => s.type === 'model_output').flatMap(s => s.content ?? []).filter(c => c.type === 'audio').pop()
+  if (!clip?.data) throw new Error('Gemini TTS answered with no audio')
+  return Buffer.from(clip.data, 'base64')
 }
 
 async function download(url, dest) {
@@ -138,14 +165,7 @@ for (const [key, text] of Object.entries(VOICE_LINES)) {
   manifest.voice[key] = `/toy-creator/voice/${file}`
   if (fs.existsSync(dest)) { skip++; continue }
   try {
-    const url = await replicateRun('minimax/speech-02-turbo', {
-      text,
-      voice_id: MR_IMAGINE_VOICE,
-      emotion: 'happy',
-      speed: 1.05,
-      english_normalization: true,
-    })
-    await download(url, dest)
+    fs.writeFileSync(dest, await geminiSpeak(text))
     ok++
     console.log(`✅ voice ${key}`)
   } catch (e) {

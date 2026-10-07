@@ -29,7 +29,7 @@ import { applyImageSelection } from '../services/product-build.js'
 import { processImageJobInline } from './admin/ai-products.js'
 import { pricingService } from '../services/imagination-pricing.js'
 import { transcribeAudio } from '../services/transcribe.js'
-import { generateConversationalResponse, AVAILABLE_VOICES, EMOTIONS } from '../services/voiceGenerator.js'
+import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 
 const router = Router()
@@ -456,7 +456,7 @@ router.post('/:id/submit', requireAuth, requireCreator, rateLimit(6), async (req
 })
 
 // ---------------------------------------------------------------------------
-// THE MINIMAX TURN LANE (David 2026-08-10: "i like his minimax voice better
+// THE TURN LANE (David 2026-08-10: "i like his minimax voice better
 // then grok … we keep the studio but make it clean").
 //
 // This replaces xAI Grok realtime for CREATORS. The admin studio keeps Grok.
@@ -680,14 +680,10 @@ router.post('/turn', requireAuth, requireCreator, rateLimit(20), turnUpload.sing
     }
     reply = reply.slice(0, 600)
 
-    // ---- 3. Speak it in his own (MiniMax cloned) voice
+    // ---- 3. Speak it in his own voice (Gemini 3.8 Flash TTS, services/voiceGenerator.ts)
     let audioUrl: string | null = null
     try {
-      audioUrl = await generateConversationalResponse(reply, {
-        voiceId: AVAILABLE_VOICES.MR_IMAGINE,
-        emotion: EMOTIONS.AUTO,
-        speed: 0.98,
-      })
+      audioUrl = await generateVoiceResponse(reply)
     } catch (err: any) {
       // Voice is a nicety — a TTS outage must never break the build.
       console.warn('[creator-studio] TTS unavailable for this turn:', err?.message)
