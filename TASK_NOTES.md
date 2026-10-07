@@ -1,5 +1,39 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
+
+David's 10/7 live phone walk: the $5 "Patriotic Heartbeat DTF" transfer shows shirt sizes,
+youth sizes, shirt colours and "Shirt Quality"; the hoodie page offers T-shirt blanks; size
+buttons show a bare "+$" / "-$"; finished designs show "Upload Your Own Design"; "Print
+Placement - required" with no default blocks Add to Cart (empty cart on f09a7d64).
+Fix: option sets driven by product kind (DTF: transfer size/qty/gang sheet; hoodie: hoodie
+blanks; tee: tee blanks), full price on size buttons, upload only on blank/custom products,
+placement defaults to where the design is printed.
+
+### File shortlist (approved scope — 2026-10-07 option sets)
+- `src/lib/product-kind.ts` / `.test.ts` (listing kind, option sets, transfer sizes, placement default, size deltas)
+- `src/lib/garment-tiers.ts` (hoodie blank line next to the tee blanks)
+- `src/pages/ProductPage.tsx` (render by option sets)
+- `src/components/ProductCard.tsx` — added with rationale: its Quick Add shares
+  `sizeChoicesFor` with the page ("one answer so they can never disagree") and has the
+  same bare "+$" and the same placement gate, so leaving it would re-create defects 3 and 5
+  from the catalog grid.
+- `backend/shared/catalog-capability.ts` / `.test.ts` — `isPlusSize` must not read a
+  transfer sheet size ('8.5x11"' contains '5X', '13x19"' contains '3X') as a 2XL+ size, or a
+  transfer would be charged the +$2.50 shirt upcharge by the server and the cart.
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): reproduced all five on live at 390px (fleet browser: transfer shows
+  S-3XL/youth/colours/Shirt Quality/upload; hoodie shows the four tee blanks; bare "+$"/"-$";
+  f09a7d64 Add to Cart -> "Your cart is empty"). Built listingKindOf/listingOptionSets +
+  transfer sizes (11 in adult / 8 in youth from the capability print widths, listing price),
+  defaultPrintLocation (metadata.print_placement -> location, else Front), sizePriceDelta,
+  HOODIE_TIERS, isPlusSize guard for measured sizes. Page + catalog card read them. 29 new
+  tests; full suite 137 files / 2126 green; tsc clean. Walked the branch at 390px + desktop:
+  transfer adds with no picks ("Size: 11 in (adult)", $5.00), f09a7d64 adds with Front
+  untouched, hoodie lists only its hoodie blank, blank keeps upload.
+
 ## Current request (2026-10-07) — stop the spam, lock down the forms (Watchtower 673c0b4a)
 
 David 10/7: "secure ITP, make the spam go away." Bot protection on the contact form,
