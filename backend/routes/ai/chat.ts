@@ -5,6 +5,9 @@ import dotenv from 'dotenv'
 import { sendNewSupportTicketEmail, sendTicketConfirmationEmail } from '../../utils/email.js'
 import { createNotification, checkAgentAvailability } from '../admin/support.js'
 import { optionalAuth } from '../../middleware/supabaseAuth.js'
+import { pingChristinaAboutTicket } from '../../services/support-ping.js'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 dotenv.config()
 
@@ -298,6 +301,17 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                                         args.issue_summary
                                     ).catch(e => console.error('[chat] Confirmation email failed:', e))
                                 }
+
+                                // Becky tells Christina on her phone (services/support-ping.ts).
+                                await pingChristinaAboutTicket({
+                                    kind: 'ticket',
+                                    ticketId: ticket.id,
+                                    subject: args.issue_summary,
+                                    message: args.description || args.issue_summary,
+                                    customerEmail: userEmail,
+                                    priority: args.priority,
+                                    category: args.category
+                                })
                             } else {
                                 console.error('[chat] ❌ Ticket creation error:', error)
                             }
@@ -341,48 +355,76 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                         // Check availability first
                         const availability = await checkAgentAvailability()
 
-                        if (availability.available) {
-                            // If we have a ticket, escalate it
-                            if (args.ticket_id && supabase) {
-                                await supabase
-                                    .from('support_tickets')
-                                    .update({
-                                        status: 'waiting',
-                                        priority: 'high',
-                                        updated_at: new Date().toISOString()
-                                    })
-                                    .eq('id', args.ticket_id)
+                        // The chat window polls a real ticket for the person's replies, so the handoff needs one:
+                        // the id the model passed (only if it is a real row id), one made earlier this turn, or a new one.
+                        let liveTicketId: string | null = UUID_RE.test(String(args.ticket_id || '')) ? args.ticket_id : (meta.ticket_id || null)
+                        if (availability.available && !liveTicketId && supabase) {
+                            const { data: created } = await supabase
+                                .from('support_tickets')
+                                .insert({
+                                    user_id: userId || null,
+                                    email: providedEmail || null,
+                                    subject: `Live chat: ${String(args.reason || 'customer asked for a person').slice(0, 120)}`,
+                                    description: `${args.reason || ''}\n\nLast message: ${String(message || '').slice(0, 1000)}`.trim(),
+                                    priority: 'high',
+                                    category: 'general',
+                                    status: 'waiting'
+                                })
+                                .select('id')
+                                .single()
+                            liveTicketId = created?.id ?? null
+                        }
 
-                                // Create chat session
-                                await supabase
-                                    .from('chat_sessions')
-                                    .upsert({
-                                        ticket_id: args.ticket_id,
-                                        user_id: userId,
-                                        status: 'waiting',
-                                        started_at: new Date().toISOString()
-                                    }, {
-                                        onConflict: 'ticket_id'
-                                    })
+                        if (availability.available && liveTicketId && supabase) {
+                            await supabase
+                                .from('support_tickets')
+                                .update({
+                                    status: 'waiting',
+                                    priority: 'high',
+                                    updated_at: new Date().toISOString()
+                                })
+                                .eq('id', liveTicketId)
 
-                                // Create notification
-                                await createNotification(
-                                    'agent_needed',
-                                    'Customer Requesting Live Chat',
-                                    args.reason,
-                                    args.ticket_id,
-                                    userId
-                                )
-                            }
+                            // Create chat session
+                            const { error: sessionError } = await supabase
+                                .from('chat_sessions')
+                                .upsert({
+                                    ticket_id: liveTicketId,
+                                    user_id: userId || null,
+                                    status: 'waiting',
+                                    started_at: new Date().toISOString()
+                                }, {
+                                    onConflict: 'ticket_id'
+                                })
+                            // A guest (no account) needs migration 20261007180000; until then this says so out loud.
+                            if (sessionError) console.error('[chat] live chat session not created:', sessionError.message)
+
+                            // Create notification
+                            await createNotification(
+                                'agent_needed',
+                                'Customer Requesting Live Chat',
+                                args.reason,
+                                liveTicketId,
+                                userId
+                            )
+
+                            // Christina picks it up from Becky; her reply lands in this chat window.
+                            await pingChristinaAboutTicket({
+                                kind: 'live_chat',
+                                ticketId: liveTicketId,
+                                subject: String(args.reason || 'A customer wants a person'),
+                                message: String(message || args.reason || ''),
+                                customerEmail: providedEmail
+                            })
 
                             meta.handoff = true
                             meta.live_chat = true
-                            meta.ticket_id = args.ticket_id
+                            meta.ticket_id = liveTicketId
 
                             toolOutput = JSON.stringify({
                                 success: true,
                                 handoff: true,
-                                message: "Connecting you with a support agent now. Please wait a moment..."
+                                message: "I just sent your message to a real person on our team. Stay right here: their reply will show up in this chat. If you have to go, give me your email and the reply goes there too."
                             })
                         } else {
                             toolOutput = JSON.stringify({

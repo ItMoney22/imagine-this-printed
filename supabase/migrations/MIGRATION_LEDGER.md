@@ -232,6 +232,20 @@ db push`/`db reset` was run, nothing was written to the live database.
   table is inert without that code — nothing reads or writes it — so the
   ordering is safe either way, but the merge must not be forgotten.
 
+## 2026-08-16 — social_outbox.scheduled_for + orders.attribution applied (Iahhm, task ba470233)
+
+Applied LIVE to prod, directly via `pg` against the ITP pooler (each inside its
+own `BEGIN`, verified against `information_schema`/`pg_indexes` after, then
+`COMMIT`). Not tracked in `schema_migrations` (same as most of this repo).
+
+- `20260728_social_outbox_scheduled_for.sql` — was **PENDING since 2026-07-28**
+  and the deployed `main` branch's `/bridge/next` had queried the column
+  unconditionally since commit `c3f4d41` — a live outage (every bridge poll
+  one PostgREST 42703 away from failing) that this audit found and fixed
+  before it was reported.
+- `20260816_orders_attribution.sql` (NEW file, same session) — adds
+  `orders.attribution JSONB` + a GIN index for the checkout-UTM-capture work.
+
 ## 2026-08-05/06 — security hardening applied (Zero Nine)
 
 Applied LIVE to prod via `scripts/apply-pending-migrations.mjs` (each verified
@@ -679,3 +693,4 @@ a reviewed, deliberate action, not a rubber stamp.
 
 | `20260922120000_signup_wallet_and_welcome_email.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 4d915741; ledger row inserted into `supabase_migrations.schema_migrations` in the same script, so the CLI is not drifting further on this one) | Signup hardening. (1) `public.create_user_wallet()` rewritten: production had it minting **500 ITC unconditionally** while every migration file in this repo showed zeros — `handle_new_user()`'s own zero-balance insert was losing to its `ON CONFLICT (user_id) DO NOTHING` because the profile insert had already fired the wallet trigger. Now zeros, with `SET search_path` added to a `SECURITY DEFINER` function that lacked one. (2) Adds `user_profiles.welcome_email_sent_at` and backfills every existing row, so the durable one-welcome-per-account stamp cannot re-mail the existing customer base. (3) Drops `on_auth_user_welcome_email` + `send_welcome_email_webhook()` — it POSTed to `/api/webhooks/supabase-auth` on every `auth.users` INSERT with no `x-webhook-secret`, so it has only ever been answered 401/503, and it fired before confirmation. Verified live by inserting a real `auth.users` row and reading the wallet back at 0.00, then deleting the probe. Uses production's actual column names (`points`, `usd_balance`, `total_earned`, `total_spent` — NOT `points_balance`/`lifetime_*`, which `COMPLETE_DATABASE_SETUP.sql` still wrongly describes). Full writeup: `docs/SIGNUP_BOT_PROTECTION.md`. |
 | `20260923130000_support_schema_align.sql` | **YES — applied 2026-09-23** (Dr. Dill, Watchtower task 6ff6495c; ledger row inserted into `supabase_migrations.schema_migrations`) | Additive fix for a dead contact form. Prod had the old `01_support_system.sql` shape (`ticket_messages.content`, no `sender_type`, no `support_tickets.email`) while every writer uses the `20251219` shape. Since `1676724` started writing `support_tickets.email`, `POST /api/support/tickets` returned "Could not find the 'email' column" for every submission — last prod ticket before this was 2026-08-17. Adds `support_tickets.email`, `ticket_messages.message` + `sender_type` (CHECK user/agent/system/ai), backfills `message` from `content` (0 rows), reloads the PostgREST schema. Verified live: a real contact-form POST created ticket 9c0baf99 with both ticket_messages rows incl. the `[Jev triage]` internal note (then closed). Rollback = drop the three columns. |
+| `20261007120000_signup_bot_flag.sql` | **YES — applied 2026-10-07** (Zero Nine, Watchtower task 673c0b4a; dry-run in a rolled-back transaction first, then applied in one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | Marks bot signups, deletes nothing. Adds `signup_name_bigrams` (729 letter-pair log-probs from real names; RLS on, no policies), `signup_name_score()` + `signup_bot_verdict()` (execute revoked from anon/authenticated), trigger `on_auth_user_flag_bot` (AFTER INSERT on auth.users: strong bot names get `user_profiles.metadata.bot_suspect`; errors swallowed so it can never fail a signup) and a DORMANT gate `on_auth_user_gate_bot` (BEFORE INSERT: refuses strong bot names only while `admin_settings.signup_bot_gate` = "block"). Backfill marked all 152 bot accounts (147 strong + 5 weak/new/never-signed-in/no-orders); the 5 real accounts untouched; auth.users 157 before and after. Proven live with admin-created probes (bot flagged, real not, gate refused bot only while on), probes then removed. Rollback = drop both triggers, the four functions and the table; `update user_profiles set metadata = metadata - 'bot_suspect'`. Writeup: `docs/SIGNUP_BOT_PROTECTION.md` section 6. |
