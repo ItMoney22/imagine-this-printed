@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { X, Send } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -73,6 +74,9 @@ export function MrImagineChatWidget() {
     // The "Need help?" label shows only at the top of a page; once the shopper
     // scrolls it would sit over product cards and their buttons.
     const [nearTop, setNearTop] = useState(true)
+    // On the buying pages the label would sit on the Add to cart button, so it never shows there.
+    const { pathname } = useLocation()
+    const onBuyingPage = /^\/(product|cart|checkout)(\/|$)/.test(pathname)
     useEffect(() => {
         const onScroll = () => setNearTop(window.scrollY < 120)
         onScroll()
@@ -473,7 +477,7 @@ export function MrImagineChatWidget() {
             {/* Re-open button if minimized? Or just use the widget's X to close. 
           If closed, show the head. If open, hide the head. 
       */}
-            {!isOpen && nearTop && (
+            {!isOpen && nearTop && !onBuyingPage && (
                 <div className="absolute -top-12 right-0 bg-white px-4 py-2 rounded-xl shadow-lg border border-purple-100 whitespace-nowrap pointer-events-auto origin-bottom-right animate-fade-in-up">
                     <p className="text-sm font-bold text-gray-800 flex items-center gap-2">
                         Need help? <span className="text-purple-600">Chat with me!</span>

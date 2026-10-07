@@ -1,21 +1,25 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { Sparkles, ShoppingCart, Zap, Check, Upload, Loader2 } from 'lucide-react'
+import { useParams, useNavigate, Link } from 'react-router-dom'
+import { Sparkles, ShoppingCart, Check, Upload, Loader2, Store, Truck, ShieldCheck, ChevronDown } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { supabase } from '../lib/supabase'
 import { productRecommender } from '../utils/product-recommender'
-import ProductRecommendations from '../components/ProductRecommendations'
 import ProtectedImage from '../components/ProtectedImage'
 import VirtualTryOn from '../components/VirtualTryOn'
 import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
-import { STANDARD_FULFILLMENT_DAYS } from '../utils/shipping-calculator'
+import { STANDARD_FULFILLMENT_DAYS, FREE_SHIPPING_THRESHOLD } from '../utils/shipping-calculator'
+import { BUSINESS_EMAIL, SHOP_PLACE } from '../config/business-info'
+import { SIZE_CHARTS, chartRows, sizeChartFor } from '../lib/size-charts'
+import { plainDescription } from '../lib/plain-text'
+import { SizeGuide } from '../components/product/SizeGuide'
+import { YouMayAlsoLike } from '../components/product/YouMayAlsoLike'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
+import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
@@ -35,6 +39,16 @@ function isLightHex(hex: string | undefined): boolean {
 // Customer-facing labels for products.print_locations values. Mirrors the
 // admin wizard's PrintLocationsDropdown (src/components/AdminCreateProductWizard.tsx),
 // shortened for a compact selector on the storefront product page.
+// Breadcrumb names for the catalog shelves (ProductCatalog's category ids).
+const SHELF_LABELS: Record<string, string> = {
+  shirts: 'T-Shirts',
+  hoodies: 'Hoodies',
+  '3d-prints': '3D Prints',
+  'metal-art': 'Metal Art',
+  'dtf-transfers': 'DTF Transfers',
+  tumblers: 'Tumblers'
+}
+
 const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
   front_image: 'Front',
   back_image: 'Back',
@@ -77,6 +91,8 @@ const ProductPage: React.FC = () => {
   const [ownsDigital, setOwnsDigital] = useState(false)
   const [buyingDigital, setBuyingDigital] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const [showSizeGuide, setShowSizeGuide] = useState(false)
+  const [descOpen, setDescOpen] = useState(false)
 
   // Load product and source image from database
   useEffect(() => {
@@ -565,21 +581,40 @@ const ProductPage: React.FC = () => {
     }
   }
 
-  return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-28 sm:pb-8">
-      <button
-        onClick={() => navigate(-1)}
-        className="mb-6 text-primary hover:text-secondary flex items-center transition-colors"
-      >
-        <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-        </svg>
-        Back
-      </button>
+  // Breadcrumb shelf + the Size guide's measurements (approved mock 394b217c).
+  const shelfId = isBlank ? 'blanks' : canonicalCategoryOf(product)
+  const shelf = isBlank
+    ? { label: 'Blank Tees', to: '/blanks' }
+    : { label: SHELF_LABELS[shelfId] || 'Shop', to: SHELF_LABELS[shelfId] ? `/catalog/${shelfId}` : '/catalog' }
+  const guideTier = isBlank && blankTier
+    ? { label: blankTier.name, compareTo: compareToLabel(blankTier) }
+    : (() => {
+        const t = blankTiers.find(x => x.id === selectedTier) ?? blankTiers[0]
+        return t ? { label: t.label, compareTo: t.compareTo } : null
+      })()
+  const adultChart = productKind === 'apparel' && !isTransfer && guideTier ? sizeChartFor(guideTier.compareTo) : null
+  const youthOffered = sizeChoices.filter(sz => isYouthSize(sz))
+  const guideAdultRows = adultChart ? chartRows(adultChart, sizeChoices.filter(sz => !isYouthSize(sz))) : []
+  const guideYouthRows = options.blankPicker === 'tee' && youthOffered.length
+    ? chartRows(SIZE_CHARTS['5000B'], youthOffered.map(sz => sz.replace(/^Y/i, ''))).map(r => ({ ...r, size: `Y${r.size}` }))
+    : []
+  const description = plainDescription(product.description)
+  const optionLabel = 'block text-sm font-semibold text-text mb-2'
+  const chip = (on: boolean) =>
+    `rounded-xl border-2 font-semibold transition-colors ${on ? 'border-primary bg-primary text-white' : 'border-border bg-card text-text hover:border-primary'}`
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div>
-          <div className="mb-4">
+  return (
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 sm:pt-8 pb-16">
+      <nav aria-label="Breadcrumb" className="mb-4 sm:mb-6 text-sm text-muted flex items-center gap-2">
+        <Link to="/catalog" className="text-primary hover:underline">Shop</Link>
+        <span aria-hidden="true">/</span>
+        <Link to={shelf.to} className="hover:text-text">{shelf.label}</Link>
+      </nav>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-12">
+        {/* Gallery: one big photo that stays in view while the buy box scrolls. */}
+        <div className="lg:sticky lg:top-6 self-start">
+          <div className="rounded-3xl bg-card border border-border shadow-soft overflow-hidden">
             {/* Signature hero: when the product has a spin video (model turning,
                 shirt changing color), it IS the landing media — autoplay, muted,
                 looping. Tapping any thumbnail switches to stills; the play tile
@@ -589,7 +624,7 @@ const ProductPage: React.FC = () => {
                 src={heroVideoUrl}
                 autoPlay muted loop playsInline
                 poster={galleryImages[0]}
-                className="w-full h-96 object-contain bg-bg/40 rounded-lg shadow-lg"
+                className="w-full aspect-square object-contain"
               />
             ) : (
               <ProtectedImage
@@ -597,11 +632,9 @@ const ProductPage: React.FC = () => {
                   ? galleryImages[selectedImage]
                   : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
                 alt={product.altText || product.name}
-                // object-contain (was object-cover) — mockups have varying
-                // aspect ratios and the previous "cover" was cropping the top
-                // off taller designs. The bg-bg/40 fills any letterbox area
-                // with a subtle backdrop instead of leaving raw white space.
-                className="w-full h-96 object-contain bg-bg/40 rounded-lg shadow-lg"
+                // object-contain — mockups have varying aspect ratios and
+                // "cover" cropped the top off taller designs.
+                className="w-full aspect-square object-contain"
                 onError={(e) => {
                   (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
                 }}
@@ -610,11 +643,11 @@ const ProductPage: React.FC = () => {
           </div>
 
           {(galleryImages.length > 1 || heroVideoUrl) && (
-            <div className="flex space-x-2 overflow-x-auto">
+            <div className="flex gap-2 sm:gap-3 overflow-x-auto mt-3 pb-1">
               {heroVideoUrl && (
                 <button
                   onClick={() => setVideoActive(true)}
-                  className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 relative ${videoActive ? 'border-primary shadow-glow' : 'card-border'}`}
+                  className={`flex-shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden border-2 relative bg-card ${videoActive ? 'border-primary' : 'border-border'}`}
                   aria-label="Play product video"
                 >
                   <video src={heroVideoUrl} muted playsInline preload="metadata" className="w-full h-full object-cover" />
@@ -625,13 +658,13 @@ const ProductPage: React.FC = () => {
                 <button
                   key={index}
                   onClick={() => { setSelectedImage(index); setVideoActive(false) }}
-                  className={`flex-shrink-0 w-20 h-20 rounded-md overflow-hidden border-2 ${!videoActive && selectedImage === index ? 'border-primary shadow-glow' : 'card-border'
-                    }`}
+                  className={`flex-shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden border-2 bg-card ${!videoActive && selectedImage === index ? 'border-primary' : 'border-border'}`}
+                  aria-label={`Show photo ${index + 1}`}
                 >
                   <img
                     src={image}
                     alt={`${product.altText || product.name} ${index + 1}`}
-                    className="w-full h-full object-contain bg-bg/40"
+                    className="w-full h-full object-contain"
                     onError={(e) => {
                       (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
                     }}
@@ -642,67 +675,66 @@ const ProductPage: React.FC = () => {
           )}
         </div>
 
-        <div className="space-y-6">
-          <div>
-            <div className="flex items-start justify-between gap-4 mb-2">
-              <h1 className="text-3xl font-bold bg-gradient-to-r from-primary via-purple-500 to-secondary bg-clip-text text-transparent animate-gradient-text drop-shadow-[0_0_15px_rgba(168,85,247,0.5)]">{product.name}</h1>
-              {/* Quick share. Prefers the SEO slug so the shared link matches the
-                  canonical URL rather than exposing a UUID. */}
-              <div className="shrink-0">
-                <SocialShareButtons
-                  productId={product.slug || product.id}
-                  productName={product.name}
-                  productImage={galleryImages[0]}
-                  menuPlacement="bottom-right"
-                />
-              </div>
+        {/* Buy box: name, price, the options, ONE Add to cart. */}
+        <div>
+          <div className="flex items-start justify-between gap-4 mb-2">
+            <h1 className="font-display text-3xl sm:text-4xl text-text leading-tight">{product.name}</h1>
+            {/* Quick share. Prefers the SEO slug so the shared link matches the
+                canonical URL rather than exposing a UUID. */}
+            <div className="shrink-0 pt-1">
+              <SocialShareButtons
+                productId={product.slug || product.id}
+                productName={product.name}
+                productImage={galleryImages[0]}
+                menuPlacement="bottom-right"
+              />
             </div>
-            <div className="flex items-baseline gap-3 flex-wrap">
-              {isBlank ? (
-                <>
-                  <p className="text-3xl font-bold text-text">
-                    {blankUnit !== null ? `$${blankUnit.toFixed(2)}` : `from $${(blankFrom ?? product.price).toFixed(2)}`}
-                  </p>
-                  <span className="text-sm text-muted">
-                    {blankUnit !== null
-                      ? `${selectedSize}${selectedColor ? ` · ${selectedColor}` : ''}`
-                      : 'pick a size and colour for the exact price'}
-                  </span>
-                </>
-              ) : (
-              <p className="text-3xl font-bold text-text">
-                {priceIsFrom && <span className="text-base font-medium text-muted mr-1.5">from</span>}
+          </div>
+          <div className="flex items-baseline gap-3 flex-wrap">
+            {isBlank ? (
+              <>
+                <p className="font-display text-3xl text-text">
+                  {blankUnit !== null ? `$${blankUnit.toFixed(2)}` : `from $${(blankFrom ?? product.price).toFixed(2)}`}
+                </p>
+                <span className="text-sm text-muted">
+                  {blankUnit !== null
+                    ? `${selectedSize}${selectedColor ? ` · ${selectedColor}` : ''}`
+                    : 'pick a size and colour for the exact price'}
+                </span>
+              </>
+            ) : (
+              <p className="font-display text-3xl text-text">
+                {priceIsFrom && <span className="text-base font-body text-muted mr-1.5">from</span>}
                 ${unitPrice.toFixed(2)}
               </p>
-              )}
-              {(() => {
-                const promo = getPromoBadge(product)
-                if (!promo) return null
-                return (
-                  <>
-                    <span className="text-lg text-muted line-through">${promo.originalPrice.toFixed(2)}</span>
-                    <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-amber-500 text-slate-900 shadow-[0_0_10px_rgba(245,158,11,0.6)]">
-                      {promo.percentOff}% off
-                    </span>
-                  </>
-                )
-              })()}
-            </div>
+            )}
+            {(() => {
+              const promo = getPromoBadge(product)
+              if (!promo) return null
+              return (
+                <>
+                  <span className="text-lg text-muted line-through">${promo.originalPrice.toFixed(2)}</span>
+                  <span className="text-xs font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-primary text-white">
+                    {promo.percentOff}% off
+                  </span>
+                </>
+              )
+            })()}
           </div>
-
-          <div>
-            <h3 className="text-lg font-semibold mb-2 text-text font-serif italic">{isBlank ? 'The Shirt' : 'The Vision'}</h3>
-            <p className="text-muted leading-relaxed italic border-l-2 border-primary/30 pl-4">"{product.description}"</p>
-          </div>
+          <p className="text-sm text-text-secondary mt-2">
+            {isBlank
+              ? `Ships from ${SHOP_PLACE.town}, ${SHOP_PLACE.stateCode} within ${STANDARD_FULFILLMENT_DAYS} business days of payment.`
+              : `Printed to order in ${SHOP_PLACE.town}, ${SHOP_PLACE.stateCode}. Ships within ${STANDARD_FULFILLMENT_DAYS} business days of payment.`}
+          </p>
 
           {/* Blank garment spec sheet — David 2026-09-02: "make sure it has the
               stats". House name only; the manufacturer appears solely on the
               "Compared to" line. Specs come from the shared blank line table
               (same source the seed wrote to metadata). */}
           {isBlank && blankTier && (
-            <div className="rounded-xl border card-border bg-card/60 p-4 sm:p-5">
+            <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 mt-5">
               <div className="flex flex-wrap items-center gap-2 mb-3">
-                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-primary/15 text-primary">
+                <span className="text-[11px] font-bold uppercase tracking-wider px-2 py-1 rounded-md bg-bg-warm text-primary">
                   {blankTier.grade}
                 </span>
                 <span className="text-xs text-muted">{compareToLabel(blankTier)}</span>
@@ -738,28 +770,7 @@ const ProductPage: React.FC = () => {
             </div>
           )}
 
-          {/* Generic quality bullets — a blank gets the real spec sheet above instead. */}
-          {!isBlank && (
-          <div>
-            <h3 className="text-lg font-semibold mb-2 text-text">Details</h3>
-            <ul className="text-muted space-y-2">
-              <li className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>{productKind === '3d' ? '3D printed in our Georgia shop after you order' : isTransfer ? 'DTF transfer, printed after you order. This is the transfer only; no shirt is included' : 'Made to order, printed after you order'}</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Ships from Georgia, USA</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Questions? wecare@imaginethisprinted.com</span>
-              </li>
-            </ul>
-          </div>
-          )}
-
-          <div className="border-t card-border pt-6">
+          <div className="border-t border-border mt-5 pt-5 space-y-5">
             {/* Size selector — type-aware: apparel shirt sizes, metal print sizes, or 3D tiers */}
             {(() => {
               // sizeChoicesFor() owns the whole decision: metal always shows
@@ -771,10 +782,6 @@ const ProductPage: React.FC = () => {
               // A one-size product (a 3D print with no explicit tiers) has no
               // picker at all — see the requiresSize gate on add-to-cart.
               if (displaySizes.length === 0) return null
-              // Plus-size upcharge is printed tees and hoodies only - metal/3D
-              // sizes and transfer widths never qualify, and blanks carry their
-              // real per-size price instead.
-              const hasPlusSizes = displaySizes.some(s => sizePriceDelta(product, s) > 0)
               const sizeLabel = productKind === 'metal' ? 'Print Size' : isTransfer ? 'Transfer Size' : 'Size'
 
               // Shirts and hoodies sell the adult cut AND the youth cut on the
@@ -788,70 +795,60 @@ const ProductPage: React.FC = () => {
               const splitBands = youthSizes.length > 0 && adultSizes.length > 0
 
               const renderSizeButtons = (sizes: string[]) => (
-                <div className="flex flex-wrap gap-2">
-                    {sizes.map(size => {
-                      const isSelected = selectedSize === size
-                      // Blank garments: the real price for this size (in the
-                      // selected colour group) lives on the button itself.
-                      const sizePrice = blankPricing ? blankUnitPriceDollars(blankPricing, size, selectedColor) : null
-                      // Printed tees and hoodies: the whole amount this size
-                      // adds or takes off ("+$2.50", "-$3.00"), the same rails
-                      // the server charges. It used to show a bare "+$" / "-$".
-                      const delta = sizePriceDelta(product, size)
-                      const deltaLabel = formatPriceDelta(delta)
-                      return (
-                        <button
-                          key={size}
-                          onClick={() => setSelectedSize(size)}
-                          className={`px-4 py-2 rounded-md border-2 font-bold transition-all relative group ${isSelected
-                            ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
-                            : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
-                            } ${sizePrice !== null || deltaLabel ? 'flex flex-col items-center leading-tight' : ''}`}
-                          title={sizePrice !== null ? `$${sizePrice.toFixed(2)} each` : deltaLabel ? `${deltaLabel} for this size` : undefined}
-                        >
-                          {size}
-                          {sizePrice !== null ? (
-                            <span className={`text-[10px] font-medium ${isSelected ? 'text-white/80' : 'text-muted'}`}>
-                              ${sizePrice.toFixed(2)}
-                            </span>
-                          ) : deltaLabel ? (
-                            <span className={`text-[10px] font-medium ${isSelected ? 'text-white/80' : 'text-muted'}`}>
-                              {deltaLabel}
-                            </span>
-                          ) : productKind === 'metal' && (
-                            <span className={`ml-2 text-xs font-semibold ${isSelected ? 'text-white/90' : 'text-primary'}`}>
-                              ${metalSizePrice(size as '4x6' | '8x10').toFixed(2)}
-                            </span>
-                          )}
-                        </button>
-                      )
-                    })}
+                <div className="flex flex-wrap gap-1.5 sm:gap-2">
+                  {sizes.map(size => {
+                    const isSelected = selectedSize === size
+                    // Blank garments: the real price for this size (in the
+                    // selected colour group) lives on the button itself.
+                    const sizePrice = blankPricing ? blankUnitPriceDollars(blankPricing, size, selectedColor) : null
+                    // Printed tees and hoodies: the whole amount this size
+                    // adds or takes off ("+$2.50", "-$3.00"), the same rails
+                    // the server charges.
+                    const deltaLabel = formatPriceDelta(sizePriceDelta(product, size))
+                    return (
+                      <button
+                        key={size}
+                        onClick={() => setSelectedSize(size)}
+                        className={`${chip(isSelected)} min-w-[3rem] min-h-[2.75rem] px-2.5 py-1.5 flex flex-col items-center justify-center leading-tight`}
+                        title={sizePrice !== null ? `$${sizePrice.toFixed(2)} each` : deltaLabel ? `${deltaLabel} for this size` : undefined}
+                      >
+                        {size}
+                        {sizePrice !== null ? (
+                          <span className={`text-[10px] font-medium ${isSelected ? 'text-white/85' : 'text-muted'}`}>
+                            ${sizePrice.toFixed(2)}
+                          </span>
+                        ) : deltaLabel ? (
+                          <span className={`text-[10px] font-medium ${isSelected ? 'text-white/85' : 'text-muted'}`}>
+                            {deltaLabel}
+                          </span>
+                        ) : productKind === 'metal' && (
+                          <span className={`text-[10px] font-medium ${isSelected ? 'text-white/85' : 'text-primary'}`}>
+                            ${metalSizePrice(size as '4x6' | '8x10').toFixed(2)}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
                 </div>
               )
 
               return (
-                <div className="mb-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <label className="block text-sm font-medium text-text">{sizeLabel}</label>
-                    {hasPlusSizes && (
-                      <span className="text-xs bg-amber-500/20 text-amber-400 px-2 py-0.5 rounded-full">
-                        2XL+ = +$2.50
-                      </span>
-                    )}
-                    {splitBands && (
-                      <span className="text-xs bg-emerald-500/20 text-emerald-500 px-2 py-0.5 rounded-full">
-                        Youth = -${YOUTH_SIZE_DISCOUNT_DOLLARS.toFixed(2)}
-                      </span>
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-sm font-semibold text-text">{sizeLabel}</span>
+                    {adultChart && guideAdultRows.length > 0 && (
+                      <button type="button" onClick={() => setShowSizeGuide(true)} className="text-sm font-semibold text-primary hover:underline underline-offset-4">
+                        Size guide
+                      </button>
                     )}
                   </div>
                   {splitBands ? (
                     <div className="space-y-3">
+                      {renderSizeButtons(adultSizes)}
                       <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted mb-1.5">Adult</div>
-                        {renderSizeButtons(adultSizes)}
-                      </div>
-                      <div>
-                        <div className="text-xs font-semibold uppercase tracking-wide text-muted mb-1.5">Youth</div>
+                        <div className="text-xs font-semibold uppercase tracking-wide text-muted mb-1.5">
+                          Youth <span className="normal-case font-normal">(${YOUTH_SIZE_DISCOUNT_DOLLARS.toFixed(2)} less)</span>
+                        </div>
                         {renderSizeButtons(youthSizes)}
                       </div>
                     </div>
@@ -862,64 +859,23 @@ const ProductPage: React.FC = () => {
               )
             })()}
 
-            {/* Garment quality — printed tees offer the tee blanks (base price =
-                the standard blank, premium blanks upcharge per unit); a hoodie
-                shows its own hoodie blank, never the tee line. */}
-            {showGarmentTiers && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text mb-2">
-                  {options.blankPicker === 'hoodie' ? 'Hoodie Quality' : 'Shirt Quality'}
-                  {blankTiers.length > 1 && <span className="ml-2 text-muted font-normal">— pick your blank</span>}
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {blankTiers.map(tier => {
-                    const isSelected = selectedTier === tier.id
-                    return (
-                      <button
-                        key={tier.id}
-                        onClick={() => setSelectedTier(tier.id)}
-                        className={`text-left px-3 py-2 rounded-md border-2 transition-all ${isSelected
-                          ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
-                          : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5'
-                          }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="font-bold text-sm text-text">{tier.label}</span>
-                          <span className={`text-xs font-semibold ${tier.upcharge > 0 ? 'text-amber-400' : 'text-muted'}`}>
-                            {tier.upcharge > 0 ? `+$${tier.upcharge.toFixed(2)}` : 'included'}
-                          </span>
-                        </div>
-                        <p className="text-xs text-muted mt-0.5">{tier.blurb}</p>
-                        <p className="text-[11px] text-muted/80 mt-0.5">{tier.weightOz} oz · {tier.compareTo}</p>
-                      </button>
-                    )
-                  })}
-                </div>
-                {tierUpcharge > 0 && (
-                  <p className="text-xs text-muted mt-1.5">
-                    Unit price with this blank: <span className="text-text font-semibold">${(product.price + tierUpcharge).toFixed(2)}</span>
-                  </p>
-                )}
-              </div>
-            )}
-
             {productKind === 'metal' && product.metadata?.finish && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text mb-2">Finish</label>
-                <span className="inline-block px-4 py-2 rounded-md border-2 border-primary bg-primary/10 text-text font-bold capitalize">
+              <div>
+                <span className={optionLabel}>Finish</span>
+                <span className="inline-block px-4 py-2 rounded-xl border-2 border-primary text-text font-semibold capitalize">
                   {String(product.metadata.finish)}
                 </span>
               </div>
             )}
 
             {colorChoices.length > 0 && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text mb-2">
+              <div>
+                <span className={optionLabel}>
                   Color
                   {selectedColor && (
-                    <span className="ml-2 text-muted font-normal">— {getColorName(selectedColor)}</span>
+                    <span className="ml-2 text-muted font-normal">— {isBlank ? selectedColor : getColorName(selectedColor)}</span>
                   )}
-                </label>
+                </span>
                 <div className="flex flex-wrap gap-2">
                   {colorChoices.map(color => {
                     // Blanks store Jiffy colour NAMES (so inventory + reorders
@@ -939,14 +895,12 @@ const ProductPage: React.FC = () => {
                         }}
                         title={label}
                         aria-label={`Select ${label}`}
-                        className={`flex items-center gap-2 px-3 py-2 rounded-md border transition-all ${
-                          isSelected
-                            ? 'border-primary bg-primary/10 text-text ring-2 ring-primary/30'
-                            : 'border-slate-300 hover:border-slate-400 text-text'
+                        className={`flex items-center gap-2 pl-2 pr-3 py-1.5 min-h-[2.75rem] rounded-xl border-2 transition-colors ${
+                          isSelected ? 'border-primary text-text' : 'border-border hover:border-primary text-text'
                         }`}
                       >
                         <span
-                          className="w-5 h-5 rounded-full border border-black/15 flex items-center justify-center shrink-0"
+                          className="w-6 h-6 rounded-full border border-black/15 flex items-center justify-center shrink-0"
                           style={{ backgroundColor: swatch }}
                         >
                           {isSelected && (
@@ -961,14 +915,48 @@ const ProductPage: React.FC = () => {
               </div>
             )}
 
+            {/* Garment quality — printed tees offer the tee blanks (base price =
+                the standard blank, premium blanks upcharge per unit); a hoodie
+                shows its own hoodie blank, never the tee line. */}
+            {showGarmentTiers && (
+              <div>
+                <span className={optionLabel}>{options.blankPicker === 'hoodie' ? 'Hoodie Quality' : 'Shirt Quality'}</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {blankTiers.map(tier => {
+                    const isSelected = selectedTier === tier.id
+                    return (
+                      <button
+                        key={tier.id}
+                        onClick={() => setSelectedTier(tier.id)}
+                        className={`text-left p-3 rounded-xl border-2 transition-colors ${isSelected ? 'border-primary bg-bg-warm' : 'border-border bg-card hover:border-primary'}`}
+                        aria-pressed={isSelected}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className={`w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center ${isSelected ? 'border-primary' : 'border-border'}`}>
+                            {isSelected && <span className="w-2 h-2 rounded-full bg-primary" />}
+                          </span>
+                          <span className="font-semibold text-sm text-text flex-1">{tier.label}</span>
+                          <span className="text-xs font-semibold text-muted">
+                            {tier.upcharge > 0 ? `+$${tier.upcharge.toFixed(2)}` : 'included'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-muted mt-1 line-clamp-2">{tier.blurb}</p>
+                        <p className="text-[11px] text-muted mt-1">{tier.weightOz} oz · {tier.compareTo}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+                {tierUpcharge > 0 && (
+                  <p className="text-xs text-muted mt-1.5">
+                    Unit price with this blank: <span className="text-text font-semibold">${(product.price + tierUpcharge).toFixed(2)}</span>
+                  </p>
+                )}
+              </div>
+            )}
+
             {requiresPrintLocation && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text mb-2">
-                  Print Placement
-                  {!selectedPrintLocation && (
-                    <span className="ml-2 text-xs text-amber-400 font-normal">— required</span>
-                  )}
-                </label>
+              <div>
+                <span className={optionLabel}>Print Placement</span>
                 <div className="flex flex-wrap gap-2">
                   {placementChoices.map(loc => {
                     const isSelected = selectedPrintLocation === loc
@@ -979,18 +967,14 @@ const ProductPage: React.FC = () => {
                           setSelectedPrintLocation(loc)
                           // Show the shot that matches what they just picked.
                           // Only pocket has its own render today; front/back
-                          // keep whatever the shopper was already looking at
-                          // rather than jumping them somewhere arbitrary.
+                          // keep whatever the shopper was already looking at.
                           const shot = placementShots[loc === 'pocket' ? 'pocket' : '']
                           if (shot) {
                             const at = galleryImages.indexOf(shot)
                             if (at >= 0) { setSelectedImage(at); setVideoActive(false) }
                           }
                         }}
-                        className={`px-4 py-2 rounded-md border-2 font-bold transition-all ${isSelected
-                          ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
-                          : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
-                          }`}
+                        className={`${chip(isSelected)} px-4 min-h-[2.75rem]`}
                       >
                         {PRINT_LOCATION_LABELS[loc] || loc}
                       </button>
@@ -1001,8 +985,8 @@ const ProductPage: React.FC = () => {
             )}
 
             {availableAddons.length > 0 && (
-              <div className="mb-4">
-                <label className="block text-sm font-medium text-text mb-2">Add-ons</label>
+              <div>
+                <span className={optionLabel}>Add-ons</span>
                 <div className="space-y-2">
                   {availableAddons.map(addon => {
                     const checked = selectedAddons.some(a => a.id === addon.id)
@@ -1011,19 +995,17 @@ const ProductPage: React.FC = () => {
                         key={addon.id}
                         type="button"
                         onClick={() => toggleAddon(addon)}
-                        className={`w-full flex items-start gap-3 text-left px-4 py-3 rounded-lg border-2 transition-all ${
-                          checked
-                            ? 'border-primary bg-primary/10 ring-2 ring-primary/30'
-                            : 'border-slate-300 bg-card hover:border-primary/60'
+                        className={`w-full flex items-start gap-3 text-left px-4 py-3 rounded-xl border-2 transition-colors ${
+                          checked ? 'border-primary bg-bg-warm' : 'border-border bg-card hover:border-primary'
                         }`}
                       >
-                        <span className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'bg-primary border-primary' : 'border-slate-300'}`}>
+                        <span className={`mt-0.5 w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${checked ? 'bg-primary border-primary' : 'border-border'}`}>
                           {checked && <Check className="w-3.5 h-3.5 text-white" />}
                         </span>
                         <span className="flex-1">
                           <span className="flex items-center justify-between">
-                            <span className="font-bold text-text">{addon.name}</span>
-                            <span className="font-bold text-primary">+${addon.price.toFixed(2)}</span>
+                            <span className="font-semibold text-text">{addon.name}</span>
+                            <span className="font-semibold text-primary">+${addon.price.toFixed(2)}</span>
                           </span>
                           <span className="block text-xs text-muted mt-0.5">{addon.blurb}{addon.printed ? ' · Made in-house' : ''}</span>
                         </span>
@@ -1040,68 +1022,62 @@ const ProductPage: React.FC = () => {
               </div>
             )}
 
-            <div className="flex items-center space-x-4 mb-4">
-              <label className="text-sm font-medium text-text">Quantity:</label>
-              <div className="flex items-center border card-border rounded-md">
+            {teamTemplate && (
+              <TeamPersonalizePanel
+                productId={product.id}
+                template={teamTemplate}
+                values={personalization}
+                onChange={setPersonalization}
+                onUnsupported={() => setPersonalizeUnsupported(true)}
+              />
+            )}
+
+            {/* Quantity + the ONE main button. */}
+            <div>
+              <span className={optionLabel}>Quantity</span>
+              <div className="flex items-stretch gap-3">
+                <div className="flex items-center border-2 border-border rounded-xl bg-card">
+                  <button
+                    onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    className="w-11 h-12 flex items-center justify-center text-lg text-text"
+                    aria-label="One fewer"
+                  >
+                    −
+                  </button>
+                  <span className="w-8 text-center font-semibold text-text" aria-live="polite">{quantity}</span>
+                  <button
+                    onClick={() => setQuantity(quantity + 1)}
+                    className="w-11 h-12 flex items-center justify-center text-lg text-text"
+                    aria-label="One more"
+                  >
+                    +
+                  </button>
+                </div>
                 <button
-                  onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                  className="px-3 py-1 hover:bg-card transition-colors"
+                  onClick={() => handleAddToCart()}
+                  disabled={!product.inStock || (teamTemplate ? !personalizationComplete : false)}
+                  className="flex-1 btn-primary !py-3 !px-4 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  -
-                </button>
-                <span className="px-4 py-1 border-x card-border">{quantity}</span>
-                <button
-                  onClick={() => setQuantity(quantity + 1)}
-                  className="px-3 py-1 hover:bg-card transition-colors"
-                >
-                  +
+                  <ShoppingCart className="w-5 h-5" />
+                  {product.inStock ? 'Add to cart' : 'Out of stock'}
                 </button>
               </div>
-            </div>
-
-            <div className="space-y-3">
-
-              {/* Upload-your-own: only where the shopper brings the art (a
-                  blank, a personalizable template). A finished design already
-                  IS the art, so it never shows here (David 2026-10-07). */}
-              {options.upload && (
-                <>
-                  <input
-                    type="file"
-                    ref={fileInputRef}
-                    onChange={handleFileUpload}
-                    accept="image/*"
-                    className="hidden"
-                  />
-
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploading}
-                    className="w-full bg-white/10 hover:bg-white/20 border-2 border-primary/50 text-text font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg mb-2 shadow-[0_0_15px_rgba(168,85,247,0.2)]"
-                  >
-                    {uploading ? (
-                      <Loader2 className="w-6 h-6 animate-spin text-primary" />
-                    ) : (
-                      <Upload className="w-6 h-6 text-primary" />
-                    )}
-                    {uploading ? "Uploading..." : "Upload Your Own Design"}
-                  </button>
-                </>
-              )}
-
-              {/* Gang sheet: put this design on an Imagination Sheet with other
-                  designs. Needs artwork, so never on a blank, metal or 3D. */}
-              {options.gangSheet && (
-                <>
-                  {isTransfer && (
-                    <p className="text-sm text-muted">
-                      Ordering several designs? Put them all on one gang sheet.
-                    </p>
-                  )}
+              <div className="flex flex-col items-center gap-2 mt-3">
+                <button
+                  onClick={handleBuyNow}
+                  disabled={!product.inStock}
+                  className="text-sm font-semibold text-primary hover:underline underline-offset-4 disabled:opacity-50 py-1"
+                >
+                  Or buy it now
+                </button>
+                {/* Gang sheet: put this design on an Imagination Sheet with other
+                    designs. Needs artwork, so never on a blank, metal or 3D. It
+                    is a small link now; Add to cart is the main button (63520e95). */}
+                {options.gangSheet && (
                   <button
                     onClick={() => {
-                      // Navigate to Imagination Station with the SOURCE image (original Flux-generated)
-                      // sourceImageUrl is fetched from product_assets table (kind='source' or 'nobg')
+                      // Imagination Station gets the SOURCE image from product_assets
+                      // (kind='source' or 'nobg'), else the first product image.
                       const imageToAdd = sourceImageUrl || product.images?.[0] || ''
                       if (!imageToAdd) {
                         toast.error('No source image', 'This product has no source image to add to a sheet')
@@ -1114,149 +1090,174 @@ const ProductPage: React.FC = () => {
                       })
                       navigate(`/imagination-station?${params.toString()}`)
                     }}
-                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500 hover:shadow-glowLg text-white font-bold py-4 px-6 rounded-lg transition-all transform hover:scale-105 flex items-center justify-center gap-3 text-lg shadow-[0_0_20px_rgba(168,85,247,0.4)]"
+                    className="text-sm text-muted hover:text-primary inline-flex items-center gap-1.5 py-1"
                   >
-                    <Sparkles className="w-6 h-6" />
-                    Add to Imagination Sheet™
+                    <Sparkles className="w-4 h-4" />
+                    {isTransfer ? 'Ordering several designs? Put them on one Imagination Sheet' : 'Add this design to your Imagination Sheet'}
                   </button>
-                </>
-              )}
-
-              {teamTemplate && (
-                <TeamPersonalizePanel
-                  productId={product.id}
-                  template={teamTemplate}
-                  values={personalization}
-                  onChange={setPersonalization}
-                  onUnsupported={() => setPersonalizeUnsupported(true)}
-                />
-              )}
-
-              <button
-                onClick={() => handleAddToCart()}
-                disabled={!product.inStock || (teamTemplate ? !personalizationComplete : false)}
-                className="w-full btn-primary shadow-glow disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <ShoppingCart className="w-4 h-4" />
-                {product.inStock ? 'Add to Cart' : 'Out of Stock'}
-              </button>
-
-              <button
-                onClick={handleBuyNow}
-                disabled={!product.inStock}
-                className="w-full btn-secondary disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-              >
-                <Zap className="w-4 h-4" />
-                Buy Now
-              </button>
+                )}
+              </div>
             </div>
 
-            {/* Virtual try-on. Apparel only — FASHN's tryon-v1.6 dresses a
-                person, which means nothing for metal wall art or a 3D print.
-                The card renders itself to null until the feature is switched
-                on server-side, so this is inert without a FASHN key. */}
-            {options.tryOn && (
-              <div className="mt-4">
-                <VirtualTryOn
-                  productId={product.id}
-                  productName={product.name}
-                  garmentImageIndex={videoActive ? 0 : selectedImage}
-                  onAddToCart={(attribution) => handleAddToCart(attribution)}
-                  disabled={!product.inStock}
+            {/* Upload-your-own: only where the shopper brings the art (a
+                blank, a personalizable template). A finished design already
+                IS the art, so it never shows here (David 2026-10-07). */}
+            {options.upload && (
+              <>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={handleFileUpload}
+                  accept="image/*"
+                  className="hidden"
                 />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploading}
+                  className="w-full border-2 border-primary text-primary font-semibold py-3 px-6 rounded-full transition-colors hover:bg-bg-warm flex items-center justify-center gap-2"
+                >
+                  {uploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Upload className="w-5 h-5" />}
+                  {uploading ? 'Uploading...' : 'Upload your own design'}
+                </button>
+              </>
+            )}
+
+            {/* Three true facts (pickup + free threshold live in shipping-calculator). */}
+            <ul className="grid grid-cols-3 gap-2 border-y border-border py-4">
+              <li className="flex flex-col sm:flex-row items-center sm:items-start gap-1.5 sm:gap-2 text-center sm:text-left text-xs sm:text-sm text-text-secondary">
+                <Store className="w-5 h-5 text-primary shrink-0" strokeWidth={1.75} />
+                <span>Free pickup in {SHOP_PLACE.town}</span>
+              </li>
+              <li className="flex flex-col sm:flex-row items-center sm:items-start gap-1.5 sm:gap-2 text-center sm:text-left text-xs sm:text-sm text-text-secondary">
+                <Truck className="w-5 h-5 text-primary shrink-0" strokeWidth={1.75} />
+                <span>Free shipping on ${FREE_SHIPPING_THRESHOLD}+</span>
+              </li>
+              <li className="flex flex-col sm:flex-row items-center sm:items-start gap-1.5 sm:gap-2 text-center sm:text-left text-xs sm:text-sm text-text-secondary">
+                <ShieldCheck className="w-5 h-5 text-primary shrink-0" strokeWidth={1.75} />
+                <span>Secure checkout</span>
+              </li>
+            </ul>
+
+            {/* Virtual try-on. Apparel only — it dresses a person, which means
+                nothing for metal wall art or a 3D print. The card renders
+                itself to null until the feature is switched on server-side. */}
+            {options.tryOn && (
+              <VirtualTryOn
+                productId={product.id}
+                productName={product.name}
+                garmentImageIndex={videoActive ? 0 : selectedImage}
+                onAddToCart={(attribution) => handleAddToCart(attribution)}
+                disabled={!product.inStock}
+              />
+            )}
+
+            {hasDigitalDeliverables(product) && (
+              <div className="bg-card border border-border p-4 rounded-2xl">
+                <h4 className="font-semibold mb-1 text-text flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary" />
+                  Digital Download
+                </h4>
+                {ownsDigital && digitalDeliverables ? (
+                  <div className="space-y-2 mt-2">
+                    <p className="text-sm text-green-600">You own this — download your files:</p>
+                    {digitalDeliverables.map(d => (
+                      <a
+                        key={d.kind}
+                        href={d.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center justify-between px-3 py-2 rounded-xl border border-border bg-bg-warm hover:border-primary transition-colors text-sm text-text"
+                      >
+                        <span>{d.label}</span>
+                        <span className="text-primary font-medium">Download ↓</span>
+                      </a>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-muted mb-3 mt-1">
+                      Get the print-ready files — clean design, halftone version, and DTF print-ready. Instant download.
+                    </p>
+                    <button
+                      onClick={handleBuyDigital}
+                      disabled={buyingDigital}
+                      className="w-full btn-primary !py-3 disabled:opacity-60"
+                    >
+                      {buyingDigital && <Loader2 className="w-4 h-4 animate-spin" />}
+                      {buyingDigital
+                        ? 'Processing…'
+                        : `Buy Digital Download${Number(product.digital_price) > 0 ? ` — $${Number(product.digital_price).toFixed(2)}` : ''}`}
+                    </button>
+                  </>
+                )}
               </div>
             )}
-          </div>
 
-          {hasDigitalDeliverables(product) && (
-            <div className="bg-card card-border p-4 rounded-lg">
-              <h4 className="font-semibold mb-1 text-text flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-primary" />
-                Digital Download
-              </h4>
-              {ownsDigital && digitalDeliverables ? (
-                <div className="space-y-2 mt-2">
-                  <p className="text-sm text-green-600">You own this — download your files:</p>
-                  {digitalDeliverables.map(d => (
-                    <a
-                      key={d.kind}
-                      href={d.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-between px-3 py-2 rounded-md border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors text-sm text-text"
-                    >
-                      <span>{d.label}</span>
-                      <span className="text-primary font-medium">Download ↓</span>
-                    </a>
-                  ))}
-                </div>
-              ) : (
-                <>
-                  <p className="text-sm text-muted mb-3 mt-1">
-                    Get the print-ready files — clean design, halftone version, and DTF print-ready. Instant download.
-                  </p>
-                  <button
-                    onClick={handleBuyDigital}
-                    disabled={buyingDigital}
-                    className="w-full btn-primary shadow-glow flex items-center justify-center gap-2 disabled:opacity-60"
-                  >
-                    {buyingDigital && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {buyingDigital
-                      ? 'Processing…'
-                      : `Buy Digital Download${Number(product.digital_price) > 0 ? ` — $${Number(product.digital_price).toFixed(2)}` : ''}`}
+            {/* The story, short: three lines and Read more (no italic quote). */}
+            {description && (
+              <div>
+                <p className={`text-text-secondary leading-relaxed whitespace-pre-line ${descOpen ? '' : 'line-clamp-3'}`}>{description}</p>
+                {description.length > 160 && (
+                  <button onClick={() => setDescOpen(o => !o)} className="mt-1 text-sm font-semibold text-primary inline-flex items-center gap-1">
+                    {descOpen ? 'Show less' : 'Read more'}
+                    <ChevronDown className={`w-4 h-4 transition-transform ${descOpen ? 'rotate-180' : ''}`} />
                   </button>
-                </>
+                )}
+              </div>
+            )}
+
+            <div className="space-y-2">
+              {!isBlank && (
+                <details className="group rounded-xl border border-border bg-card">
+                  <summary className="flex items-center justify-between cursor-pointer list-none px-4 py-3 font-semibold text-text">
+                    Details
+                    <ChevronDown className="w-4 h-4 text-muted transition-transform group-open:rotate-180" />
+                  </summary>
+                  <ul className="px-4 pb-4 space-y-1.5 text-sm text-text-secondary">
+                    <li>{productKind === '3d' ? '3D printed in our Georgia shop after you order' : isTransfer ? 'DTF transfer, printed after you order. This is the transfer only; no shirt is included' : 'Made to order, printed after you order'}</li>
+                    <li>Ships from Georgia, USA</li>
+                    <li>Questions? <a href={`mailto:${BUSINESS_EMAIL}`} className="text-primary hover:underline">{BUSINESS_EMAIL}</a></li>
+                  </ul>
+                </details>
               )}
+              <details className="group rounded-xl border border-border bg-card">
+                <summary className="flex items-center justify-between cursor-pointer list-none px-4 py-3 font-semibold text-text">
+                  Shipping and pickup
+                  <ChevronDown className="w-4 h-4 text-muted transition-transform group-open:rotate-180" />
+                </summary>
+                <ul className="px-4 pb-4 space-y-1.5 text-sm text-text-secondary">
+                  <li>Free standard shipping on orders of ${FREE_SHIPPING_THRESHOLD} or more</li>
+                  <li>Ships within {STANDARD_FULFILLMENT_DAYS} business days of payment, then ground delivery up to 5 business days</li>
+                  <li>Faster options and free {SHOP_PLACE.town}, {SHOP_PLACE.stateCode} pickup at checkout</li>
+                  <li><Link to="/shipping" className="text-primary hover:underline">Shipping policy</Link></li>
+                </ul>
+              </details>
+              <details className="group rounded-xl border border-border bg-card">
+                <summary className="flex items-center justify-between cursor-pointer list-none px-4 py-3 font-semibold text-text">
+                  Returns
+                  <ChevronDown className="w-4 h-4 text-muted transition-transform group-open:rotate-180" />
+                </summary>
+                <p className="px-4 pb-4 text-sm text-text-secondary">
+                  Everything is made for you after you order, so a change of mind or a wrong size can't come back. If it arrives
+                  damaged, defective or wrong, email us within 14 days with a photo and we replace or refund it. Full terms:{' '}
+                  <Link to="/returns" className="text-primary hover:underline">Returns policy</Link>.
+                </p>
+              </details>
             </div>
-          )}
-
-          <div className="bg-card card-border p-4 rounded-lg">
-            <h4 className="font-semibold mb-2 text-text">Shipping Information</h4>
-            <p className="text-sm text-muted">
-              • Free shipping on orders over $50<br />
-              • Ships within {STANDARD_FULFILLMENT_DAYS} business days of payment<br />
-              • Then ground delivery up to 5 business days<br />
-              • Faster options and free Rockmart, GA pickup at checkout
-            </p>
-          </div>
-
-          <div className="bg-purple-50 border border-purple-200 p-4 rounded-lg relative overflow-hidden group shadow-sm">
-            <div className="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-              <svg className="w-16 h-16 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
-                <path d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
-              </svg>
-            </div>
-            <h4 className="font-bold text-purple-900 mb-2 flex items-center gap-2">
-              <span className="text-xl">💎</span> Earn ITC for Your Designs!
-            </h4>
-            <p className="text-sm text-purple-800 mb-3 font-medium">
-              Did you know you can earn Imagine This Coin (ITC) when your submitted designs sell?
-            </p>
-            <button
-              onClick={() => navigate('/my-designs')}
-              className="text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 px-4 py-2 rounded-full transition-all shadow-md hover:shadow-lg"
-            >
-              Become a Creator →
-            </button>
           </div>
         </div>
       </div>
 
-      {/* Similar Products Recommendations */}
-      <div className="mt-16">
-        <ProductRecommendations
-          context={{
-            page: 'product',
-            currentProduct: product,
-            limit: 6,
-            excludeIds: [product.id]
-          }}
-          title="Similar Products"
-          onProductClick={(recommendedProduct, _position) => {
-            navigate(`/product/${recommendedProduct.id}`)
-          }}
-        />
-      </div>
+      <YouMayAlsoLike product={product} />
+
+      <SizeGuide
+        open={showSizeGuide}
+        onClose={() => setShowSizeGuide(false)}
+        title={guideTier?.label ?? product.name}
+        compareTo={guideTier?.compareTo}
+        adult={guideAdultRows}
+        youth={guideYouthRows}
+      />
     </div>
   )
 }

@@ -23,6 +23,7 @@ Decisions (noted for the handoff):
 - `src/components/MobileTopBar.tsx` (new) + `src/App.tsx` (layout swap only) + `src/components/Sidebar.tsx` (drop floating menu button, promoted-link style), `src/components/FloatingCart.tsx` (pill lg+ only)
 - `src/pages/ProductCatalog.tsx` (shared row mapper + ?q= from the header search), `src/lib/shop-facts.ts`, `src/lib/storefront-row.ts` (new)
 - `public/icons/itp-bulb.png` (cut from itp-logo-v3)
+- page 2 (product page, approval 394b217c): `src/pages/ProductPage.tsx`, `src/components/product/*` (new: SizeGuide, YouMayAlsoLike), `src/lib/size-charts.ts` + test, `src/lib/plain-text.ts` + test, `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD), `src/config/business-info.ts` (SHOP_PLACE, ETSY_SHOP_URL)
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
@@ -34,6 +35,12 @@ Decisions (noted for the handoff):
   (logo, search, chat, cart count), no chat bubble/cart pill under lg, solid cookie bar, no In Stock badge.
   Reviews row left out: the Etsy shop has 0 reviews (API, 10/7). tsc 0, vitest 2139/2139, vite build OK,
   fleet-browser walk at 1440 + 390.
+- 2026-10-07 (amelia-chan): page 2 product page approved round 1 at 20:46Z (approval 394b217c). Built: breadcrumb, sticky
+  gallery, serif name + price + made-in line, options right under the price (size chips with their delta, Size guide
+  from maker spec sheets, colour, 2x2 quality cards), quantity + ONE Add to cart, Or buy it now + Imagination Sheet as
+  small links, three true facts, plain description with Read more (markdown stripped), Details / Shipping / Returns
+  collapsibles, You may also like (4 whole cards). Removed: giant gradient sheet button, separate Buy Now button, Earn
+  ITC box, blank Similar Products tiles. Walked tee, hoodie, 3D, blank, DTF at 1440 and tee at 390. vitest 2147/2147.
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
