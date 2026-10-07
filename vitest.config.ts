@@ -24,6 +24,9 @@ export default mergeConfig(
       'process.env.NODE_ENV': JSON.stringify('test')
     },
     test: {
+      // Strips real provider/outbound keys before any test file loads, so a run inside
+      // zero-engine (which carries david-trinidad-com's keys) makes no paid call (task e086c595).
+      setupFiles: ['./vitest.hermetic-env.ts'],
       coverage: {
         provider: 'v8',
         reporter: ['text', 'html'],

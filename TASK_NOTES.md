@@ -1,5 +1,20 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
+
+The engine's ship gate (`npm run verify` inside zero-engine) went red on every ITP ship: zero-engine loads
+david-trinidad-com/.env.local at boot, so the test run inherits a real OPENAI_API_KEY and etsy-copy-repair's
+"no model" tests made a paid gpt call and timed out (jobs ship-muyoexo1, ship-muyoj1jo).
+
+### File shortlist (approved scope — 2026-10-07 ship gate)
+- `vitest.hermetic-env.ts` (new: deletes real provider/outbound keys before any test file loads)
+- `vitest.hermetic-env.test.ts` (new), `vitest.config.ts` (setupFiles only), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-nine): batch = 01dd112c 9aec3fd (referrals + credit pause + 7030e9e private 3D files). Repro with
+  DTC env loaded: etsy-copy-repair 3 failed. After the setup file, with DTC env loaded: 3 files / 27 pass and full
+  `npm run verify` 159 files / 2327 pass; plain shell 159 / 2327.
+
 ## Current request (2026-10-07) — guests use the toy maker + read info pages (task 8c67fe67, sal-moretti)
 
 Zero Nine's logged-out walk: Imagination Station, home "Start Creating Free" and toys "Make my toy!" all
