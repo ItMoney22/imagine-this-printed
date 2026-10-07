@@ -1,5 +1,9 @@
 import { supabase } from '../lib/supabase.js'
-import { generateMockup, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { generateMockup, upscaleImage, getPrediction, probeReplicateCredit, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { probeOpenAIImageCredit } from '../services/image-flow/providers/openai-image.js'
+import { createImageCreditGate, makeOutageAlertSender } from '../services/image-credit-outage.js'
+import { creditProviderOf } from '../services/provider-credit.js'
+import { sendEmail } from '../utils/email.js'
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, type MockupTemplate } from '../services/image-flow/worker-helpers.js'
 import { renderPrintTrueMockup, supportsPrintTrue } from '../services/print-true-mockup.js'
 import { getGarment, normalizeGarment } from '../shared/catalog-capability.js'
@@ -31,6 +35,19 @@ const POLL_INTERVAL = 5000 // 5 seconds
 // timer fire concurrently and can both grab the same batch of queued jobs
 // (see etsy-jobs-worker.ts's `running` flag for the same pattern).
 let processingQueue = false
+
+// Out-of-credit pause (task dbce13a8, services/image-credit-outage.ts). A
+// Replicate 402 or an empty OpenAI wallet blocks the job instead of failing it,
+// holds every queued job that needs the same provider, sends ONE alert per
+// outage, and resumes on its own when the probe finds credit again. Exported
+// because processMockupJob / processRemoveBgJob also run inline in the API
+// process (Step Flow), and their failure paths go through the same gate.
+export const imageCreditGate = createImageCreditGate({
+  db: supabase,
+  now: () => new Date(),
+  sendAlert: makeOutageAlertSender({ db: supabase, sendEmail }),
+  probe: (provider) => (provider === 'replicate' ? probeReplicateCredit() : probeOpenAIImageCredit()),
+})
 
 // Helper to update job progress message (visible to admin in real-time)
 async function updateJobProgress(jobId: string, message: string, step?: number, totalSteps?: number) {
@@ -138,6 +155,16 @@ export async function processQueuedJobs() {
     //  re-paying for each loop. tripo3d.ts now does one bounded, pre-submit-only
     //  retry internally. User can manually retry from the UI if needed.)
 
+    // Credit pause: probe any paused provider that is due, put recovered jobs
+    // back in the queue, and learn which providers are still dry. A failure
+    // here must not stop the queue — the worst case is one more 402, which the
+    // job's own failure path turns into a block.
+    try {
+      await imageCreditGate.tick()
+    } catch (err: any) {
+      console.error('[worker] ❌ Credit pause check failed:', err?.message || err)
+    }
+
     // Fetch queued jobs (not started yet)
     const { data: queuedJobs, error: queuedError } = await supabase
       .from('ai_jobs')
@@ -153,9 +180,18 @@ export async function processQueuedJobs() {
     if (queuedJobs && queuedJobs.length > 0) {
       console.log('[worker] 📋 Processing', queuedJobs.length, 'queued jobs:', queuedJobs.map(j => ({ id: j.id.substring(0, 8), type: j.type, template: j.input?.template })))
       for (const job of queuedJobs) {
+        // Paused provider: hold the job instead of spending a call that can
+        // only come back 402. Re-checked per job because a job earlier in this
+        // same batch may be the one that just found the account empty.
+        const dryProvider = imageCreditGate.dryProviderFor(job)
+        if (dryProvider) {
+          await imageCreditGate.hold(job, dryProvider)
+          continue
+        }
         try {
           await startJob(job)
         } catch (error: any) {
+          if (await imageCreditGate.handleFailure(job, error)) continue
           console.error('[worker] ❌ Error starting job:', job.id, error)
           await supabase
             .from('ai_jobs')
@@ -367,8 +403,10 @@ export async function processMockupJob(job: any): Promise<void> {
     .single()
 
   // If background removal job exists and is still running, wait for it
-  // BUT if it failed, proceed anyway (we'll use source image for mockup)
-  if (rembgJob && (rembgJob.status === 'queued' || rembgJob.status === 'running')) {
+  // BUT if it failed, proceed anyway (we'll use source image for mockup).
+  // 'blocked' (paused on provider credit) is still coming, so it waits too —
+  // otherwise the mockup would render from the uncut source.
+  if (rembgJob && (rembgJob.status === 'queued' || rembgJob.status === 'running' || rembgJob.status === 'blocked')) {
     // Reset to queued, will try again next cycle
     await supabase
       .from('ai_jobs')
@@ -709,6 +747,8 @@ export async function processMockupJob(job: any): Promise<void> {
           console.log('[worker] ✅', template, 'PRINT-TRUE via', printTrue.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
         }
       } catch (err: any) {
+        // An empty wallet is not a Flare failure — keep it typed so the job pauses.
+        if (creditProviderOf(err)) throw err
         if (forcedPrintTrue) throw new Error(`Flare couldn't render this shot: ${err?.message || err}`)
         console.warn('[worker] print-true mockup failed, using the generative render:', err?.message || err)
       }
@@ -746,6 +786,8 @@ export async function processMockupJob(job: any): Promise<void> {
     console.log('[worker] ✅', template, 'generated via', mockupResult.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
     }
   } catch (mockupError: any) {
+    // Out of credit: blocked (not failed), queue paused, one alert — see imageCreditGate.
+    if (await imageCreditGate.handleFailure(job, mockupError)) return
     console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
     await supabase
       .from('ai_jobs')
@@ -1066,6 +1108,7 @@ export async function processRemoveBgJob(job: any): Promise<void> {
 
     console.log('[worker] ✅ Background removal completed:', job.id, publicUrl)
   } catch (error: any) {
+    if (await imageCreditGate.handleFailure(job, error)) return
     console.error('[worker] ❌ Background removal failed:', error.message)
     await supabase
       .from('ai_jobs')
@@ -1454,6 +1497,7 @@ async function startJob(job: any) {
 
       console.log('[worker] 👻 Ghost mannequin job completed:', job.id, publicUrl)
     } catch (error: any) {
+      if (await imageCreditGate.handleFailure(job, error)) return
       console.error('[worker] ❌ Ghost mannequin generation failed:', error.message)
       await supabase
         .from('ai_jobs')
