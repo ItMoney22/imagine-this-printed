@@ -119,6 +119,10 @@ constraint, so 'blocked' needs no migration; admin_settings (key PK) holds the o
 - 2026-10-07 (zero-nine, ship f4fffab8): merged the whole branch (head f5539f2) onto local main c468bd6; its other
   commits (8e5ae93, 74dfc89, b605833) were already on main, so only 3febb10 + f5539f2 came in. TASK_NOTES was the only
   conflict (kept both sides). Merged tree: app tsc 0, backend tsc only the known TS2742 junction noise, vitest 145 / 2193.
+- 2026-10-07 (zero-nine, ship f4fffab8): scope + `vitest.config.ts` (rationale: the batch ship ship-muyoexo1/muyoj1jo was refused
+  red because zero-engine's env, which has david-trinidad-com's OPENAI/RESEND keys, leaks into `npm run verify`; etsy-copy-repair
+  made live model calls and timed out). Added test.env blanking provider keys. Proven: with the real keys exported, the full suite
+  went from 3 failed to 145 / 2193 green.
 
 ## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
 

@@ -24,6 +24,11 @@ export default mergeConfig(
       'process.env.NODE_ENV': JSON.stringify('test')
     },
     test: {
+      // Hermetic provider keys. The ship tool runs `npm run verify` from zero-engine, whose
+      // process.env carries david-trinidad-com's real OPENAI/RESEND keys; modules that build
+      // their client at import (etsy-seo-composer) then made live calls and timed out at 5s,
+      // refusing every ITP ship (2026-10-07). Tests that need a key set their own.
+      env: { OPENAI_API_KEY: '', OPENROUTER_API_KEY: '', RESEND_API_KEY: '', TURNSTILE_SECRET_KEY: '', REPLICATE_API_TOKEN: '' },
       coverage: {
         provider: 'v8',
         reporter: ['text', 'html'],
