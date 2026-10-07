@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useGuestGate } from '../components/GuestGate'
 import { apiFetch } from '../lib/api'
 import { validateSocialUrl } from '../utils/social-embed'
 import { CommunityShowcase } from '../components/community'
@@ -32,6 +33,8 @@ interface SocialPost {
 
 const Community: React.FC = () => {
   const { user } = useAuth()
+  // Anyone can read the feed; voting and posting ask for an account (task 8c67fe67).
+  const { requireAccount } = useGuestGate()
   const [activeTab, setActiveTab] = useState<TabType>('showcase')
   const [posts, setPosts] = useState<SocialPost[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -126,7 +129,7 @@ const Community: React.FC = () => {
 
   const handleVote = async (postId: string, direction: 'up' | 'down') => {
     if (!user) {
-      alert('Please sign in to vote')
+      requireAccount('community-vote')
       return
     }
 
@@ -302,7 +305,7 @@ const Community: React.FC = () => {
                   <option value="featured">Featured First</option>
                 </select>
                 <button
-                  onClick={() => setShowSubmissionModal(true)}
+                  onClick={() => { if (requireAccount('community-submit')) setShowSubmissionModal(true) }}
                   className="flex items-center gap-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors whitespace-nowrap"
                 >
                   <Plus className="w-4 h-4" />
@@ -344,7 +347,7 @@ const Community: React.FC = () => {
                     featuring your creations!
                   </p>
                   <button
-                    onClick={() => setShowSubmissionModal(true)}
+                    onClick={() => { if (requireAccount('community-submit')) setShowSubmissionModal(true) }}
                     className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-semibold transition-all"
                   >
                     Submit Your Creation

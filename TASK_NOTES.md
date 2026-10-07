@@ -1,5 +1,41 @@
 # TASK_NOTES
 
+## Current request (2026-10-07) — guests use the toy maker + read info pages (task 8c67fe67, sal-moretti)
+
+Zero Nine's logged-out walk: Imagination Station, home "Start Creating Free" and toys "Make my toy!" all
+land on "Sign in to your account"; Community, Referral Program (/referrals = a bare yellow "Please sign
+in" box), /metal-art and /wholesale all need an account. Fix: a guest opens and tries the tools; an
+account is asked for only at the step that saves or charges (and that ask says why, with a sign-up
+button); the info pages read logged out; dashboards stay behind sign-in; Turnstile stays on sign-up.
+
+### File shortlist (approved scope — 2026-10-07 guest access)
+- `src/App.tsx` (routes only: unwrap /imagination-station, /toy-creator, /metal-art, /community, /wholesale)
+- `src/lib/guest-gate.ts` + `.test.ts` (new: one module for every "why we need an account" line)
+- `src/components/GuestGate.tsx` + `.test.tsx` (new: provider + the explained account modal)
+- `src/pages/ImaginationStation.tsx` (guest sheet in memory; server actions ask for an account)
+- `src/pages/ToyCreator.tsx` (guest builds; "Mix" asks; picks kept across sign-up), `src/pages/ToyLand.tsx` (copy)
+- `src/pages/MetalArtStudio.tsx` (guest sees studio; generate/upload ask)
+- `src/pages/Community.tsx`, `src/components/community/CommunityPostCard.tsx` (vote/submit ask)
+- `src/pages/Referrals.tsx`, `src/pages/WholesalePortal.tsx` (public content + explained dashboard gate)
+- `src/pages/Login.tsx`, `src/pages/Signup.tsx` (reason line + sign-up button on any remaining wall)
+- `src/pages/Home.tsx` ("Start Creating Free" target only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (sal-moretti): scoped. Facts read live: referral RPC pays 500 pts + 5 ITC (referrer) /
+  250 pts + 2.5 ITC (friend) at sign-up and 50 ITC on the friend's first order, but 0 referral codes
+  and 0 referrals exist and nothing on the site ever applies ?ref (follow-up card). New wallets start at
+  0 ITC; Imagination "generate" gives 2 free tries; toy "Mix" needs 20 ITC and ignores its 1 free try
+  (follow-up card).
+- 2026-10-07 (sal-moretti): built. Scope add: `src/lib/referral-program.ts` (the reward numbers, one
+  module for the public page + dashboard, which said 10 ITC / 50 pts and was wrong). One shared account
+  card (GuestGate) on every save/spend step; guest studio sheet lives in memory, uploads stay local,
+  prices + new-account free tries read from the public price table; toy picks survive sign-up; public
+  Referral + Wholesale pages; Login/Signup say why. Also fixed while there: mojibake dashes on
+  /metal-art (now public), and the studio rail no longer names the engine ("Flare Lab" / "9 GPT Image
+  2.5 tools" -> Imagination Lab / 9 Imagination tools). tsc 0 errors, vitest 134 files / 2085 pass,
+  vite build OK, fleet-browser walk logged out at 390px + desktop on :5197 passed.
+
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
