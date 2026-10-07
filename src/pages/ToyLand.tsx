@@ -458,8 +458,8 @@ const ToyLand: React.FC = () => {
             </div>
             <div>
               <strong>Checkout is yours</strong>
-              Kids design, grown-ups buy. Creating a toy needs your account, and
-              nothing prints until you order it.
+              Kids design for free, no account needed. A grown-up's free account
+              comes in when you mix the toy, and nothing prints until you order it.
             </div>
             <div>
               <strong>Have your own 3D file?</strong>
