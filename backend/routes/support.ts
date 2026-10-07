@@ -4,6 +4,9 @@ import dotenv from 'dotenv'
 import { sendTicketConfirmationEmail, sendNewSupportTicketEmail } from '../utils/email.js'
 import { triageTicket, describeTicketTriage } from '../lib/jev-triage.js'
 import { checkTicketSpam } from '../lib/spam-guard.js'
+import { verifyTurnstile, readTurnstileToken } from '../lib/turnstile.js'
+import { pingChristinaAboutTicket, ticketRef } from '../services/support-ping.js'
+import { startLiveChat, cleanEmail, agentAvailability } from '../services/live-chat.js'
 
 dotenv.config()
 
@@ -18,6 +21,8 @@ if (!supabaseUrl || !supabaseKey) {
 }
 
 const supabase = createClient(supabaseUrl!, supabaseKey!)
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Per-IP rate limit on public ticket creation. The endpoint is intentionally
 // unauthenticated so anyone can use the contact form, but that also makes it a
@@ -132,6 +137,21 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       return
     }
 
+    // Human check (Turnstile), once TURNSTILE_SECRET_KEY is set on the API. A
+    // refusal is a visible 400, not a quiet file: if the widget failed for a real
+    // person, they must know to retry or email us rather than lose the message.
+    const captcha = await verifyTurnstile(readTurnstileToken(req.body), ip)
+    if (captcha.skipped && captcha.reason !== 'not_configured') {
+      console.warn('[Support] Turnstile check skipped:', captcha.reason)
+    }
+    if (!captcha.ok) {
+      console.log('[Support] Turnstile refused:', captcha.reason)
+      res.status(400).json({
+        error: 'Please complete the security check and send again, or email wecare@imaginethisprinted.com directly.'
+      })
+      return
+    }
+
     console.log('[Support] Creating ticket from:', email)
 
     // Jev triage: category + priority from what the customer actually wrote.
@@ -230,6 +250,18 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
       // Don't fail the request if email fails
     }
 
+    // Becky tells Christina on her phone; her answer comes back through /api/print-bridge/ticket-reply.
+    await pingChristinaAboutTicket({
+      kind: 'ticket',
+      ticketId: ticket.id,
+      subject: String(subject),
+      message: String(description),
+      customerName: name,
+      customerEmail: email,
+      priority: triage.dbPriority,
+      category: triage.category ?? category,
+    })
+
     res.status(201).json({
       success: true,
       ticketId: ticket.id,
@@ -291,6 +323,119 @@ router.get('/tickets/:id/status', async (req: Request, res: Response): Promise<v
   } catch (error: any) {
     console.error('[Support] Error checking status:', error)
     res.status(500).json({ error: 'Failed to check ticket status' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// The shop chat's hand-off to Christina (task 5878a61f). The ticket id is the
+// capability here, the same as the widget's poll and send calls on
+// /api/admin/support/tickets/:id/messages: a UUID nobody can guess.
+// ---------------------------------------------------------------------------
+
+/**
+ * PUBLIC: "Talk to a person" from the chat widget. Same path as Mr. Imagine's
+ * request_live_chat tool (services/live-chat.ts).
+ * Body: { message, name?, email?, ticketId? }
+ */
+router.post('/live-chat', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const ip = (req.ip || req.socket.remoteAddress || 'unknown').toString()
+    // userId comes from the page, the same as the contact form's user_id; it only labels the ticket.
+    const { message, name, email, ticketId, userId, website } = req.body ?? {}
+    const text = typeof message === 'string' ? message.trim().slice(0, 1000) : ''
+
+    if (email && !cleanEmail(email)) {
+      res.status(400).json({ error: 'That email address does not look right.' })
+      return
+    }
+    // A chat that already has a ticket is not a new submission; only new tickets count toward the hourly cap.
+    if (!ticketId && !checkTicketCreateLimit(ip)) {
+      res.status(429).json({ error: 'Too many requests. Please email wecare@imaginethisprinted.com directly.' })
+      return
+    }
+    const spam = checkTicketSpam({ name, subject: text || 'Live chat', description: text, website })
+    if (spam.spam) {
+      console.log('[Support] Live chat refused as spam:', spam.reasons.join(','))
+      res.json({ ok: true, live: false, ticketId: null, email: null })
+      return
+    }
+
+    const result = await startLiveChat(supabase, {
+      userId: typeof userId === 'string' && UUID_RE.test(userId) ? userId : null,
+      email: email || null,
+      name: typeof name === 'string' ? name : null,
+      reason: text || 'Customer pressed Talk to a person',
+      message: text,
+      ticketId: typeof ticketId === 'string' ? ticketId : null,
+    }, { checkAgentAvailability: () => agentAvailability(supabase), createNotification, pingChristinaAboutTicket })
+
+    if (!result.ok && !result.ticketId) {
+      console.error('[Support] Live chat not started:', result.error)
+      res.status(500).json({ error: 'Could not reach the shop right now. Please email wecare@imaginethisprinted.com.' })
+      return
+    }
+    if (text && result.ticketId) {
+      await supabase.from('ticket_messages').insert({
+        ticket_id: result.ticketId, sender_type: 'user', sender_id: null, message: text, is_internal: false,
+      })
+    }
+    res.json({ ok: true, live: result.live, ticketId: result.ticketId, ref: result.ticketId ? ticketRef(result.ticketId) : null, email: result.email })
+  } catch (error: any) {
+    console.error('[Support] Live chat failed:', error?.message || error)
+    res.status(500).json({ error: 'Could not reach the shop right now. Please email wecare@imaginethisprinted.com.' })
+  }
+})
+
+/**
+ * PUBLIC: a guest waiting for Christina leaves their email so her reply reaches
+ * them after they close the page. Only fills an empty email; never changes one.
+ */
+router.post('/tickets/:id/contact-email', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params
+    const email = cleanEmail(req.body?.email)
+    if (!email) {
+      res.status(400).json({ error: 'That email address does not look right.' })
+      return
+    }
+    const { data: ticket } = await supabase.from('support_tickets').select('id, email').eq('id', id).maybeSingle()
+    if (!ticket) {
+      res.status(404).json({ error: 'Chat not found' })
+      return
+    }
+    const current = cleanEmail(ticket.email)
+    if (current && current !== email) {
+      res.status(409).json({ error: 'This chat already has an email on it.' })
+      return
+    }
+    if (!current) {
+      const { error } = await supabase.from('support_tickets').update({ email, updated_at: new Date().toISOString() }).eq('id', id)
+      if (error) throw error
+    }
+    res.json({ ok: true, email })
+  } catch (error: any) {
+    console.error('[Support] Saving chat email failed:', error?.message || error)
+    res.status(500).json({ error: 'Could not save your email. Please try again.' })
+  }
+})
+
+/**
+ * PUBLIC: the customer ends the chat. The ticket stays open, so Christina can
+ * still answer by email.
+ */
+router.post('/tickets/:id/end-chat', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params
+    const now = new Date().toISOString()
+    const { error } = await supabase.from('chat_sessions').update({ status: 'ended', ended_at: now }).eq('ticket_id', id)
+    if (error) throw error
+    await supabase.from('ticket_messages').insert({
+      ticket_id: id, sender_type: 'system', message: 'The customer ended the chat.', is_internal: true,
+    })
+    res.json({ ok: true })
+  } catch (error: any) {
+    console.error('[Support] Ending chat failed:', error?.message || error)
+    res.status(500).json({ error: 'Could not end the chat.' })
   }
 })
 

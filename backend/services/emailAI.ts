@@ -403,7 +403,7 @@ function getCtaText(templateKey: string): string {
     order_shipped: 'Track Package',
     order_delivered: 'Shop More Designs',
     design_approved: 'View My Product',
-    ticket_confirmation: 'Continue Shopping',
+    ticket_confirmation: 'See Quick Answers',
     itc_purchase: 'Use My ITC'
   }
   return texts[templateKey] || 'Continue'
@@ -424,7 +424,7 @@ function getCtaUrl(templateKey: string, context: EmailContext): string {
     order_shipped: orderStatusUrl,
     order_delivered: `${FRONTEND_URL}/catalog`,
     design_approved: context.productId ? `${FRONTEND_URL}/product/${context.productId}` : `${FRONTEND_URL}/my-products`,
-    ticket_confirmation: FRONTEND_URL,
+    ticket_confirmation: `${FRONTEND_URL}/help`,
     itc_purchase: `${FRONTEND_URL}/wallet`
   }
   return urls[templateKey] || FRONTEND_URL

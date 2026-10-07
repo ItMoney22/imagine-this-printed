@@ -5,6 +5,10 @@ import dotenv from 'dotenv'
 import { sendNewSupportTicketEmail, sendTicketConfirmationEmail } from '../../utils/email.js'
 import { createNotification, checkAgentAvailability } from '../admin/support.js'
 import { optionalAuth } from '../../middleware/supabaseAuth.js'
+import { pingChristinaAboutTicket } from '../../services/support-ping.js'
+import { startLiveChat } from '../../services/live-chat.js'
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 dotenv.config()
 
@@ -298,6 +302,17 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                                         args.issue_summary
                                     ).catch(e => console.error('[chat] Confirmation email failed:', e))
                                 }
+
+                                // Becky tells Christina on her phone (services/support-ping.ts).
+                                await pingChristinaAboutTicket({
+                                    kind: 'ticket',
+                                    ticketId: ticket.id,
+                                    subject: args.issue_summary,
+                                    message: args.description || args.issue_summary,
+                                    customerEmail: userEmail,
+                                    priority: args.priority,
+                                    category: args.category
+                                })
                             } else {
                                 console.error('[chat] ❌ Ticket creation error:', error)
                             }
@@ -338,58 +353,34 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                     const args = JSON.parse(toolCall.function.arguments)
 
                     try {
-                        // Check availability first
-                        const availability = await checkAgentAvailability()
+                        // One hand-off path for this tool and the widget's Talk to a person button (services/live-chat.ts).
+                        const result = supabase
+                            ? await startLiveChat(supabase, {
+                                userId,
+                                email: providedEmail,
+                                reason: args.reason,
+                                message,
+                                ticketId: UUID_RE.test(String(args.ticket_id || '')) ? args.ticket_id : (meta.ticket_id || null),
+                            }, { checkAgentAvailability, createNotification, pingChristinaAboutTicket })
+                            : { ok: false, live: false, ticketId: null, email: null }
 
-                        if (availability.available) {
-                            // If we have a ticket, escalate it
-                            if (args.ticket_id && supabase) {
-                                await supabase
-                                    .from('support_tickets')
-                                    .update({
-                                        status: 'waiting',
-                                        priority: 'high',
-                                        updated_at: new Date().toISOString()
-                                    })
-                                    .eq('id', args.ticket_id)
-
-                                // Create chat session
-                                await supabase
-                                    .from('chat_sessions')
-                                    .upsert({
-                                        ticket_id: args.ticket_id,
-                                        user_id: userId,
-                                        status: 'waiting',
-                                        started_at: new Date().toISOString()
-                                    }, {
-                                        onConflict: 'ticket_id'
-                                    })
-
-                                // Create notification
-                                await createNotification(
-                                    'agent_needed',
-                                    'Customer Requesting Live Chat',
-                                    args.reason,
-                                    args.ticket_id,
-                                    userId
-                                )
-                            }
-
+                        if (result.ticketId) meta.ticket_id = result.ticketId
+                        if (result.live) {
                             meta.handoff = true
                             meta.live_chat = true
-                            meta.ticket_id = args.ticket_id
-
                             toolOutput = JSON.stringify({
                                 success: true,
                                 handoff: true,
-                                message: "Connecting you with a support agent now. Please wait a moment..."
+                                message: "Christina from our shop has your message and will answer right here in this chat. If you have to go, add your email in the box below and her reply goes there too."
+                            })
+                        } else if (result.ok) {
+                            toolOutput = JSON.stringify({
+                                success: true,
+                                handoff: false,
+                                message: "Christina is away from the shop right now. Your message is saved as a ticket and she will write back by email."
                             })
                         } else {
-                            toolOutput = JSON.stringify({
-                                success: false,
-                                handoff: false,
-                                message: "Unfortunately, no agents are available right now. A ticket has been created and someone will respond soon."
-                            })
+                            toolOutput = JSON.stringify({ success: false, error: "Could not reach a person right now" })
                         }
                     } catch (e) {
                         console.error('[chat] Error requesting live chat:', e)
