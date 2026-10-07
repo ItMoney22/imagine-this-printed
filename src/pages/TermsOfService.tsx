@@ -1,5 +1,7 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, FileText, Mail, MapPin } from 'lucide-react'
+import BusinessContactBlock from '../components/BusinessContactBlock'
+import { POLICY_UPDATED } from '../config/business-info'
+import { ArrowLeft, FileText, Mail } from 'lucide-react'
 
 export default function TermsOfService() {
   return (
@@ -15,7 +17,7 @@ export default function TermsOfService() {
             <FileText className="w-12 h-12 text-white" />
             <div>
               <h1 className="text-4xl font-bold text-white">Terms of Service</h1>
-              <p className="text-white/80 mt-2">Last updated: January 1, 2026</p>
+              <p className="text-white/80 mt-2">Last updated: {POLICY_UPDATED.terms}</p>
             </div>
           </div>
         </div>
@@ -147,10 +149,7 @@ export default function TermsOfService() {
                   wecare@imaginethisprinted.com
                 </a>
               </div>
-              <div className="flex items-center gap-3 text-muted">
-                <MapPin className="w-5 h-5 text-purple-600" />
-                <span>Imagine This Printed, United States</span>
-              </div>
+              <BusinessContactBlock />
             </div>
           </section>
 

@@ -36,7 +36,37 @@ button); the info pages read logged out; dashboards stay behind sign-in; Turnsti
   2.5 tools" -> Imagination Lab / 9 Imagination tools). tsc 0 errors, vitest 134 files / 2085 pass,
   vite build OK, fleet-browser walk logged out at 390px + desktop on :5197 passed.
 
-## Previous request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
+## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
+
+### File shortlist (approved scope — 2026-10-07 policies)
+- `src/pages/ShippingPolicy.tsx`, `ReturnsPolicy.tsx`, `PrivacyPolicy.tsx`, `TermsOfService.tsx` (Terms governing law untouched: card f02213ca)
+- `src/pages/Home.tsx` (shipping line), `src/pages/ProductPage.tsx` (shipping box)
+- `src/utils/shipping-calculator.ts` (+ test): add the shared timing story next to STANDARD_FULFILLMENT_DAYS
+- new `src/config/business-info.ts`, new `src/components/BusinessContactBlock.tsx`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dane-marsh): scope added; no real business phone exists in repo (only placeholder), so phone reads from VITE_BUSINESS_PHONE and is never invented.
+
+## Current request (2026-10-07) — ITP catalog structure (task 66d0f303, rico-fernandez)
+
+One shirts category (slug `shirts`: products_print_locations_valid already keys on it), no NULL/empty
+categories, products first on phones, Popular Products carousel starts on a whole card, promoted nav links
+distinct from the active page.
+
+### File shortlist (approved scope — 2026-10-07 catalog structure)
+- `src/pages/ProductCatalog.tsx`, `src/pages/Home.tsx` (Popular Products carousel only)
+- `src/components/Sidebar.tsx` (the real nav; `Navbar.tsx` is not rendered anywhere), `src/App.tsx` (redirect route only)
+- `src/lib/product-kind.ts` (+ test) if the alias map needs it
+- `supabase/migrations/20261007200000_merge_shirt_categories.sql` (applied live 2026-10-07)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (rico-fernandez): applied the merge migration live in one transaction: active categories now
+  shirts 27 / 3d-prints 4 / hoodies 3 / dtf 2, zero NULL, zero t-shirts; added normalize trigger so create paths
+  that still write 't-shirts' fold to 'shirts' once a print location exists.
+
+## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
 
 David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1
 (approval 3627e82e). Build: one grouped sidebar instead of 20 flat tabs; Overview leads with Ops
@@ -4580,3 +4610,4 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   /admin/ai/products/create now open the Step Flow builder. Walked on 5287 at 1440 and 390 wide: no page errors.
   Art is cropped from the approved mock (no page-art.ts on this checkout): swap for Flux finals when it lands.
   Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.
+- 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.

@@ -383,3 +383,18 @@ export class ShippingCalculator {
 }
 
 export const shippingCalculator = new ShippingCalculator()
+
+// ---------------------------------------------------------------------------
+// One shipping-time story. Home, the product-page shipping box and the Shipping
+// policy all read these, so the numbers can never disagree. Processing is
+// STANDARD_FULFILLMENT_DAYS; transit is counted from the day the order ships.
+// ---------------------------------------------------------------------------
+export const SHIPPING_TRANSIT = [
+  { id: 'ground', label: 'Standard Ground', days: 'Up to 5 business days', from: '$6.99+' },
+  { id: 'priority', label: 'Priority', days: '3 business days', from: '$9.99+' },
+  { id: 'two-day', label: 'Express (2nd Day Air)', days: '2 business days', from: '$19.99+' },
+  { id: 'next-day', label: 'Next-Day Air', days: '1 business day', from: '$34.99+' }
+] as const
+
+export const PROCESSING_LINE = `Every order is made to order and ships within ${STANDARD_FULFILLMENT_DAYS} business days of payment.`
+export const TRANSIT_LINE = 'Then standard ground delivery takes up to 5 business days; faster options are shown at checkout.'
