@@ -47,15 +47,15 @@ interface NavItemProps {
 
 function NavItem({ to, icon, label, isCollapsed, isActive, highlight, badge, onClick }: NavItemProps) {
   const baseClasses = 'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative group'
-  // A promoted link (highlight) only fills when it IS the current page; the
-  // rest of the time it is purple text with a dot, so it never looks like the
-  // page you are on (task 66d0f303).
-  const activeClasses = isActive
-    ? highlight
+  // Promoted links (Toy Factory, Imagination Station) stay an outlined pink
+  // chip until you are on them, then fill; the plain current-page style is the
+  // soft purple fill, so a promoted link never reads as "you are here".
+  const activeClasses = highlight
+    ? isActive
       ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30'
-      : 'bg-purple-100 text-purple-700'
-    : highlight
-      ? 'text-purple-700 font-semibold hover:bg-purple-50'
+      : 'ring-1 ring-inset ring-pink-300 text-pink-600 hover:bg-pink-50'
+    : isActive
+      ? 'bg-purple-100 text-purple-700'
       : 'text-gray-600 hover:bg-purple-50 hover:text-purple-600'
 
   return (
@@ -67,9 +67,6 @@ function NavItem({ to, icon, label, isCollapsed, isActive, highlight, badge, onC
     >
       <span className="flex-shrink-0">{icon}</span>
       {!isCollapsed && <span className="text-sm font-medium truncate">{label}</span>}
-      {highlight && !isActive && badge === undefined && !isCollapsed && (
-        <span className="ml-auto w-2 h-2 rounded-full bg-accent" aria-hidden="true" />
-      )}
       {badge !== undefined && (
         <span className={`absolute ${isCollapsed ? '-top-1 -right-1' : 'right-3'} min-w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full ${highlight && isActive ? 'bg-white text-purple-600' : 'bg-pink-500 text-white'
           }`}>

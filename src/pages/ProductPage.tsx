@@ -12,6 +12,7 @@ import VirtualTryOn from '../components/VirtualTryOn'
 import { SocialShareButtons } from '../components/SocialShareButtons'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
+import { STANDARD_FULFILLMENT_DAYS } from '../utils/shipping-calculator'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
 import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
@@ -1212,10 +1213,10 @@ const ProductPage: React.FC = () => {
           <div className="bg-card card-border p-4 rounded-lg">
             <h4 className="font-semibold mb-2 text-text">Shipping Information</h4>
             <p className="text-sm text-muted">
-              • Free standard shipping on orders of $50 or more<br />
-              • Under $50, shipping is calculated at checkout<br />
-              • Free pickup in Rockmart, GA<br />
-              • Standard delivery: 3-5 business days after printing
+              • Free shipping on orders over $50<br />
+              • Ships within {STANDARD_FULFILLMENT_DAYS} business days of payment<br />
+              • Then ground delivery up to 5 business days<br />
+              • Faster options and free Rockmart, GA pickup at checkout
             </p>
           </div>
 
