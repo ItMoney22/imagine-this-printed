@@ -26,6 +26,7 @@ Decisions (noted for the handoff):
 - page 2 (product page, approval 394b217c): `src/pages/ProductPage.tsx`, `src/components/product/*` (new: SizeGuide, YouMayAlsoLike), `src/lib/size-charts.ts` + test, `src/lib/plain-text.ts` + test, `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD), `src/config/business-info.ts` (SHOP_PLACE, ETSY_SHOP_URL)
 - page 3 (catalog, approval c71ae9d0): `src/pages/ProductCatalog.tsx`, `src/pages/catalog.css` (new), `public/catalog/hero.webp`
 - page 4 (cart + checkout, approval 0c21434e): `src/pages/Cart.tsx`, `src/pages/Checkout.tsx` (presentation only, payment logic untouched), `src/components/checkout/*` (new ProgressNote), `src/components/product/YouMayAlsoLike.tsx` (excludeIds/title)
+- page 5 (toys, approval 2a9ae61e): `src/pages/ToyLand.tsx`, `src/pages/toyland.css` (new), `public/toys/*`
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
@@ -54,6 +55,11 @@ Decisions (noted for the handoff):
   cards). Checkout: light top bar, primary step line, numbered form cards, inputs at 16px on phones, progress notes with
   stage text + seconds instead of spinners and the yellow payment box, folded summary row on phones, three quiet facts.
   Payment logic untouched. Walked 1440 + 390.
+- 2026-10-07 (amelia-chan): page 5 toys approved round 1 at 21:41Z (approval 2a9ae61e). Light shop page with a deep teal
+  hero window (art rendered from the real Wizard Beast, Robo Rascal, Shadow Raptor), illustrated steps, magnet hands +
+  paint kit with prices from TOY_ADDONS, figurines only (no candle holder), grown-ups facts, closing band with the live
+  cheapest-toy price ($15.99, not the old $5.99). Printed this week sticker and emoji chips gone. Walked 1440 + 390.
+  Replicate credit fell under $5 while rendering (burst 1, 6/min).
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
