@@ -1,8 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react'
-import { useLocation } from 'react-router-dom'
 import { X, Send } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { OPEN_CHAT_EVENT } from './MobileTopBar'
 
 // API base URL for production
 const API_BASE = import.meta.env.VITE_API_BASE || ''
@@ -59,11 +59,26 @@ const BEEP_SOUND = 'data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAE
 
 export function MrImagineChatWidget() {
     const { user } = useAuth()
-    const { pathname } = useLocation()
-    // On phones the bubble sits on top of the Buy / checkout buttons, so it
-    // steps aside on the buying pages (it stays on every other page).
-    const onBuyingPage = /^\/(product|cart|checkout)(\/|$)/.test(pathname)
     const [isOpen, setIsOpen] = useState(false)
+    // Under lg the bubble is gone (it covered buttons, task 5e10e099); the
+    // phone header's chat button opens the panel through this event.
+    useEffect(() => {
+        const open = () => {
+            setUnreadCount(0)
+            setIsOpen(true)
+        }
+        window.addEventListener(OPEN_CHAT_EVENT, open)
+        return () => window.removeEventListener(OPEN_CHAT_EVENT, open)
+    }, [])
+    // The "Need help?" label shows only at the top of a page; once the shopper
+    // scrolls it would sit over product cards and their buttons.
+    const [nearTop, setNearTop] = useState(true)
+    useEffect(() => {
+        const onScroll = () => setNearTop(window.scrollY < 120)
+        onScroll()
+        window.addEventListener('scroll', onScroll, { passive: true })
+        return () => window.removeEventListener('scroll', onScroll)
+    }, [])
     const [unreadCount, setUnreadCount] = useState(0) // Start with 0, will increment on invite
     const [messages, setMessages] = useState<Message[]>([
         {
@@ -325,7 +340,7 @@ export function MrImagineChatWidget() {
     }
 
     return (
-        <div className={`fixed bottom-6 right-6 z-50 flex-col items-end pointer-events-none ${onBuyingPage ? 'hidden sm:flex' : 'flex'}`}>
+        <div className={`fixed bottom-6 right-6 z-50 flex-col items-end pointer-events-none ${isOpen ? 'flex' : 'hidden lg:flex'}`}>
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
@@ -349,7 +364,7 @@ export function MrImagineChatWidget() {
                                         {isLiveChat ? "Live Support" : "Mr. Imagine"}
                                     </h3>
                                     <span className="text-purple-100 text-xs">
-                                        {isLiveChat ? "Connected to Agent" : ticketId ? `Ticket #${ticketId.slice(0, 8).toUpperCase()}` : "AI Design Assistant"}
+                                        {isLiveChat ? "Connected to Agent" : ticketId ? `Ticket #${ticketId.slice(0, 8).toUpperCase()}` : "Design help and shop questions"}
                                     </span>
                                 </div>
                             </div>
@@ -458,7 +473,7 @@ export function MrImagineChatWidget() {
             {/* Re-open button if minimized? Or just use the widget's X to close. 
           If closed, show the head. If open, hide the head. 
       */}
-            {!isOpen && (
+            {!isOpen && nearTop && (
                 <div className="absolute -top-12 right-0 bg-white px-4 py-2 rounded-xl shadow-lg border border-purple-100 whitespace-nowrap pointer-events-auto origin-bottom-right animate-fade-in-up">
                     <p className="text-sm font-bold text-gray-800 flex items-center gap-2">
                         Need help? <span className="text-purple-600">Chat with me!</span>

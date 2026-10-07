@@ -77,7 +77,7 @@ const FloatingCart: React.FC = () => {
 
   return (
     <>
-      {/* Always-on trigger pill. Vertically centered on the right edge so it
+      {/* Always-on trigger pill (lg and up; phones use the header cart, task 5e10e099). Vertically centered on the right edge so it
           doesn't fight with the bottom-right MrImagineCartNotification toast. */}
       {!expanded && (
         <button
@@ -86,7 +86,7 @@ const FloatingCart: React.FC = () => {
             armAutoHide()
           }}
           aria-label={`Open cart (${itemCount} item${itemCount === 1 ? '' : 's'})`}
-          className="fixed top-1/2 right-3 -translate-y-1/2 z-40 group flex items-center gap-2 px-3 py-3 rounded-l-2xl rounded-r-md bg-gradient-to-br from-primary to-secondary text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] hover:pl-5 transition-all"
+          className="fixed top-1/2 right-3 -translate-y-1/2 z-40 group hidden lg:flex items-center gap-2 px-3 py-3 rounded-l-2xl rounded-r-md bg-gradient-to-br from-primary to-secondary text-white shadow-[0_0_20px_rgba(168,85,247,0.4)] hover:shadow-[0_0_30px_rgba(168,85,247,0.6)] hover:pl-5 transition-all"
         >
           <ShoppingCart className="w-5 h-5" />
           <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 flex items-center justify-center text-[10px] font-bold bg-amber-400 text-slate-900 rounded-full shadow-md">

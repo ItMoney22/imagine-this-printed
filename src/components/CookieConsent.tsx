@@ -38,8 +38,10 @@ export function CookieConsent({ onAccept, onDecline }: CookieConsentProps) {
   if (!showBanner) return null
 
   return (
-    // One slim row on phones: the old stacked banner sat over the Add to Cart button.
-    <div className="fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:p-4 bg-card/95 backdrop-blur-sm border-t border-primary/20 shadow-lg animate-slideUp">
+    // One slim, solid row on phones (the old stacked banner sat over the Add to
+    // Cart button); a small card beside the chat bubble on desktop. bg-card/95
+    // never rendered (a var colour takes no alpha here), so the bar was clear.
+    <div className="fixed z-50 bottom-0 inset-x-0 lg:inset-x-auto lg:bottom-6 lg:right-28 lg:max-w-md px-3 py-2 sm:p-4 bg-card border-t lg:border border-border lg:rounded-2xl shadow-soft-lg animate-slideUp">
       <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-3">
         <p className="flex-1 text-text text-xs sm:text-sm">
           We use cookies for referral credit.{' '}

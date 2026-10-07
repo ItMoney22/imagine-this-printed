@@ -26,7 +26,6 @@ import {
   CreditCard,
   ChevronLeft,
   ChevronRight,
-  Menu,
   X,
   Contact,
   Mail,
@@ -48,10 +47,15 @@ interface NavItemProps {
 
 function NavItem({ to, icon, label, isCollapsed, isActive, highlight, badge, onClick }: NavItemProps) {
   const baseClasses = 'flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 relative group'
-  const activeClasses = highlight
-    ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30'
-    : isActive
-      ? 'bg-purple-100 text-purple-700'
+  // A promoted link (highlight) only fills when it IS the current page; the
+  // rest of the time it is purple text with a dot, so it never looks like the
+  // page you are on (task 66d0f303).
+  const activeClasses = isActive
+    ? highlight
+      ? 'bg-gradient-to-r from-purple-600 to-pink-600 text-white shadow-lg shadow-purple-500/30'
+      : 'bg-purple-100 text-purple-700'
+    : highlight
+      ? 'text-purple-700 font-semibold hover:bg-purple-50'
       : 'text-gray-600 hover:bg-purple-50 hover:text-purple-600'
 
   return (
@@ -63,8 +67,11 @@ function NavItem({ to, icon, label, isCollapsed, isActive, highlight, badge, onC
     >
       <span className="flex-shrink-0">{icon}</span>
       {!isCollapsed && <span className="text-sm font-medium truncate">{label}</span>}
+      {highlight && !isActive && badge === undefined && !isCollapsed && (
+        <span className="ml-auto w-2 h-2 rounded-full bg-accent" aria-hidden="true" />
+      )}
       {badge !== undefined && (
-        <span className={`absolute ${isCollapsed ? '-top-1 -right-1' : 'right-3'} min-w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full ${highlight ? 'bg-white text-purple-600' : 'bg-pink-500 text-white'
+        <span className={`absolute ${isCollapsed ? '-top-1 -right-1' : 'right-3'} min-w-5 h-5 flex items-center justify-center text-xs font-bold rounded-full ${highlight && isActive ? 'bg-white text-purple-600' : 'bg-pink-500 text-white'
           }`}>
           {typeof badge === 'number' && badge > 99 ? '99+' : badge}
         </span>
@@ -538,20 +545,5 @@ export function Sidebar() {
         </>
       )}
     </>
-  )
-}
-
-// Mobile menu button component for use in layouts
-export function MobileMenuButton() {
-  const { toggleMobile } = useSidebar()
-
-  return (
-    <button
-      onClick={toggleMobile}
-      className="lg:hidden fixed top-4 left-4 z-50 p-2.5 rounded-xl bg-white shadow-lg border border-purple-100 text-purple-600 hover:bg-purple-50 transition-colors"
-      aria-label="Toggle menu"
-    >
-      <Menu className="w-5 h-5" />
-    </button>
   )
 }
