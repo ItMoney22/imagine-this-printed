@@ -213,7 +213,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         }
         const { data: product, error } = await supabase
           .from('products')
-          .select('id, name, price, images, is_active, status, metadata')
+          .select('id, name, price, images, is_active, status, metadata, colors')
           .eq('id', raw.productId)
           .single()
 
@@ -240,6 +240,13 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
           ? product.metadata.print_files as { front?: string; back?: string }
           : null
 
+        // A one-colour product (Darrell's "Walk By Faith" is Maroon only)
+        // always tells the press which blank to print, even when the
+        // storefront sends no colour — his orders used to arrive with none.
+        const lockedColor = Array.isArray(product.colors) && product.colors.length === 1 && typeof product.colors[0] === 'string'
+          ? product.colors[0]
+          : undefined
+
         lines.push({
           name: product.name || 'ITP Product',
           unitAmount,
@@ -247,7 +254,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
           productId: product.id,
           designUrl: isHttpUrl(raw.designUrl) ? raw.designUrl : (isHttpUrl(printFiles?.front) ? printFiles!.front! : null),
           size,
-          color,
+          color: color || lockedColor,
           image: Array.isArray(product.images) ? product.images[0] : undefined,
           printFiles
         })
@@ -677,6 +684,18 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       .like('slug', `${slugCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}%`)
     const uniqueSlug = generateUniqueSlug(slugCandidate, existingProducts?.map((p: any) => p.slug).filter(Boolean) || [])
 
+    // The creator's public name, for the "Design by ..." credit on the ITP
+    // product page (backend/shared/creator-product.ts). Display/full name only:
+    // a bare username reads as a typo on a credit line.
+    const { data: creatorProfile } = await supabase
+      .from('user_profiles')
+      .select('display_name, full_name')
+      .eq('id', creatorUserId)
+      .maybeSingle()
+    const creatorName = [creatorProfile?.display_name, creatorProfile?.full_name]
+      .map(v => (typeof v === 'string' ? v.trim() : ''))
+      .find(Boolean) || null
+
     const printLocations = backUpload ? ['front_image', 'back_image'] : ['front_image']
     const printFiles: { front: string; back?: string } = { front: frontUpload.publicUrl }
     if (backUpload) printFiles.back = backUpload.publicUrl
@@ -706,6 +725,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         metadata: {
           user_submitted: true, // approval-queue filter key
           creator_id: creatorUserId,
+          ...(creatorName ? { creator_name: creatorName } : {}),
           source: 'merch-studio',
           storefront_vendor: vendor,
           external_ref: externalRef,

@@ -4,7 +4,7 @@ import { useCart } from '../context/CartContext'
 import ProductRecommendations from '../components/ProductRecommendations'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { getColorName } from '../utils/color-presets'
-import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
+import { addonsUnitTotal, lineBasePrice, sizePriceDelta, formatPriceDelta } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 
@@ -59,7 +59,12 @@ const Cart: React.FC = () => {
             </div>
 
             <div className="divide-y divide-gray-200">
-              {state.items.map((item) => (
+              {state.items.map((item) => {
+                // 2XL and up adds $2.50 a shirt (the same rail the summary and
+                // checkout charge), so the line says so instead of showing the
+                // base price under a total that is $2.50 higher.
+                const plusUpcharge = item.selectedSize ? Math.max(0, sizePriceDelta(item.product, item.selectedSize)) : 0
+                return (
                 <div key={item.id} className="p-6 flex items-center space-x-4">
                   <img
                     src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
@@ -74,7 +79,10 @@ const Cart: React.FC = () => {
                     <h3 className="text-lg font-semibold text-text">{item.product.name}</h3>
                     <p className="text-muted">{item.product.description}</p>
                     {item.selectedSize && (
-                      <p className="text-sm text-muted mt-1">Size: <span className="font-medium text-text">{item.selectedSize}</span></p>
+                      <p className="text-sm text-muted mt-1">
+                        Size: <span className="font-medium text-text">{item.selectedSize}</span>
+                        {plusUpcharge > 0 && <span className="font-medium text-text"> ({formatPriceDelta(plusUpcharge)})</span>}
+                      </p>
                     )}
                     {item.selectedColor && (
                       <p className="text-sm text-muted mt-1">Color: <span className="font-medium text-text">{getColorName(item.selectedColor)}</span></p>
@@ -134,7 +142,7 @@ const Cart: React.FC = () => {
 
                   <div className="text-right">
                     <p className="text-lg font-bold">
-                      ${((lineBasePrice(item.product, item.selectedSize, item.selectedColor) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
+                      ${((lineBasePrice(item.product, item.selectedSize, item.selectedColor) + plusUpcharge + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity).toFixed(2)}
                     </p>
                     <button
                       onClick={() => removeFromCart(item.id)}
@@ -144,7 +152,8 @@ const Cart: React.FC = () => {
                     </button>
                   </div>
                 </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         </div>

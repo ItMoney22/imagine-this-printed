@@ -3,6 +3,7 @@ import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { sendEmail, sendProductApprovalEmail } from '../../utils/email.js'
 import { generateSeoPackForProduct } from '../../services/seo-pack.js'
+import { isCreatorProductMeta } from '../../shared/creator-product.js'
 
 const router = Router()
 
@@ -165,7 +166,10 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
     // Auto-enable a digital download product when the design carries
     // deliverables (clean / halftone / DTF). Priced in ITC at checkout; admin
     // can adjust digital_price later. Default $9.99 if unset.
-    const hasDeliverables = !!(assets.clean || assets.halftone || assets.dtf)
+    // Never on a creator's own apparel (Merch Studio): its print file doubles
+    // as clean + DTF, and a $9.99 download undercut the shirt and handed out
+    // the art (David 2026-10-07, Darrell's "Walk By Faith").
+    const hasDeliverables = !!(assets.clean || assets.halftone || assets.dtf) && !isCreatorProductMeta(product.metadata)
     if (hasDeliverables) {
       updateData.product_type = 'both'
       if (!product.digital_price || Number(product.digital_price) <= 0) {

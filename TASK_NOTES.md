@@ -1,6 +1,45 @@
 # TASK_NOTES
 
-## Current request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
+## Current request (2026-10-07) — creator products get creator treatment + 2XL +$2.50 (Watchtower d6822874)
+
+David's phone walk of Darrell McCutchen's "Walk By Faith" (e387149e) on ITP: no digital
+download or design tools on creator products, lead with the maroon photo, lock the blank to
+maroon and say so (the order must carry the colour), credit Darrell, keep creator and faith
+products out of the generic recommendation rows. His own site must show the 2XL +$2.50 on the
+button and in the cart (that site lives in the Darrell V2 repo, worked in its own worktree).
+
+Creator product = metadata.source 'merch-studio' (the storefront publish lane: a creator's own
+merch line). NOT metadata.creator_id alone: user designs, Imagination Station and Step Flow
+admin rows all write creator_id too.
+
+### File shortlist (approved scope — 2026-10-07 creator products)
+- `backend/shared/creator-product.ts` + `.test.ts` (new: creator/faith predicates, rec lanes)
+- `src/lib/product-kind.ts` + `.test.ts` (option sets, gallery order, digital offer)
+- `src/pages/ProductPage.tsx` (credit, colour copy, digital gate, rec title)
+- `src/components/ProductRecommendations.tsx`, `src/utils/product-recommender.ts` (+ test)
+- `backend/routes/user-products.ts` (refuse digital buy/download on creator products)
+- `backend/routes/admin/user-product-approvals.ts` (no auto digital on creator products)
+- `backend/routes/storefront.ts` (order colour default, creator_name at publish)
+- `backend/shared/promos.ts` + `.test.ts` (added: the house "2 for $25" flag sat on Darrell's
+  $24.99 shirt, selling two for $25 — a creator product is never bundle-eligible)
+- `src/pages/Cart.tsx` (added: the cart line showed $24.99 under a $27.49 total for a 2XL)
+- `src/utils/product-recommender.test.ts` (new)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): backend/shared/creator-product.ts is the one creator/faith rule.
+  Creator products: no upload/gang sheet/digital download (page + API + approval), gallery =
+  garment photos only, "Design by <metadata.creator_name>", colour sentence + swatch from
+  placement.color, never in the house "2 for $25" bundle. Recommendation rows stay in the
+  anchor's lane (creator -> that creator only, faith -> faith only, else neither); cache keyed
+  by product. Storefront checkout defaults a one-colour product's colour; publish records
+  creator_name. Live row e387149e patched (maroon only, physical, digital_price 0,
+  creator_name, bundle off; revert manifest in E:/memory/.../2026-10-07-d6822874-walk-by-faith-patch.json).
+  Darrell's site 2XL +$2.50 is in the Darrell V2 repo (branch earth/daisy-carter/darrell-2xl-surcharge-d6822874).
+  vitest 140 files / 2156 green, tsc app clean, backend clean except pre-existing rate-limits.ts,
+  vite build green; walked at 390px + desktop on local vite against live data.
+
+## Previous request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
 
 David's 10/7 live phone walk: the $5 "Patriotic Heartbeat DTF" transfer shows shirt sizes,
 youth sizes, shirt colours and "Shirt Quality"; the hoodie page offers T-shirt blanks; size
