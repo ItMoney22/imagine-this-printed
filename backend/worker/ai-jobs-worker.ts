@@ -2153,18 +2153,34 @@ async function process3DModelTripo(job: any) {
         console.warn('[worker] ⚠️ Clean concept could not be signed, using the watermarked one:', signErr?.message)
       }
     }
-    const { glbUrl: tripoGlbUrl, processingTimeSec, modelMetadata, pbrUrl, rendererPreviewUrl } = await generateTripo3D({
+    // Mini-Me: a white print needs bare geometry only (20 credits, no texture);
+    // full color keeps standard texture for the colored preview + palette. Toys keep their tier's texture.
+    const modelMeta = (model?.metadata as any) || {}
+    const textureOverride = modelMeta.source === 'mini_me'
+      ? (modelMeta.color_mode === 'color4' ? 'standard' as const : 'none' as const)
+      : undefined
+    const { glbUrl: tripoGlbUrl, processingTimeSec, modelMetadata, rendererPreviewUrl } = await generateTripo3D({
       imageUrl: tripoSource,
       tier: size_tier,
       orientation: 'align_image',
+      ...(textureOverride ? { texture: textureOverride } : {}),
     })
 
     console.log('[worker] ✅ Tripo3D mesh ready in', processingTimeSec.toFixed(1) + 's')
 
-    // Upload GLB to GCS for permanent hosting
+    // Upload GLB to GCS for permanent hosting. Tripo V3 output links expire after
+    // 5 minutes, so the GLB (and the preview, below) are copied right away.
     await updateJobProgress(job.id, '📤 Uploading GLB to cloud storage...', 2, 4)
     const glbPath = `3d-models/${model_id}/model.glb`
     const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(tripoGlbUrl, glbPath)
+    let previewPublicUrl: string | undefined
+    if (rendererPreviewUrl) {
+      try {
+        previewPublicUrl = (await uploadImageFromUrl(rendererPreviewUrl, `3d-models/${model_id}/tripo-preview`)).publicUrl
+      } catch (previewErr: any) {
+        console.warn('[worker] ⚠️ Tripo preview not kept:', previewErr?.message)
+      }
+    }
 
     // Convert to STL (print-ready). Pass tier height + Bambu-friendly options
     // so the STL imports at the right size, oriented Z-up, sitting on the build plate.
@@ -2205,8 +2221,11 @@ async function process3DModelTripo(job: any) {
           texture: modelMetadata.texture,
           quad: modelMetadata.quad,
           auto_sized: modelMetadata.autoSized,
-          pbr_url: pbrUrl,
-          preview_url: rendererPreviewUrl,
+          tripo_model: modelMetadata.model,
+          ...(modelMetadata.creditsConsumed !== undefined ? { tripo_credits: modelMetadata.creditsConsumed } : {}),
+          // V3 has one model download (it is the PBR model when textured): our GCS copy.
+          pbr_url: modelMetadata.texture !== 'none' ? glbPublicUrl : null,
+          preview_url: previewPublicUrl ?? null,
           processing_time_sec: processingTimeSec,
         },
         updated_at: updatedAt,
