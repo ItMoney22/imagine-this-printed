@@ -15,6 +15,10 @@ Rationale: the previous shortlist was for Team Studio and does not cover coupons
 - `src/components/etsy-bag/EtsyBagCard.tsx`, `src/pages/admin/EtsyBagCardPage.tsx` (new), `public/etsy-bag/etsy-bag-qr.svg` (new)
 - `src/App.tsx` (route), `src/components/AdminCouponManagement.tsx` (link), `src/pages/Checkout.tsx`, `src/context/CartContext.tsx`
 - `TASK_NOTES.md`
+- Added on the send-back (needs "on main"): `package.json` scripts only. Rationale: Nine's ship tool gates on
+  `npm run verify`, and ITP's `verify` was a broken puppeteer smoke test (4 of 5 checks fail on removed/Playwright-only
+  APIs, crashes in a fresh worktree, and probes whatever serves :5173 instead of the branch). `verify` becomes the real
+  suite; the old browser check stays as `verify:browser`.
 
 ### Work log (append-only)
 - 2026-10-07 (zero-pluto): ETSYBAG row created LIVE in discount_codes (id ca335691, 15%, per_user_limit 1,
