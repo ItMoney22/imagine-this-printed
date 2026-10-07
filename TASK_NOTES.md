@@ -4800,3 +4800,6 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
   accounts (qa+referral-*-bdfa6939@imaginethisprinted.com): code REFR9449Q -> friend joined -> referred_by
   set, signup row, repeat = no-op, first-order bonus 50 ITC paid once.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+- 2026-10-07 (dr-dill): scope +1 file with rationale: `backend/routes/stripe.ts` create-payment-intent read
+  user_profiles by the NULL user_id column, same root cause as the referral route; proven live (non-admin
+  account -> 500 "Failed to fetch user profile" on api.imaginethisprinted.com). Re-keyed on id.
