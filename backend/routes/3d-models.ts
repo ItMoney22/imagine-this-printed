@@ -5,13 +5,74 @@
  * Pipeline: Text → NanoBanana Concept → Approval → Multi-View → TRELLIS 3D → GLB/STL
  */
 
-import { Router, Request, Response } from 'express'
+import { Router, Request, Response, NextFunction } from 'express'
 import { createClient } from '@supabase/supabase-js'
+import multer from 'multer'
+import { randomUUID } from 'crypto'
 import { validatePrompt, Style3D, STYLES } from '../services/nano-banana-3d.js'
 import { SIZE_TIERS, PrintSizeTier } from '../services/tripo3d.js'
 import { requireRole } from '../middleware/supabaseAuth.js'
+import {
+  uploadImageFromBuffer,
+  sniffImageContentType,
+  extForImageContentType,
+  getSignedUrl,
+  extractPathFromSignedUrl
+} from '../services/google-cloud-storage.js'
+import {
+  MINI_ME_DEFAULT_PROMPT,
+  MINI_ME_PHOTO_MAX_BYTES,
+  MINI_ME_VIDEO_MAX_BYTES,
+  sniffVideoContentType,
+  extForVideo,
+  hasConsent,
+  createRateLimiter,
+  getMiniMeFilamentPlan,
+  customerColorSentence
+} from '../services/mini-me.js'
+import {
+  MINI_ME_SIZES,
+  MINI_ME_PRICE_CENTS,
+  MINI_ME_PRICES_APPROVED,
+  MINI_ME_NFC_ADDON_ID,
+  isMiniMeSize,
+  miniMeColorMode,
+  miniMeBaseCents,
+  type MiniMeSize
+} from '../shared/mini-me.js'
 
 const router = Router()
+
+// Mini-Me uploads stay in memory only long enough to sniff + store them.
+const miniMePhotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MINI_ME_PHOTO_MAX_BYTES, files: 1 } })
+const miniMeVideoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MINI_ME_VIDEO_MAX_BYTES, files: 1 } })
+/** multer.single with a plain 400 instead of a 500 when the file is too big or malformed. */
+function singleFile(upload: multer.Multer, field: string) {
+  return (req: Request, res: Response, next: NextFunction) =>
+    upload.single(field)(req, res, (err: any) => {
+      if (!err) return next()
+      res.status(400).json({ error: err?.code === 'LIMIT_FILE_SIZE' ? 'That file is too big.' : 'The upload did not come through. Please try again.' })
+    })
+}
+// A sculpt costs real money (image model + Tripo): 5 Mini-Me starts per account per hour.
+const miniMeLimiter = createRateLimiter(5, 60 * 60 * 1000)
+
+/** Every model shown to a customer is a Mini-Me when it was made from their photo. */
+function isMiniMeRow(model: any): boolean {
+  return (model?.metadata as any)?.source === 'mini_me'
+}
+
+/** A fresh short-lived link to a private GCS object, from a stored path or an old signed URL. */
+async function freshSignedUrl(pathOrUrl: string | null | undefined, minutes = 60): Promise<string | null> {
+  if (!pathOrUrl) return null
+  const path = /^https?:\/\//.test(pathOrUrl) ? extractPathFromSignedUrl(pathOrUrl) : pathOrUrl
+  if (!path) return pathOrUrl
+  try {
+    return await getSignedUrl(path, minutes)
+  } catch {
+    return /^https?:\/\//.test(pathOrUrl) ? pathOrUrl : null
+  }
+}
 
 const supabase = createClient(
   process.env.SUPABASE_URL!,
@@ -623,18 +684,178 @@ router.get('/public/:id/ar', async (req: Request, res: Response): Promise<any> =
 
     // Derive a short display name from the prompt — no internal ids or full prompt text
     const rawPrompt: string = model.prompt || ''
-    const displayName = rawPrompt.trim().substring(0, 60) || 'Custom Figurine'
+    const displayName = isMiniMeRow(model) ? 'Mini-Me' : rawPrompt.trim().substring(0, 60) || 'Custom Figurine'
 
+    // Fresh links on every tap: a stored 1-year signed URL behind an NFC tag
+    // would die a year after printing while the statue sits on a shelf.
     res.json({
       ok: true,
       name: displayName,
-      glb_url: model.glb_url ?? null,
-      concept_image_url: model.concept_image_url ?? null,
-      video_url: nfc.video_url ?? null
+      glb_url: await freshSignedUrl(model.glb_url),
+      concept_image_url: await freshSignedUrl(model.concept_image_url),
+      video_url: await freshSignedUrl(nfc.video_path || nfc.video_url)
     })
   } catch (error: any) {
     console.error('[3d-models] public/ar error:', error.message)
     res.status(500).json({ error: 'Failed to fetch AR data' })
+  }
+})
+
+// ---------------------------------------------------------------------------
+// Mini-Me (David 2026-10-07): a customer's photo -> a 3D-printed statue of them.
+// White + paint kit, or full color (max 4) for extra; an NFC base that plays
+// their video for extra. Same pipeline as the toy creator from the concept on:
+// approve -> /generate-3d (Tripo) -> ready -> /order.
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/3d-models/mini-me/pricing  (public)
+ * Sizes and prices. `approved: false` means the numbers are placeholders the
+ * page must not show as final ("from $__") until David approves them.
+ */
+router.get('/mini-me/pricing', (_req: Request, res: Response) => {
+  const sizes = (Object.keys(MINI_ME_SIZES) as MiniMeSize[]).map(size => ({
+    size,
+    label: MINI_ME_SIZES[size].label,
+    heightMm: MINI_ME_SIZES[size].heightMm,
+    whiteCents: MINI_ME_PRICE_CENTS.white[size],
+    colorCents: miniMeBaseCents(size, 'color4')
+  }))
+  res.json({ ok: true, approved: MINI_ME_PRICES_APPROVED, sizes, nfcVideoCents: MINI_ME_PRICE_CENTS.nfcVideo, maxColors: 4 })
+})
+
+/**
+ * POST /api/3d-models/mini-me  (multipart, signed in)
+ * Fields: photo (image, <= 15 MB), consent ('true': "I own this photo or have
+ * permission"), size ('small'|'medium'), color_mode ('white'|'color4'), note?
+ * Stores the photo PRIVATELY (users/<uid>/mini-me/...), creates the model row
+ * (metadata.source 'mini_me') and queues the concept job with the photo's path.
+ */
+router.post('/mini-me', requireAuth, singleFile(miniMePhotoUpload, 'photo'), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const user = (req as any).user
+    const file = (req as any).file as Express.Multer.File | undefined
+
+    if (!hasConsent(req.body?.consent)) {
+      return res.status(400).json({ error: 'Please confirm you own this photo or have permission to use it.' })
+    }
+    if (!file?.buffer?.length) {
+      return res.status(400).json({ error: 'Please choose a photo.' })
+    }
+    const contentType = sniffImageContentType(file.buffer)
+    if (!contentType) {
+      return res.status(400).json({ error: 'That file is not a photo we can read. Try a JPG or PNG.' })
+    }
+    const size: MiniMeSize = isMiniMeSize(req.body?.size) ? req.body.size : 'small'
+    const colorMode = miniMeColorMode(req.body?.color_mode)
+    const note = typeof req.body?.note === 'string' ? req.body.note.trim().slice(0, 200) : ''
+
+    if (!miniMeLimiter.take(user.id)) {
+      return res.status(429).json({ error: 'That is a lot of statues in an hour! Please try again a little later.' })
+    }
+
+    // Same ITC gate as the toy creator: the worker charges the concept on start.
+    const { data: wallet } = await supabase
+      .from('user_wallets')
+      .select('itc_balance')
+      .eq('user_id', user.id)
+      .single()
+    if (!wallet || wallet.itc_balance < ITC_COSTS.concept) {
+      return res.status(402).json({ error: 'Insufficient ITC balance', required: ITC_COSTS.concept, current: wallet?.itc_balance ?? 0 })
+    }
+
+    const photoPath = `users/${user.id}/mini-me/${randomUUID()}.${extForImageContentType(contentType)}`
+    await uploadImageFromBuffer(file.buffer, photoPath, contentType)
+
+    const { data: model, error: createError } = await supabase
+      .from('user_3d_models')
+      .insert({
+        user_id: user.id,
+        prompt: MINI_ME_DEFAULT_PROMPT,
+        style: 'realistic',
+        status: 'queued',
+        itc_charged: 0,
+        size_tier: MINI_ME_SIZES[size].tier,
+        print_height_mm: MINI_ME_SIZES[size].heightMm,
+        metadata: {
+          source: 'mini_me',
+          color_mode: colorMode,
+          mini_me_size: size,
+          photo_path: photoPath,
+          ...(note ? { note } : {}),
+          consent: { owns_or_permitted: true, at: new Date().toISOString() }
+        }
+      })
+      .select()
+      .single()
+    if (createError || !model) {
+      console.error('[3d-models] mini-me create error:', createError)
+      return res.status(500).json({ error: 'Could not start your statue. Please try again.' })
+    }
+
+    await supabase.from('ai_jobs').insert({
+      type: '3d_model_concept',
+      status: 'queued',
+      input: { model_id: model.id, user_id: user.id, prompt: MINI_ME_DEFAULT_PROMPT, style: 'realistic', source_image_path: photoPath },
+      output: {},
+      created_at: new Date().toISOString()
+    })
+
+    console.log('[3d-models] Mini-Me started:', model.id, 'size', size, 'color', colorMode)
+    res.status(201).json({ ok: true, model: { id: model.id, status: model.status, metadata: { source: 'mini_me', color_mode: colorMode, mini_me_size: size } } })
+  } catch (error: any) {
+    console.error('[3d-models] mini-me error:', error.message)
+    res.status(500).json({ error: 'Could not start your statue. Please try again.' })
+  }
+})
+
+/**
+ * POST /api/3d-models/:id/nfc-video  (multipart, owner only)
+ * Field: video (mp4 / mov / webm, <= 100 MB). Stored privately at
+ * 3d-models/<id>/nfc-video.<ext>; the NFC tag carries the permanent page
+ * /ar/<id>, which signs a fresh link to the video on every tap.
+ */
+router.post('/:id/nfc-video', requireAuth, singleFile(miniMeVideoUpload, 'video'), async (req: Request, res: Response): Promise<any> => {
+  try {
+    const user = (req as any).user
+    const { id } = req.params
+    const file = (req as any).file as Express.Multer.File | undefined
+
+    const { data: model, error } = await supabase
+      .from('user_3d_models')
+      .select('id, metadata')
+      .eq('id', id)
+      .eq('user_id', user.id)
+      .single()
+    if (error || !model) return res.status(404).json({ error: 'Model not found' })
+
+    if (!file?.buffer?.length) return res.status(400).json({ error: 'Please choose a video.' })
+    const contentType = sniffVideoContentType(file.buffer)
+    if (!contentType) return res.status(400).json({ error: 'That file is not a video we can play. Try an MP4, MOV or WebM.' })
+
+    const videoPath = `3d-models/${id}/nfc-video.${extForVideo(contentType)}`
+    await uploadImageFromBuffer(file.buffer, videoPath, contentType)
+
+    const meta: Record<string, any> = (model.metadata && typeof model.metadata === 'object') ? { ...model.metadata } : {}
+    const nfc = {
+      ...(meta.nfc && typeof meta.nfc === 'object' ? meta.nfc : {}),
+      enabled: true,
+      video_path: videoPath,
+      video_content_type: contentType,
+      video_url: null,
+      updated_at: new Date().toISOString(),
+      set_by: 'owner'
+    }
+    const { error: updateError } = await supabase
+      .from('user_3d_models')
+      .update({ metadata: { ...meta, nfc }, updated_at: new Date().toISOString() })
+      .eq('id', id)
+    if (updateError) return res.status(500).json({ error: 'Could not save your video. Please try again.' })
+
+    res.json({ ok: true, nfc: { enabled: true, page: `https://imaginethisprinted.com/ar/${id}` } })
+  } catch (error: any) {
+    console.error('[3d-models] nfc-video error:', error.message)
+    res.status(500).json({ error: 'Could not save your video. Please try again.' })
   }
 })
 
@@ -658,7 +879,15 @@ router.get('/:id', requireAuth, async (req: Request, res: Response): Promise<any
       return res.status(404).json({ error: 'Model not found' })
     }
 
-    res.json({ ok: true, model })
+    // Full color: Mrs. Imagine's plan for the AMS (max 4 colors), in plain words.
+    const meta = (model.metadata as any) || {}
+    let filament: { plan: Awaited<ReturnType<typeof getMiniMeFilamentPlan>>; sentence: string } | null = null
+    if (meta.color_mode === 'color4' && Array.isArray(meta.palette) && meta.palette.length) {
+      const plan = await getMiniMeFilamentPlan(meta.palette)
+      filament = { plan, sentence: customerColorSentence(plan) }
+    }
+
+    res.json({ ok: true, model, ...(filament ? { filament } : {}) })
   } catch (error: any) {
     console.error('[3d-models] Get error:', error.message)
     res.status(500).json({ error: 'Failed to fetch model' })
@@ -726,15 +955,6 @@ router.post('/:id/generate-3d', requireAuth, async (req: Request, res: Response)
   try {
     const user = (req as any).user
     const { id } = req.params
-    const requestedTier = (req.body?.size || 'small') as PrintSizeTier
-    const tierConfig = SIZE_TIERS[requestedTier]
-
-    if (!tierConfig) {
-      return res.status(400).json({
-        error: 'Invalid size tier',
-        validTiers: Object.keys(SIZE_TIERS),
-      })
-    }
 
     // Get model — we now drive Tripo3D from the concept image directly,
     // so angles are no longer required (saving 30 ITC and ~60s).
@@ -747,6 +967,21 @@ router.post('/:id/generate-3d', requireAuth, async (req: Request, res: Response)
 
     if (fetchError || !model) {
       return res.status(404).json({ error: 'Model not found' })
+    }
+
+    // A Mini-Me picks from its own two sizes (small/medium) and sculpts at that tier.
+    const meta = (model.metadata as any) || {}
+    const miniMeSize: MiniMeSize | null = isMiniMeRow(model)
+      ? (isMiniMeSize(req.body?.size) ? req.body.size : isMiniMeSize(meta.mini_me_size) ? meta.mini_me_size : 'small')
+      : null
+    const requestedTier = (miniMeSize ? MINI_ME_SIZES[miniMeSize].tier : (req.body?.size || 'small')) as PrintSizeTier
+    const tierConfig = SIZE_TIERS[requestedTier]
+
+    if (!tierConfig) {
+      return res.status(400).json({
+        error: 'Invalid size tier',
+        validTiers: Object.keys(SIZE_TIERS),
+      })
     }
 
     // Need a concept image to feed Tripo3D
@@ -783,6 +1018,7 @@ router.post('/:id/generate-3d', requireAuth, async (req: Request, res: Response)
         status: 'generating_3d',
         size_tier: requestedTier,
         print_height_mm: tierConfig.printHeightMm,
+        ...(miniMeSize ? { metadata: { ...meta, mini_me_size: miniMeSize } } : {}),
         updated_at: updatedAt,
       })
       .eq('id', id)
@@ -806,6 +1042,9 @@ router.post('/:id/generate-3d', requireAuth, async (req: Request, res: Response)
         model_id: id,
         user_id: user.id,
         source_image_url: sourceImage,
+        // The UN-watermarked concept (private; the worker signs it when it runs).
+        // Older models have none and fall back to the watermarked source_image_url.
+        ...(meta.clean_concept_path ? { source_image_path: meta.clean_concept_path } : {}),
         size_tier: requestedTier,
       },
       output: {},
@@ -1029,12 +1268,49 @@ router.post('/:id/order', requireAuth, async (req: Request, res: Response): Prom
       })
     }
 
-    // Resolve color_mode: body > model metadata > default grey
-    const modelColorMode: 'grey' | 'color4' = (model.metadata as any)?.color_mode === 'color4' ? 'color4' : 'grey'
-    const colorMode: 'grey' | 'color4' = rawColorMode === 'color4' ? 'color4' : rawColorMode === 'grey' ? 'grey' : modelColorMode
+    // Mini-Me: white (paint kit always included) or full color, NFC video base optional.
+    if (isMiniMeRow(model)) {
+      const meta = (model.metadata as any) || {}
+      const mmColor = miniMeColorMode(rawColorMode ?? meta.color_mode)
+      const mmSize: MiniMeSize = isMiniMeSize(meta.mini_me_size) ? meta.mini_me_size : 'small'
+      const wantsNfc = req.body?.nfc_video === true || req.body?.nfc_video === 'true'
+      const addonIds = wantsNfc ? [MINI_ME_NFC_ADDON_ID] : []
+      // The base only: the NFC add-on rides as a cart add-on the server prices from TOY_ADDONS_CENTS.
+      const baseDollars = miniMeBaseCents(mmSize, mmColor) / 100
+      const product = {
+        id: `3d-print-${model.id}`,
+        name: mmColor === 'color4' ? 'Mini-Me statue (full color)' : 'Mini-Me statue (white + paint kit)',
+        description: mmColor === 'color4'
+          ? `A ${MINI_ME_SIZES[mmSize].label.toLowerCase()} 3D-printed statue of you, printed in up to 4 colors.`
+          : `A ${MINI_ME_SIZES[mmSize].label.toLowerCase()} 3D-printed statue of you in white, with a paint kit to color it yourself.`,
+        category: '3d-prints',
+        price: baseDollars,
+        images: [model.concept_image_url].filter(Boolean),
+        metadata: {
+          model_id: model.id,
+          source: 'mini_me',
+          mini_me_size: mmSize,
+          material: 'pla',
+          color: mmColor,
+          color_mode: mmColor,
+          include_paint_kit: mmColor === 'white',
+          magnet_sockets: 0,
+          // Cart contract: add these as selectedAddons so checkout prices them.
+          addons: addonIds,
+          prices_approved: MINI_ME_PRICES_APPROVED
+        }
+      }
+      return res.json({ ok: true, product })
+    }
 
-    // Paint kit only applies for grey mode
-    const include_paint_kit = colorMode === 'grey' ? Boolean(rawPaintKit) : false
+    // Resolve color_mode: body > model metadata > default grey. 'white' = white PLA + paint kit.
+    const metaMode = (model.metadata as any)?.color_mode
+    const modelColorMode: 'grey' | 'white' | 'color4' = metaMode === 'color4' ? 'color4' : metaMode === 'white' ? 'white' : 'grey'
+    const colorMode: 'grey' | 'white' | 'color4' =
+      rawColorMode === 'color4' || rawColorMode === 'grey' || rawColorMode === 'white' ? rawColorMode : modelColorMode
+
+    // Paint kit: optional on grey, always included with white, never with color4
+    const include_paint_kit = colorMode === 'white' ? true : colorMode === 'grey' ? Boolean(rawPaintKit) : false
 
     // Pricing: base tier print price; color4 adds 30% premium, rounded to .99
     const tierPrintPrice: number = (model as any).print_price_usd ?? PRINT_PRICING.base_price
@@ -1055,6 +1331,8 @@ router.post('/:id/order', requireAuth, async (req: Request, res: Response): Prom
     let description: string
     if (colorMode === 'color4') {
       description = `3D printed figurine in up to 4 colors, ${model.style} style. ${magnetLine}`
+    } else if (colorMode === 'white') {
+      description = `3D printed figurine in white PLA with a paint kit to color it yourself. ${magnetLine}`
     } else if (include_paint_kit) {
       description = `3D printed figurine in grey PLA with paint kit - a fun family project! ${magnetLine}`
     } else {
@@ -1074,7 +1352,7 @@ router.post('/:id/order', requireAuth, async (req: Request, res: Response): Prom
         stl_url: model.stl_url,
         glb_url: model.glb_url,
         material: 'pla',
-        color: colorMode === 'color4' ? 'color4' : 'grey',
+        color: colorMode,
         color_mode: colorMode,
         include_paint_kit,
         magnet_sockets: 2,

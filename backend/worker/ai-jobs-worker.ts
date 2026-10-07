@@ -4,7 +4,9 @@ import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, ty
 import { renderPrintTrueMockup, supportsPrintTrue } from '../services/print-true-mockup.js'
 import { getGarment, normalizeGarment } from '../shared/catalog-capability.js'
 import { verifyWithOneRetry, type MockupCheck } from '../services/mockup-qa.js'
-import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { uploadImageFromUrl, uploadImageFromBase64, uploadImageFromBuffer, getSignedUrl } from '../services/google-cloud-storage.js'
+import { buildMiniMePrompt } from '../services/mini-me.js'
+import { miniMeColorMode } from '../shared/mini-me.js'
 import { removeBackgroundToBuffer } from '../services/background-removal.js'
 import { optimizeForDTF, type DTFOptimizationOptions } from '../services/dtf-optimizer.js'
 import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, TOY_MODE_CLAUSE, COLOR4_CLAUSE, type Style3D } from '../services/nano-banana-3d.js'
@@ -1633,8 +1635,11 @@ async function refundItc(userId: string, amount: number, description: string): P
  * Output is an array of image URLs (same shape the existing extraction handles).
  */
 async function process3DModelConcept(job: any) {
-  const { model_id, user_id, prompt, style, source_image_url } = job.input
-  const isRemix = !!source_image_url
+  const { model_id, user_id, prompt, style, source_image_url, source_image_path } = job.input
+  // Mini-Me: the customer's photo sits PRIVATE in GCS (source_image_path); it is
+  // signed here, at processing time, for one hour, never stored as a URL.
+  const isMiniMeJob = !!source_image_path
+  const isRemix = !!source_image_url && !isMiniMeJob
   console.log('[worker] 🎨 Starting 3D concept generation for model:', model_id, isRemix ? '(remix)' : '(fresh)')
 
   try {
@@ -1662,23 +1667,30 @@ async function process3DModelConcept(job: any) {
     const colorMode: 'grey' | 'color4' = (modelRow?.metadata as any)?.color_mode === 'color4' ? 'color4' : 'grey'
 
     // Build the prompt sent to gpt-image-2.
+    // Mini-Me path: the customer's photo + a likeness-first, printable brief.
     // Remix path: use a preservation-framed instruction so the model edits the
     //   source image rather than generating from scratch.  Toy/color4 safety
     //   clauses are appended identically on both paths.
     // Fresh path: use the full t2i buildConceptPrompt framing.
     let finalPrompt: string
-    if (isRemix) {
+    let inputImageUrl: string | null = null
+    if (isMiniMeJob) {
+      const meta = (modelRow?.metadata as any) || {}
+      finalPrompt = buildMiniMePrompt(miniMeColorMode(meta.color_mode), meta.note)
+      inputImageUrl = await getSignedUrl(source_image_path, 60)
+    } else if (isRemix) {
       const clauses: string[] = [
         `Edit the provided character concept image. Requested change: ${prompt}. Keep everything else IDENTICAL to the original character — same overall creature, same pose, same style, same proportions`
       ]
       if (toyMode) clauses.push(TOY_MODE_CLAUSE)
       if (colorMode === 'color4') clauses.push(COLOR4_CLAUSE)
       finalPrompt = clauses.join('. ')
+      inputImageUrl = source_image_url
     } else {
       finalPrompt = buildConceptPrompt(prompt, style as Style3D, { toyMode, colorMode })
     }
 
-    console.log('[worker] 📝 Concept prompt (toyMode=' + toyMode + ', colorMode=' + colorMode + ', remix=' + isRemix + '):', finalPrompt.substring(0, 120) + '...')
+    console.log('[worker] 📝 Concept prompt (toyMode=' + toyMode + ', colorMode=' + colorMode + ', remix=' + isRemix + ', miniMe=' + isMiniMeJob + '):', finalPrompt.substring(0, 120) + '...')
 
     // Build gpt-image-2 input — conditionally include input_images for remix
     const replicateInput: Record<string, any> = {
@@ -1689,8 +1701,8 @@ async function process3DModelConcept(job: any) {
       background: 'auto',
       number_of_images: 1,
     }
-    if (isRemix) {
-      replicateInput.input_images = [source_image_url]
+    if (inputImageUrl) {
+      replicateInput.input_images = [inputImageUrl]
     }
 
     console.log('[worker] 🚀 Creating gpt-image-2 prediction...')
@@ -1762,15 +1774,31 @@ async function process3DModelConcept(job: any) {
     // (print-bridge queue + notifyWorkers). Never blocks the job — null on any
     // failure, and the metadata merge is skipped if the palette is absent.
     const palette = await extractPalette(imageUrl)
+
+    // Keep the UN-watermarked concept too, privately (3d-models/<id>/concept-clean.png
+    // is not on the media proxy allowlist). Tripo sculpts from this one: feeding it
+    // the watermarked copy put the 30% watermark into every model (2026-10-07).
+    let cleanConceptPath: string | null = null
+    try {
+      const clean = await uploadImageFromUrl(imageUrl, `3d-models/${model_id}/concept-clean.png`)
+      cleanConceptPath = clean.path
+    } catch (cleanErr: any) {
+      console.warn('[worker] ⚠️ Could not keep the clean concept (Tripo falls back to the watermarked one):', cleanErr?.message)
+    }
+
     let paletteMeta: Record<string, any> | undefined
-    if (palette && palette.length > 0) {
+    if ((palette && palette.length > 0) || cleanConceptPath) {
       const { data: existingRow } = await supabase
         .from('user_3d_models')
         .select('metadata')
         .eq('id', model_id)
         .single()
-      paletteMeta = { ...(existingRow?.metadata ?? {}), palette }
-      console.log('[worker] 🎨 Palette extracted:', palette.map(p => p.hex).join(' '))
+      paletteMeta = {
+        ...(existingRow?.metadata ?? {}),
+        ...(palette && palette.length > 0 ? { palette } : {}),
+        ...(cleanConceptPath ? { clean_concept_path: cleanConceptPath } : {})
+      }
+      if (palette && palette.length > 0) console.log('[worker] 🎨 Palette extracted:', palette.map(p => p.hex).join(' '))
     }
 
     // Update model with concept image
@@ -2092,10 +2120,12 @@ async function process3DModelTrellis(job: any) {
  * Replaces the legacy concept→angles→TRELLIS pipeline. Faster + cleaner meshes.
  */
 async function process3DModelTripo(job: any) {
-  const { model_id, user_id, source_image_url, size_tier } = job.input as {
+  const { model_id, user_id, source_image_url, source_image_path, size_tier } = job.input as {
     model_id: string
     user_id: string
     source_image_url: string
+    /** The un-watermarked concept, private; signed here so it is fresh when Tripo fetches it. */
+    source_image_path?: string
     size_tier: PrintSizeTier
   }
 
@@ -2114,9 +2144,17 @@ async function process3DModelTripo(job: any) {
 
     await updateJobProgress(job.id, `🎲 Tripo3D ${tier.label} — generating mesh (~${tier.approxSeconds}s)...`, 1, 4)
 
-    // Generate via Tripo3D
+    // Generate via Tripo3D — from the clean concept when we kept one (no watermark in the mesh).
+    let tripoSource = source_image_url
+    if (source_image_path) {
+      try {
+        tripoSource = await getSignedUrl(source_image_path, 60)
+      } catch (signErr: any) {
+        console.warn('[worker] ⚠️ Clean concept could not be signed, using the watermarked one:', signErr?.message)
+      }
+    }
     const { glbUrl: tripoGlbUrl, processingTimeSec, modelMetadata, pbrUrl, rendererPreviewUrl } = await generateTripo3D({
-      imageUrl: source_image_url,
+      imageUrl: tripoSource,
       tier: size_tier,
       orientation: 'align_image',
     })
