@@ -137,14 +137,15 @@ describe('free shipping progress bar', () => {
 })
 
 describe('calculateShipping — local pickup + delivery eligibility', () => {
-  it('always offers free local pickup and preselects it as the cheapest option', async () => {
+  it('always offers free local pickup but preselects a carrier rate, so a sub-$50 order never shows Free', async () => {
     stubBackend()
     const res = await new ShippingCalculator().calculateShipping([], farAway, 10)
     const pickup = res.rates.find(r => r.id === 'local-pickup')!
     expect(pickup.amount).toBe(0)
     expect(pickup.rushEligible).toBe(true)
     expect(pickup.estimatedDays).toBe(STANDARD_FULFILLMENT_DAYS)
-    expect(res.selectedRate?.id).toBe('local-pickup')
+    expect(res.selectedRate?.type).toBe('shipping')
+    expect(res.selectedRate?.amount).toBeGreaterThan(0)
   })
 
   it('enables local delivery for a Rockmart-area GA ZIP via the fallback check', async () => {

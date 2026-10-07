@@ -9,7 +9,7 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor } from '../lib/product-kind'
+import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
@@ -68,7 +68,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
   // Product kind drives type-aware UI (metal/3D must not look like a t-shirt).
   const kind = productKindOf(product)
-  const isApparel = kind === 'apparel'
 
   // The sizes this listing offers â€” one shared answer with ProductPage, so the
   // card and the page can never disagree. Metal always goes through the
@@ -77,6 +76,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   // print with no explicit tiers comes back EMPTY, meaning one size.
   const displaySizes = sizeChoicesFor(product)
   const hasSizes = displaySizes.length > 0
+  // Same option sets as ProductPage (David 2026-10-07): a transfer has no
+  // shirt colours and no placement, and opens on its adult size.
+  const options = listingOptionSets(product)
+  const sizeToAdd = selectedSize ?? (options.kind === 'dtf-transfer' ? defaultSizeFor(product) || null : null)
 
   // Card price: a metal print shows the price of the size picked (or "from"
   // its smallest size); everything else shows products.price.
@@ -84,21 +87,22 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const showFrom = kind === 'metal' && !selectedSize && hasPriceRange(product)
 
   // Get colors from product (admin saves them as hex strings on product.colors / metadata.colors)
-  const colors: string[] = product.colors || product.metadata?.colors || []
+  const colors: string[] = options.colors ? (product.colors || product.metadata?.colors || []) : []
   const hasColors = colors.length > 0
 
   // Quick Add is satisfied when every visible picker has been answered. The
   // size picker only shows when the listing actually has sizes â€” a one-size
   // 3D print has nothing to pick, so it must not block the add.
   const colorSatisfied = !hasColors || !!selectedColor
-  const sizeSatisfied = !hasSizes || !!selectedSize
-  // Multi-location products (front/back/pocket) need an explicit choice —
-  // mirrors ProductPage.tsx's requiresPrintLocation. Without this, quick-add
-  // silently shipped every product on the default (front) location even when
-  // the customer paid for back print (Watchtower task 2b20562c).
-  const printLocations = product.print_locations || []
+  const sizeSatisfied = !hasSizes || !!sizeToAdd
+  // Multi-location products (front/back/pocket) offer a choice — mirrors
+  // ProductPage.tsx's requiresPrintLocation — opening on where the design is
+  // actually printed, so the default never ships a placement nobody chose
+  // (Watchtower task 2b20562c) and never blocks the add (b2784c8d).
+  const printLocations = placementChoicesFor(product)
   const requiresPrintLocation = printLocations.length > 1
-  const printLocationSatisfied = !requiresPrintLocation || !!selectedPrintLocation
+  const placementToAdd = selectedPrintLocation ?? defaultPrintLocation(product)
+  const printLocationSatisfied = !requiresPrintLocation || !!placementToAdd
   const readyToAdd = colorSatisfied && sizeSatisfied && printLocationSatisfied
   // Nothing to choose at all (one-size, one-colour, single placement) â€” Quick
   // Add adds straight to the cart instead of opening an empty picker panel.
@@ -351,7 +355,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               <p className="text-xs text-muted font-medium">Select Size:</p>
               {/* Blank garments price per size off their own table (shown on
                   each button) — the flat $2.50 plus-size rule never applies. */}
-              {isApparel && !isBlankProduct(product) && displaySizes.some((s: string) => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps))) && (
+              {displaySizes.some((s: string) => sizePriceDelta(product, s) > 0) && (
                 <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">
                   2XL+ = +$2.50
                 </span>
@@ -362,30 +366,32 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             </div>
             <div className="flex flex-wrap gap-1.5">
               {displaySizes.map((size: string) => {
-                const isPlusSize = isApparel && !isBlankProduct(product) && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                // The whole amount this size adds or takes off ("+$2.50",
+                // "-$3.00") — it used to show a bare "+$".
+                const deltaLabel = formatPriceDelta(sizePriceDelta(product, size))
                 const blankSizePrice = isBlankProduct(product)
                   ? blankUnitPriceDollars(blankPricingOf(product.metadata), size, selectedColor)
                   : null
+                const isPicked = sizeToAdd === size
                 return (
                   <button
                     key={size}
                     onClick={() => setSelectedSize(size)}
-                    title={isPlusSize ? '+$2.50 upcharge' : blankSizePrice !== null ? `$${blankSizePrice.toFixed(2)} each` : undefined}
+                    title={blankSizePrice !== null ? `$${blankSizePrice.toFixed(2)} each` : deltaLabel ? `${deltaLabel} for this size` : undefined}
                     className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all relative ${
-                      selectedSize === size
+                      isPicked
                         ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
                         : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
-                    } ${isPlusSize ? 'pr-5' : ''} ${blankSizePrice !== null ? 'flex flex-col items-center leading-tight' : ''}`}
+                    } ${blankSizePrice !== null || deltaLabel ? 'flex flex-col items-center leading-tight' : ''}`}
                   >
                     {size}
-                    {blankSizePrice !== null && (
-                      <span className={`text-[9px] font-medium ${selectedSize === size ? 'text-white/80' : 'text-muted'}`}>
+                    {blankSizePrice !== null ? (
+                      <span className={`text-[9px] font-medium ${isPicked ? 'text-white/80' : 'text-muted'}`}>
                         ${blankSizePrice.toFixed(2)}
                       </span>
-                    )}
-                    {isPlusSize && (
-                      <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[8px] font-bold ${selectedSize === size ? 'text-amber-200' : 'text-amber-400'}`}>
-                        +$
+                    ) : deltaLabel && (
+                      <span className={`text-[9px] font-medium ${isPicked ? 'text-white/80' : 'text-muted'}`}>
+                        {deltaLabel}
                       </span>
                     )}
                   </button>
@@ -455,7 +461,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                   type="button"
                   onClick={() => setSelectedPrintLocation(loc)}
                   className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
-                    selectedPrintLocation === loc
+                    placementToAdd === loc
                       ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
                       : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
                   }`}
@@ -479,18 +485,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 // Picker(s) already visible; user still needs to make required selections
                 return
               }
-              // Single-location products have nothing to choose — carry that
-              // one location along automatically so it still reaches the
-              // cart/order (matches ProductPage.tsx's auto-select).
-              // A blank garment has nothing to print — never carry a placement.
-              const printLocation = isBlankProduct(product)
-                ? undefined
-                : requiresPrintLocation ? selectedPrintLocation ?? undefined : printLocations[0]
-              addToCart(product, 1, selectedSize ?? undefined, selectedColor ?? undefined, undefined, undefined, undefined, undefined, printLocation)
+              // The placement picked, else where the design is printed (a
+              // single-location product carries its one location). A blank, a
+              // transfer, metal and 3D have no placement — never carry one.
+              const printLocation = placementToAdd ?? undefined
+              addToCart(product, 1, sizeToAdd ?? undefined, selectedColor ?? undefined, undefined, undefined, undefined, undefined, printLocation)
               setAddedToCart(true)
               // Dispatch custom event for cart notification
               window.dispatchEvent(new CustomEvent('cart-item-added', {
-                detail: { product, size: selectedSize, color: selectedColor, printLocation }
+                detail: { product, size: sizeToAdd, color: selectedColor, printLocation }
               }))
               setTimeout(() => {
                 setAddedToCart(false)
@@ -537,7 +540,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
           {/* Add to Imagination Sheet â€” DTF/apparel only (metal & 3D are
               finished pieces, not designs to drop on a print sheet). */}
-          {isApparel && (
+          {options.gangSheet && (
           <button
             onClick={async () => {
               setIsAddingToSheet(true)

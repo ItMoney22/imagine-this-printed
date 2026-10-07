@@ -1,3 +1,4 @@
+import AnalyticsTracker from './components/AnalyticsTracker'
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom'
 import { useEffect, lazy, Suspense } from 'react'
 import { SupabaseAuthProvider } from './context/SupabaseAuthContext'
@@ -152,6 +153,7 @@ function App() {
                 <SidebarProvider>
                   <Router>
                     <ScrollToTop />
+                    <AnalyticsTracker />
                     <GuestGateProvider>
                     <AppLayout>
                 <Suspense fallback={
