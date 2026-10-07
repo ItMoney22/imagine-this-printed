@@ -1703,6 +1703,9 @@ const Checkout: React.FC = () => {
                     <span>
                       {appliedCoupon?.freeShipping ? (
                         <span className="text-green-600">Free (coupon)</span>
+                      ) : !selectedRate ? (
+                        // No rate picked yet (no address): $0 here is "unknown", not "free".
+                        <span className="text-muted">Calculated after address</span>
                       ) : baseShipping === 0 ? (
                         'Free'
                       ) : (

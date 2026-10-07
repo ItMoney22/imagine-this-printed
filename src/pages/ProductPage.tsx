@@ -139,6 +139,11 @@ const ProductPage: React.FC = () => {
           if (productKindOf(mappedProduct) === 'metal') {
             setSelectedSize(metalSizeOptions(mappedProduct)[0])
           }
+          // One colour (most tees are Black only) or one size: nothing to choose,
+          // so pick it instead of blocking Add to Cart behind a one-button choice.
+          if (mappedProduct.colors?.length === 1) setSelectedColor(mappedProduct.colors[0])
+          const onlySizes = sizeChoicesFor(mappedProduct)
+          if (onlySizes.length === 1) setSelectedSize(onlySizes[0])
           // Single-option products have nothing to choose — auto-select so the
           // cart still carries a print_location without showing a selector
           // (multi-option products require the customer to pick one below).
@@ -731,23 +736,19 @@ const ProductPage: React.FC = () => {
           {/* Generic quality bullets — a blank gets the real spec sheet above instead. */}
           {!isBlank && (
           <div>
-            <h3 className="text-lg font-semibold mb-2 text-text">Essence & Quality</h3>
+            <h3 className="text-lg font-semibold mb-2 text-text">Details</h3>
             <ul className="text-muted space-y-2">
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Crafted for the Extraordinary</span>
+                <span>{productKind === '3d' ? '3D printed in our Georgia shop after you order' : 'Made to order, printed after you order'}</span>
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Frequency-Aligned Print Quality</span>
+                <span>Ships from Georgia, USA</span>
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>{productKind === 'metal' ? 'Museum-Grade Metal Finish' : productKind === '3d' ? 'Durable, Detail-Rich Build' : 'Truth in Every Thread'}</span>
-              </li>
-              <li className="flex items-center gap-2">
-                <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>Consciously Produced</span>
+                <span>Questions? wecare@imaginethisprinted.com</span>
               </li>
             </ul>
           </div>
@@ -1234,24 +1235,6 @@ const ProductPage: React.FC = () => {
             excludeIds: [product.id]
           }}
           title="Similar Products"
-          showReason={true}
-          onProductClick={(recommendedProduct, _position) => {
-            navigate(`/product/${recommendedProduct.id}`)
-          }}
-        />
-      </div>
-
-      {/* Cross-sell Recommendations */}
-      <div className="mt-8">
-        <ProductRecommendations
-          context={{
-            page: 'product',
-            currentProduct: product,
-            limit: 4,
-            excludeIds: [product.id]
-          }}
-          title="Customers Also Bought"
-          className="border-t pt-8"
           onProductClick={(recommendedProduct, _position) => {
             navigate(`/product/${recommendedProduct.id}`)
           }}

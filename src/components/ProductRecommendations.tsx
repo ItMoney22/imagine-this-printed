@@ -11,7 +11,6 @@ interface ProductRecommendationsProps {
   context: RecommendationContext
   title?: string
   className?: string
-  showReason?: boolean
   onProductClick?: (product: Product, position: number) => void
 }
 
@@ -19,7 +18,6 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
   context,
   title = "You Might Also Like",
   className = "",
-  showReason = false,
   onProductClick
 }) => {
   const { user } = useAuth()
@@ -142,12 +140,6 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
     <div className={`bg-card rounded-lg shadow-glow p-6 border border-white/10 ${className}`}>
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-lg font-semibold text-text">{title}</h3>
-        <div className="flex items-center text-sm text-gray-500">
-          <svg className="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
-          Personalized for you
-        </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
@@ -184,12 +176,6 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
               <p className="text-purple-600 font-semibold text-sm mt-1">
                 ${product.price.toFixed(2)}
               </p>
-
-              {showReason && (
-                <p className="text-xs text-gray-500 mt-1">
-                  Trending this week
-                </p>
-              )}
 
               {!product.inStock && (
                 <span className="inline-block bg-red-100 text-red-800 text-xs px-2 py-1 rounded mt-1">

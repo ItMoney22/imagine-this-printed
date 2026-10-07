@@ -745,8 +745,7 @@ const Home: React.FC = () => {
                 page: 'home',
                 limit: 6
               }}
-              title="Recommended for You"
-              showReason={true}
+              title="More from the shop"
             />
           </Suspense>
         </div>
