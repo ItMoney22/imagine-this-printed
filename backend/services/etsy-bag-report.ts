@@ -1,5 +1,5 @@
-// Weekly count for the Etsy bag card (Watchtower task 8cde2a1d): how many
-// paid orders used ETSYBAG, and how many came in through the card's QR link
+// Weekly count for the ETSYBAG website code (Watchtower tasks 8cde2a1d, d9a98efc): how many
+// paid orders used ETSYBAG, and how many came in through the retired bag-card QR link
 // (orders.attribution, captured at checkout since 3ed8aa2). Served to the
 // admin print page by GET /api/admin/coupons/etsy-bag/weekly and printed by
 // backend/scripts/etsy-bag-weekly.ts.

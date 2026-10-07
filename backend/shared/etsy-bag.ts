@@ -1,37 +1,101 @@
-// The Etsy bag insert card — one place for its facts (Watchtower task 8cde2a1d).
+// The Etsy bag insert card — one place for its facts (Watchtower tasks
+// 8cde2a1d, d9a98efc).
 //
 // David 2026-10-07: "when we sell something on Etsy, we're going to add a
-// coupon code for the site, a little coupon in the bag." The card
-// (src/components/etsy-bag/EtsyBagCard.tsx), its print page
-// (src/pages/admin/EtsyBagCardPage.tsx) and the weekly count
-// (backend/services/etsy-bag-report.ts) all read from here, so the code on
-// the card, the QR link and what the report counts can never disagree.
+// coupon code for the site, a little coupon in the bag." Etsy's Off-Platform
+// Transactions Policy (last updated 2026-10-05, re-read live 2026-10-07,
+// etsy.com/legal/policy/off-platform-transactions-policy/1254654515806) bans
+// exactly that in an Etsy order: "off-platform discounts ... that encourage
+// members to purchase off Etsy", "using a QR code to direct members off Etsy"
+// and "instructing a member to purchase an item through an off-platform
+// destination, such as a personal website". Breaking it puts Christina's
+// Etsy shop at risk. So (decision d9a98efc, option A) the card in the bag
+// carries an Etsy SHOP promo code for the buyer's next Etsy order — Etsy says
+// sellers may share those "anywhere" — and nothing that points off Etsy: no
+// site discount, no QR, no website, no off-Etsy email.
 //
-// The discount itself lives in the discount_codes row with this code
-// (15% off, per_user_limit 1, metadata.first_order_only = true). Changing
-// the amount means changing that row AND percentOff below.
+// Christina makes the promo code in Etsy Shop Manager and types it on the
+// print page (src/pages/admin/EtsyBagCardPage.tsx); it is stored in
+// admin_settings under ETSY_BAG_CARD.settingsKey. Until a code is saved, the
+// page will not print.
 //
-// The QR image is generated from `url`, not drawn by hand:
-//   npx qrcode -t svg -e M -o public/etsy-bag/etsy-bag-qr.svg "<url>"
-// Regenerate it if `url` ever changes.
+// ETSY_BAG below is the WEBSITE code, which stays live for pickup orders,
+// markets and social — never for Etsy orders. Its discount lives in the
+// discount_codes row with this code (15% off, per_user_limit 1,
+// metadata.first_order_only = true); the weekly count
+// (backend/services/etsy-bag-report.ts) reads it from here.
 
 export const ETSY_BAG = {
   code: 'ETSYBAG',
   percentOff: 15,
   utm: { utm_source: 'etsy', utm_medium: 'insert', utm_campaign: 'bag' },
-  url: 'https://imaginethisprinted.com/?utm_source=etsy&utm_medium=insert&utm_campaign=bag',
-  displayUrl: 'imaginethisprinted.com',
-  qrImage: '/etsy-bag/etsy-bag-qr.svg',
-  /**
-   * Etsy's Off-Platform Transactions Policy (last updated 2026-10-05, read
-   * live 2026-10-07) says sellers may not offer "off-platform discounts ...
-   * that encourage members to purchase off Etsy" or use "a QR code to direct
-   * members off Etsy". This card does both, so it stays on hold until David
-   * rules on the approval card (see the task 8cde2a1d handoff). The print
-   * page shows the hold; flip to false once he says go.
-   */
-  onHoldForEtsyPolicy: true
+  url: 'https://imaginethisprinted.com/?utm_source=etsy&utm_medium=insert&utm_campaign=bag'
 } as const
+
+export const ETSY_BAG_CARD = {
+  settingsKey: 'etsy_bag_card',
+  /** The Etsy shop the card sends buyers back to. */
+  etsyShopName: 'ImagineThisPrinted1',
+  /** Suggested name and amount for the Etsy promo code; Christina decides. */
+  suggestedCode: 'THANKYOU15',
+  suggestedPercentOff: 15,
+  /** Etsy allows a whole-number percentage from 5 to 75 (help.etsy.com 115014260108, read 2026-10-07). */
+  minPercentOff: 5,
+  maxPercentOff: 75
+} as const
+
+/** What Christina saved on the print page: her Etsy shop promo code. */
+export interface EtsyShopCoupon {
+  code: string
+  percentOff: number
+  savedAt: string
+  savedBy: string | null
+}
+
+export type EtsyShopCouponCheck =
+  | { ok: true; code: string; percentOff: number }
+  | { ok: false; error: string }
+
+// Etsy promo codes are 5-20 letters or numbers, no spaces or punctuation
+// (Etsy's code field; older Etsy guides state it — not re-verified live).
+const ETSY_CODE = /^[A-Z0-9]{5,20}$/
+
+/**
+ * Checks what was typed for the Etsy promo code. The code is upper-cased
+ * (Etsy codes are not case-sensitive) and otherwise kept exactly as typed.
+ */
+export function checkEtsyShopCoupon(input: { code?: unknown; percentOff?: unknown }): EtsyShopCouponCheck {
+  const code = typeof input.code === 'string' ? input.code.trim().toUpperCase() : ''
+  if (!code) return { ok: false, error: 'Type the promo code you made in Etsy.' }
+  if (!ETSY_CODE.test(code)) return { ok: false, error: 'Etsy codes are 5 to 20 letters or numbers, with no spaces.' }
+  if (code === ETSY_BAG.code) {
+    return { ok: false, error: `${ETSY_BAG.code} is the website code. Make a separate promo code in Etsy for the card.` }
+  }
+  const percentOff = typeof input.percentOff === 'string' ? Number(input.percentOff.trim()) : input.percentOff
+  if (
+    typeof percentOff !== 'number' ||
+    !Number.isInteger(percentOff) ||
+    percentOff < ETSY_BAG_CARD.minPercentOff ||
+    percentOff > ETSY_BAG_CARD.maxPercentOff
+  ) {
+    return { ok: false, error: `Use the same whole-number percent you set in Etsy (${ETSY_BAG_CARD.minPercentOff} to ${ETSY_BAG_CARD.maxPercentOff}).` }
+  }
+  return { ok: true, code, percentOff }
+}
+
+/** A stored setting is only trusted if it still passes the same check. */
+export function readEtsyShopCoupon(value: unknown): EtsyShopCoupon | null {
+  if (!value || typeof value !== 'object') return null
+  const v = value as Record<string, unknown>
+  const checked = checkEtsyShopCoupon({ code: v.code, percentOff: v.percentOff })
+  if (!checked.ok) return null
+  return {
+    code: checked.code,
+    percentOff: checked.percentOff,
+    savedAt: typeof v.savedAt === 'string' ? v.savedAt : '',
+    savedBy: typeof v.savedBy === 'string' ? v.savedBy : null
+  }
+}
 
 export interface EtsyBagOrderRow {
   id: string

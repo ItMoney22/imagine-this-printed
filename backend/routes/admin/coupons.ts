@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import dotenv from 'dotenv'
 import { loadEtsyBagWeeks } from '../../services/etsy-bag-report.js'
+import { loadEtsyShopCoupon, saveEtsyShopCoupon } from '../../services/etsy-bag-card-settings.js'
 
 dotenv.config()
 
@@ -40,14 +41,38 @@ router.get('/', async (req: Request, res: Response) => {
     }
 })
 
-// GET /api/admin/coupons/etsy-bag/weekly - Etsy bag card: redemptions per week
-// (paid ETSYBAG orders + orders that came in through the card's QR link).
+// GET /api/admin/coupons/etsy-bag/weekly - ETSYBAG website code: paid
+// redemptions per week (pickup, markets, social).
 router.get('/etsy-bag/weekly', async (req: Request, res: Response) => {
     try {
         const weeks = await loadEtsyBagWeeks(supabase, { weeks: Number(req.query.weeks) || 8 })
         res.json({ weeks })
     } catch (error: any) {
         console.error('Error loading Etsy bag weekly count:', error)
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// GET /api/admin/coupons/etsy-bag/card - the Etsy shop promo code printed on
+// the Etsy bag card ({ coupon: null } until Christina saves one).
+router.get('/etsy-bag/card', async (_req: Request, res: Response) => {
+    try {
+        res.json({ coupon: await loadEtsyShopCoupon(supabase) })
+    } catch (error: any) {
+        console.error('Error loading Etsy bag card code:', error)
+        res.status(500).json({ error: error.message })
+    }
+})
+
+// PUT /api/admin/coupons/etsy-bag/card - save the Etsy shop promo code
+// { code, percentOff }; a bad code is a 400 with the reason.
+router.put('/etsy-bag/card', async (req: Request, res: Response) => {
+    try {
+        const saved = await saveEtsyShopCoupon(supabase, req.body || {}, req.user?.email || req.user?.id || null)
+        if (!saved.ok) return res.status(400).json({ error: saved.error })
+        res.json({ coupon: saved.coupon })
+    } catch (error: any) {
+        console.error('Error saving Etsy bag card code:', error)
         res.status(500).json({ error: error.message })
     }
 })
