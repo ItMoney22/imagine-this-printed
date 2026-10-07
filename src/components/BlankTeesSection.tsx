@@ -38,11 +38,11 @@ const BlankTeesSection: React.FC = () => {
               </span>
             </h2>
             <p className="text-slate-300 text-sm sm:text-lg leading-relaxed mb-6 max-w-lg mx-auto lg:mx-0">
-              The same relabeled blanks we print on, sold plain. Four quality rungs with real spec
-              sheets, priced just over wholesale. Mix any sizes and colours — no minimums.
+              The same shirts we print on, sold plain. Four quality rungs with real spec
+              sheets — weight, fabric and fit. Mix any sizes and colours — no minimums.
             </p>
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 mb-6 text-slate-300 text-xs sm:text-sm">
-              <span className="flex items-center gap-1.5"><Tag className="w-4 h-4 text-amber-300" /> Manufacturer tag out, ours in</span>
+              <span className="flex items-center gap-1.5"><Tag className="w-4 h-4 text-amber-300" /> Our label, sewn in</span>
               <span className="flex items-center gap-1.5"><Layers className="w-4 h-4 text-amber-300" /> 4.2 oz to 6.1 oz</span>
             </div>
             <Link

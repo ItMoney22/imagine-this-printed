@@ -263,7 +263,11 @@ export class ShippingCalculator {
       return a.amount - b.amount
     })
 
-    const firstEnabledIndex = rates.findIndex(r => !r.disabled)
+    // Default to the cheapest carrier rate, not Free Local Pickup: pickup is
+    // only useful to buyers near Rockmart, and defaulting to it made a $25 tee
+    // read "Free" at checkout while the product page says free over $50.
+    const carrierIndex = rates.findIndex(r => r.type === 'shipping' && !r.disabled)
+    const firstEnabledIndex = carrierIndex >= 0 ? carrierIndex : rates.findIndex(r => !r.disabled)
     let selectedRate: ShippingRate | undefined
     if (firstEnabledIndex >= 0) {
       rates[firstEnabledIndex].selected = true

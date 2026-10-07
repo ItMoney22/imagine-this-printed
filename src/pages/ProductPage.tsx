@@ -14,9 +14,9 @@ import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizeOptions, metalSizePrice, productKindOf, sizeChoicesFor } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, hasDigitalDeliverables, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
-import { GARMENT_TIERS, DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge } from '../lib/garment-tiers'
+import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
 import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
@@ -124,7 +124,9 @@ const ProductPage: React.FC = () => {
             // sizes/colors live on the products columns (set at approval); fall
             // back to metadata for legacy rows.
             sizes: data.sizes || data.metadata?.sizes || [],
-            colors: data.colors || data.metadata?.colors || [],
+            // A garment with no colour list but a recorded shirt_color is a
+            // one-colour product: expose it so the buy box preselects it.
+            colors: (data.colors?.length ? data.colors : data.metadata?.colors?.length ? data.metadata.colors : (data.metadata?.shirt_color ? [data.metadata.shirt_color] : [])),
             // products.print_locations TEXT[] — the actual root cause of the
             // "no consumer" bug: this mapping never read the column at all,
             // so product.print_locations was always undefined here regardless
@@ -134,24 +136,18 @@ const ProductPage: React.FC = () => {
             digital_price: data.digital_price || 0
           }
           setProduct(mappedProduct)
-          // Metal print: pre-select the smallest panel so the page opens on a
-          // real, buyable price (the "from" price) instead of an empty pick.
-          if (productKindOf(mappedProduct) === 'metal') {
-            setSelectedSize(metalSizeOptions(mappedProduct)[0])
-          }
-          // One colour (most tees are Black only) or one size: nothing to choose,
-          // so pick it instead of blocking Add to Cart behind a one-button choice.
-          if (mappedProduct.colors?.length === 1) setSelectedColor(mappedProduct.colors[0])
-          const onlySizes = sizeChoicesFor(mappedProduct)
-          if (onlySizes.length === 1) setSelectedSize(onlySizes[0])
-          // Single-option products have nothing to choose — auto-select so the
-          // cart still carries a print_location without showing a selector
-          // (multi-option products require the customer to pick one below).
-          if (mappedProduct.print_locations?.length === 1) {
-            setSelectedPrintLocation(mappedProduct.print_locations[0])
-          } else {
-            setSelectedPrintLocation('')
-          }
+          // Open on everything a machine can answer, so Add to Cart works
+          // without a pick: a metal print's smallest panel and a transfer's
+          // adult size (a real, buyable price), a one-size listing's size,
+          // a one-colour listing's colour (most tees are Black only), and the
+          // placement the design is actually printed at (David 2026-10-07:
+          // "Print Placement - required" with no default emptied the cart on
+          // f09a7d64). Garment sizes are never guessed.
+          setSelectedSize(defaultSizeFor(mappedProduct))
+          const openingColors = colorChoicesFor(mappedProduct)
+          setSelectedColor(openingColors.length === 1 ? openingColors[0] : '')
+          setSelectedPrintLocation(defaultPrintLocation(mappedProduct) ?? '')
+          setSelectedTier(DEFAULT_GARMENT_TIER_ID)
 
           // Prefer 'source' (original Flux image), then 'nobg' (background removed)
           const assetsData = assetsResult.data
@@ -333,27 +329,32 @@ const ProductPage: React.FC = () => {
 
   // Determine product kind so the page renders type-appropriate options:
   // apparel (shirt sizes + DTF tools), metal wall art (print sizes + finish),
-  // or 3D prints (size tiers). Mirrors AdminCreatorProductsTab.productKind.
-  const productKind: 'metal' | '3d' | 'apparel' = (() => {
-    const c = (product.category || '').toLowerCase()
-    const t = String(product.metadata?.product_template || '').toLowerCase()
-    if (c.includes('metal') || t.includes('metal') || t.includes('wall')) return 'metal'
-    if (c.includes('3d') || c.includes('toy') || t.includes('3d') || t.includes('toy')) return '3d'
-    return 'apparel'
-  })()
-  const isApparel = productKind === 'apparel'
+  // or 3D prints (size tiers).
+  const productKind = productKindOf(product)
+  // What the shopper is buying, and so which pickers render (David
+  // 2026-10-07): a DTF transfer gets transfer size / quantity / gang sheet
+  // only, a hoodie its hoodie blanks, a tee its tee blanks, and upload only
+  // where the shopper brings the art (blanks, personalizable templates).
+  const options = listingOptionSets(product)
+  const isTransfer = options.kind === 'dtf-transfer'
   // The sizes this listing actually offers. Empty = a one-size product (a 3D
   // print with no explicit tiers), which hides the picker below and drops the
   // "please select a size" gate — it used to demand a choice between four
   // sizes the listing never had.
   const sizeChoices = sizeChoicesFor(product)
   const requiresSize = sizeChoices.length > 0
+  const colorChoices = colorChoicesFor(product)
+  const placementChoices = placementChoicesFor(product)
   // Blank garments are sold as-is (no print, no quality upsell — the blank IS
   // its tier, priced outright). Seeded with metadata.garment.blank = true.
   const isBlank = isBlankProduct(product)
-  // Tier picker shows on printed apparel only.
-  const showGarmentTiers = isApparel && !isBlank
-  const tierUpcharge = showGarmentTiers ? garmentTierUpcharge(selectedTier) : 0
+  // Quality picker: tee blanks on a tee, hoodie blanks on a hoodie, none on a
+  // transfer or a blank. Only the tee line carries a tier to the cart today —
+  // a hoodie has the one blank, which needs no recording.
+  const blankTiers = garmentTiersFor(options.blankPicker)
+  const showGarmentTiers = blankTiers.length > 0
+  const cartTier = options.blankPicker === 'tee' ? selectedTier : undefined
+  const tierUpcharge = cartTier ? garmentTierUpcharge(cartTier) : 0
 
   // The template is read straight off the product row. Only `fields` and
   // `upcharge` are used here — zones, fonts and colours never leave the
@@ -464,7 +465,14 @@ const ProductPage: React.FC = () => {
   // A print-location choice is only required when the product actually
   // offers more than one — a single-option (or no) print_locations list
   // means there's nothing to choose, per the task's acceptance criteria.
-  const requiresPrintLocation = (product?.print_locations?.length ?? 0) > 1
+  // It opens pre-picked on where the design is printed (defaultPrintLocation).
+  const requiresPrintLocation = placementChoices.length > 1
+  // What the cart line carries: the picked placement, or nothing for a
+  // listing without one (a transfer, a blank — its seeded print_locations
+  // exist only to satisfy the shirts CHECK constraint — metal, 3D).
+  const cartPrintLocation = placementChoices.length > 0
+    ? ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined)
+    : undefined
 
   /**
    * ONE add-to-cart event for the try-on funnel, fired from BOTH the main
@@ -490,7 +498,7 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a size')
       return
     }
-    if (product?.colors?.length && !selectedColor) {
+    if (colorChoices.length && !selectedColor) {
       toast.warning('Selection required', 'Please select a color')
       return
     }
@@ -503,9 +511,7 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      // A blank has nothing to print, so it carries no placement (its seeded
-      // print_locations exist only to satisfy the shirts CHECK constraint).
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined, teamTemplate ? personalization : undefined)
+      addToCart(product, quantity, selectedSize, colorChoices.length ? selectedColor : undefined, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, cartPrintLocation, cartTier, teamTemplate ? personalization : undefined)
       trackCartForTryOn(attribution)
       toast.success('Added to cart', product.name)
     }
@@ -518,7 +524,7 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a size')
       return
     }
-    if (product?.colors?.length && !selectedColor) {
+    if (colorChoices.length && !selectedColor) {
       toast.warning('Selection required', 'Please select a color')
       return
     }
@@ -531,9 +537,7 @@ const ProductPage: React.FC = () => {
       return
     }
     if (product) {
-      // A blank has nothing to print, so it carries no placement (its seeded
-      // print_locations exist only to satisfy the shirts CHECK constraint).
-      addToCart(product, quantity, selectedSize, selectedColor, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, isBlank ? undefined : ((selectedPrintLocation || undefined) as TshirtPrintLocation | undefined), showGarmentTiers ? selectedTier : undefined, teamTemplate ? personalization : undefined)
+      addToCart(product, quantity, selectedSize, colorChoices.length ? selectedColor : undefined, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, cartPrintLocation, cartTier, teamTemplate ? personalization : undefined)
       // Buy Now still puts the item in the cart, so it counts in the funnel.
       trackCartForTryOn()
       navigate('/checkout')
@@ -561,7 +565,7 @@ const ProductPage: React.FC = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8 pb-28 sm:pb-8">
       <button
         onClick={() => navigate(-1)}
         className="mb-6 text-primary hover:text-secondary flex items-center transition-colors"
@@ -740,7 +744,7 @@ const ProductPage: React.FC = () => {
             <ul className="text-muted space-y-2">
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
-                <span>{productKind === '3d' ? '3D printed in our Georgia shop after you order' : 'Made to order, printed after you order'}</span>
+                <span>{productKind === '3d' ? '3D printed in our Georgia shop after you order' : isTransfer ? 'DTF transfer, printed after you order. This is the transfer only; no shirt is included' : 'Made to order, printed after you order'}</span>
               </li>
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
@@ -766,10 +770,11 @@ const ProductPage: React.FC = () => {
               // A one-size product (a 3D print with no explicit tiers) has no
               // picker at all — see the requiresSize gate on add-to-cart.
               if (displaySizes.length === 0) return null
-              // Plus-size upcharge is apparel-only - metal/3D sizes never qualify,
-              // and blanks carry their real per-size price instead.
-              const hasPlusSizes = isApparel && !isBlank && displaySizes.some(s => !isYouthSize(s) && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps)))
-              const sizeLabel = productKind === 'metal' ? 'Print Size' : productKind === '3d' ? 'Size' : 'Size'
+              // Plus-size upcharge is printed tees and hoodies only - metal/3D
+              // sizes and transfer widths never qualify, and blanks carry their
+              // real per-size price instead.
+              const hasPlusSizes = displaySizes.some(s => sizePriceDelta(product, s) > 0)
+              const sizeLabel = productKind === 'metal' ? 'Print Size' : isTransfer ? 'Transfer Size' : 'Size'
 
               // Shirts and hoodies sell the adult cut AND the youth cut on the
               // same listing (David 2026-09-07). They're split into two labelled
@@ -784,12 +789,15 @@ const ProductPage: React.FC = () => {
               const renderSizeButtons = (sizes: string[]) => (
                 <div className="flex flex-wrap gap-2">
                     {sizes.map(size => {
-                      const isYouth = isApparel && !isBlank && isYouthSize(size)
-                      const isPlusSize = isApparel && !isBlank && !isYouth && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
                       const isSelected = selectedSize === size
                       // Blank garments: the real price for this size (in the
                       // selected colour group) lives on the button itself.
                       const sizePrice = blankPricing ? blankUnitPriceDollars(blankPricing, size, selectedColor) : null
+                      // Printed tees and hoodies: the whole amount this size
+                      // adds or takes off ("+$2.50", "-$3.00"), the same rails
+                      // the server charges. It used to show a bare "+$" / "-$".
+                      const delta = sizePriceDelta(product, size)
+                      const deltaLabel = formatPriceDelta(delta)
                       return (
                         <button
                           key={size}
@@ -797,27 +805,21 @@ const ProductPage: React.FC = () => {
                           className={`px-4 py-2 rounded-md border-2 font-bold transition-all relative group ${isSelected
                             ? 'border-primary bg-primary text-white shadow-[0_0_15px_rgba(168,85,247,0.5)] scale-105 ring-2 ring-primary/30 ring-offset-2 ring-offset-bg'
                             : 'border-slate-300 bg-card hover:border-primary/60 hover:bg-primary/5 text-text'
-                            } ${isPlusSize || isYouth ? 'pr-6' : ''} ${sizePrice !== null ? 'flex flex-col items-center leading-tight' : ''}`}
-                          title={isPlusSize ? '+$2.50 upcharge for plus sizes' : isYouth ? `Youth size — $${YOUTH_SIZE_DISCOUNT_DOLLARS.toFixed(2)} off` : sizePrice !== null ? `$${sizePrice.toFixed(2)} each` : undefined}
+                            } ${sizePrice !== null || deltaLabel ? 'flex flex-col items-center leading-tight' : ''}`}
+                          title={sizePrice !== null ? `$${sizePrice.toFixed(2)} each` : deltaLabel ? `${deltaLabel} for this size` : undefined}
                         >
                           {size}
                           {sizePrice !== null ? (
                             <span className={`text-[10px] font-medium ${isSelected ? 'text-white/80' : 'text-muted'}`}>
                               ${sizePrice.toFixed(2)}
                             </span>
+                          ) : deltaLabel ? (
+                            <span className={`text-[10px] font-medium ${isSelected ? 'text-white/80' : 'text-muted'}`}>
+                              {deltaLabel}
+                            </span>
                           ) : productKind === 'metal' && (
                             <span className={`ml-2 text-xs font-semibold ${isSelected ? 'text-white/90' : 'text-primary'}`}>
                               ${metalSizePrice(size as '4x6' | '8x10').toFixed(2)}
-                            </span>
-                          )}
-                          {isPlusSize && (
-                            <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-amber-200' : 'text-amber-400'}`}>
-                              +$
-                            </span>
-                          )}
-                          {isYouth && (
-                            <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[10px] font-medium ${isSelected ? 'text-emerald-200' : 'text-emerald-500'}`}>
-                              -$
                             </span>
                           )}
                         </button>
@@ -859,16 +861,17 @@ const ProductPage: React.FC = () => {
               )
             })()}
 
-            {/* Shirt quality tier — printed apparel only. Base price = the
-                standard Gildan blank; premium blanks upcharge per unit. */}
+            {/* Garment quality — printed tees offer the tee blanks (base price =
+                the standard blank, premium blanks upcharge per unit); a hoodie
+                shows its own hoodie blank, never the tee line. */}
             {showGarmentTiers && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-text mb-2">
-                  Shirt Quality
-                  <span className="ml-2 text-muted font-normal">— pick your blank</span>
+                  {options.blankPicker === 'hoodie' ? 'Hoodie Quality' : 'Shirt Quality'}
+                  {blankTiers.length > 1 && <span className="ml-2 text-muted font-normal">— pick your blank</span>}
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {GARMENT_TIERS.map(tier => {
+                  {blankTiers.map(tier => {
                     const isSelected = selectedTier === tier.id
                     return (
                       <button
@@ -908,7 +911,7 @@ const ProductPage: React.FC = () => {
               </div>
             )}
 
-            {product.colors && product.colors.length > 0 && (
+            {colorChoices.length > 0 && (
               <div className="mb-4">
                 <label className="block text-sm font-medium text-text mb-2">
                   Color
@@ -917,7 +920,7 @@ const ProductPage: React.FC = () => {
                   )}
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {product.colors.map(color => {
+                  {colorChoices.map(color => {
                     // Blanks store Jiffy colour NAMES (so inventory + reorders
                     // line up); their swatch hex comes off metadata.garment.colors.
                     const label = isBlank ? color : getColorName(color)
@@ -966,7 +969,7 @@ const ProductPage: React.FC = () => {
                   )}
                 </label>
                 <div className="flex flex-wrap gap-2">
-                  {product.print_locations!.map(loc => {
+                  {placementChoices.map(loc => {
                     const isSelected = selectedPrintLocation === loc
                     return (
                       <button
@@ -1057,9 +1060,10 @@ const ProductPage: React.FC = () => {
 
             <div className="space-y-3">
 
-              {/* DTF/apparel-only customization. Metal wall art and 3D prints
-                  are finished pieces — no upload-your-own or sheet placement. */}
-              {isApparel && (
+              {/* Upload-your-own: only where the shopper brings the art (a
+                  blank, a personalizable template). A finished design already
+                  IS the art, so it never shows here (David 2026-10-07). */}
+              {options.upload && (
                 <>
                   <input
                     type="file"
@@ -1081,7 +1085,18 @@ const ProductPage: React.FC = () => {
                     )}
                     {uploading ? "Uploading..." : "Upload Your Own Design"}
                   </button>
+                </>
+              )}
 
+              {/* Gang sheet: put this design on an Imagination Sheet with other
+                  designs. Needs artwork, so never on a blank, metal or 3D. */}
+              {options.gangSheet && (
+                <>
+                  {isTransfer && (
+                    <p className="text-sm text-muted">
+                      Ordering several designs? Put them all on one gang sheet.
+                    </p>
+                  )}
                   <button
                     onClick={() => {
                       // Navigate to Imagination Station with the SOURCE image (original Flux-generated)
@@ -1139,7 +1154,7 @@ const ProductPage: React.FC = () => {
                 person, which means nothing for metal wall art or a 3D print.
                 The card renders itself to null until the feature is switched
                 on server-side, so this is inert without a FASHN key. */}
-            {isApparel && (
+            {options.tryOn && (
               <div className="mt-4">
                 <VirtualTryOn
                   productId={product.id}
@@ -1197,9 +1212,10 @@ const ProductPage: React.FC = () => {
           <div className="bg-card card-border p-4 rounded-lg">
             <h4 className="font-semibold mb-2 text-text">Shipping Information</h4>
             <p className="text-sm text-muted">
-              • Free shipping on orders over $50<br />
-              • Standard delivery: 3-5 business days<br />
-              • Express delivery: 1-2 business days
+              • Free standard shipping on orders of $50 or more<br />
+              • Under $50, shipping is calculated at checkout<br />
+              • Free pickup in Rockmart, GA<br />
+              • Standard delivery: 3-5 business days after printing
             </p>
           </div>
 

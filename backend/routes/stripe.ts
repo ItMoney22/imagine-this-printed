@@ -31,6 +31,7 @@ import {
   recordRefundOnOrder,
   refundedCentsFromMetadata
 } from '../services/order-refunds.js'
+import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
 
 const router = Router()
 
@@ -438,7 +439,11 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution } = req.body
+    // Landing UTMs captured client-side (src/utils/utm.ts) before checkout —
+    // sanitized/allowlisted so an untrusted body can't inject arbitrary JSONB.
+    // null means "nothing known this call", not "clear what's stored".
+    const sanitizedAttribution = sanitizeAttribution(attribution)
     // Authenticated callers: use the JWT subject. Guests: trust the body
     // (or null) because there's no logged-in user to verify against.
     const userId = req.user?.sub ?? bodyUserId ?? null
@@ -630,6 +635,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             customer_email: shipping?.email || null,
             customer_name: `${shipping?.firstName || ''} ${shipping?.lastName || ''}`.trim() || null,
             metadata: mergedMetadata,
+            // Only overwrite when THIS call carried a known campaign — a later
+            // cart-total update with no attribution must not blank out what an
+            // earlier call on the same draft already recorded.
+            ...(sanitizedAttribution ? { attribution: sanitizedAttribution } : {}),
             updated_at: new Date().toISOString()
           })
           .eq('id', existingOrderId)
@@ -703,6 +712,7 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         },
         discount_codes: couponCode ? [couponCode] : [],
         source: 'web',
+        attribution: sanitizedAttribution ?? { ...DIRECT_ATTRIBUTION },
         metadata: {
           items: snapshotCartItems(items),
           itc_credit_amount: itcCreditAmount || 0,
