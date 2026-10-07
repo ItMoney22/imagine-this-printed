@@ -386,16 +386,18 @@ router.post('/', optionalAuth, async (req: Request, res: Response): Promise<any>
                                 .eq('id', liveTicketId)
 
                             // Create chat session
-                            await supabase
+                            const { error: sessionError } = await supabase
                                 .from('chat_sessions')
                                 .upsert({
                                     ticket_id: liveTicketId,
-                                    user_id: userId,
+                                    user_id: userId || null,
                                     status: 'waiting',
                                     started_at: new Date().toISOString()
                                 }, {
                                     onConflict: 'ticket_id'
                                 })
+                            // A guest (no account) needs migration 20261007180000; until then this says so out loud.
+                            if (sessionError) console.error('[chat] live chat session not created:', sessionError.message)
 
                             // Create notification
                             await createNotification(

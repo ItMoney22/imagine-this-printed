@@ -964,7 +964,7 @@ router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
             .eq('id', id)
 
         // Create or update chat session as waiting
-        await supabase
+        const { error: sessionError } = await supabase
             .from('chat_sessions')
             .upsert({
                 ticket_id: id,
@@ -974,6 +974,8 @@ router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
             }, {
                 onConflict: 'ticket_id'
             })
+        // Unchecked until 2026-10-07: a guest (user_id null) failed a NOT NULL here and the chat never went live.
+        if (sessionError) console.error('[Escalation] chat session not created:', sessionError.message)
 
         // Create notification for agents
         await createNotification(
