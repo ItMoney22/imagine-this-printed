@@ -1,12 +1,8 @@
 import type { ReferralCode, ReferralTransaction } from '../types'
 import { apiFetch } from '../lib/api'
-import { hasAcceptedCookies } from '../components/CookieConsent'
 
-export interface ReferralReward {
-  referrerBonus: number // Points for the person who referred
-  refereeBonus: number  // Points for the new user
-  description: string
-}
+// The referral dashboard's client. Capturing a friend's ?ref= link and
+// applying it at first sign-in live in ./referral-capture.ts.
 
 export interface ReferralStats {
   totalReferrals: number
@@ -20,42 +16,120 @@ export interface ReferralStats {
   }>
 }
 
+export interface UserReferralStats {
+  referralCode: ReferralCode | null
+  transactions: ReferralTransaction[]
+  /** Friends who joined through the link. */
+  totalReferrals: number
+  /** Of those, friends whose first order was paid. */
+  firstOrders: number
+  /** ITC the referrer has been paid. */
+  totalItcEarned: number
+}
+
+const EMPTY_STATS: UserReferralStats = {
+  referralCode: null,
+  transactions: [],
+  totalReferrals: 0,
+  firstOrders: 0,
+  totalItcEarned: 0
+}
+
+// Rows as the wallet API returns them (snake_case; NUMERIC columns as strings).
+interface ReferralCodeRow {
+  id: string
+  user_id: string
+  code: string
+  is_active?: boolean | null
+  created_at: string
+  total_uses?: number | string | null
+  total_earnings?: number | string | null
+  description?: string | null
+}
+
+interface ReferralTransactionRow {
+  id: string
+  referral_code_id: string
+  referrer_id: string
+  referee_id: string
+  referee_email?: string | null
+  type: string
+  referrer_reward_itc?: number | string | null
+  referee_reward_itc?: number | string | null
+  status: ReferralTransaction['status']
+  created_at: string
+  completed_at?: string | null
+}
+
+interface ReferralStatsPayload {
+  referralCode?: ReferralCodeRow | null
+  recentReferrals?: ReferralTransactionRow[]
+  totalReferrals?: number
+  firstOrders?: number
+  totalITCEarned?: number | string
+  activeCode?: string | null
+}
+
+/** Pure: a referral_codes row from the API as the app's ReferralCode. */
+export function toReferralCode(row: ReferralCodeRow | null | undefined): ReferralCode | null {
+  if (!row?.code) return null
+  return {
+    id: row.id,
+    userId: row.user_id,
+    code: row.code,
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    totalUses: Number(row.total_uses || 0),
+    totalEarnings: Number(row.total_earnings || 0),
+    description: row.description || ''
+  }
+}
+
+/** Pure: a referral_transactions row from the API as the app's ReferralTransaction. */
+export function toReferralTransaction(row: ReferralTransactionRow): ReferralTransaction {
+  return {
+    id: row.id,
+    referralCodeId: row.referral_code_id,
+    referrerId: row.referrer_id,
+    refereeId: row.referee_id,
+    refereeEmail: row.referee_email || '',
+    type: row.type === 'purchase' ? 'purchase' : 'signup',
+    // NUMERIC columns arrive as strings.
+    referrerReward: Number(row.referrer_reward_itc || 0),
+    refereeReward: Number(row.referee_reward_itc || 0),
+    status: row.status,
+    createdAt: row.created_at,
+    completedAt: row.completed_at || undefined
+  }
+}
+
+/** Pure: the API's /referral/stats payload as the dashboard reads it. */
+export function toUserReferralStats(stats: ReferralStatsPayload | null | undefined): UserReferralStats {
+  if (!stats) return EMPTY_STATS
+  return {
+    referralCode: toReferralCode(stats.referralCode),
+    transactions: Array.isArray(stats.recentReferrals) ? stats.recentReferrals.map(toReferralTransaction) : [],
+    totalReferrals: Number(stats.totalReferrals || 0),
+    firstOrders: Number(stats.firstOrders || 0),
+    totalItcEarned: Number(stats.totalITCEarned || 0)
+  }
+}
+
 export class ReferralSystem {
   private baseUrl: string
 
   constructor() {
-    this.baseUrl = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+    this.baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://imaginethisprinted.com'
   }
 
-  // Generate a unique referral code for a user
-  generateReferralCode(userId: string, userName: string): ReferralCode {
-    const timestamp = Date.now()
-    const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase()
-    
-    // Create a memorable code using user's name and random characters
-    const namePrefix = userName.replace(/[^a-zA-Z]/g, '').substring(0, 4).toUpperCase()
-    const code = `${namePrefix}${randomSuffix}`
-
-    return {
-      id: `ref_${timestamp}`,
-      userId,
-      code,
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      totalUses: 0,
-      totalEarnings: 0,
-      description: `${userName}'s referral code`
-    }
-  }
-
-  // Create a new referral code in the database
-  async createReferralCode(userId: string, userName: string): Promise<ReferralCode | null> {
+  // Get this account's referral code, creating it (server side) on first use.
+  async createReferralCode(userName: string): Promise<ReferralCode | null> {
     try {
       const result = await apiFetch('/api/wallet/referral/create', {
         method: 'POST',
         body: JSON.stringify({ description: `${userName}'s referral code` })
       })
-      return result?.code || null
+      return toReferralCode(result?.code)
     } catch (error) {
       console.error('Error creating referral code:', error)
       return null
@@ -72,12 +146,12 @@ export class ReferralSystem {
     url.searchParams.set('utm_source', 'referral')
     url.searchParams.set('utm_medium', 'link')
     url.searchParams.set('utm_campaign', 'user_referral')
-    
+
     return url.toString()
   }
 
   // Check if a referral code is valid
-  async validateReferralCode(code: string): Promise<{ valid: boolean, referralCode?: ReferralCode, error?: string }> {
+  async validateReferralCode(code: string): Promise<{ valid: boolean, error?: string }> {
     try {
       const result = await apiFetch('/api/wallet/referral/validate', {
         method: 'POST',
@@ -90,59 +164,14 @@ export class ReferralSystem {
     }
   }
 
-  // Process a successful referral when someone signs up
-  async processReferral(
-    referralCode: string,
-    _newUserId: string,
-    _newUserEmail: string
-  ): Promise<ReferralTransaction | null> {
-    try {
-      const result = await apiFetch('/api/wallet/referral/apply', {
-        method: 'POST',
-        body: JSON.stringify({ code: referralCode })
-      })
-      if (result?.ok) {
-        return result.rewards || null
-      }
-      return null
-    } catch (error) {
-      console.error('Error processing referral:', error)
-      return null
-    }
-  }
-
-  // Process additional referral rewards for purchases
-  async processReferralPurchase(
-    _referrerId: string,
-    _refereeId: string,
-    _orderValue: number
-  ): Promise<ReferralTransaction | null> {
-    // First purchase bonus is handled server-side via order completion webhook
-    // No frontend call needed — backend processes this automatically
-    return null
-  }
-
-  // Get referral statistics for a user
-  async getUserReferralStats(_userId: string): Promise<{
-    referralCode: ReferralCode | null,
-    transactions: ReferralTransaction[],
-    totalEarnings: number,
-    totalReferrals: number
-  }> {
+  // Referral statistics for the signed-in account
+  async getUserReferralStats(): Promise<UserReferralStats> {
     try {
       const result = await apiFetch('/api/wallet/referral/stats')
-      if (result?.ok && result.stats) {
-        return {
-          referralCode: result.stats.referralCode || null,
-          transactions: result.stats.transactions || [],
-          totalEarnings: result.stats.totalEarnings || 0,
-          totalReferrals: result.stats.totalReferrals || 0
-        }
-      }
-      return { referralCode: null, transactions: [], totalEarnings: 0, totalReferrals: 0 }
+      return result?.ok ? toUserReferralStats(result.stats) : EMPTY_STATS
     } catch (error) {
       console.error('Error fetching referral stats:', error)
-      return { referralCode: null, transactions: [], totalEarnings: 0, totalReferrals: 0 }
+      return EMPTY_STATS
     }
   }
 
@@ -165,8 +194,9 @@ export class ReferralSystem {
     }
   }
 
-  // Generate social sharing content
-  generateSharingContent(referralCode: string, _userName: string): {
+  // Share text. It promises the friend nothing: a friend earns no sign-up
+  // bonus (only the referrer is paid, on the friend's first order).
+  generateSharingContent(referralCode: string): {
     messages: Array<{
       platform: string,
       message: string,
@@ -174,96 +204,32 @@ export class ReferralSystem {
     }>
   } {
     const referralUrl = this.generateReferralUrl(referralCode)
-    
+    const pitch = `I've been getting custom prints from Imagine This Printed and thought you'd love it too. Take a look: ${referralUrl}`
+
     return {
       messages: [
         {
           platform: 'email',
-          message: `Hi! I've been using ImagineThisPrinted for custom designs and thought you'd love it too! Use my referral code ${referralCode} to get started with bonus points. Check it out: ${referralUrl}`,
-          url: `mailto:?subject=Check out ImagineThisPrinted!&body=${encodeURIComponent(`Hi! I've been using ImagineThisPrinted for custom designs and thought you'd love it too! Use my referral code ${referralCode} to get started with bonus points. Check it out: ${referralUrl}`)}`
+          message: pitch,
+          url: `mailto:?subject=${encodeURIComponent('Check out Imagine This Printed')}&body=${encodeURIComponent(pitch)}`
         },
         {
           platform: 'twitter',
-          message: `Just discovered @ImagineThisPrinted for amazing custom designs! 🎨 Use code ${referralCode} for bonus points when you join!`,
-          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(`Just discovered @ImagineThisPrinted for amazing custom designs! 🎨 Use code ${referralCode} for bonus points when you join! ${referralUrl}`)}`
+          message: pitch,
+          url: `https://twitter.com/intent/tweet?text=${encodeURIComponent(pitch)}`
         },
         {
           platform: 'facebook',
-          message: `Check out ImagineThisPrinted for custom printing! Amazing designs and quality. Use my code ${referralCode} to get started!`,
-          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(referralUrl)}&quote=${encodeURIComponent(`Check out ImagineThisPrinted for custom printing! Amazing designs and quality. Use my code ${referralCode} to get started!`)}`
+          message: pitch,
+          url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(referralUrl)}`
         },
         {
           platform: 'whatsapp',
-          message: `Hey! Check out this awesome custom printing platform I've been using: ${referralUrl} Use code ${referralCode} for bonus points! 🎨`,
-          url: `https://wa.me/?text=${encodeURIComponent(`Hey! Check out this awesome custom printing platform I've been using: ${referralUrl} Use code ${referralCode} for bonus points! 🎨`)}`
+          message: pitch,
+          url: `https://wa.me/?text=${encodeURIComponent(pitch)}`
         }
       ]
     }
-  }
-
-  // Extract referral code from URL parameters
-  extractReferralFromUrl(): string | null {
-    if (typeof window === 'undefined') return null
-    const urlParams = new URLSearchParams(window.location.search)
-    return urlParams.get('ref')
-  }
-
-  // Store referral code in localStorage AND 90-day cookie for later processing
-  storeReferralCode(code: string): void {
-    if (typeof window === 'undefined') return
-    const timestamp = Date.now().toString()
-    // Always store in localStorage (not a cookie, no consent needed)
-    localStorage.setItem('pending_referral', code)
-    localStorage.setItem('referral_timestamp', timestamp)
-    // Only set tracking cookies if user has accepted cookie consent
-    if (hasAcceptedCookies()) {
-      this.setCookie('itp_referral', code, 90)
-      this.setCookie('itp_referral_ts', timestamp, 90)
-    }
-  }
-
-  // Retrieve stored referral code (and clear it)
-  retrieveStoredReferral(): string | null {
-    if (typeof window === 'undefined') return null
-    const code = localStorage.getItem('pending_referral') || this.getCookie('itp_referral')
-    const timestamp = localStorage.getItem('referral_timestamp') || this.getCookie('itp_referral_ts')
-
-    if (code && timestamp) {
-      // Check if referral is still valid (within 90 days)
-      const referralAge = Date.now() - parseInt(timestamp)
-      const ninetyDays = 90 * 24 * 60 * 60 * 1000
-
-      if (referralAge < ninetyDays) {
-        // Clear stored referral
-        localStorage.removeItem('pending_referral')
-        localStorage.removeItem('referral_timestamp')
-        this.deleteCookie('itp_referral')
-        this.deleteCookie('itp_referral_ts')
-        return code
-      }
-    }
-
-    return null
-  }
-
-  // Cookie helpers for 90-day referral tracking
-  private setCookie(name: string, value: string, days: number = 90): void {
-    if (typeof document === 'undefined') return
-    const expires = new Date(Date.now() + days * 24 * 60 * 60 * 1000).toUTCString()
-    document.cookie = `${name}=${value}; expires=${expires}; path=/; SameSite=Lax`
-  }
-
-  private getCookie(name: string): string | null {
-    if (typeof document === 'undefined') return null
-    const value = `; ${document.cookie}`
-    const parts = value.split(`; ${name}=`)
-    if (parts.length === 2) return parts.pop()?.split(';').shift() || null
-    return null
-  }
-
-  private deleteCookie(name: string): void {
-    if (typeof document === 'undefined') return
-    document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/`
   }
 }
 

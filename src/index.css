@@ -585,3 +585,8 @@
   animation: gradient-text 4s linear infinite;
 }
 
+
+/* Admin hero: slow drift on the orb art, off for reduced motion */
+@keyframes admin-hero-drift { from { transform: scale(1.04) translateX(0); } to { transform: scale(1.1) translateX(-1.5%); } }
+.admin-hero-drift { animation: admin-hero-drift 24s ease-in-out infinite alternate; }
+@media (prefers-reduced-motion: reduce) { .admin-hero-drift { animation: none; } }

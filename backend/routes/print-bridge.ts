@@ -2,8 +2,11 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { sendEmail, sendTicketReplyEmail } from '../utils/email.js'
 import { escapeHtml, pickTicket, ticketRef } from '../services/support-ping.js'
+import { nameFromTicketDescription } from '../utils/ticket-emails.js'
 import { matchMaterials, describeMaterialPlan, type PaletteEntry, type MaterialMatch } from '../services/print-palette.js'
 import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
+import { signOwnModelFile, meshLinkFor } from '../services/model-files.js'
+import { PRINT_FILE_LINK_TTL_MINUTES } from '../services/print-files.js'
 import { randomUUID } from 'crypto'
 
 /**
@@ -158,8 +161,9 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           line: 'custom-mini',
           title: printItem.name || 'Custom figurine',
           concept: model?.prompt || printItem.name || 'Custom 3D print',
-          glbUrl: model?.glb_url || undefined,
-          stlUrl: model?.stl_url || undefined,
+          // Mesh files are private (task 1417e863): fresh press-floor links per pull.
+          glbUrl: (model && await signOwnModelFile(model, 'glb', { ttlMinutes: PRINT_FILE_LINK_TTL_MINUTES })) || undefined,
+          stlUrl: (model && await signOwnModelFile(model, 'stl', { ttlMinutes: PRINT_FILE_LINK_TTL_MINUTES })) || undefined,
           referenceUrl: model?.concept_image_url || undefined,
           quantity: printItem.quantity || 1,
           material: 'PLA',
@@ -254,8 +258,8 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
             line: 'custom-toy',
             title: it.product_name || p.name || 'Catalog 3D print',
             concept: p.name || it.product_name || 'Catalog 3D print',
-            glbUrl: p.metadata?.print3d?.glb_url || p.metadata?.glb_url || undefined,
-            stlUrl: p.metadata?.print3d?.stl_url || undefined,
+            glbUrl: await meshLinkFor(p.metadata?.print3d?.glb_url || p.metadata?.glb_url, PRINT_FILE_LINK_TTL_MINUTES),
+            stlUrl: await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
             referenceUrl: Array.isArray(p.images) && p.images[0] ? p.images[0] : undefined,
             quantity: it.quantity || 1,
             material: p.metadata?.print3d?.material || 'PLA',
@@ -558,7 +562,7 @@ const OPEN_TICKET_STATUSES = ['open', 'waiting', 'in_progress']
 async function openTickets(limit: number) {
   const { data, error } = await supabase
     .from('support_tickets')
-    .select('id, subject, email, status, priority, category, created_at, updated_at')
+    .select('id, subject, email, status, priority, category, description, user_id, created_at, updated_at')
     .in('status', OPEN_TICKET_STATUSES)
     .neq('category', 'spam')
     .order('updated_at', { ascending: false })
@@ -634,7 +638,13 @@ router.post('/ticket-reply', requireBridgeAuth, async (req: Request, res: Respon
     let emailed = false
     if (ticket.email && ticket.email.toLowerCase() !== 'anonymous@customer.com') {
       const agentName = (typeof name === 'string' && name.trim().slice(0, 40)) || process.env.BRIDGE_AGENT_NAME || 'Christina'
-      emailed = await sendTicketReplyEmail(ticket.email, ticket.id, ticket.subject, escapeHtml(text), agentName).catch((e) => {
+      // Greet the name they typed (contact form / chat), else their account first name.
+      let customerName = nameFromTicketDescription(ticket.description)
+      if (!customerName && ticket.user_id) {
+        const { data: profile } = await supabase.from('user_profiles').select('first_name').eq('id', ticket.user_id).maybeSingle()
+        customerName = profile?.first_name || null
+      }
+      emailed = await sendTicketReplyEmail(ticket.email, ticket.id, ticket.subject, escapeHtml(text), agentName, customerName).catch((e) => {
         console.error('[print-bridge] ticket reply email failed:', e?.message || e)
         return false
       })

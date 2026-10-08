@@ -4,9 +4,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/SupabaseAuthContext';
+import { useGuestGate } from '../components/GuestGate';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../hooks/useToast';
 import { imaginationApi, apiFetch } from '../lib/api';
+import { supabase } from '../lib/supabase';
 import ErrorBoundary from '../components/ErrorBoundary';
 import type {
   ImaginationSheet,
@@ -139,12 +141,27 @@ interface MrImagineDesignMetadata {
   source?: string;
 }
 
+// A guest's sheet lives only in this tab: nothing is sent to the server until
+// they make an account at save / order time (task 8c67fe67).
+const GUEST_SHEET_ID = 'guest-sheet';
+
+async function loadGuestPricing() {
+  const { data, error } = await supabase.from('imagination_pricing').select('*').order('feature_key');
+  if (error) throw error;
+  const pricing = data || [];
+  const freeTrials = pricing
+    .filter((p: any) => p.is_free_trial && Number(p.free_trial_uses) > 0)
+    .map((p: any) => ({ feature_key: p.feature_key, uses_remaining: Number(p.free_trial_uses) }));
+  return { data: { pricing, freeTrials } };
+}
+
 const ImaginationStation: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const { requireAccount } = useGuestGate();
   const { addToCart } = useCart();
   const toast = useToast();
 
@@ -382,7 +399,7 @@ const ImaginationStation: React.FC = () => {
 
   // Autosave every 30 seconds when there are unsaved changes
   useEffect(() => {
-    if (saveStatus !== 'unsaved' || !sheet) return;
+    if (saveStatus !== 'unsaved' || !sheet || sheet.id === GUEST_SHEET_ID) return;
 
     const autosaveInterval = setInterval(() => {
       const now = Date.now();
@@ -412,10 +429,12 @@ const ImaginationStation: React.FC = () => {
     }
   }, [selectedLayerIds]);
 
-  // Load data on mount
+  // Load data once auth has resolved — a guest gets an in-memory sheet,
+  // a signed-in visitor gets their saved sheets.
   useEffect(() => {
+    if (authLoading) return;
     loadInitialData();
-  }, [id]);
+  }, [id, authLoading, user?.id]);
 
   // Store pending image from URL params (to add after sheet is created)
   const [pendingImage, setPendingImage] = useState<{ url: string; name: string } | null>(null);
@@ -528,6 +547,26 @@ const ImaginationStation: React.FC = () => {
     addPendingImageToSheet();
   }, [sheet, pendingImage, fitSheetToView]);
 
+  const makeGuestSheet = (printType: PrintType, preset: any, height: number): ImaginationSheet => {
+    const now = new Date().toISOString();
+    return {
+      id: GUEST_SHEET_ID,
+      user_id: '',
+      name: `${preset?.name || 'My'} Sheet`,
+      print_type: printType,
+      sheet_width: Number(preset?.width) || 22,
+      sheet_height: height,
+      canvas_state: null,
+      thumbnail_url: null,
+      status: 'draft',
+      itc_spent: 0,
+      admin_notes: null,
+      created_at: now,
+      updated_at: now,
+      layers: [],
+    };
+  };
+
   const loadInitialData = async () => {
     setIsLoading(true);
     let merged: any = null;
@@ -535,7 +574,9 @@ const ImaginationStation: React.FC = () => {
       // Pricing and presets are independent GETs — fire them in parallel
       // (allSettled so one failing doesn't block the other).
       const [pricingRes, presetRes] = await Promise.allSettled([
-        imaginationApi.getPricing(),
+        // A guest sees the real prices and the free tries a new account starts
+        // with (the price table is public; the per-account endpoint is not).
+        user ? imaginationApi.getPricing() : loadGuestPricing(),
         imaginationApi.getPresets(),
       ]);
 
@@ -582,6 +623,26 @@ const ImaginationStation: React.FC = () => {
         }
       } else {
         console.error('Failed to load presets:', presetRes.reason);
+      }
+
+      // Guest: open the studio on an in-memory sheet of the default type.
+      // Saved sheets (a shared /imagination-station/:id link included) are
+      // private to their owner, so a guest always starts fresh.
+      if (!user) {
+        if (id) {
+          navigate('/imagination-station', { replace: true });
+          return;
+        }
+        if (merged) {
+          const keys = Object.keys(merged);
+          const defaultType = (keys.includes('dtf') ? 'dtf' : keys[0]) as PrintType;
+          const p = defaultType ? merged[defaultType] : null;
+          if (p) {
+            const defaultHeight = (Array.isArray(p.heights) && p.heights[0]) || 12;
+            setSheet(makeGuestSheet(defaultType, p, defaultHeight));
+          }
+        }
+        return;
       }
 
       // Load specific sheet if ID provided
@@ -659,6 +720,11 @@ const ImaginationStation: React.FC = () => {
         return;
       }
       const preset = presets[printType];
+      if (!user) {
+        setSheet(makeGuestSheet(printType, preset, height));
+        setLayers([]);
+        return;
+      }
       const { data } = await imaginationApi.createSheet({
         name: `${preset.name} Sheet - ${preset.width}" x ${height}"`,
         print_type: printType,
@@ -1021,6 +1087,7 @@ const ImaginationStation: React.FC = () => {
       toast.warning('Sheet is empty', 'Add some designs to your sheet before ordering.');
       return;
     }
+    if (!requireAccount('studio-order')) return;
 
     // DPI gate is relative to this print type's minDPI (e.g. DTF = 300), never
     // a hardcoded number. An undeterminable DPI (image failed to load, or its
@@ -1165,6 +1232,7 @@ const ImaginationStation: React.FC = () => {
   // Auto-Nest: Optimize layer positions to minimize wasted space
   const handleAutoNest = async () => {
     if (!sheet || layers.length === 0) return;
+    if (!requireAccount('studio-edit')) return;
 
     setIsProcessing(true);
     try {
@@ -1226,6 +1294,7 @@ const ImaginationStation: React.FC = () => {
   // Smart Fill: Fill empty space with duplicates of selected design
   const handleSmartFill = async () => {
     if (!sheet || layers.length === 0) return;
+    if (!requireAccount('studio-edit')) return;
 
     // Determine which layers to duplicate (selected or all)
     const layersToFill = selectedLayerIds.length > 0
@@ -1297,6 +1366,7 @@ const ImaginationStation: React.FC = () => {
   // Handle Remove Background for selected layer
   const handleRemoveBackground = async () => {
     if (!sheet || selectedLayerIds.length === 0) return;
+    if (!requireAccount('studio-edit')) return;
 
     const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
@@ -1369,6 +1439,7 @@ const ImaginationStation: React.FC = () => {
   // Handle Upscale for selected layer
   const handleUpscale = async () => {
     if (!sheet || selectedLayerIds.length === 0) return;
+    if (!requireAccount('studio-edit')) return;
 
     const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
@@ -1484,6 +1555,7 @@ const ImaginationStation: React.FC = () => {
   // Handle Enhance for selected layer
   const handleEnhance = async () => {
     if (!sheet || selectedLayerIds.length === 0) return;
+    if (!requireAccount('studio-edit')) return;
 
     const selectedLayer = layers.find(l => selectedLayerIds.includes(l.id) && (l.layer_type === 'image' || l.layer_type === 'ai_generated'));
     if (!selectedLayer) {
@@ -1562,6 +1634,7 @@ const ImaginationStation: React.FC = () => {
 
   // Open Reimagine It modal for a selected image layer
   const openReimagineIt = (layerId: string) => {
+    if (!requireAccount('studio-edit')) return;
     setReimagineItLayerId(layerId);
     setShowReimagineItModal(true);
   };
@@ -1620,6 +1693,7 @@ const ImaginationStation: React.FC = () => {
 
   // Open Reimagine It modal for a design
   const openReimagineItForDesign = (designId: string) => {
+    if (!requireAccount('studio-edit')) return;
     setReimagineDesignId(designId);
     setReimagineItLayerId(null);
     setShowReimagineItModal(true);
@@ -1745,7 +1819,8 @@ const ImaginationStation: React.FC = () => {
       for (const file of Array.from(files)) {
         const localUrl = URL.createObjectURL(file);
         let finalUrl = localUrl;
-        if (sheet) {
+        // A guest's upload stays on their screen until they make an account.
+        if (sheet && sheet.id !== GUEST_SHEET_ID) {
           try {
             const { data: uploadedLayer } = await imaginationApi.uploadImage(sheet.id, file);
             finalUrl = uploadedLayer.source_url;
@@ -1781,6 +1856,7 @@ const ImaginationStation: React.FC = () => {
   const handleDesignRemoveBg = async () => {
     const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
     if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    if (!requireAccount('studio-edit')) return;
     const imageUrl = activeDesign.url;
     const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
     setIsRemovingBg(true);
@@ -1846,6 +1922,7 @@ const ImaginationStation: React.FC = () => {
   const handleDesignUpscale = async () => {
     const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
     if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    if (!requireAccount('studio-edit')) return;
     const imageUrl = activeDesign.url;
     const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
     setIsUpscaling(true);
@@ -1865,6 +1942,7 @@ const ImaginationStation: React.FC = () => {
   const handleDesignEnhance = async () => {
     const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
     if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    if (!requireAccount('studio-edit')) return;
     const imageUrl = activeDesign.url;
     const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
     setIsEnhancing(true);
@@ -1884,6 +1962,7 @@ const ImaginationStation: React.FC = () => {
   const handleDesignHalftone = async () => {
     const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
     if (!activeDesign) { toast.warning('Select a design first', 'Click a design in your gallery.'); return; }
+    if (!requireAccount('studio-edit')) return;
     const imageUrl = activeDesign.url;
     const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
     setIsHalftoning(true);
@@ -1988,6 +2067,7 @@ const ImaginationStation: React.FC = () => {
   };
 
   const saveSheet = async () => {
+    if (!requireAccount('studio-save')) return;
     try {
       await persistSheet();
     } catch {
@@ -2007,6 +2087,9 @@ const ImaginationStation: React.FC = () => {
     const t = freeTrials.find(t => t.feature_key === key);
     return t?.uses_remaining || 0;
   };
+
+  // A guest's sheet is never "saved" — Save always asks for the account.
+  const isGuestSheet = sheet?.id === GUEST_SHEET_ID;
 
   // Loading state
   if (isLoading) {
@@ -2446,26 +2529,39 @@ const ImaginationStation: React.FC = () => {
           </div>
           <div className="hidden sm:block w-px h-5 bg-text/10" />
           <div className="flex items-center gap-1 sm:gap-1.5">
-            {saveStatus === 'saved' && <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" />}
+            {saveStatus === 'saved' && !isGuestSheet && <CheckCircle className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-green-500" />}
             {saveStatus === 'saving' && <Loader2 className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-blue-500 animate-spin" />}
-            {saveStatus === 'unsaved' && <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500" />}
-            <button onClick={saveSheet} disabled={saveStatus === 'saved'} className="px-2 sm:px-3 py-1 sm:py-1.5 bg-primary text-white rounded-lg text-xs sm:text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1">
+            {saveStatus === 'unsaved' && !isGuestSheet && <Clock className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-500" />}
+            <button onClick={saveSheet} disabled={!isGuestSheet && saveStatus === 'saved'} className="px-2 sm:px-3 py-1 sm:py-1.5 bg-primary text-white rounded-lg text-xs sm:text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1">
               <Save className="w-3 h-3 sm:w-3.5 sm:h-3.5" />
               <span className="hidden sm:inline">Save</span>
             </button>
           </div>
-          <button onClick={() => setShowProjectsModal(true)} className="hidden sm:flex px-3 py-1.5 bg-card text-text border border-text/10 rounded-lg text-sm font-medium hover:bg-primary/5 transition-colors items-center gap-1.5" title="My Projects">
+          <button onClick={() => { if (requireAccount('studio-save')) setShowProjectsModal(true); }} className="hidden sm:flex px-3 py-1.5 bg-card text-text border border-text/10 rounded-lg text-sm font-medium hover:bg-primary/5 transition-colors items-center gap-1.5" title="My Projects">
             <Layers className="w-3.5 h-3.5" />
             Projects
           </button>
-          <Link to="/wallet" className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors" title="ITC balance">
-            <img src="/itc-coin.png" alt="ITC" className="w-3.5 h-3.5 object-contain" />
-            <span className="font-bold text-primary text-sm">{itcBalance}</span>
-            <span className="text-primary/70 text-xs">ITC</span>
-          </Link>
-          <Link to="/account/profile" className="hidden sm:flex w-7 h-7 items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Profile">
-            <User className="w-4 h-4" />
-          </Link>
+          {isGuestSheet ? (
+            <button
+              onClick={() => requireAccount('studio-save')}
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors text-sm font-semibold"
+              title="Make a free account to save and order"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              Sign up free
+            </button>
+          ) : (
+            <>
+              <Link to="/wallet" className="hidden sm:flex items-center gap-1.5 px-2 py-1 bg-primary/10 rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors" title="ITC balance">
+                <img src="/itc-coin.png" alt="ITC" className="w-3.5 h-3.5 object-contain" />
+                <span className="font-bold text-primary text-sm">{itcBalance}</span>
+                <span className="text-primary/70 text-xs">ITC</span>
+              </Link>
+              <Link to="/account/profile" className="hidden sm:flex w-7 h-7 items-center justify-center text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Profile">
+                <User className="w-4 h-4" />
+              </Link>
+            </>
+          )}
           <button
             onClick={() => setSheetOpen(o => !o)}
             className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold border transition-colors ${
@@ -2494,7 +2590,7 @@ const ImaginationStation: React.FC = () => {
           <div className="p-2 md:p-3 border-b border-text/10">
             <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Create</p>
             <button
-              onClick={() => setShowMrImagineModal(true)}
+              onClick={() => { if (requireAccount('studio-imagine')) setShowMrImagineModal(true); }}
               className="w-full mb-1.5 flex flex-col md:flex-row items-center md:items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-medium hover:from-fuchsia-700 hover:to-pink-700 transition-all shadow-sm"
               title="Generate AI image"
             >
@@ -2522,16 +2618,16 @@ const ImaginationStation: React.FC = () => {
           <div className="p-2 md:p-3 border-b border-text/10">
             <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Edit Design</p>
             <button
-              onClick={() => { if (activeDesign) setShowFlareLab(true); else toast.warning('Select a design first', 'Click a design in your gallery.'); }}
+              onClick={() => { if (!activeDesign) toast.warning('Select a design first', 'Click a design in your gallery.'); else if (requireAccount('studio-edit')) setShowFlareLab(true); }}
               className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-gradient-to-r from-orange-500/10 via-fuchsia-500/10 to-violet-600/10 text-text hover:from-orange-500/20 hover:to-violet-600/20 border border-fuchsia-500/30"
-              title="Flare Lab: edit, paint & replace, text swap, references, variations, true transparency"
+              title="Imagination Lab: edit, paint & replace, text swap, references, variations, true transparency"
             >
               <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-orange-500 via-fuchsia-500 to-violet-600 flex items-center justify-center shrink-0">
                 <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
               </div>
               <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Flare Lab</span>
-                <span className="text-xs text-muted">9 GPT Image 2.5 tools</span>
+                <span className="font-medium text-sm">Imagination Lab</span>
+                <span className="text-xs text-muted">9 Imagination tools</span>
               </div>
             </button>
             <button
@@ -2727,7 +2823,7 @@ const ImaginationStation: React.FC = () => {
                     Send to Imagination Sheet
                   </button>
                   <button
-                    onClick={() => setShowMakeProductModal(true)}
+                    onClick={() => { if (requireAccount('studio-edit')) setShowMakeProductModal(true); }}
                     className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-lg text-sm font-semibold hover:from-fuchsia-700 hover:to-pink-700 transition-all shadow-sm"
                     title="Put this design on a shirt, metal print, or 3D toy"
                   >
@@ -2747,7 +2843,7 @@ const ImaginationStation: React.FC = () => {
                 </p>
                 <div className="flex flex-col gap-2">
                   <button
-                    onClick={() => setShowMrImagineModal(true)}
+                    onClick={() => { if (requireAccount('studio-imagine')) setShowMrImagineModal(true); }}
                     className="px-5 py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-semibold hover:from-fuchsia-700 hover:to-pink-700 transition-all flex items-center justify-center gap-2"
                   >
                     <Sparkles className="w-4 h-4" />

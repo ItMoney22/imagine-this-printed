@@ -27,6 +27,7 @@ import {
   normalizeMetalSizeKey,
   type MetalArtSizeKey
 } from '../../backend/shared/metal-art'
+import { isCreatorProductMeta } from '../../backend/shared/creator-product'
 
 export type ProductKind = 'metal' | '3d' | 'apparel'
 
@@ -383,14 +384,19 @@ export interface ListingOptionSets {
 
 export function listingOptionSets(product: Pick<Product, 'category' | 'metadata'>): ListingOptionSets {
   const kind = listingKindOf(product)
-  const upload = isBlankProduct(product) || isCustomTemplate(product)
+  // A creator's own apparel (backend/shared/creator-product.ts) is sold as
+  // their shirt: no design tools, no putting their art on a gang sheet
+  // (David 2026-10-07, Darrell's "Walk By Faith").
+  const creator = isCreatorProductMeta(product?.metadata)
+  const upload = !creator && (isBlankProduct(product) || isCustomTemplate(product))
+  const gangSheet = !creator
   switch (kind) {
     case 'dtf-transfer':
-      return { kind, blankPicker: null, colors: false, placement: false, upload, gangSheet: true, tryOn: false }
+      return { kind, blankPicker: null, colors: false, placement: false, upload, gangSheet, tryOn: false }
     case 'hoodie':
-      return { kind, blankPicker: 'hoodie', colors: true, placement: true, upload, gangSheet: true, tryOn: true }
+      return { kind, blankPicker: 'hoodie', colors: true, placement: true, upload, gangSheet, tryOn: true }
     case 'tee':
-      return { kind, blankPicker: 'tee', colors: true, placement: true, upload, gangSheet: true, tryOn: true }
+      return { kind, blankPicker: 'tee', colors: true, placement: true, upload, gangSheet, tryOn: true }
     case 'blank':
       // A blank IS its tier and has nothing printed, so no quality picker,
       // no placement and no artwork for a gang sheet.
@@ -524,12 +530,33 @@ export function hasDigitalDeliverables(product: Pick<Product, 'metadata'>): bool
   return !!(a.clean || a.halftone || a.dtf)
 }
 
+/**
+ * True when the page may SELL the digital bundle. Never on a creator's own
+ * apparel: their print file doubles as the "clean" and "DTF" deliverable, so
+ * a $9.99 download undercut the shirt and handed out the art (David
+ * 2026-10-07). The API refuses the purchase too (routes/user-products.ts).
+ */
+export function offersDigitalDownload(product: Pick<Product, 'metadata'>): boolean {
+  return !isCreatorProductMeta(product?.metadata) && hasDigitalDeliverables(product)
+}
+
 // Public gallery images (hero + thumbnails): contextual mockups first (a
 // shirt-on-person / art-in-room reads far better in a grid than flat art),
 // then clean art, then any remaining raw images — but NEVER the halftone or DTF
 // deliverables. Deduped, falsy-stripped, order preserved.
 export function getGalleryImages(product: Pick<Product, 'images' | 'metadata'>): string[] {
   const assets = getProductAssets(product)
+  // A creator's own apparel leads with their garment photos and never shows
+  // the bare art: on white it lost Darrell's cream lettering entirely, and
+  // its clean/DTF files ARE the print file (David 2026-10-07).
+  if (isCreatorProductMeta(product?.metadata)) {
+    const hidden = new Set([assets.display, assets.clean, assets.dtf, assets.halftone, (assets as Record<string, unknown>).back_print].filter(Boolean) as string[])
+    const photos: string[] = []
+    for (const u of [...(assets.mockups || []), product?.metadata?.mockup_url, ...(product?.images || [])]) {
+      if (u && typeof u === 'string' && !photos.includes(u) && !hidden.has(u)) photos.push(u)
+    }
+    return photos
+  }
   // Deliverables are download-only; they must never appear in the display set,
   // even if one also sits in images[] (legacy halftone-as-images[0]). Once a
   // watermarked `display` exists, the clean original is also gated out of view.

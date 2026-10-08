@@ -1,5 +1,9 @@
 import { supabase } from '../lib/supabase.js'
-import { generateMockup, upscaleImage, getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { generateMockup, upscaleImage, getPrediction, probeReplicateCredit, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
+import { probeOpenAIImageCredit } from '../services/image-flow/providers/openai-image.js'
+import { createImageCreditGate, makeOutageAlertSender } from '../services/image-credit-outage.js'
+import { creditProviderOf } from '../services/provider-credit.js'
+import { sendEmail } from '../utils/email.js'
 import { runImageFlowGenerate, runImageFlowMockup, runImageFlowMultiGenerate, type MockupTemplate } from '../services/image-flow/worker-helpers.js'
 import { renderPrintTrueMockup, supportsPrintTrue } from '../services/print-true-mockup.js'
 import { getGarment, normalizeGarment } from '../shared/catalog-capability.js'
@@ -11,6 +15,7 @@ import { buildConceptPrompt, buildAnglePrompt, getAngleOrder, TOY_MODE_CLAUSE, C
 import { generate3DModel } from '../services/trellis-client.js'
 import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
+import { modelFilePath, storeModelFile, storeModelFileFromUrl } from '../services/model-files.js'
 import { addWatermark } from '../services/watermark.js'
 import { extractPalette } from '../services/print-palette.js'
 import { sweepLowStockBlanks } from '../services/blank-inventory.js'
@@ -31,6 +36,19 @@ const POLL_INTERVAL = 5000 // 5 seconds
 // timer fire concurrently and can both grab the same batch of queued jobs
 // (see etsy-jobs-worker.ts's `running` flag for the same pattern).
 let processingQueue = false
+
+// Out-of-credit pause (task dbce13a8, services/image-credit-outage.ts). A
+// Replicate 402 or an empty OpenAI wallet blocks the job instead of failing it,
+// holds every queued job that needs the same provider, sends ONE alert per
+// outage, and resumes on its own when the probe finds credit again. Exported
+// because processMockupJob / processRemoveBgJob also run inline in the API
+// process (Step Flow), and their failure paths go through the same gate.
+export const imageCreditGate = createImageCreditGate({
+  db: supabase,
+  now: () => new Date(),
+  sendAlert: makeOutageAlertSender({ db: supabase, sendEmail }),
+  probe: (provider) => (provider === 'replicate' ? probeReplicateCredit() : probeOpenAIImageCredit()),
+})
 
 // Helper to update job progress message (visible to admin in real-time)
 async function updateJobProgress(jobId: string, message: string, step?: number, totalSteps?: number) {
@@ -138,6 +156,16 @@ export async function processQueuedJobs() {
     //  re-paying for each loop. tripo3d.ts now does one bounded, pre-submit-only
     //  retry internally. User can manually retry from the UI if needed.)
 
+    // Credit pause: probe any paused provider that is due, put recovered jobs
+    // back in the queue, and learn which providers are still dry. A failure
+    // here must not stop the queue — the worst case is one more 402, which the
+    // job's own failure path turns into a block.
+    try {
+      await imageCreditGate.tick()
+    } catch (err: any) {
+      console.error('[worker] ❌ Credit pause check failed:', err?.message || err)
+    }
+
     // Fetch queued jobs (not started yet)
     const { data: queuedJobs, error: queuedError } = await supabase
       .from('ai_jobs')
@@ -153,9 +181,18 @@ export async function processQueuedJobs() {
     if (queuedJobs && queuedJobs.length > 0) {
       console.log('[worker] 📋 Processing', queuedJobs.length, 'queued jobs:', queuedJobs.map(j => ({ id: j.id.substring(0, 8), type: j.type, template: j.input?.template })))
       for (const job of queuedJobs) {
+        // Paused provider: hold the job instead of spending a call that can
+        // only come back 402. Re-checked per job because a job earlier in this
+        // same batch may be the one that just found the account empty.
+        const dryProvider = imageCreditGate.dryProviderFor(job)
+        if (dryProvider) {
+          await imageCreditGate.hold(job, dryProvider)
+          continue
+        }
         try {
           await startJob(job)
         } catch (error: any) {
+          if (await imageCreditGate.handleFailure(job, error)) continue
           console.error('[worker] ❌ Error starting job:', job.id, error)
           await supabase
             .from('ai_jobs')
@@ -367,8 +404,10 @@ export async function processMockupJob(job: any): Promise<void> {
     .single()
 
   // If background removal job exists and is still running, wait for it
-  // BUT if it failed, proceed anyway (we'll use source image for mockup)
-  if (rembgJob && (rembgJob.status === 'queued' || rembgJob.status === 'running')) {
+  // BUT if it failed, proceed anyway (we'll use source image for mockup).
+  // 'blocked' (paused on provider credit) is still coming, so it waits too —
+  // otherwise the mockup would render from the uncut source.
+  if (rembgJob && (rembgJob.status === 'queued' || rembgJob.status === 'running' || rembgJob.status === 'blocked')) {
     // Reset to queued, will try again next cycle
     await supabase
       .from('ai_jobs')
@@ -709,6 +748,8 @@ export async function processMockupJob(job: any): Promise<void> {
           console.log('[worker] ✅', template, 'PRINT-TRUE via', printTrue.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
         }
       } catch (err: any) {
+        // An empty wallet is not a Flare failure — keep it typed so the job pauses.
+        if (creditProviderOf(err)) throw err
         if (forcedPrintTrue) throw new Error(`Flare couldn't render this shot: ${err?.message || err}`)
         console.warn('[worker] print-true mockup failed, using the generative render:', err?.message || err)
       }
@@ -746,6 +787,8 @@ export async function processMockupJob(job: any): Promise<void> {
     console.log('[worker] ✅', template, 'generated via', mockupResult.modelId, ':', mockupImageUrl.substring(0, 80) + '...')
     }
   } catch (mockupError: any) {
+    // Out of credit: blocked (not failed), queue paused, one alert — see imageCreditGate.
+    if (await imageCreditGate.handleFailure(job, mockupError)) return
     console.error('[worker] ❌ Mockup generation failed:', mockupError.message)
     await supabase
       .from('ai_jobs')
@@ -1066,6 +1109,7 @@ export async function processRemoveBgJob(job: any): Promise<void> {
 
     console.log('[worker] ✅ Background removal completed:', job.id, publicUrl)
   } catch (error: any) {
+    if (await imageCreditGate.handleFailure(job, error)) return
     console.error('[worker] ❌ Background removal failed:', error.message)
     await supabase
       .from('ai_jobs')
@@ -1454,6 +1498,7 @@ async function startJob(job: any) {
 
       console.log('[worker] 👻 Ghost mannequin job completed:', job.id, publicUrl)
     } catch (error: any) {
+      if (await imageCreditGate.handleFailure(job, error)) return
       console.error('[worker] ❌ Ghost mannequin generation failed:', error.message)
       await supabase
         .from('ai_jobs')
@@ -2006,18 +2051,18 @@ async function process3DModelTrellis(job: any) {
 
     await updateJobProgress(job.id, '📤 Uploading GLB and converting to STL...', 2, 3)
 
-    // Upload GLB to GCS
-    const glbPath = `3d-models/${model_id}/model.glb`
-    const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(glbUrl, glbPath)
+    // Save the GLB to the PRIVATE bucket: it is a paid deliverable. The row
+    // keeps a gs:// reference; links are signed on read (task 1417e863).
+    const glbRef = await storeModelFileFromUrl(glbUrl, modelFilePath(model_id, 'glb'), 'glb')
 
-    console.log('[worker] ✅ GLB uploaded:', glbPublicUrl.substring(0, 60) + '...')
+    console.log('[worker] ✅ GLB saved:', glbRef)
 
     // Convert GLB to STL. Legacy TRELLIS path doesn't carry a size tier; default
     // to 100mm (matches the "small" tier on the modern Tripo flow) and apply the
     // same Z-up + ground-on-buildplate transforms.
     await updateJobProgress(job.id, '🔧 Converting GLB to STL for 3D printing...', 3, 3)
 
-    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl, {
+    const { stlBuffer, triangleCount } = await convertGlbToStl(glbUrl, {
       targetHeightMm: 100,
       yUpToZUp: true,
       centerAndGround: true,
@@ -2025,18 +2070,16 @@ async function process3DModelTrellis(job: any) {
 
     console.log('[worker] ✅ STL converted:', triangleCount, 'triangles')
 
-    // Upload STL to GCS
-    const stlPath = `3d-models/${model_id}/model.stl`
-    const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
+    const stlRef = await storeModelFile(stlBuffer, modelFilePath(model_id, 'stl'), 'stl')
 
-    console.log('[worker] ✅ STL uploaded:', stlPublicUrl.substring(0, 60) + '...')
+    console.log('[worker] ✅ STL saved:', stlRef)
 
     // Update model with 3D files
     await supabase
       .from('user_3d_models')
       .update({
-        glb_url: glbPublicUrl,
-        stl_url: stlPublicUrl,
+        glb_url: glbRef,
+        stl_url: stlRef,
         status: 'ready',
         itc_charged: (model?.itc_charged || 0) + ITC_3D_COSTS.convert,
         updated_at: new Date().toISOString()
@@ -2049,8 +2092,8 @@ async function process3DModelTrellis(job: any) {
       .update({
         status: 'succeeded',
         output: {
-          glb_url: glbPublicUrl,
-          stl_url: stlPublicUrl,
+          glb_url: glbRef,
+          stl_url: stlRef,
           processing_time: processingTime,
           triangle_count: triangleCount
         },
@@ -2123,21 +2166,20 @@ async function process3DModelTripo(job: any) {
 
     console.log('[worker] ✅ Tripo3D mesh ready in', processingTimeSec.toFixed(1) + 's')
 
-    // Upload GLB to GCS for permanent hosting
+    // Save the GLB to the PRIVATE bucket: it is a paid deliverable. The row
+    // keeps a gs:// reference; links are signed on read (task 1417e863).
     await updateJobProgress(job.id, '📤 Uploading GLB to cloud storage...', 2, 4)
-    const glbPath = `3d-models/${model_id}/model.glb`
-    const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(tripoGlbUrl, glbPath)
+    const glbRef = await storeModelFileFromUrl(tripoGlbUrl, modelFilePath(model_id, 'glb'), 'glb')
 
     // Convert to STL (print-ready). Pass tier height + Bambu-friendly options
     // so the STL imports at the right size, oriented Z-up, sitting on the build plate.
     await updateJobProgress(job.id, '🔧 Converting to STL for 3D printing...', 3, 4)
-    const { stlBuffer, triangleCount } = await convertGlbToStl(glbPublicUrl, {
+    const { stlBuffer, triangleCount } = await convertGlbToStl(tripoGlbUrl, {
       targetHeightMm: tier.printHeightMm,
       yUpToZUp: true,
       centerAndGround: true,
     })
-    const stlPath = `3d-models/${model_id}/model.stl`
-    const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
+    const stlRef = await storeModelFile(stlBuffer, modelFilePath(model_id, 'stl'), 'stl')
 
     console.log('[worker] ✅ STL ready —', triangleCount, 'triangles')
 
@@ -2149,8 +2191,8 @@ async function process3DModelTripo(job: any) {
     const richUpdate = await supabase
       .from('user_3d_models')
       .update({
-        glb_url: glbPublicUrl,
-        stl_url: stlPublicUrl,
+        glb_url: glbRef,
+        stl_url: stlRef,
         status: 'ready',
         size_tier,
         print_height_mm: tier.printHeightMm,
@@ -2179,8 +2221,8 @@ async function process3DModelTripo(job: any) {
       await supabase
         .from('user_3d_models')
         .update({
-          glb_url: glbPublicUrl,
-          stl_url: stlPublicUrl,
+          glb_url: glbRef,
+          stl_url: stlRef,
           status: 'ready',
           itc_charged: (model?.itc_charged || 0) + tier.itcCost,
           updated_at: updatedAt,
@@ -2193,8 +2235,8 @@ async function process3DModelTripo(job: any) {
       .update({
         status: 'succeeded',
         output: {
-          glb_url: glbPublicUrl,
-          stl_url: stlPublicUrl,
+          glb_url: glbRef,
+          stl_url: stlRef,
           tier: size_tier,
           print_height_mm: tier.printHeightMm,
           triangle_count: triangleCount,

@@ -1,0 +1,95 @@
+/* Home page look + motion (task b9656cc9). Route-scoped: only the home page imports it. */
+
+/* Page tokens: the toy band's deep teal ink and its accent (the Toy Factory's own colours). */
+.home-root {
+  --home-toy-ink: 4 47 46;
+  --home-toy-accent: 94 234 212;
+}
+.home-toy-fade {
+  background: linear-gradient(90deg, rgb(var(--home-toy-ink) / 0.94) 0%, rgb(var(--home-toy-ink) / 0.7) 40%, rgb(var(--home-toy-ink) / 0) 72%);
+}
+@media (max-width: 767px) {
+  .home-toy-fade { background: linear-gradient(180deg, rgb(var(--home-toy-ink) / 0.35) 0%, rgb(var(--home-toy-ink) / 0.88) 75%); }
+}
+.home-toy-accent { color: rgb(var(--home-toy-accent)); }
+
+/* Hero entrance: each line rises in turn. */
+@keyframes home-rise {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.home-rise { opacity: 0; animation: home-rise 0.8s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+.home-rise-1 { animation-delay: 0.08s; }
+.home-rise-2 { animation-delay: 0.2s; }
+.home-rise-3 { animation-delay: 0.32s; }
+.home-rise-4 { animation-delay: 0.44s; }
+
+/* Hero scene: slides in, then drifts slowly so the shop feels alive. */
+@keyframes home-scene-in {
+  from { opacity: 0; transform: translateX(28px) scale(0.98); }
+  to { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes home-drift {
+  from { transform: scale(1.02) translate(0, 0); }
+  to { transform: scale(1.08) translate(-1.2%, -0.8%); }
+}
+.home-scene { opacity: 0; animation: home-scene-in 1s cubic-bezier(0.22, 1, 0.36, 1) 0.15s forwards; }
+.home-drift { animation: home-drift 18s ease-in-out infinite alternate; }
+
+/* A soft light sweep across the hero photo, every few seconds. */
+@keyframes home-sweep {
+  0% { transform: translateX(-120%) skewX(-18deg); }
+  55%, 100% { transform: translateX(260%) skewX(-18deg); }
+}
+.home-sweep::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.22), transparent);
+  animation: home-sweep 7s ease-in-out 1.6s infinite;
+  pointer-events: none;
+}
+
+/* Real toy chips float over the toy band. */
+@keyframes home-bob {
+  from { transform: translateY(0); }
+  to { transform: translateY(-8px); }
+}
+.home-bob { animation: home-bob 3.2s ease-in-out infinite alternate; }
+
+/* Sections fade up as they scroll into view (useReveal adds .is-visible). */
+.home-reveal { opacity: 0; transform: translateY(26px); transition: opacity 0.7s ease, transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
+.home-reveal.is-visible { opacity: 1; transform: none; }
+.home-reveal .home-stagger { opacity: 0; transform: translateY(16px); transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1); }
+.home-reveal.is-visible .home-stagger { opacity: 1; transform: none; }
+
+/* Category doors: photo zooms, a light sweep crosses, the arrow nudges. */
+.home-door .home-door-img { transition: transform 0.7s cubic-bezier(0.22, 1, 0.36, 1); }
+.home-door:hover .home-door-img { transform: scale(1.07); }
+.home-door .home-door-shine::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 30%, rgb(255 255 255 / 0.35) 50%, transparent 70%);
+  transform: translateX(-120%);
+  transition: transform 0.9s ease;
+  pointer-events: none;
+}
+.home-door:hover .home-door-shine::after { transform: translateX(120%); }
+.home-door .home-door-arrow { transition: transform 0.3s ease; }
+.home-door:hover .home-door-arrow { transform: translateX(4px); }
+
+/* A light wash over a backdrop photo so dark text stays readable. */
+.home-wash { background: color-mix(in srgb, var(--bg-warm) 72%, transparent); }
+
+/* Buttons press in. */
+.home-press { transition: transform 0.15s ease, box-shadow 0.3s ease; }
+.home-press:active { transform: scale(0.97); }
+
+@media (prefers-reduced-motion: reduce) {
+  .home-rise, .home-scene { opacity: 1; animation: none; }
+  .home-drift, .home-bob, .home-sweep::after { animation: none; }
+  .home-reveal, .home-reveal .home-stagger { opacity: 1; transform: none; transition: none; }
+  .home-door .home-door-img, .home-door .home-door-shine::after, .home-door .home-door-arrow { transition: none; }
+}

@@ -5,6 +5,18 @@ import { nanoid } from 'nanoid'
 import { supabase } from '../lib/supabase.js'
 import { requireStorefrontSecret } from '../middleware/requireStorefrontSecret.js'
 import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { storeModelFile, signModelFileRef } from '../services/model-files.js'
+import {
+  PRINT_FILES_BUCKET,
+  type PrintFileRefs,
+  getPrintFileRefsFor,
+  placementsOf,
+  printFilePath,
+  printModelFilePath,
+  savePrintFileRefs,
+  signPrintFileRefs,
+  storePrintFile,
+} from '../services/print-files.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 
 // Headless checkout API for external storefronts (earth019.com). A trusted
@@ -104,7 +116,8 @@ type ResolvedLine = {
   size?: string
   color?: string
   image?: string
-  printFiles?: { front?: string; back?: string } | null
+  /** Private print-file refs (bucket + paths, never URLs) for a creator product. */
+  printFileRefs?: PrintFileRefs | null
 }
 
 // GET /api/storefront/catalog — sellable ITP products an external storefront can list.
@@ -213,7 +226,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         }
         const { data: product, error } = await supabase
           .from('products')
-          .select('id, name, price, images, is_active, status, metadata')
+          .select('id, name, price, images, is_active, status, metadata, colors')
           .eq('id', raw.productId)
           .single()
 
@@ -233,23 +246,30 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
           return res.status(400).json({ error: `Invalid price for product ${raw.productId}` })
         }
 
-        // Creator (Merch Studio) products carry their print-ready files on the
-        // product itself — default the fulfillment design URL from them so the
-        // DTF queue always has the art even when the storefront omits designUrl.
-        const printFiles = (product.metadata?.print_files && typeof product.metadata.print_files === 'object')
-          ? product.metadata.print_files as { front?: string; back?: string }
-          : null
+        // Creator (Merch Studio) products keep their print-ready files in the
+        // private bucket (services/print-files.ts). The order line snapshots
+        // where they are, so the DTF queue always has the art even when the
+        // storefront omits designUrl; the order screen signs a short-lived
+        // link when it reads the order (services/product-files.ts).
+        const printFileRefs = (await getPrintFileRefsFor([product.id]))[product.id] ?? null
+
+        // A one-colour product (Darrell's "Walk By Faith" is Maroon only)
+        // always tells the press which blank to print, even when the
+        // storefront sends no colour — his orders used to arrive with none.
+        const lockedColor = Array.isArray(product.colors) && product.colors.length === 1 && typeof product.colors[0] === 'string'
+          ? product.colors[0]
+          : undefined
 
         lines.push({
           name: product.name || 'ITP Product',
           unitAmount,
           quantity,
           productId: product.id,
-          designUrl: isHttpUrl(raw.designUrl) ? raw.designUrl : (isHttpUrl(printFiles?.front) ? printFiles!.front! : null),
+          designUrl: isHttpUrl(raw.designUrl) ? raw.designUrl : null,
           size,
-          color,
+          color: color || lockedColor,
           image: Array.isArray(product.images) ? product.images[0] : undefined,
-          printFiles
+          printFileRefs
         })
       } else {
         // Custom storefront item — price is TRUSTED from the authenticated storefront
@@ -351,8 +371,9 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
           size: l.size ?? null,
           color: l.color ?? null,
           // Both placements for the DTF operator when the product ships with
-          // print-ready files (design_url alone only carries the front).
-          ...(l.printFiles ? { print_files: l.printFiles } : {}),
+          // print-ready files: where they are in the private bucket. GET
+          // /api/orders turns these into short-lived print_files links.
+          ...(l.printFileRefs ? { print_file_refs: l.printFileRefs } : {}),
         }
       }))
     )
@@ -463,10 +484,11 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
 //                magnet_sockets, size_tier, stl_url, glb_url, ... }) is lifted
 //                into metadata.print3d — see model_file below.
 //   model_file   optional — a 3D-print mesh (.stl or .glb) for a 3D-print
-//                product (categorySlug '3d-prints'). Uploaded to ITP storage
-//                and recorded as metadata.print3d.stl_url / glb_url (by
-//                extension), taking precedence over any URL already present
-//                in placement.print3d.
+//                product (categorySlug '3d-prints'). Saved to ITP's PRIVATE
+//                bucket and recorded as a gs:// reference in
+//                metadata.print3d.stl_url / glb_url (by extension), taking
+//                precedence over any URL already present in placement.print3d.
+//                The reply's files.model is a 60-minute link to check it.
 //   externalRef  optional — the storefront's draft id, echoed for reconciliation
 //
 // The product is created AS the mapped creator: created_by_user_id=<creator>,
@@ -602,13 +624,17 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
     }
 
     // Store print files + mockups in ITP storage (GCS) — ITP owns everything
-    // after Publish.
+    // after Publish. The print files are the creator's art at press
+    // resolution, so they go to the PRIVATE bucket and are recorded in
+    // product_print_files (service role only) once the product exists. The
+    // public products row never carries a link to them (task b312de9c).
     const batchId = nanoid(10)
     const basePath = `merch-studio/${vendor}/${batchId}`
-    const frontUpload = await uploadImageFromBuffer(frontPrint.buffer, `${basePath}/front.png`, 'image/png')
-    const backUpload = backPrint
-      ? await uploadImageFromBuffer(backPrint.buffer, `${basePath}/back.png`, 'image/png')
-      : null
+    const printRefs: PrintFileRefs = {
+      bucket: PRINT_FILES_BUCKET,
+      front: await storePrintFile(frontPrint.buffer, printFilePath(vendor, batchId, 'front')),
+      back: backPrint ? await storePrintFile(backPrint.buffer, printFilePath(vendor, batchId, 'back')) : null,
+    }
     const mockupUrls: string[] = []
     for (let i = 0; i < mockupFiles.length; i++) {
       const f = mockupFiles[i]
@@ -624,12 +650,14 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
     const placementPrint3d = (placement && typeof placement === 'object' && placement.print3d && typeof placement.print3d === 'object')
       ? placement.print3d as Record<string, unknown>
       : null
-    let modelUpload: { publicUrl: string; ext: 'stl' | 'glb' } | null = null
+    // The mesh is the print-ready deliverable, so it goes to the PRIVATE
+    // bucket like the print files; the row stores its gs:// reference and the
+    // print bridge signs it per pull (task 1417e863).
+    let modelUpload: { ref: string; ext: 'stl' | 'glb' } | null = null
     if (modelFile) {
       const modelExt = (modelFile.originalname.split('.').pop() || '').toLowerCase() === 'glb' ? 'glb' : 'stl'
-      const modelContentType = modelExt === 'glb' ? 'model/gltf-binary' : 'model/stl'
-      const uploaded = await uploadImageFromBuffer(modelFile.buffer, `${basePath}/model.${modelExt}`, modelContentType)
-      modelUpload = { publicUrl: uploaded.publicUrl, ext: modelExt }
+      const ref = await storeModelFile(modelFile.buffer, printModelFilePath(vendor, batchId, modelExt), modelExt)
+      modelUpload = { ref, ext: modelExt }
     }
     const print3d = (placementPrint3d || modelUpload) ? {
       material: (typeof placementPrint3d?.material === 'string' && placementPrint3d.material) || 'PLA',
@@ -637,10 +665,10 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       magnet_sockets: typeof placementPrint3d?.magnet_sockets === 'number' ? placementPrint3d.magnet_sockets : 2,
       size_tier: typeof placementPrint3d?.size_tier === 'string' ? placementPrint3d.size_tier : null,
       stl_url: modelUpload?.ext === 'stl'
-        ? modelUpload.publicUrl
+        ? modelUpload.ref
         : (typeof placementPrint3d?.stl_url === 'string' ? placementPrint3d.stl_url : null),
       glb_url: modelUpload?.ext === 'glb'
-        ? modelUpload.publicUrl
+        ? modelUpload.ref
         : (typeof placementPrint3d?.glb_url === 'string' ? placementPrint3d.glb_url : null),
     } : null
 
@@ -677,9 +705,20 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       .like('slug', `${slugCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}%`)
     const uniqueSlug = generateUniqueSlug(slugCandidate, existingProducts?.map((p: any) => p.slug).filter(Boolean) || [])
 
-    const printLocations = backUpload ? ['front_image', 'back_image'] : ['front_image']
-    const printFiles: { front: string; back?: string } = { front: frontUpload.publicUrl }
-    if (backUpload) printFiles.back = backUpload.publicUrl
+    // The creator's public name, for the "Design by ..." credit on the ITP
+    // product page (backend/shared/creator-product.ts). Display/full name only:
+    // a bare username reads as a typo on a credit line.
+    const { data: creatorProfile } = await supabase
+      .from('user_profiles')
+      .select('display_name, full_name')
+      .eq('id', creatorUserId)
+      .maybeSingle()
+    const creatorName = [creatorProfile?.display_name, creatorProfile?.full_name]
+      .map(v => (typeof v === 'string' ? v.trim() : ''))
+      .find(Boolean) || null
+
+    const hasBack = !!printRefs.back
+    const printLocations = hasBack ? ['front_image', 'back_image'] : ['front_image']
 
     const { data: product, error: productError } = await supabase
       .from('products')
@@ -692,7 +731,9 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         cost_price: costUsd,
         status: 'pending_approval', // lands in the existing admin approval queue
         is_active: true, // sellable gate is status+is_active; status holds it back until approval
-        images: mockupUrls.length ? mockupUrls : [frontUpload.publicUrl],
+        // Mockups only: the print file is never a public picture. With no
+        // mockups the approval gate holds the product as incomplete anyway.
+        images: mockupUrls,
         category: resolvedCategorySlug,
         print_locations: printLocations,
         ...(sizes.length ? { sizes } : {}),
@@ -706,26 +747,25 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         metadata: {
           user_submitted: true, // approval-queue filter key
           creator_id: creatorUserId,
+          ...(creatorName ? { creator_name: creatorName } : {}),
           source: 'merch-studio',
           storefront_vendor: vendor,
           external_ref: externalRef,
           placement,
           ...(print3d ? { print3d } : {}),
-          print_files: printFiles,
-          mockup_url: mockupUrls[0] || null,
           // Direct-print product: the uploaded 300-DPI transparent PNG IS the
-          // print-ready deliverable, so it doubles as clean art + DTF file.
-          // The approval completeness gate skips AI-generation artifacts
-          // (halftone) for products carrying print_files.
+          // print-ready deliverable. The row says only WHICH placements have
+          // one; the files are private (services/print-files.ts). The
+          // approval completeness gate skips AI-generation artifacts
+          // (halftone, DTF) for products with print files.
+          print_file_placements: placementsOf(printRefs),
+          mockup_url: mockupUrls[0] || null,
           assets: {
-            clean: frontUpload.publicUrl,
-            dtf: frontUpload.publicUrl,
-            ...(backUpload ? { back_print: backUpload.publicUrl } : {}),
             mockups: mockupUrls,
           },
           cost_breakdown: {
             base_usd: baseCost,
-            back_upcharge_usd: backUpload ? BACK_PRINT_UPCHARGE_USD : 0,
+            back_upcharge_usd: hasBack ? BACK_PRINT_UPCHARGE_USD : 0,
           },
           submitted_at: new Date().toISOString(),
           garment_type: garmentType,
@@ -740,16 +780,31 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       return res.status(500).json({ error: 'Failed to create product', message: productError.message })
     }
 
+    // A product the press floor cannot find the art for must not exist: undo
+    // the row so the storefront's retry starts clean.
+    try {
+      await savePrintFileRefs(product.id, printRefs)
+    } catch (refsError: any) {
+      req.log?.error({ err: refsError, productId: product.id, vendor }, 'storefront: print file record failed, product removed')
+      await supabase.from('products').delete().eq('id', product.id)
+      return res.status(500).json({ error: 'Failed to create product', message: 'Could not record the print files' })
+    }
+
     req.log?.info({
       productId: product.id,
       vendor,
       creatorUserId,
       retailUsd,
       costUsd,
-      backPrint: !!backUpload,
+      backPrint: hasBack,
       mockups: mockupUrls.length,
       modelFile: !!modelUpload
     }, 'storefront: creator product submitted for approval')
+
+    // The publishing storefront may check what it sent: short-lived links,
+    // never stored anywhere.
+    const signedPrints = await signPrintFileRefs(printRefs, 60)
+    const signedModel = modelUpload ? await signModelFileRef(modelUpload.ref, { ttlMinutes: 60 }) : null
 
     return res.status(201).json({
       productId: product.id,
@@ -759,8 +814,8 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       retailUsd,
       costUsd,
       files: {
-        front: frontUpload.publicUrl,
-        ...(backUpload ? { back: backUpload.publicUrl } : {}),
+        ...signedPrints,
+        ...(signedModel ? { model: signedModel } : {}),
         mockups: mockupUrls,
       },
       ...(print3d ? { print3d } : {}),

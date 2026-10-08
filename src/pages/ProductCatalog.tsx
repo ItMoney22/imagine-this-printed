@@ -3,6 +3,7 @@ import { useParams, useLocation } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
 import { canonicalCategoryOf, categoryValuesFor } from '../lib/product-kind'
+import { mapProductRow } from '../lib/storefront-row'
 // The approval predicate now lives in the shared visibility module so the
 // catalog and the recommendation widget cannot answer "is this sellable?"
 // differently again — they did, and drafts leaked into recommendations.
@@ -12,31 +13,6 @@ import type { Product } from '../types'
 // Products per page. Chosen as a multiple of the 3-column xl grid so the
 // last row on desktop doesn't dangle with 1-2 orphaned cards.
 const PAGE_SIZE = 24
-
-function mapProductRow(p: any): Product {
-  return {
-    // isUserSubmitted below isn't a declared Product field (ProductCard.tsx
-    // reads it via `(product as any).isUserSubmitted`) — cast at the return,
-    // same as this file's previous `as Product[]`, so it still compiles.
-    id: p.id,
-    name: p.name,
-    description: p.description || '',
-    price: p.price || 0,
-    images: p.images || [],
-    // Classify by kind (column → metadata.product_template fallback) so
-    // metal/3D products with a null category stop landing under T-Shirts.
-    category: canonicalCategoryOf({ category: p.category, metadata: p.metadata }) as Product['category'],
-    inStock: p.is_active !== false,
-    createdAt: p.created_at,
-    updatedAt: p.updated_at,
-    metadata: p.metadata || {},
-    isThreeForTwentyFive: p.metadata?.isThreeForTwentyFive || false,
-    // sizes/colors live on the columns (set at approval); metadata fallback for legacy rows
-    sizes: p.sizes || p.metadata?.sizes || [],
-    colors: p.colors || p.metadata?.colors || [],
-    isUserSubmitted: p.metadata?.is_user_submitted || false
-  } as Product
-}
 
 // Server-side mirror of canonicalCategoryOf (src/lib/product-kind.ts). Metal
 // and 3D-print products often carry a null `category` column and rely on
@@ -93,16 +69,29 @@ function applySort(query: any, sortBy: string) {
   }
 }
 
+// Old links (/catalog/t-shirts, /catalog/tees...) resolve to the one real
+// category id, so a bookmark never lands on a blank, unfiltered page.
+function normalizeCategorySlug(slug?: string): string {
+  if (!slug) return 'all'
+  const s = slug.toLowerCase().trim()
+  return s === 'all' ? 'all' : canonicalCategoryOf({ category: s as Product['category'], metadata: {} })
+}
+
 const ProductCatalog: React.FC = () => {
   const { category } = useParams<{ category?: string }>()
   const location = useLocation()
-  const [selectedCategory, setSelectedCategory] = useState<string>(category || 'all')
+  const [selectedCategory, setSelectedCategory] = useState<string>(normalizeCategorySlug(category))
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
   const [sortBy, setSortBy] = useState<'newest' | 'price-low' | 'price-high' | 'popular'>('newest')
-  const [searchQuery, setSearchQuery] = useState('')
-  const [debouncedSearch, setDebouncedSearch] = useState('')
+  // ?q= comes from the phone header search (task 5e10e099).
+  const [searchQuery, setSearchQuery] = useState(() => new URLSearchParams(location.search).get('q')?.trim() || '')
+  const [debouncedSearch, setDebouncedSearch] = useState(() => new URLSearchParams(location.search).get('q')?.trim() || '')
+  useEffect(() => {
+    const q = new URLSearchParams(location.search).get('q')?.trim() || ''
+    if (q) setSearchQuery(q)
+  }, [location.search])
   const [page, setPage] = useState(1)
   // Server-computed count for the CURRENT category+search filter (drives the
   // toolbar count + pagination), distinct from catalogTotalCount below.
@@ -275,13 +264,25 @@ const ProductCatalog: React.FC = () => {
 
   useEffect(() => {
     if (category) {
-      setSelectedCategory(category)
+      setSelectedCategory(normalizeCategorySlug(category))
     }
   }, [category])
 
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
   const getCategoryCount = (catId: string) =>
     catId === 'all' ? catalogTotalCount : (categoryCounts[catId] || 0)
+
+  // A category with nothing in it is not worth a click. Counts arrive async, so
+  // until they do every category shows; once they have, empty ones drop out
+  // (the selected one stays, so the page never loses its own filter).
+  const countsLoaded = Object.keys(categoryCounts).length > 0
+  const visibleCategories = categories.filter(
+    c => c.id === 'all' || c.id === selectedCategory || !countsLoaded || getCategoryCount(c.id) > 0
+  )
+  // Never render a blank category name: fall back to the slug, title-cased.
+  const selectedCategoryName =
+    categories.find(c => c.id === selectedCategory)?.name ||
+    selectedCategory.replace(/[-_]+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase())
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -292,22 +293,22 @@ const ProductCatalog: React.FC = () => {
             backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23ffffff' fill-opacity='0.4'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")`,
           }} />
         </div>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 relative">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-12 relative">
           <h1 className="text-3xl sm:text-4xl font-display font-bold text-white mb-2">Product Catalog</h1>
           <p className="text-purple-100">Browse our collection of custom printing products</p>
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex flex-col lg:flex-row gap-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
+        <div className="flex flex-col lg:flex-row gap-4 sm:gap-8">
           {/* Sidebar */}
-          <div className="lg:w-72 flex-shrink-0">
+          <div className="hidden lg:block lg:w-72 flex-shrink-0">
             <div className="bg-white rounded-2xl shadow-soft border border-slate-100 overflow-hidden sticky top-24">
               <div className="px-5 py-4 border-b border-slate-100">
                 <h3 className="text-lg font-display font-bold text-slate-900">Categories</h3>
               </div>
               <div className="p-3">
-                {categories.map((cat) => {
+                {visibleCategories.map((cat) => {
                   const count = getCategoryCount(cat.id)
                   return (
                     <button
@@ -341,7 +342,7 @@ const ProductCatalog: React.FC = () => {
                     <p className="text-xs text-slate-500">Total Products</p>
                   </div>
                   <div className="text-center">
-                    <p className="text-2xl font-display font-bold text-purple-600">{categories.length - 1}</p>
+                    <p className="text-2xl font-display font-bold text-purple-600">{visibleCategories.length - 1}</p>
                     <p className="text-xs text-slate-500">Categories</p>
                   </div>
                 </div>
@@ -352,8 +353,8 @@ const ProductCatalog: React.FC = () => {
           {/* Main Content */}
           <div className="flex-1 min-w-0">
             {/* Toolbar */}
-            <div className="bg-white rounded-xl shadow-soft border border-slate-100 p-4 mb-6">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="bg-white rounded-xl shadow-soft border border-slate-100 p-3 sm:p-4 mb-4 sm:mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
                 <div className="flex items-center gap-2">
                   <p className="text-slate-600">
                     {loading ? (
@@ -365,16 +366,30 @@ const ProductCatalog: React.FC = () => {
                         <span className="font-semibold text-slate-900">{totalCount}</span>
                         <span className="text-slate-500"> products</span>
                         {selectedCategory !== 'all' && (
-                          <span className="text-slate-400"> in {categories.find(c => c.id === selectedCategory)?.name}</span>
+                          <span className="text-slate-400"> in {selectedCategoryName}</span>
                         )}
                       </>
                     )}
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                  {/* Category: compact dropdown on phones (the sidebar list is desktop-only) */}
+                  <select
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    aria-label="Category"
+                    className="lg:hidden flex-1 min-w-0 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                  >
+                    {visibleCategories.map(cat => (
+                      <option key={cat.id} value={cat.id}>
+                        {cat.name} ({getCategoryCount(cat.id)})
+                      </option>
+                    ))}
+                  </select>
+
                   {/* Search */}
-                  <div className="relative flex-1 sm:flex-none sm:w-64">
+                  <div className="relative order-last w-full sm:order-none sm:w-64">
                     <svg className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
                     </svg>
@@ -391,7 +406,8 @@ const ProductCatalog: React.FC = () => {
                   <select
                     value={sortBy}
                     onChange={(e) => setSortBy(e.target.value as any)}
-                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
+                    aria-label="Sort"
+                    className="flex-1 min-w-0 sm:flex-none px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500"
                   >
                     <option value="newest">Newest First</option>
                     <option value="price-low">Price: Low to High</option>
@@ -400,7 +416,7 @@ const ProductCatalog: React.FC = () => {
                   </select>
 
                   {/* View Toggle */}
-                  <div className="flex items-center bg-slate-100 rounded-lg p-1">
+                  <div className="hidden sm:flex items-center bg-slate-100 rounded-lg p-1">
                     <button
                       onClick={() => setViewMode('grid')}
                       className={`p-2 rounded-md transition-colors ${viewMode === 'grid'
@@ -488,10 +504,10 @@ const ProductCatalog: React.FC = () => {
                 <h3 className="text-xl font-display font-bold text-slate-900 mb-2">No products found</h3>
                 <p className="text-slate-500 mb-6">
                   {searchQuery.trim()
-                    ? `No products match "${searchQuery.trim()}"${selectedCategory !== 'all' ? ` in ${categories.find(c => c.id === selectedCategory)?.name}` : ''}.`
+                    ? `No products match "${searchQuery.trim()}"${selectedCategory !== 'all' ? ` in ${selectedCategoryName}` : ''}.`
                     : selectedCategory === 'all'
                       ? "We're working on adding new products. Check back soon!"
-                      : `No products in the "${categories.find(c => c.id === selectedCategory)?.name}" category yet.`
+                      : `No products in the "${selectedCategoryName}" category yet.`
                   }
                 </p>
                 {searchQuery.trim() && (

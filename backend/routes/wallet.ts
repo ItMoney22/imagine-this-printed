@@ -244,41 +244,49 @@ router.post('/referral/validate', async (req: Request, res: Response): Promise<a
   }
 })
 
-// POST /api/wallet/referral/apply - Apply referral code during signup
+// POST /api/wallet/referral/apply - Record the referral link a new account
+// arrived through. Called once by the site after the account's first sign-in
+// (src/components/ReferralApplier.tsx). 200 = recorded (or the same link was
+// already recorded: a no-op); 4xx = final refusal, the site clears the stored
+// link and never retries; 5xx = try again on the next sign-in.
 router.post('/referral/apply', requireAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user?.sub
-    const { code } = req.body
+    const { code } = req.body || {}
 
     if (!userId) {
       return res.status(401).json({ error: 'Unauthorized' })
     }
 
-    if (!code) {
+    if (!code || typeof code !== 'string') {
       return res.status(400).json({ error: 'Referral code is required' })
     }
 
-    // Get user email
+    // user_profiles.id is the auth user id. (user_id is NULL on most live
+    // rows: handle_new_user never sets it, so the old .eq('user_id') lookup
+    // answered 404 for nearly every account.)
     const { data: profile } = await supabase
       .from('user_profiles')
       .select('email')
-      .eq('user_id', userId)
-      .single()
+      .eq('id', userId)
+      .maybeSingle()
 
-    if (!profile) {
-      return res.status(404).json({ error: 'User profile not found' })
-    }
-
-    const result = await processReferralSignup(code, userId, profile.email)
+    const result = await processReferralSignup(code, userId, profile?.email || req.user?.email || '')
 
     if (!result.success) {
-      return res.status(400).json({ error: result.error })
+      if (result.reason === 'invalid_code' || result.reason === 'bad_type') {
+        return res.status(400).json({ error: result.error, reason: result.reason })
+      }
+      if (result.reason) {
+        return res.status(409).json({ error: result.error, reason: result.reason })
+      }
+      return res.status(500).json({ error: result.error || 'Could not record referral' })
     }
 
     return res.json({
       ok: true,
-      message: 'Referral code applied successfully!',
-      rewards: result.refereeRewards
+      already: !!result.already,
+      message: result.already ? 'Referral already recorded' : 'Referral recorded'
     })
   } catch (error: any) {
     console.error('[wallet/referral/apply] Error:', error)
@@ -1058,7 +1066,7 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
       // (checks for an existing 'purchase'-type referral_transactions row for
       // this user), so it's safe to call unconditionally on every paid order —
       // it only actually awards ITC the first time.
-      const referralResult = await processReferralFirstPurchase(userId, orderTotalUsd)
+      const referralResult = await processReferralFirstPurchase(userId, orderTotalUsd, order.id)
       if (referralResult.success) {
         console.log('[wallet/process-full-itc-payment] Referral first-purchase bonus awarded:', referralResult)
       }

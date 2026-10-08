@@ -1,6 +1,305 @@
 # TASK_NOTES
 
-## Current request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
+## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
+
+The engine's ship gate (`npm run verify` inside zero-engine) went red on every ITP ship: zero-engine loads
+david-trinidad-com/.env.local at boot, so the test run inherits a real OPENAI_API_KEY and etsy-copy-repair's
+"no model" tests made a paid gpt call and timed out (jobs ship-muyoexo1, ship-muyoj1jo).
+
+### File shortlist (approved scope — 2026-10-07 ship gate)
+- `vitest.hermetic-env.ts` (new: deletes real provider/outbound keys before any test file loads)
+- `vitest.hermetic-env.test.ts` (new), `vitest.config.ts` (setupFiles only), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-nine): batch = 01dd112c 9aec3fd (referrals + credit pause + 7030e9e private 3D files). Repro with
+  DTC env loaded: etsy-copy-repair 3 failed. After the setup file, with DTC env loaded: 3 files / 27 pass and full
+  `npm run verify` 159 files / 2327 pass; plain shell 159 / 2327.
+
+## Current request (2026-10-07) — guests use the toy maker + read info pages (task 8c67fe67, sal-moretti)
+
+Zero Nine's logged-out walk: Imagination Station, home "Start Creating Free" and toys "Make my toy!" all
+land on "Sign in to your account"; Community, Referral Program (/referrals = a bare yellow "Please sign
+in" box), /metal-art and /wholesale all need an account. Fix: a guest opens and tries the tools; an
+account is asked for only at the step that saves or charges (and that ask says why, with a sign-up
+button); the info pages read logged out; dashboards stay behind sign-in; Turnstile stays on sign-up.
+
+### File shortlist (approved scope — 2026-10-07 guest access)
+- `src/App.tsx` (routes only: unwrap /imagination-station, /toy-creator, /metal-art, /community, /wholesale)
+- `src/lib/guest-gate.ts` + `.test.ts` (new: one module for every "why we need an account" line)
+- `src/components/GuestGate.tsx` + `.test.tsx` (new: provider + the explained account modal)
+- `src/pages/ImaginationStation.tsx` (guest sheet in memory; server actions ask for an account)
+- `src/pages/ToyCreator.tsx` (guest builds; "Mix" asks; picks kept across sign-up), `src/pages/ToyLand.tsx` (copy)
+- `src/pages/MetalArtStudio.tsx` (guest sees studio; generate/upload ask)
+- `src/pages/Community.tsx`, `src/components/community/CommunityPostCard.tsx` (vote/submit ask)
+- `src/pages/Referrals.tsx`, `src/pages/WholesalePortal.tsx` (public content + explained dashboard gate)
+- `src/pages/Login.tsx`, `src/pages/Signup.tsx` (reason line + sign-up button on any remaining wall)
+- `src/pages/Home.tsx` ("Start Creating Free" target only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (sal-moretti): scoped. Facts read live: referral RPC pays 500 pts + 5 ITC (referrer) /
+  250 pts + 2.5 ITC (friend) at sign-up and 50 ITC on the friend's first order, but 0 referral codes
+  and 0 referrals exist and nothing on the site ever applies ?ref (follow-up card). New wallets start at
+  0 ITC; Imagination "generate" gives 2 free tries; toy "Mix" needs 20 ITC and ignores its 1 free try
+  (follow-up card).
+- 2026-10-07 (sal-moretti): built. Scope add: `src/lib/referral-program.ts` (the reward numbers, one
+  module for the public page + dashboard, which said 10 ITC / 50 pts and was wrong). One shared account
+  card (GuestGate) on every save/spend step; guest studio sheet lives in memory, uploads stay local,
+  prices + new-account free tries read from the public price table; toy picks survive sign-up; public
+  Referral + Wholesale pages; Login/Signup say why. Also fixed while there: mojibake dashes on
+  /metal-art (now public), and the studio rail no longer names the engine ("Flare Lab" / "9 GPT Image
+  2.5 tools" -> Imagination Lab / 9 Imagination tools). tsc 0 errors, vitest 134 files / 2085 pass,
+  vite build OK, fleet-browser walk logged out at 390px + desktop on :5197 passed.
+
+## Current request (2026-10-07) — paid 3D files out of the public bucket (Watchtower 1417e863, daisy-carter)
+
+model.stl / model.glb (35 objects, 17 toy models, all David's account) answered 200 to anyone by plain path in
+imagine-this-printed-main; rows carried 1-year links (user_3d_models x17, 3 live toy products' public
+metadata.print3d, ai_jobs.output x17); GET /api/3d-models/:id and /list handed the owner the STL without a license;
+and any signed-in user could PATCH their own user_3d_models row (purchased_licenses, print_price_usd).
+design-sources/ (6,999 editable masters, 25.7 GB, sequential names) was public by path AND via /api/media/.
+
+Built on zero-pluto's unshipped b312de9c branch (merged in: print-files.ts + signObjectInBucket).
+File shortlist (approved scope): backend/services/model-files.ts (+test, new), google-cloud-storage.ts
+(signObjectInBucket download name), print-files.ts (printModelFilePath), routes/3d-models.ts (+ new route test),
+routes/print-bridge.ts, routes/storefront.ts (+ print-files test), routes/media.ts, worker/ai-jobs-worker.ts,
+scripts/{reconvert-3d-stl.ts, inline-3d-dragon.ts, lib/design-media.mjs, move-3d-model-files-private.mjs,
+move-design-sources-private.mjs}, supabase/migrations/20261007210000_user_3d_models_server_writes_only.sql + ledger.
+
+Decisions: rows store gs://<private bucket>/<path> refs in the existing *_url fields; links signed per request
+(60 min download/preview/AR, 12 h print bridge = PRINT_FILE_LINK_TTL_MINUTES); a model row can only sign its own
+3d-models/<id>/model.<fmt>. users/ NOT moved (live product imagery + stored links point there; names unguessable
+since listing went off) -> follow-up card for the private subsets (inbound email attachments, customer uploads).
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): code + tests (model-files 7, route tests 8 of which 6 fail on old code, storefront
+  3D 2); vitest 149 files / 2231 passed; backend tsc only the 6 known rate-limits.ts TS2742.
+- 2026-10-07 (daisy-carter): LIVE. 35 meshes copied (35/35 md5) + 37 rows -> gs:// refs + public originals
+  deleted -> all 35 plain URLs 404, 18 concept.png 200. Migration 20261007210000 applied (shopper INSERT/PATCH
+  201/200 before -> 403 after). 6,999 design sources (25.67 GB) moved, 6,999/6,999 md5, public 404. Real routers on
+  live data: entitled download 200 + md5 = original, unentitled 402, bridge 4/4 links fetch md5 = original.
+
+## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
+
+David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):
+home, product page, catalog, cart + checkout, toys, Imagination Station, About + policies, account pages.
+Each page: screenshot -> mockup -> David's "go" -> build -> walk (390px + desktop) -> next page.
+
+Decisions (noted for the handoff):
+- ITP is light-only by design (ThemeProvider pins light, DESIGN.md "Light mode is the default"); the
+  "dark" leg of each walk = the page under an OS dark preference must not flip half-dark.
+- Card mapping: home = dda57173 (home claims), d94aa3e2 (home blanks block), 66d0f303 (home carousel +
+  nav pinks), 5e10e099 (phone header + overlays, sitewide), 7fa5c8c5 (offer slot, terms need David),
+  36222110 (reviews slot, real Etsy reviews only). Product page = b2784c8d, 63520e95, 732f8a71 (product
+  side), 389defc8. Catalog = 66d0f303, 732f8a71. Toys = 389defc8 toy items, dda57173 toy claims.
+  Imagination Station = 8c67fe67. About + policies = 5c713452. Account pages = shopper pages only (no admin).
+
+### File shortlist (approved scope — page 1, home; widened per page as each mock is approved)
+- `src/pages/Home.tsx`, `src/components/Hero.tsx`, `src/components/home/*` (new home sections)
+- `src/components/ProductCard.tsx` (In Stock badge + extra buttons), `src/components/BlankTeesSection.tsx`
+- `src/components/Navbar.tsx` / header + `src/components/CookieConsent.tsx` + `src/components/MrImagineChatWidget.tsx` (phone overlays, 5e10e099)
+- `src/components/Footer.tsx` (LLC + Rockmart line), `src/index.css` (home keyframes), `public/home/*` (generated art)
+- `src/components/MobileTopBar.tsx` (new) + `src/App.tsx` (layout swap only) + `src/components/Sidebar.tsx` (drop floating menu button, promoted-link style), `src/components/FloatingCart.tsx` (pill lg+ only)
+- `src/pages/ProductCatalog.tsx` (shared row mapper + ?q= from the header search), `src/lib/shop-facts.ts`, `src/lib/storefront-row.ts` (new)
+- `public/icons/itp-bulb.png` (cut from itp-logo-v3)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (amelia-chan): live home shot at 1440 + 390 (evidence in E:/memory/watchtower/projects/
+  imagine-this-printed/2026-10-07-b9656cc9-shots/), home mockup sent to David's pop-up + email. Waiting on his go.
+- 2026-10-07 (amelia-chan): David approved round 1 at 19:56Z (approval 7eb9469c). Merged origin/main (branch was 14
+  behind live). Built the home to the mock: hero (real lion tee + Wizard Beast scene), trust strip, category doors,
+  Halloween picks (live, ends 11/1), popular grid, toy band, how it gets made, design band; phone header bar
+  (logo, search, chat, cart count), no chat bubble/cart pill under lg, solid cookie bar, no In Stock badge.
+  Reviews row left out: the Etsy shop has 0 reviews (API, 10/7). tsc 0, vitest 2139/2139, vite build OK,
+  fleet-browser walk at 1440 + 390.
+## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
+
+### File shortlist (approved scope — 2026-10-07 policies)
+- `src/pages/ShippingPolicy.tsx`, `ReturnsPolicy.tsx`, `PrivacyPolicy.tsx`, `TermsOfService.tsx` (Terms governing law untouched: card f02213ca)
+- `src/pages/Home.tsx` (shipping line), `src/pages/ProductPage.tsx` (shipping box)
+- `src/utils/shipping-calculator.ts` (+ test): add the shared timing story next to STANDARD_FULFILLMENT_DAYS
+- new `src/config/business-info.ts`, new `src/components/BusinessContactBlock.tsx`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dane-marsh): scope added; no real business phone exists in repo (only placeholder), so phone reads from VITE_BUSINESS_PHONE and is never invented.
+
+## Current request (2026-10-07) — ITP catalog structure (task 66d0f303, rico-fernandez)
+
+One shirts category (slug `shirts`: products_print_locations_valid already keys on it), no NULL/empty
+categories, products first on phones, Popular Products carousel starts on a whole card, promoted nav links
+distinct from the active page.
+
+### File shortlist (approved scope — 2026-10-07 catalog structure)
+- `src/pages/ProductCatalog.tsx`, `src/pages/Home.tsx` (Popular Products carousel only)
+- `src/components/Sidebar.tsx` (the real nav; `Navbar.tsx` is not rendered anywhere), `src/App.tsx` (redirect route only)
+- `src/lib/product-kind.ts` (+ test) if the alias map needs it
+- `supabase/migrations/20261007200000_merge_shirt_categories.sql` (applied live 2026-10-07)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (rico-fernandez): applied the merge migration live in one transaction: active categories now
+  shirts 27 / 3d-prints 4 / hoodies 3 / dtf 2, zero NULL, zero t-shirts; added normalize trigger so create paths
+  that still write 't-shirts' fold to 'shirts' once a print location exists.
+## Current request (2026-10-07) — ITP customer support A1 (task 5878a61f, amelia-chan)
+
+David 10/7: "work our support as this page sucks, make it A1 for the customer experience." Mockup approved round 1
+(page_mockup_approvals dca0616d). Built: /contact remodel, /help (new FAQ), shop chat widget with a designed
+talk-to-a-person flow (waiting / leave-with-email / Christina's messages / end of chat), ticket reply email that greets
+the typed name with a specific header, help strip on /shipping /returns /about /order-status.
+
+### File shortlist (approved scope — 2026-10-07 support redo)
+- `src/pages/Contact.tsx`, `src/pages/Help.tsx` (new), `src/components/MrImagineChatWidget.tsx`
+- `src/components/support/*` (new: SupportParts, chat-events, live-chat-state + test), `src/styles/support.css` (new)
+- `src/lib/help-facts.ts` (new: the ONE facts module), `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD)
+- `src/pages/ShippingPolicy.tsx`, `ReturnsPolicy.tsx`, `About.tsx`, `OrderStatus.tsx` (help strip only; policy text is card 5c713452's)
+- `src/App.tsx` (/help route), `src/components/Footer.tsx` (Help & FAQ link), `public/support/*` + `scripts/generate-support-art.mjs`
+- `backend/services/live-chat.ts` (+test), `backend/routes/support.ts` (live-chat, contact-email, end-chat), `backend/routes/ai/chat.ts`
+- `backend/routes/admin/support.ts` (poll sessionStatus, reply name), `backend/routes/print-bridge.ts` (reply name)
+- `backend/utils/ticket-emails.ts` (+test), `backend/utils/email.ts`, `backend/services/emailAI.ts` (confirmation CTA -> /help)
+- `backend/shared/size-charts.ts` (moved out of `backend/services/step-flow/details-card.ts`, numbers unchanged)
+
+### Work log (append-only)
+- 2026-10-07 (amelia-chan): merged live main (Becky hand-off cbeb163+5f39784) and dr-dill 4c586fd (phone header, task
+  5e10e099) into the branch first. Mockup approved. Built everything above. A real-DB walk caught that the LIVE
+  support_tickets_status_check has no 'waiting' (open|in_progress|resolved|closed): waiting lives on chat_sessions only.
+  vitest 142 files / 2160 tests, tsc app + backend clean, vite build green, walked at 390 + 1440.
+
+## Current request (2026-10-07) — image queue pauses on out-of-credit (task dbce13a8, dr-dill)
+
+On a Replicate 402 "Insufficient credit" or an OpenAI no-credits error the image queue PAUSES for that
+provider: the job that hit it and every queued job that needs the same provider go to status 'blocked'
+(not 'failed'), ONE alert goes out per outage (team email + admin bell + Becky/Jessica ping), and a probe
+every 5 min resumes the queue on its own once credit is back. Prod evidence (read-only, 2026-10-07): 77
+ai_jobs failed on Replicate 402 (65 mockups, 12 rembg, 8/24-8/30); ai_jobs.status has NO check
+constraint, so 'blocked' needs no migration; admin_settings (key PK) holds the outage rows.
+
+### File shortlist (approved scope — 2026-10-07 credit pause)
+- `backend/worker/ai-jobs-worker.ts`, `backend/services/replicate.ts`,
+  `backend/services/image-flow/providers/openai-image.ts` (the brief's three)
+- Added, with rationale: `backend/services/image-flow/providers/replicate.ts` — every mockup 402 in prod
+  came from THIS file ("replicate google/imagen-4-fast 402"), not services/replicate.ts;
+  `backend/services/image-flow/worker-helpers.ts` — the flux single-call catch fell back to the 2-step
+  chain on ANY error, so a 402 could surface as the chain's error instead (3-line rethrow);
+  `backend/services/provider-credit.ts` (new, pure classifier + error type) and
+  `backend/services/image-credit-outage.ts` (new, the pause state machine), plus their tests.
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): built. Credit errors are typed at all three provider edges; the worker and the
+  inline Step Flow paths block instead of fail; per-provider outage rows in admin_settings give one alert
+  each; probes resume. Verified: full vitest 135 files / 2104 pass (new: 14 classifier, 9 alert, 10
+  end-to-end through the real worker loop; two mutations turn it red), backend tsc clean bar the known
+  node_modules-junction TS2742 noise. Live: Replicate probe accepted + cancelled in 135 ms (no compute),
+  OpenAI probe rendered on gpt-image-2.5-flare, Jessica's notify route accepts ITP's secret (400 empty
+  body vs 401 wrong secret). Gaps filed: Becky's /api/phone/ops-ping does not exist yet (404), and the
+  Render WORKER lacks WATCHTOWER_INTERNAL_SECRET + PRINT_BRIDGE_TOKEN (the API service has both).
+- 2026-10-07 (zero-nine, ship f4fffab8): merged the whole branch (head f5539f2) onto local main c468bd6; its other
+  commits (8e5ae93, 74dfc89, b605833) were already on main, so only 3febb10 + f5539f2 came in. TASK_NOTES was the only
+  conflict (kept both sides). Merged tree: app tsc 0, backend tsc only the known TS2742 junction noise, vitest 145 / 2193.
+
+## Current request (2026-10-07) — ITP admin backend redo (task 764ab09d, mason-blaze)
+
+David 10/7: "run 'this page sucks' on mainly the whole admin backend." Mockup approved round 1
+(approval 3627e82e). Build: one grouped sidebar instead of 20 flat tabs; Overview leads with Ops
+Monitor / Mrs. Imagine / Etsy; fake System Health removed; drop vendors, models, tryon tabs; merge
+itc-pricing + imagination into Pricing and wallet into Users; Delivered tab in Orders; Users role
+picker offers only real roles; Toy Lab, Team Templates, Email, Orders in the nav.
+
+### File shortlist (approved scope — 2026-10-07 admin redo)
+- `src/pages/AdminDashboard.tsx`, `src/pages/OrderManagement.tsx`
+- `src/components/AdminMrsImagine.tsx` (mobile layout only, now that it leads the overview), `src/index.css` (hero drift keyframes)
+- `src/components/admin/*` (new: AdminShell / sidebar nav / hero), `src/components/AdminWalletManagement.tsx`
+- `src/pages/AdminEmail.tsx`, `src/pages/AdminToyLab.tsx`, `src/pages/AdminTeamTemplatesIndex.tsx` (wrap in the shell)
+- `src/App.tsx` (routes only), `public/admin/*` (generated art)
+- `supabase/migrations/20260728_email_unmatched_inbound.sql` (applied to prod 2026-10-07, verified)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (mason-blaze): applied email_unmatched_inbound to prod (table + RLS verified). Mockup sent and
+  approved by David (round 1). Starting the build.
+
+
+## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
+
+## Current request (2026-10-07) — creator print files out of public products.metadata (Watchtower b312de9c, zero-pluto)
+
+Reproduced with the public anon key: GET /rest/v1/products?id=eq.e387149e...&select=metadata->assets->>dtf
+returned a 1-year signed URL (expires 2027-07-12) to Darrell's print-ready front.png; assets.clean and
+print_files.front held the same. Worse: imagine-this-printed-main grants allUsers objectViewer, so the
+plain path (next to the public mockups) and an anonymous bucket listing handed it out too.
+
+Mechanism: service-role-only TABLE product_print_files (bucket + object paths, never URLs; RLS on, no
+policies, grants revoked) + the PRIVATE bucket imagine-this-printed-products (public access prevention
+enforced; the API's service account is already admin on it). Public row keeps only
+metadata.print_file_placements. Links are signed at read time (12 h for the press floor). Built on
+Daisy's c25fa1e (isCreatorProductMeta) so both ship together (28f1a972).
+
+### File shortlist (approved scope — 2026-10-07 print files)
+- `supabase/migrations/20261007200000_product_print_files.sql` (applied to prod 2026-10-07, ledger row in)
+- `backend/services/print-files.ts` + `.test.ts` (new), `backend/services/google-cloud-storage.ts` (2 private-bucket helpers)
+- `backend/routes/storefront.ts` (publish + checkout) + `backend/routes/storefront.print-files.test.ts` (new)
+- `backend/routes/admin/user-product-approvals.ts` (direct-print gate, no public watermark of creator art)
+- `backend/services/product-files.ts` + `.test.ts` (press floor signs the private file / order-line refs)
+- `backend/shared/creator-product.ts` + `.test.ts` (printFilePlacementsOf), `src/components/AdminCreatorProductsTab.tsx` (mirror gate)
+- `backend/scripts/move-creator-print-files-private.mjs` (one-off move, run on prod 2026-10-07)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-pluto): code + tests (route test runs the real router; 7/8 fail on the old code). Table applied
+  to prod; 3 merch-studio rows moved (copy md5-verified, public originals deleted: soft-delete 7 days), anon
+  queries now null, 0/2,605 products carry a creator print path. Real-DB proof: local publish of a throwaway
+  product + Walk By Faith checkout (Stripe refused on purpose) wrote print_file_refs; the floor code signed
+  the private copy, HTTP 200, 1,625,476 bytes; all proof rows/objects deleted.
+- 2026-10-07 (zero-pluto): Walk By Faith's assets.display was a 3072x4096 copy of the full design with one small
+  corner watermark (made from the print file at approval), public and shown first on the live page. Stripped from
+  the row + object deleted (script now covers display); approval no longer makes one for creator products (test
+  added: 2/3 fail on the old route). Live page re-walked at 390: leads with the maroon garment photo.
+  Main bucket imagine-this-printed-main: allUsers objectViewer (read + LIST) swapped for legacyObjectReader (read
+  only). Anonymous listing now 401/403; 58/58 live product images still load. Old policy saved in
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-b312de9c-main-bucket-iam-before.json.
+
+## Current request (2026-10-07) — creator products get creator treatment + 2XL +$2.50 (Watchtower d6822874)
+
+David's phone walk of Darrell McCutchen's "Walk By Faith" (e387149e) on ITP: no digital
+download or design tools on creator products, lead with the maroon photo, lock the blank to
+maroon and say so (the order must carry the colour), credit Darrell, keep creator and faith
+products out of the generic recommendation rows. His own site must show the 2XL +$2.50 on the
+button and in the cart (that site lives in the Darrell V2 repo, worked in its own worktree).
+
+Creator product = metadata.source 'merch-studio' (the storefront publish lane: a creator's own
+merch line). NOT metadata.creator_id alone: user designs, Imagination Station and Step Flow
+admin rows all write creator_id too.
+
+### File shortlist (approved scope — 2026-10-07 creator products)
+- `backend/shared/creator-product.ts` + `.test.ts` (new: creator/faith predicates, rec lanes)
+- `src/lib/product-kind.ts` + `.test.ts` (option sets, gallery order, digital offer)
+- `src/pages/ProductPage.tsx` (credit, colour copy, digital gate, rec title)
+- `src/components/ProductRecommendations.tsx`, `src/utils/product-recommender.ts` (+ test)
+- `backend/routes/user-products.ts` (refuse digital buy/download on creator products)
+- `backend/routes/admin/user-product-approvals.ts` (no auto digital on creator products)
+- `backend/routes/storefront.ts` (order colour default, creator_name at publish)
+- `backend/shared/promos.ts` + `.test.ts` (added: the house "2 for $25" flag sat on Darrell's
+  $24.99 shirt, selling two for $25 — a creator product is never bundle-eligible)
+- `src/pages/Cart.tsx` (added: the cart line showed $24.99 under a $27.49 total for a 2XL)
+- `src/utils/product-recommender.test.ts` (new)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): backend/shared/creator-product.ts is the one creator/faith rule.
+  Creator products: no upload/gang sheet/digital download (page + API + approval), gallery =
+  garment photos only, "Design by <metadata.creator_name>", colour sentence + swatch from
+  placement.color, never in the house "2 for $25" bundle. Recommendation rows stay in the
+  anchor's lane (creator -> that creator only, faith -> faith only, else neither); cache keyed
+  by product. Storefront checkout defaults a one-colour product's colour; publish records
+  creator_name. Live row e387149e patched (maroon only, physical, digital_price 0,
+  creator_name, bundle off; revert manifest in E:/memory/.../2026-10-07-d6822874-walk-by-faith-patch.json).
+  Darrell's site 2XL +$2.50 is in the Darrell V2 repo (branch earth/daisy-carter/darrell-2xl-surcharge-d6822874).
+  vitest 140 files / 2156 green, tsc app clean, backend clean except pre-existing rate-limits.ts,
+  vite build green; walked at 390px + desktop on local vite against live data.
+
+## Previous request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
 
 David's 10/7 live phone walk: the $5 "Patriotic Heartbeat DTF" transfer shows shirt sizes,
 youth sizes, shirt colours and "Shirt Quality"; the hoodie page offers T-shirt blanks; size
@@ -4588,6 +4887,16 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
 ### Work log 2026-09-23 — team-plate lettering swapped to gpt-image-2.5-flare + crisp upscale (task 65d98dd9, jimmy-phix)
 - Per-order name/number is now a flare EDIT of the original back art (prompt schema in `backend/services/team-plate/lettering-prompt.ts`), cached as `<key>-base.png` (the preview) and upscaled by `recraft-crisp-upscale` (`upscaleToPng`, split out of `step-flow/print-resolution.ts`) into `<key>-press.png` at the template canvas. Paths: `users/team-plates/flare-v1/`. Vector engine quarantined in `team-plate/legacy-vector/`. Checkout waits 20s for the press file, else writes the deterministic gcsPath + `print_file_status: 'rendering'` and settles it in the background. Customer panel previews on a button press (paid call) with a staged progress bar. Result: 152/152 tests; live smoke `backend/scripts/team-plate-smoke.ts` on the real BEAR 9 art passed every check twice (RODRIGUEZ 27, LI 5 — spelled right, art held, 3600x4498 press).
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+- 2026-10-07 (mason-blaze): BUILT the approved redo. AdminShell (grouped sidebar: Run the shop / Make / Money / People)
+  wraps every admin route; AdminDashboard tab strip gone, hero + three art panels (Ops Monitor, Mrs. Imagine, Etsy)
+  lead the overview, fake System Health + Quick Actions removed; vendors/models/tryon tabs removed; itc-pricing +
+  imagination -> Pricing (toggle), wallet -> Users (Accounts/Wallets toggle), old ?tab= links map across; Delivered tab
+  in Orders; role picker = customer/vendor/admin (a retired role on an existing user still shows); + Create Product and
+  /admin/ai/products/create now open the Step Flow builder. Walked on 5287 at 1440 and 390 wide: no page errors.
+  Art is cropped from the approved mock (no page-art.ts on this checkout): swap for Flux finals when it lands.
+  Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.
+- 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
 
 ## Current request (2026-10-07) — GA4 + Search Console + order attribution (Watchtower 89a803de)
 File shortlist (approved scope): `src/utils/utm.ts`(+test), `src/utils/analytics.ts`, `src/components/AnalyticsTracker.tsx`,
@@ -4606,3 +4915,47 @@ Work log (append-only):
 ### Work log (append-only)
 - 2026-10-07 zero-nine: shipping root cause = finalize() preselected Free Local Pickup (cheapest) so a $25 tee read "Free". Default now cheapest carrier; pickup labelled "Free (pickup)". Rule kept: free standard shipping at $50+.
 - 2026-10-07 zero-nine (merge-dupes): merged the 4 duplicate dispatch branches onto main. Kept: signup honeypot + friendly gate error, contact-form Turnstile (API check stays off until TURNSTILE_SECRET_KEY is on Render), inbound-mail spam/flood filing, signup_bot_flag migration file (already live), order attribution + GA4 loader (no-op until VITE_GA4_MEASUREMENT_ID), carrier-rate default at checkout + "Free (pickup)", shirt_color as the one colour, chat bubble off the buying pages on phones, honest shipping copy. Dropped (main already had it): About branch c116803 (merged -s ours; keeps the footer book line), cookie banner/recommendations/preselect hunks. Result: vite build green, backend tsc clean, vitest 2097/2097.
+
+## Current request (2026-10-07) — ITP phone: nothing may cover the buy buttons (task 5e10e099)
+Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlaps content.
+
+### File shortlist (approved scope — 2026-10-07 phone floating UI)
+- `src/components/CookieConsent.tsx`, `MrImagineChatWidget.tsx`, `Header.tsx`, `Navbar.tsx`, `FloatingCart.tsx`, `Sidebar.tsx`
+- `src/App.tsx` (layout mount points), `src/index.css` (layout vars)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
+
+## Current request (2026-10-07) — ITP referrals: capture ?ref, apply once at first sign-in, honest rewards (task bdfa6939, dr-dill)
+
+Live read: referral_codes 0 / referral_transactions 0 / referred_by 0. Nothing called the apply route, the
+dashboard invented its code in the browser (never saved), the apply route looked profiles up by the NULL
+user_id column, and process_referral_reward was EXECUTE-able by anon. Built on Sal's unshipped 8c67fe67
+branch (merged in) because /referrals + src/lib/referral-program.ts live there.
+
+### File shortlist (approved scope — 2026-10-07 referrals)
+- `supabase/migrations/20261007210000_referral_attribution.sql` (APPLIED LIVE + tracked 2026-10-07)
+- `backend/services/referral-service.ts` (+ new test), `backend/routes/wallet.ts` (/referral/apply only)
+- `backend/services/order-refunds.ts` (export EVER_PAID_STATUSES), `backend/services/order-payment.ts` +
+  `backend/routes/orders.ts` (pass the order id to the first-order bonus)
+- new `src/utils/referral-capture.ts` (+ test), new `src/components/ReferralApplier.tsx` (+ test),
+  `src/main.tsx` (capture call), `src/App.tsx` (mount the applier)
+- `src/utils/referral-system.ts` (+ new test), `src/lib/referral-program.ts`, `src/pages/Referrals.tsx`
+- `src/pages/PrivacyPolicy.tsx` + `src/components/CookieConsent.tsx` (they claimed a 90-day referral cookie that never existed)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): migration live (anon EXECUTE revoked, sign-up records the link at 0 reward,
+  award_referral_first_order pays 50 ITC atomically, one signup row per referee + one active code per user).
+  Site captures ?ref on any route, applies once after sign-in, clears it. Live test on two throwaway
+  accounts (qa+referral-*-bdfa6939@imaginethisprinted.com): code REFR9449Q -> friend joined -> referred_by
+  set, signup row, repeat = no-op, first-order bonus 50 ITC paid once.
+- 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+- 2026-10-07 (dr-dill): scope +1 file with rationale: `backend/routes/stripe.ts` create-payment-intent read
+  user_profiles by the NULL user_id column, same root cause as the referral route; proven live (non-admin
+  account -> 500 "Failed to fetch user profile" on api.imaginethisprinted.com). Re-keyed on id.
+- 2026-10-07 (dr-dill): scope +1 file: `supabase/migrations/20261007213000_revoke_anon_secdef_money_functions.sql`
+  (APPLIED LIVE + tracked). Sweep of SECURITY DEFINER functions anon could EXECUTE found award_order_rewards
+  (writes points + ITC), record/reverse_blank_sale (stock) and next_design_qa_submission_no; all callers are
+  the service-role API/worker. Revoked; anon now 401 permission denied, service role still 200.

@@ -1,19 +1,19 @@
 ﻿// src/pages/MetalArtStudio.tsx
 //
-// Metal Art Studio â€” Displate-style premium metal print designer.
+// Metal Art Studio — Displate-style premium metal print designer.
 //
 // Price constants are exported so admin catalog items can reference them
 // when building their own metal-art product entries. Prices are a deliberate
-// website-vs-Etsy anchor gap (see backend/services/etsy.ts:331) â€” the two are
+// website-vs-Etsy anchor gap (see backend/services/etsy.ts:331) — the two are
 // allowed to diverge on purpose. Sourced from shared/metal-art.ts (the same
 // module both the storefront and the Etsy lane read panel geometry from) so
-// this file and the server-side pricing engine can never drift apart again â€”
+// this file and the server-side pricing engine can never drift apart again —
 // David 2026-09-02: $8.95 / $16.95 (was $14.99 / $29.99).
 // eslint-disable-next-line react-refresh/only-export-components
 export const METAL_ART_PRICES: Record<string, number> = METAL_ART_PRICES_SHARED
 
 // Physical dimensions (portrait orientation) in pixels at ~72 dpi equivalent.
-// STUDIO_SIZE_KEYS in shared/metal-art.ts is the list actually offered here â€”
+// STUDIO_SIZE_KEYS in shared/metal-art.ts is the list actually offered here —
 // this map just looks up each key's canvas geometry from the shared source.
 const PLATE_DIMS: Record<string, { w: number; h: number; labelIn: string }> = {
   '4x6':  { w: METAL_ART_SIZES['4x6'].canvas.w,  h: METAL_ART_SIZES['4x6'].canvas.h,  labelIn: METAL_ART_SIZES['4x6'].labelIn },
@@ -54,6 +54,7 @@ import {
 import { apiFetch, imaginationApi } from '../lib/api'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
+import { useGuestGate } from '../components/GuestGate'
 import { useToast } from '../hooks/useToast'
 import { usdToItcLabel } from '../lib/itc-pricing'
 import type { Product } from '../types'
@@ -83,7 +84,7 @@ interface GeneratedImage {
 // Style starters
 // ---------------------------------------------------------------------------
 // Each starter is a STYLE the user picks as a framework. `framework` is the
-// aesthetic only (no subject) â€” it wraps whatever the user types so e.g.
+// aesthetic only (no subject) — it wraps whatever the user types so e.g.
 // "a lion" + Anime style = an anime lion, not the showcase scene. `showcase`
 // is the full demo prompt used only when the user picks a style but types
 // nothing (and is what generated the thumbnail).
@@ -152,7 +153,7 @@ function buildMetalPrompt(userText: string, styleSlug: string | null): string {
   const style = styleSlug ? METAL_STARTERS.find(s => s.slug === styleSlug) ?? null : null
   if (subject && style) return `${subject}, ${style.framework}`   // subject leads, style frames
   if (subject) return enrichMetalPrompt(subject)                   // free-typed only
-  if (style) return style.showcase                                 // style picked, no text â†’ demo scene
+  if (style) return style.showcase                                 // style picked, no text → demo scene
   return ''
 }
 
@@ -212,7 +213,7 @@ function MetalPlate({ artworkUrl, size, finish }: MetalPlateProps) {
         }}
       />
 
-      {/* Diagonal sheen gradient â€” glossy only, animates on hover */}
+      {/* Diagonal sheen gradient — glossy only, animates on hover */}
       {isGlossy && (
         <div
           style={{
@@ -243,7 +244,7 @@ function MetalPlate({ artworkUrl, size, finish }: MetalPlateProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Generation progress â€” gpt-image-2 gens take a while, so show an elapsed-driven
+// Generation progress — gpt-image-2 gens take a while, so show an elapsed-driven
 // bar (asymptotic to ~95%, snaps to done by the caller unmounting it) with
 // rotating Mr. Imagine heads-up messages so the wait feels guided.
 // ---------------------------------------------------------------------------
@@ -278,6 +279,9 @@ function GenerationProgress({ etaSeconds = 22, messages }: { etaSeconds?: number
 export default function MetalArtStudio() {
   const { addToCart } = useCart()
   const { user } = useAuth()
+  // Guests see sizes, finishes and prices; making or uploading the art is the
+  // step that asks for an account (task 8c67fe67).
+  const { requireAccount } = useGuestGate()
   const toast = useToast()
   const navigate = useNavigate()
 
@@ -313,7 +317,7 @@ export default function MetalArtStudio() {
   const [itcCost, setItcCost]   = useState<number | null>(null)
   const [freeTrial, setFreeTrial] = useState(false)
 
-  // Mr. Imagine design help (wall-art tuned brainstorm) â€” he leads the flow.
+  // Mr. Imagine design help (wall-art tuned brainstorm) — he leads the flow.
   const [mrChat, setMrChat] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([])
   const [mrInput, setMrInput] = useState('')
   const [mrBusy, setMrBusy] = useState(false)
@@ -354,7 +358,7 @@ export default function MetalArtStudio() {
           setWalletBalance(Number(response.wallet.itc_balance))
         }
       } catch {
-        // non-critical â€” wallet just won't show
+        // non-critical — wallet just won't show
       }
     }
 
@@ -382,6 +386,10 @@ export default function MetalArtStudio() {
   const handleFileChange = useCallback(async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
+    if (!requireAccount('metal-create')) {
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      return
+    }
     if (file.size > 15 * 1024 * 1024) {
       toast.error('File too large', 'Maximum upload size is 15 MB.')
       return
@@ -411,7 +419,7 @@ export default function MetalArtStudio() {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
-  }, [toast])
+  }, [toast, requireAccount])
 
   // ----- Generate handler -----
   const toggleMrMuted = useCallback(() => {
@@ -443,6 +451,7 @@ export default function MetalArtStudio() {
   const askMrImagine = useCallback(async (overrideText?: string) => {
     const text = (overrideText ?? mrInput).trim()
     if (!text || mrBusy) return
+    if (!requireAccount('metal-create')) return
     const next = [...mrChat, { role: 'user' as const, content: text }]
     setMrChat(next)
     setMrInput('')
@@ -457,28 +466,29 @@ export default function MetalArtStudio() {
       setMrSuggestions(Array.isArray(data?.suggestions) ? data.suggestions : [])
       if (data?.location && typeof data.location === 'string') setMrLocation(data.location)
     } catch {
-      setMrChat(prev => [...prev, { role: 'assistant', content: 'Hmm, I glitched for a second â€” say that again?' }])
+      setMrChat(prev => [...prev, { role: 'assistant', content: 'Hmm, I glitched for a second — say that again?' }])
     } finally {
       setMrBusy(false)
     }
-  }, [mrInput, mrBusy, mrChat, speakMr])
+  }, [mrInput, mrBusy, mrChat, speakMr, requireAccount])
 
-  // "See it in your space" â€” gpt-image-2 hangs the chosen art in the room
+  // "See it in your space" — gpt-image-2 hangs the chosen art in the room
   // Mr. Imagine learned about (or a default). Replaces the flat CSS scenes.
   const seeItInRoom = useCallback(async (loc?: string) => {
     if (!artworkUrl || roomBusy) return
+    if (!requireAccount('metal-create')) return
     setRoomBusy(true)
     setRoomMockupUrl(null)
     try {
       const { data } = await imaginationApi.roomMockup({ imageUrl: artworkUrl, location: (loc ?? mrLocation) || undefined, size })
       if (data?.url) setRoomMockupUrl(data.url)
-      else toast.error('Mockup failed', 'Could not render the room â€” try again.')
+      else toast.error('Mockup failed', 'Could not render the room — try again.')
     } catch {
-      toast.error('Mockup failed', 'Could not render the room â€” try again.')
+      toast.error('Mockup failed', 'Could not render the room — try again.')
     } finally {
       setRoomBusy(false)
     }
-  }, [artworkUrl, roomBusy, mrLocation, size, toast])
+  }, [artworkUrl, roomBusy, mrLocation, size, toast, requireAccount])
 
   const handleGenerate = useCallback(async () => {
     const finalPrompt = buildMetalPrompt(prompt, selectedStyle)
@@ -486,9 +496,10 @@ export default function MetalArtStudio() {
       toast.warning('Describe your art', 'Tell Mr. Imagine what you want, or type it in the box.')
       return
     }
+    if (!requireAccount('metal-create')) return
     setGenerating(true)
     setGeneratedImages([])
-    void speakMr('Awesome â€” Iâ€™m painting your piece now. This takes a moment, so hang tight!')
+    void speakMr('Awesome — I’m painting your piece now. This takes a moment, so hang tight!')
     try {
       const res = await imaginationApi.generateImage({
         prompt: finalPrompt,
@@ -539,7 +550,7 @@ export default function MetalArtStudio() {
     } finally {
       setGenerating(false)
     }
-  }, [prompt, selectedStyle, genCount, user?.id, toast, speakMr])
+  }, [prompt, selectedStyle, genCount, user?.id, toast, speakMr, requireAccount])
 
   // ----- Add to cart -----
   const handleAddToCart = useCallback(async () => {
@@ -553,7 +564,7 @@ export default function MetalArtStudio() {
       const product: Product = {
         id: `metal-art-custom-${Date.now()}`,
         name: `Custom Metal Art Print ${sizeLabel}`,
-        description: `Museum-grade ${finish} metal print â€” ${sizeLabel}. ${METAL_ART_SUBSTRATE.charAt(0).toUpperCase()}${METAL_ART_SUBSTRATE.slice(1)} plate, vivid full-color print, ${METAL_ART_MOUNTING_COPY}.`,
+        description: `Museum-grade ${finish} metal print — ${sizeLabel}. ${METAL_ART_SUBSTRATE.charAt(0).toUpperCase()}${METAL_ART_SUBSTRATE.slice(1)} plate, vivid full-color print, ${METAL_ART_MOUNTING_COPY}.`,
         price,
         category: 'metal-art',
         images: [artworkUrl],
@@ -582,7 +593,7 @@ export default function MetalArtStudio() {
       )
 
       setCartAdded(true)
-      toast.success('Added to cart', `${qty} Ã— Custom Metal Art Print ${sizeLabel} â€” $${(price * qty).toFixed(2)}`)
+      toast.success('Added to cart', `${qty} × Custom Metal Art Print ${sizeLabel} — $${(price * qty).toFixed(2)}`)
     } catch (err: unknown) {
       toast.error('Failed to add to cart', err instanceof Error ? err.message : 'Please try again.')
     } finally {
@@ -654,7 +665,7 @@ export default function MetalArtStudio() {
         className="relative flex flex-col items-center justify-center text-center overflow-hidden"
         style={{ minHeight: '92vh' }}
       >
-        {/* Background wall scene â€” lightened for the hero */}
+        {/* Background wall scene — lightened for the hero */}
         <div
           className="absolute inset-0 bg-cover bg-center"
           style={{
@@ -718,7 +729,7 @@ export default function MetalArtStudio() {
             className="text-lg max-w-xl mx-auto mb-10"
             style={{ color: '#374151', lineHeight: 1.6 }}
           >
-            Museum-grade metal prints, made by you â€” designed, printed and shipped
+            Museum-grade metal prints, made by you — designed, printed and shipped
             by Imagine This Printed.
           </p>
           <button
@@ -739,7 +750,7 @@ export default function MetalArtStudio() {
       </section>
 
       {/* ----------------------------------------------------------------
-          STEP 1 â€” GET YOUR ARTWORK
+          STEP 1 — GET YOUR ARTWORK
       ---------------------------------------------------------------- */}
       <section id="step-1" className="py-24 px-6" style={{ backgroundColor: '#ffffff' }}>
         <div className="max-w-3xl mx-auto">
@@ -785,7 +796,7 @@ export default function MetalArtStudio() {
               <div
                 className="rounded-xl border-2 border-dashed flex flex-col items-center justify-center py-16 px-8 cursor-pointer transition-all group"
                 style={{ borderColor: '#d1d5db', backgroundColor: '#f9fafb' }}
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => { if (requireAccount('metal-create')) fileInputRef.current?.click() }}
                 onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#7c3aed'; (e.currentTarget as HTMLDivElement).style.backgroundColor = '#faf5ff' }}
                 onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.borderColor = '#d1d5db'; (e.currentTarget as HTMLDivElement).style.backgroundColor = '#f9fafb' }}
                 onDragOver={e => { e.preventDefault(); (e.currentTarget as HTMLDivElement).style.borderColor = '#7c3aed'; (e.currentTarget as HTMLDivElement).style.backgroundColor = '#faf5ff' }}
@@ -806,7 +817,7 @@ export default function MetalArtStudio() {
                 {uploading ? (
                   <>
                     <Loader2 size={40} className="animate-spin mb-5" style={{ color: '#7c3aed' }} />
-                    <p className="text-sm font-medium" style={{ color: '#7c3aed' }}>Uploadingâ€¦</p>
+                    <p className="text-sm font-medium" style={{ color: '#7c3aed' }}>Uploading…</p>
                   </>
                 ) : artworkUrl ? (
                   <>
@@ -829,7 +840,7 @@ export default function MetalArtStudio() {
                       Drag &amp; drop or click to upload
                     </p>
                     <p className="text-sm mb-4" style={{ color: '#6b7280' }}>
-                      JPG, PNG, WEBP â€” up to 15 MB
+                      JPG, PNG, WEBP — up to 15 MB
                     </p>
                     <button
                       type="button"
@@ -837,7 +848,7 @@ export default function MetalArtStudio() {
                       className="text-xs underline underline-offset-2 transition-colors"
                       style={{ color: '#7c3aed', background: 'none', cursor: 'pointer' }}
                     >
-                      or generate one with AI â†’
+                      or generate one with AI →
                     </button>
                   </>
                 )}
@@ -849,7 +860,7 @@ export default function MetalArtStudio() {
                   style={{ color: '#059669' }}
                 >
                   <CheckCircle size={15} />
-                  Artwork ready â€” scroll down to preview on metal
+                  Artwork ready — scroll down to preview on metal
                 </p>
               )}
             </div>
@@ -869,7 +880,7 @@ export default function MetalArtStudio() {
                 </div>
               )}
 
-              {/* ===== Mr. Imagine â€” the host, front & center ===== */}
+              {/* ===== Mr. Imagine — the host, front & center ===== */}
               <div className="rounded-2xl p-5 sm:p-6" style={{ background: 'linear-gradient(135deg,#faf5ff,#f3e8ff)', border: '1px solid #e9d5ff' }}>
                 <div className="flex flex-col items-center text-center">
                   <img src="/mr-imagine/mr-imagine-waving.png" alt="Mr. Imagine" className="drop-shadow" style={{ width: 96, height: 96, objectFit: 'contain' }} />
@@ -881,8 +892,8 @@ export default function MetalArtStudio() {
                   </div>
                   <p className="text-sm mt-1" style={{ color: '#6b7280', maxWidth: 460 }}>
                     {mrSpeaking
-                      ? 'Mr. Imagine is talkingâ€¦'
-                      : 'Tell me the vibe and Iâ€™ll design a stunning metal wall-art piece with you â€” Iâ€™ll even help pick the style.'}
+                      ? 'Mr. Imagine is talking…'
+                      : 'Tell me the vibe and I’ll design a stunning metal wall-art piece with you — I’ll even help pick the style.'}
                   </p>
                 </div>
 
@@ -923,7 +934,7 @@ export default function MetalArtStudio() {
                     value={mrInput}
                     onChange={e => setMrInput(e.target.value)}
                     onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void askMrImagine() } }}
-                    placeholder={mrChat.length ? 'Reply to Mr. Imagineâ€¦' : 'e.g. something calming with ocean vibes for my living room'}
+                    placeholder={mrChat.length ? 'Reply to Mr. Imagine…' : 'e.g. something calming with ocean vibes for my living room'}
                     disabled={mrBusy}
                     className="flex-1 rounded-lg px-4 py-3 text-sm outline-none"
                     style={{ background: '#ffffff', border: '1px solid #d1d5db', color: '#111827' }}
@@ -947,10 +958,10 @@ export default function MetalArtStudio() {
               </div>
               <audio ref={mrAudioRef} className="hidden" />
 
-              {/* Setup controls â€” Mr. Imagine reveals these once he's engaged (or skip to manual) */}
+              {/* Setup controls — Mr. Imagine reveals these once he's engaged (or skip to manual) */}
               {(manualMode || mrChat.length > 0) && (
               <>
-              {/* Style picker removed â€” Mr. Imagine picks the style through the
+              {/* Style picker removed — Mr. Imagine picks the style through the
                   conversation (his promptSuggestion carries the art style). */}
 
               {/* ---- Prompt textarea (the subject) ---- */}
@@ -964,7 +975,7 @@ export default function MetalArtStudio() {
                 </label>
                 <p className="text-xs mb-2" style={{ color: '#6b7280' }}>
                   {selectedStyle
-                    ? `Your words, rendered in the ${METAL_STARTERS.find(s => s.slug === selectedStyle)?.label} style â€” or let Mr. Imagine fill this in.`
+                    ? `Your words, rendered in the ${METAL_STARTERS.find(s => s.slug === selectedStyle)?.label} style — or let Mr. Imagine fill this in.`
                     : 'Describe it, pick a style, or let Mr. Imagine write this for you.'}
                 </p>
                 <textarea
@@ -1029,7 +1040,7 @@ export default function MetalArtStudio() {
                 {generating ? (
                   <>
                     <Loader2 size={15} className="animate-spin" />
-                    Generatingâ€¦
+                    Generating…
                   </>
                 ) : (
                   <>
@@ -1048,7 +1059,7 @@ export default function MetalArtStudio() {
               </button>
               {generating && (
                 <div className="mt-4">
-                  <GenerationProgress etaSeconds={24} messages={['Mr. Imagine is sketching the compositionâ€¦', 'Painting your masterpieceâ€¦', 'Adding dramatic light and depthâ€¦', 'Polishing the final pieceâ€¦']} />
+                  <GenerationProgress etaSeconds={24} messages={['Mr. Imagine is sketching the composition…', 'Painting your masterpiece…', 'Adding dramatic light and depth…', 'Polishing the final piece…']} />
                 </div>
               )}
               </>
@@ -1080,7 +1091,7 @@ export default function MetalArtStudio() {
                             alt={`Generated option ${idx + 1}`}
                             className="w-full aspect-square object-cover block"
                           />
-                          {/* Model label badge â€” always visible in top-left */}
+                          {/* Model label badge — always visible in top-left */}
                           <span
                             className="absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-semibold"
                             style={{
@@ -1108,7 +1119,7 @@ export default function MetalArtStudio() {
                               className="cursor-pointer select-none hover:underline"
                               style={{ color: '#9ca3af', listStyle: 'none', outline: 'none' }}
                             >
-                              view prompt â†“
+                              view prompt ↓
                             </summary>
                             <p
                               className="mt-1 px-3 py-2 rounded leading-relaxed"
@@ -1129,7 +1140,7 @@ export default function MetalArtStudio() {
       </section>
 
       {/* ----------------------------------------------------------------
-          STEP 2 â€” PREVIEW ON METAL  (activates once artwork exists)
+          STEP 2 — PREVIEW ON METAL  (activates once artwork exists)
       ---------------------------------------------------------------- */}
       <section
         id="step-2"
@@ -1149,14 +1160,14 @@ export default function MetalArtStudio() {
             Choose your finish, size, and see it on the wall.
           </p>
 
-          {/* ===== See it in YOUR space â€” photoreal AI room mockup (gpt-image-2) ===== */}
+          {/* ===== See it in YOUR space — photoreal AI room mockup (gpt-image-2) ===== */}
           {artworkUrl && (
             <div className="mb-10 rounded-2xl p-5" style={{ background: '#ffffff', border: '1px solid #e9d5ff' }}>
               <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
                 <div>
                   <p className="text-base font-bold" style={{ color: '#6d28d9' }}>See it in your space</p>
                   <p className="text-xs" style={{ color: '#6b7280' }}>
-                    {mrLocation ? `A real mockup on the wall of your ${mrLocation}.` : 'A photoreal mockup of your piece hanging on a real wall â€” pick a room.'}
+                    {mrLocation ? `A real mockup on the wall of your ${mrLocation}.` : 'A photoreal mockup of your piece hanging on a real wall — pick a room.'}
                   </p>
                 </div>
                 <button
@@ -1166,7 +1177,7 @@ export default function MetalArtStudio() {
                   style={{ background: '#7c3aed', color: '#ffffff', cursor: roomBusy ? 'wait' : 'pointer' }}
                 >
                   {roomBusy ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                  {roomBusy ? 'Staging your roomâ€¦' : roomMockupUrl ? 'Regenerate' : (mrLocation ? `See it in your ${mrLocation}` : 'See it on a wall')}
+                  {roomBusy ? 'Staging your room…' : roomMockupUrl ? 'Regenerate' : (mrLocation ? `See it in your ${mrLocation}` : 'See it on a wall')}
                 </button>
               </div>
               <div className="flex flex-wrap gap-2 mb-3">
@@ -1190,7 +1201,7 @@ export default function MetalArtStudio() {
                     <>
                       <img src="/mr-imagine/mr-imagine-waving.png" alt="Mr. Imagine" style={{ width: 56, height: 56, objectFit: 'contain' }} />
                       <div style={{ width: '100%', maxWidth: 360 }}>
-                        <GenerationProgress etaSeconds={20} messages={['Setting up your roomâ€¦', 'Hanging your art on the wallâ€¦', 'Adjusting the lightingâ€¦', 'Almost readyâ€¦']} />
+                        <GenerationProgress etaSeconds={20} messages={['Setting up your room…', 'Hanging your art on the wall…', 'Adjusting the lighting…', 'Almost ready…']} />
                       </div>
                     </>
                   ) : 'Tap a room above and Mr. Imagine will hang your art on the wall.'}
@@ -1267,7 +1278,7 @@ export default function MetalArtStudio() {
                 className="mt-6 text-xs text-center"
                 style={{ color: '#9ca3af', maxWidth: 420, lineHeight: 1.7 }}
               >
-                Magnet-mounted steel plate Â· vivid full-color print Â· arrives ready to hang
+                Magnet-mounted steel plate · vivid full-color print · arrives ready to hang
               </p>
             </div>
           </div>
@@ -1275,7 +1286,7 @@ export default function MetalArtStudio() {
       </section>
 
       {/* ----------------------------------------------------------------
-          STEP 3 â€” ORDER / EARN  (activates once artwork exists)
+          STEP 3 — ORDER / EARN  (activates once artwork exists)
       ---------------------------------------------------------------- */}
       <section
         id="step-3"
@@ -1306,7 +1317,7 @@ export default function MetalArtStudio() {
                   </h3>
                 </div>
                 <p className="text-xs" style={{ color: '#4b5563' }}>
-                  Ships within 3â€“5 business days
+                  Ships within 3–5 business days
                 </p>
               </div>
 
@@ -1320,7 +1331,7 @@ export default function MetalArtStudio() {
                     ${price.toFixed(2)}
                   </span>
                   <span className="text-sm ml-2" style={{ color: '#4b5563' }}>
-                    {PLATE_DIMS[size].labelIn} Â· {finish}
+                    {PLATE_DIMS[size].labelIn} · {finish}
                   </span>
                 </div>
                 <p className="text-sm font-semibold mt-1" style={{ color: '#7c3aed' }}>
@@ -1399,7 +1410,7 @@ export default function MetalArtStudio() {
                   {addingToCart ? (
                     <>
                       <Loader2 size={15} className="animate-spin" />
-                      Addingâ€¦
+                      Adding…
                     </>
                   ) : (
                     <>
@@ -1430,7 +1441,7 @@ export default function MetalArtStudio() {
 
               <p className="text-sm" style={{ color: '#4b5563', lineHeight: 1.7 }}>
                 List your design in the store. Every time someone orders a print
-                with your artwork, you earn 15% automatically â€” no effort required.
+                with your artwork, you earn 15% automatically — no effort required.
               </p>
 
               {submitted ? (
@@ -1440,7 +1451,7 @@ export default function MetalArtStudio() {
                 >
                   <CheckCircle size={18} className="mt-0.5 flex-shrink-0" style={{ color: '#059669' }} />
                   <p className="text-sm" style={{ color: '#166534' }}>
-                    Submitted for review â€” find it in your Creator Hub once approved.
+                    Submitted for review — find it in your Creator Hub once approved.
                   </p>
                 </div>
               ) : (
@@ -1494,7 +1505,7 @@ export default function MetalArtStudio() {
                     {submitting ? (
                       <>
                         <Loader2 size={15} className="animate-spin" />
-                        Submittingâ€¦
+                        Submitting…
                       </>
                     ) : (
                       <>
@@ -1514,7 +1525,7 @@ export default function MetalArtStudio() {
 }
 
 // ---------------------------------------------------------------------------
-// Scene view â€” plates placed on wall photos or charcoal backdrop
+// Scene view — plates placed on wall photos or charcoal backdrop
 // ---------------------------------------------------------------------------
 interface SceneViewProps {
   artworkUrl: string

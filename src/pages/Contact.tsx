@@ -1,21 +1,39 @@
+// The shop's help desk: quick answers first, the chat one tap away, and a message form that reaches Christina.
+// Task 5878a61f, built to the mockup David approved on 2026-10-07 (approval dca0616d). The Cloudflare check and
+// the honeypot are unchanged from the spam lockdown (task 673c0b4a): the API still refuses a post without a token.
 import React, { useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import { ArrowRight, CheckCircle2, HeartHandshake, Mail, Send } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import TurnstileWidget from '../components/TurnstileWidget'
 import HoneypotField from '../components/HoneypotField'
 import { isCaptchaConfigured } from '../lib/captcha'
+import { SUPPORT_EMAIL } from '../lib/help-facts'
+import { HelpSearch, PickupCard, QuickAnswers, SupportDoors, SupportHero } from '../components/support/SupportParts'
+
+const TOPICS = [
+  { value: 'general', label: 'A question' },
+  { value: 'order', label: 'An order I placed' },
+  { value: 'custom', label: 'A custom or big order' },
+  { value: 'billing', label: 'Billing or payment' },
+  { value: 'technical', label: 'Something on the website' },
+  { value: 'other', label: 'Something else' },
+]
 
 const Contact: React.FC = () => {
   const { user } = useAuth()
+  const [params] = useSearchParams()
+  const presetTopic = TOPICS.some((t) => t.value === params.get('topic')) ? params.get('topic')! : 'general'
   const [formData, setFormData] = useState({
     name: user?.displayName || user?.username || '',
     email: user?.email || '',
-    category: 'general',
+    category: presetTopic,
     subject: '',
     message: '',
-    orderId: ''
+    orderId: params.get('order') || '',
   })
   const [submitting, setSubmitting] = useState(false)
-  const [submitted, setSubmitted] = useState(false)
+  const [submitted, setSubmitted] = useState<{ ref: string | null } | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [honeypot, setHoneypot] = useState('') // Spam protection
   // Human check; the API verifies the token (backend/lib/turnstile.ts). Single-use,
@@ -23,6 +41,8 @@ const Contact: React.FC = () => {
   const [captchaToken, setCaptchaToken] = useState<string | null>(null)
   const [captchaReset, setCaptchaReset] = useState(0)
   const captchaRequired = isCaptchaConfigured()
+  const set = (k: keyof typeof formData) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+    setFormData({ ...formData, [k]: e.target.value })
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -30,12 +50,12 @@ const Contact: React.FC = () => {
     // Honeypot check - if filled, it's a bot
     if (honeypot) {
       console.log('[Contact] Honeypot triggered, ignoring submission')
-      setSubmitted(true)
+      setSubmitted({ ref: null })
       return
     }
 
     if (!formData.name || !formData.email || !formData.subject || !formData.message) {
-      setError('Please fill in all required fields')
+      setError('Please fill in your name, email, a short subject and your message.')
       return
     }
 
@@ -70,8 +90,9 @@ const Contact: React.FC = () => {
         const errorData = await response.json().catch(() => ({}))
         throw new Error(errorData.error || 'Failed to submit ticket')
       }
-
-      setSubmitted(true)
+      const data = await response.json().catch(() => ({}))
+      setSubmitted({ ref: typeof data.ticketId === 'string' ? data.ticketId.slice(0, 8).toUpperCase() : null })
+      window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err: any) {
       console.error('[Contact] Error submitting ticket:', err)
       setError(err.message || 'Failed to submit your request. Please try again.')
@@ -83,209 +104,141 @@ const Contact: React.FC = () => {
   }
 
   if (submitted) {
+    const first = formData.name.trim().split(/\s+/)[0]
     return (
-      <div className="min-h-screen bg-bg py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md mx-auto">
-          <div className="bg-card rounded-lg shadow-lg p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <h2 className="text-2xl font-bold text-text mb-2">Message Sent!</h2>
-            <p className="text-muted mb-6">
-              Thank you for contacting us. We've received your message and will get back to you within 24 hours.
-            </p>
-            <p className="text-sm text-muted mb-6">
-              A confirmation email has been sent to <span className="font-medium">{formData.email}</span>
-            </p>
-            <a
-              href="/"
-              className="inline-block bg-purple-600 hover:bg-purple-700 text-white font-medium px-6 py-3 rounded-lg transition-colors"
-            >
-              Back to Home
-            </a>
+      <div className="sp-root min-h-screen bg-bg">
+        <SupportHero
+          image="/support/hero.webp"
+          eyebrow="Message received"
+          title={<>Thanks{first ? `, ${first}` : ''}. <span className="sp-help-word">Got it.</span></>}
+          subtitle={`Christina and the team will write back to ${formData.email}, usually within a day.`}
+        >
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+            <Link to="/catalog" className="sp-btn">Back to the shop <ArrowRight className="w-4 h-4" /></Link>
+            {submitted.ref && (
+              <p className="text-sm text-text-secondary">
+                <CheckCircle2 className="inline w-4 h-4 text-primary mr-1 -mt-0.5" />
+                Your reference: <span className="font-semibold text-text">{submitted.ref}</span>
+              </p>
+            )}
           </div>
+        </SupportHero>
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 pb-16">
+          <h2 className="font-display text-3xl text-text">While you wait</h2>
+          <p className="mt-1 mb-5 text-muted">Your answer might already be here.</p>
+          <QuickAnswers />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-bg py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-2xl mx-auto">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-text mb-2">Contact Us</h1>
-          <p className="text-muted">
-            Have a question or need help? We're here for you.
-          </p>
-        </div>
+    <div className="sp-root min-h-screen bg-bg">
+      <SupportHero
+        image="/support/hero.webp"
+        eyebrow="We're here to help"
+        title={<>How can we <span className="sp-help-word">help?</span></>}
+        subtitle="We are a small print shop in Rockmart, GA. Real people answer."
+      >
+        <HelpSearch />
+      </SupportHero>
 
-        <div className="bg-card rounded-lg shadow-lg p-8">
-          <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Honeypot field - hidden from users */}
-            <HoneypotField value={honeypot} onChange={setHoneypot} />
+      <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 pb-16 space-y-14">
+        <SupportDoors signedIn={!!user} />
 
-            {error && (
-              <div className="bg-red-50 border border-red-200 rounded-md p-4">
-                <p className="text-red-800 text-sm">{error}</p>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-text mb-1">
-                  Your Name <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-bg text-text"
-                  placeholder="John Doe"
-                  required
-                />
-              </div>
-
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-text mb-1">
-                  Email Address <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  id="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-bg text-text"
-                  placeholder="you@example.com"
-                  required
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="category" className="block text-sm font-medium text-text mb-1">
-                  Category
-                </label>
-                <select
-                  id="category"
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-bg text-text"
-                >
-                  <option value="general">General Question</option>
-                  <option value="order">Order Issue</option>
-                  <option value="technical">Technical Support</option>
-                  <option value="billing">Billing / Payment</option>
-                  <option value="custom">Custom Order Request</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label htmlFor="orderId" className="block text-sm font-medium text-text mb-1">
-                  Order ID <span className="text-muted text-xs">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  id="orderId"
-                  value={formData.orderId}
-                  onChange={(e) => setFormData({ ...formData, orderId: e.target.value })}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-bg text-text"
-                  placeholder="ORD-123456"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label htmlFor="subject" className="block text-sm font-medium text-text mb-1">
-                Subject <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                id="subject"
-                value={formData.subject}
-                onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-bg text-text"
-                placeholder="How can we help?"
-                required
-              />
-            </div>
-
-            <div>
-              <label htmlFor="message" className="block text-sm font-medium text-text mb-1">
-                Message <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                id="message"
-                rows={6}
-                value={formData.message}
-                onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent bg-bg text-text resize-none"
-                placeholder="Please describe your question or issue in detail..."
-                required
-              />
-            </div>
-
-            <TurnstileWidget
-              action="contact"
-              onVerify={setCaptchaToken}
-              resetSignal={captchaReset}
-              className="flex justify-center"
-            />
-
-            <button
-              type="submit"
-              disabled={submitting || (captchaRequired && !captchaToken)}
-              className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center"
-            >
-              {submitting ? (
-                <>
-                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                  Sending...
-                </>
-              ) : (
-                'Send Message'
-              )}
-            </button>
-          </form>
-
-          <div className="mt-8 pt-6 border-t border-gray-200">
-            <h3 className="text-lg font-medium text-text mb-4">Other Ways to Reach Us</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-start">
-                <div className="flex-shrink-0">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-text">Email</p>
-                  <a href="mailto:wecare@imaginethisprinted.com" className="text-sm text-purple-600 hover:text-purple-800">
-                    wecare@imaginethisprinted.com
-                  </a>
-                </div>
-              </div>
-
-              <div className="flex items-start">
-                <div className="flex-shrink-0">
-                  <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                </div>
-                <div className="ml-3">
-                  <p className="text-sm font-medium text-text">Response Time</p>
-                  <p className="text-sm text-muted">Usually within 24 hours</p>
-                </div>
-              </div>
+        <section>
+          <div className="sp-banner p-6 sm:p-8 mb-5">
+            <img src="/support/door-answers.webp" alt="" className="sp-banner-img" />
+            <div className="relative z-10">
+              <h2 className="font-display text-4xl text-text">Quick answers</h2>
+              <p className="mt-1 text-text-secondary">The questions we hear most, answered.</p>
             </div>
           </div>
-        </div>
+          <QuickAnswers />
+          <p className="mt-4 text-center">
+            <Link to="/help" className="inline-flex items-center gap-1 font-semibold text-primary hover:underline">
+              See all answers <ArrowRight className="w-4 h-4" />
+            </Link>
+          </p>
+        </section>
+
+        <section id="message" className="grid gap-6 lg:grid-cols-[1.6fr_1fr] scroll-mt-24">
+          <div className="sp-card p-6 sm:p-8">
+            <h2 className="font-display text-4xl text-text">Send us a message</h2>
+            <p className="mt-1 text-muted">Tell us what you need and we will write back by email.</p>
+
+            <form onSubmit={handleSubmit} className="mt-6 space-y-5">
+              {/* Honeypot field - hidden from users */}
+              <HoneypotField value={honeypot} onChange={setHoneypot} />
+
+              {error && (
+                <div role="alert" className="sp-tint rounded-xl border border-border px-4 py-3 text-sm text-text">
+                  {error}
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <label className="block">
+                  <span className="block text-sm font-semibold text-text mb-1.5">Your name</span>
+                  <input id="name" type="text" value={formData.name} onChange={set('name')} className="sp-input" autoComplete="name" required />
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-semibold text-text mb-1.5">Email</span>
+                  <input id="email" type="email" value={formData.email} onChange={set('email')} className="sp-input" autoComplete="email" placeholder="you@example.com" required />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <label className="block">
+                  <span className="block text-sm font-semibold text-text mb-1.5">What is it about?</span>
+                  <select id="category" value={formData.category} onChange={set('category')} className="sp-input">
+                    {TOPICS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-sm font-semibold text-text mb-1.5">
+                    Order number <span className="font-normal text-muted">(if you have one)</span>
+                  </span>
+                  <input id="orderId" type="text" value={formData.orderId} onChange={set('orderId')} className="sp-input" placeholder="From your order email" />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="block text-sm font-semibold text-text mb-1.5">Subject</span>
+                <input id="subject" type="text" value={formData.subject} onChange={set('subject')} className="sp-input" placeholder="A few words, like: sizes for a team order" required />
+              </label>
+
+              <label className="block">
+                <span className="block text-sm font-semibold text-text mb-1.5">Message</span>
+                <textarea id="message" rows={6} value={formData.message} onChange={set('message')} className="sp-input resize-none" placeholder="The more you tell us, the faster we can help." required />
+              </label>
+
+              <TurnstileWidget
+                action="contact"
+                onVerify={setCaptchaToken}
+                resetSignal={captchaReset}
+                className="flex justify-center"
+              />
+
+              <button type="submit" disabled={submitting || (captchaRequired && !captchaToken)} className="sp-btn w-full text-base">
+                <Send className="w-5 h-5" /> {submitting ? 'Sending your message to the shop' : 'Send message'}
+              </button>
+              {submitting && <div className="sp-progress" role="progressbar" aria-label="Sending your message"><span /></div>}
+            </form>
+          </div>
+
+          <aside className="space-y-5">
+            <div className="sp-card sp-tint p-6">
+              <HeartHandshake className="w-8 h-8 text-primary" />
+              <p className="mt-3 font-display text-2xl leading-snug text-text">Christina and the team read every message, usually within a day.</p>
+              <p className="mt-3 flex items-center gap-2 text-sm text-text-secondary">
+                <Mail className="w-4 h-4 text-primary" />
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="hover:text-primary">{SUPPORT_EMAIL}</a>
+              </p>
+            </div>
+            <PickupCard compact />
+          </aside>
+        </section>
       </div>
     </div>
   )

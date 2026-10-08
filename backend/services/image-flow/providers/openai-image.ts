@@ -23,6 +23,9 @@
 
 import OpenAI, { toFile } from 'openai'
 import { uploadImageFromBase64 } from '../../google-cloud-storage.js'
+import { ProviderOutOfCreditError, isOpenAIOutOfCredit, type CreditProbeResult } from '../../provider-credit.js'
+
+export { isOpenAIOutOfCredit }
 
 // Lazy: the OpenAI SDK throws at construction when the key is unset, and this
 // module is now in the import graph of worker-helpers (every worker/test that
@@ -198,6 +201,12 @@ async function withModelChain<T>(
       unavailableUntil.delete(model)
       return { res, usedModel: model }
     } catch (err: any) {
+      // An empty wallet fails every model on the key alike, so it is never a
+      // reason to walk the chain. Typed, so the job worker pauses the queue
+      // instead of failing the job (task dbce13a8).
+      if (isOpenAIOutOfCredit(err)) {
+        throw new ProviderOutOfCreditError('openai', err?.message || 'OpenAI: no credits remaining', { status: err?.status, cause: err })
+      }
       if (!isModelUnavailable(err)) throw err
       if (!unavailableUntil.has(model)) {
         console.warn(`[openai-image] ${model} is not available on this key — falling back (rechecking in 6h)`)
@@ -258,6 +267,29 @@ export async function runOpenAIImage(opts: OpenAIImageOpts): Promise<{ url: stri
   if (!b64) throw new Error(`${usedModel}: no image returned`)
   const url = await persistB64(b64, opts.objectPath, opts.userId)
   return { url, modelId: `openai/${usedModel}` }
+}
+
+/**
+ * Has the wallet been topped up? The image queue's resume check while it is
+ * paused on an OpenAI no-credits error (services/image-credit-outage.ts runs it
+ * every few minutes). One low-quality square on the same key and chain the
+ * real work uses: a refused call costs nothing, so only the probe that finds
+ * credit back is billed, and nothing is stored. Only a rendered image counts as
+ * "back"; anything else that is not a credit refusal is inconclusive.
+ */
+export async function probeOpenAIImageCredit(): Promise<CreditProbeResult> {
+  if (!process.env.OPENAI_API_KEY) return { outcome: 'inconclusive', detail: 'OPENAI_API_KEY missing' }
+  const base = { prompt: 'a plain light grey square', n: 1, size: '1024x1024', quality: 'low', output_format: 'png' }
+  try {
+    const { usedModel } = await withModelChain(
+      resolveModelChain(),
+      (model) => client().images.generate({ model, ...paramsForModel(model, base) } as any)
+    )
+    return { outcome: 'ok', detail: `${usedModel} rendered a test image` }
+  } catch (err: any) {
+    if (err instanceof ProviderOutOfCreditError) return { outcome: 'out_of_credit', detail: err.message.slice(0, 200) }
+    return { outcome: 'inconclusive', detail: String(err?.message || err).slice(0, 200) }
+  }
 }
 
 export interface OpenAIEditOpts {

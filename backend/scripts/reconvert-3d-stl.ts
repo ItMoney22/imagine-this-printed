@@ -7,7 +7,7 @@
 import '../load-env.js'
 import { createClient } from '@supabase/supabase-js'
 import { SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
-import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { modelFilePath, signOwnModelFile, storeModelFile } from '../services/model-files.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
 
 const modelId = process.argv[2]
@@ -34,7 +34,10 @@ async function main() {
   console.log('[reconvert] model:', modelId)
   console.log('[reconvert] tier:', tierKey, '| target height:', targetHeightMm + 'mm')
 
-  const { stlBuffer, triangleCount, bboxMm, processingTime } = await convertGlbToStl(model.glb_url, {
+  // The GLB is private (task 1417e863): read it through a short-lived link.
+  const glbLink = await signOwnModelFile(model, 'glb', { ttlMinutes: 15 })
+  if (!glbLink) throw new Error('Could not sign the stored GLB (' + model.glb_url + ')')
+  const { stlBuffer, triangleCount, bboxMm, processingTime } = await convertGlbToStl(glbLink, {
     targetHeightMm,
     yUpToZUp: true,
     centerAndGround: true,
@@ -42,12 +45,11 @@ async function main() {
   console.log('[reconvert] STL ready —', triangleCount, 'triangles in', processingTime.toFixed(1) + 's')
   if (bboxMm) console.log('[reconvert] STL bbox (mm):', bboxMm.x.toFixed(1), '×', bboxMm.y.toFixed(1), '×', bboxMm.z.toFixed(1))
 
-  const stlPath = `3d-models/${modelId}/model.stl`
-  const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
-  console.log('[reconvert] STL uploaded')
+  const stlRef = await storeModelFile(stlBuffer, modelFilePath(modelId, 'stl'), 'stl')
+  console.log('[reconvert] STL saved (private bucket)')
 
   await sb.from('user_3d_models').update({
-    stl_url: stlPublicUrl,
+    stl_url: stlRef,
     triangle_count: triangleCount,
     metadata: {
       ...(model.metadata ?? {}),
@@ -60,7 +62,7 @@ async function main() {
   }).eq('id', modelId)
 
   console.log('[reconvert] 🎉 done')
-  console.log('[reconvert] stl:', stlPublicUrl)
+  console.log('[reconvert] stl:', stlRef)
 }
 
 main().catch((e) => { console.error('[reconvert] ❌', e?.message ?? e); process.exit(1) })

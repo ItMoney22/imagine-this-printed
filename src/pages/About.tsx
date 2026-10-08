@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Store, Printer, Truck, Mail } from 'lucide-react'
+import { HelpStrip } from '../components/support/SupportParts'
 
 // Who we are, in plain facts. A store with no About page and no business name
 // reads as a dropshipper or a scam to a first-time buyer (2026-10-07 trust pass).
@@ -45,6 +46,7 @@ export default function About() {
           </div>
         </div>
       </div>
+      <HelpStrip />
     </div>
   )
 }

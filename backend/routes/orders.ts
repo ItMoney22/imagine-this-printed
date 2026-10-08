@@ -908,7 +908,7 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
       // This is the first completed order, check for referral bonus.
       // processReferralFirstPurchase additionally self-guards on an existing
       // referral_transactions row (referral-service.ts:230).
-      await processReferralFirstPurchase(order.user_id, order.total)
+      await processReferralFirstPurchase(order.user_id, order.total, orderId)
     }
 
     // Create audit log
