@@ -102,6 +102,10 @@ Decisions (noted for the handoff):
 - `src/components/MobileTopBar.tsx` (new) + `src/App.tsx` (layout swap only) + `src/components/Sidebar.tsx` (drop floating menu button, promoted-link style), `src/components/FloatingCart.tsx` (pill lg+ only)
 - `src/pages/ProductCatalog.tsx` (shared row mapper + ?q= from the header search), `src/lib/shop-facts.ts`, `src/lib/storefront-row.ts` (new)
 - `public/icons/itp-bulb.png` (cut from itp-logo-v3)
+- page 2 (product page, approval 394b217c): `src/pages/ProductPage.tsx`, `src/components/product/*` (new: SizeGuide, YouMayAlsoLike), `src/lib/size-charts.ts` + test, `src/lib/plain-text.ts` + test, `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD), `src/config/business-info.ts` (SHOP_PLACE, ETSY_SHOP_URL)
+- page 3 (catalog, approval c71ae9d0): `src/pages/ProductCatalog.tsx`, `src/pages/catalog.css` (new), `public/catalog/hero.webp`
+- page 4 (cart + checkout, approval 0c21434e): `src/pages/Cart.tsx`, `src/pages/Checkout.tsx` (presentation only, payment logic untouched), `src/components/checkout/*` (new ProgressNote), `src/components/product/YouMayAlsoLike.tsx` (excludeIds/title)
+- page 5 (toys, approval 2a9ae61e): `src/pages/ToyLand.tsx`, `src/pages/toyland.css` (new), `public/toys/*`
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
@@ -113,6 +117,28 @@ Decisions (noted for the handoff):
   (logo, search, chat, cart count), no chat bubble/cart pill under lg, solid cookie bar, no In Stock badge.
   Reviews row left out: the Etsy shop has 0 reviews (API, 10/7). tsc 0, vitest 2139/2139, vite build OK,
   fleet-browser walk at 1440 + 390.
+- 2026-10-07 (amelia-chan): page 2 product page approved round 1 at 20:46Z (approval 394b217c). Built: breadcrumb, sticky
+  gallery, serif name + price + made-in line, options right under the price (size chips with their delta, Size guide
+  from maker spec sheets, colour, 2x2 quality cards), quantity + ONE Add to cart, Or buy it now + Imagination Sheet as
+  small links, three true facts, plain description with Read more (markdown stripped), Details / Shipping / Returns
+  collapsibles, You may also like (4 whole cards). Removed: giant gradient sheet button, separate Buy Now button, Earn
+  ITC box, blank Similar Products tiles. Walked tee, hoodie, 3D, blank, DTF at 1440 and tee at 390. vitest 2147/2147.
+- 2026-10-07 (amelia-chan): page 3 catalog approved round 1 at 20:58Z (approval c71ae9d0). Built: warm banner with the real
+  lion tee art (Shop everything), search, live count, shelf pills with counts (scroll sideways on a phone), sort, whole
+  compact cards in a 2/3/4 grid, round pagination, skeleton tiles. The mock's Shop Now / Explore buttons were left
+  out (on the catalog itself they go nowhere). Old sidebar, stat box and list view gone. Walked 1440 + 390, search ?q=.
+  Found + filed 7af6d41d: the $40 Midnight Misfits hoodie carries the 2-for-$25 flag (sells at $25).
+- 2026-10-07 (amelia-chan): merged iahhm c0deea6 (placement words, task 7b51795e: completed but unmerged) so the cart/checkout
+  rebuild sits on it. Page 4 approved round 1 at 21:10Z (approval 0c21434e). Cart: line cards with plain-word chips (L,
+  Black, Front print, quality), stepper, Remove; summary with free-shipping bar and ONE Check out; Add one more (4 whole
+  cards). Checkout: light top bar, primary step line, numbered form cards, inputs at 16px on phones, progress notes with
+  stage text + seconds instead of spinners and the yellow payment box, folded summary row on phones, three quiet facts.
+  Payment logic untouched. Walked 1440 + 390.
+- 2026-10-07 (amelia-chan): page 5 toys approved round 1 at 21:41Z (approval 2a9ae61e). Light shop page with a deep teal
+  hero window (art rendered from the real Wizard Beast, Robo Rascal, Shadow Raptor), illustrated steps, magnet hands +
+  paint kit with prices from TOY_ADDONS, figurines only (no candle holder), grown-ups facts, closing band with the live
+  cheapest-toy price ($15.99, not the old $5.99). Printed this week sticker and emoji chips gone. Walked 1440 + 390.
+  Replicate credit fell under $5 while rendering (burst 1, 6/min).
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
@@ -4959,3 +4985,4 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
   (APPLIED LIVE + tracked). Sweep of SECURITY DEFINER functions anon could EXECUTE found award_order_rewards
   (writes points + ITC), record/reverse_blank_sale (stock) and next_design_qa_submission_no; all callers are
   the service-role API/worker. Revoked; anon now 401 permission denied, service role still 200.
+- 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).

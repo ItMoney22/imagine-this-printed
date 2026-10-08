@@ -1,0 +1,38 @@
+/* Toy Factory page tokens (task b9656cc9, approved mock 2a9ae61e). The page is
+   the light shop; the Toy Factory keeps its deep teal for the hero window and
+   the closing band, and its four filament colours for the paint pots. */
+.toys-root {
+  --toys-ink: 4 47 46;
+  --toys-teal: 94 234 212;
+  --toys-red: 255 77 109;
+  --toys-yellow: 255 201 60;
+  --toys-filament-teal: 46 196 182;
+  --toys-purple: 157 92 255;
+}
+.toys-hero-fade {
+  background: linear-gradient(90deg, rgb(var(--toys-ink) / 0.95) 0%, rgb(var(--toys-ink) / 0.75) 38%, rgb(var(--toys-ink) / 0) 70%);
+}
+@media (max-width: 767px) {
+  .toys-hero-fade { background: linear-gradient(180deg, rgb(var(--toys-ink) / 0.55) 0%, rgb(var(--toys-ink) / 0.9) 70%); }
+}
+.toys-band-fade { background: linear-gradient(90deg, rgb(var(--toys-ink) / 0.85) 0%, rgb(var(--toys-ink) / 0.35) 75%); }
+.toys-close-fade { background: rgb(var(--toys-ink) / 0.6); }
+.toys-accent-teal { color: rgb(var(--toys-teal)); }
+.toys-accent-purple { color: var(--primary-light); }
+
+.toys-chip-purple { background: var(--primary); }
+.toys-chip-teal { background: rgb(var(--toys-filament-teal)); }
+.toys-chip-amber { background: rgb(var(--toys-yellow)); color: rgb(58 44 0); }
+
+.toys-pot {
+  width: 2.25rem; height: 2.6rem; border-radius: 0.5rem 0.5rem 0.8rem 0.8rem; position: relative;
+  box-shadow: inset 0 -6px 0 rgb(0 0 0 / 0.18);
+}
+.toys-pot::after {
+  content: ''; position: absolute; top: -5px; left: 50%; transform: translateX(-50%);
+  width: 70%; height: 6px; border-radius: 3px; background: rgb(255 255 255 / 0.9);
+}
+.toys-pot-red { background: rgb(var(--toys-red)); }
+.toys-pot-yellow { background: rgb(var(--toys-yellow)); }
+.toys-pot-teal { background: rgb(var(--toys-filament-teal)); }
+.toys-pot-purple { background: rgb(var(--toys-purple)); }
