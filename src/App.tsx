@@ -120,7 +120,7 @@ function ScrollToTop() {
 // Layout component that conditionally shows sidebar
 function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  const { isCollapsed } = useSidebar()
+  const { isCollapsed, siteMenuHidden } = useSidebar()
   const isFullScreen = FULL_SCREEN_ROUTES.some(route => location.pathname.startsWith(route))
 
   return (
@@ -129,7 +129,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       {!isFullScreen && <MobileTopBar />}
       <main
         className={`flex-1 min-w-0 overflow-x-hidden min-h-screen transition-all duration-300 ${
-          !isFullScreen ? `pt-16 lg:pt-0 ${isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''
+          !isFullScreen ? `pt-16 lg:pt-0 ${siteMenuHidden ? '' : isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''
         }`}
       >
         {!isFullScreen && <CookieConsent inline />}

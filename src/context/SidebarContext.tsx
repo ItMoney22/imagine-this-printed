@@ -7,6 +7,9 @@ interface SidebarContextType {
   toggleMobile: () => void
   closeMobile: () => void
   setCollapsed: (collapsed: boolean) => void
+  /** True while a page brings its own desktop menu (AdminShell): the shop menu steps aside so there is one. */
+  siteMenuHidden: boolean
+  setSiteMenuHidden: (hidden: boolean) => void
 }
 
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined)
@@ -22,6 +25,7 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
   })
 
   const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const [siteMenuHidden, setSiteMenuHidden] = useState(false)
 
   // Persist collapse state to localStorage
   useEffect(() => {
@@ -64,7 +68,9 @@ export function SidebarProvider({ children }: { children: ReactNode }) {
         toggleSidebar,
         toggleMobile,
         closeMobile,
-        setCollapsed
+        setCollapsed,
+        siteMenuHidden,
+        setSiteMenuHidden
       }}
     >
       {children}

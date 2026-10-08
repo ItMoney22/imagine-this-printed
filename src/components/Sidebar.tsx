@@ -96,7 +96,7 @@ function Section({ title, isCollapsed, children }: SectionProps) {
 export function Sidebar() {
   const { user, signOut } = useAuth()
   const { state: cartState } = useCart()
-  const { isCollapsed, isMobileOpen, toggleSidebar, closeMobile } = useSidebar()
+  const { isCollapsed, isMobileOpen, toggleSidebar, closeMobile, siteMenuHidden } = useSidebar()
   const location = useLocation()
 
   const cartCount = cartState ? cartState.items.reduce((sum: number, item: any) => sum + item.quantity, 0) : 0
@@ -393,13 +393,15 @@ export function Sidebar() {
 
   return (
     <>
-      {/* Desktop Sidebar */}
-      <aside
-        className={`hidden lg:flex flex-col fixed left-0 top-0 h-screen bg-white border-r border-purple-100 shadow-sm z-40 transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-60'
-          }`}
-      >
-        {sidebarContent}
-      </aside>
+      {/* Desktop Sidebar. Admin pages bring their own menu (AdminShell), so it steps aside there: one menu, not two. */}
+      {!siteMenuHidden && (
+        <aside
+          className={`hidden lg:flex flex-col fixed left-0 top-0 h-screen bg-white border-r border-purple-100 shadow-sm z-40 transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-60'
+            }`}
+        >
+          {sidebarContent}
+        </aside>
+      )}
 
       {/* Mobile Overlay */}
       {isMobileOpen && (

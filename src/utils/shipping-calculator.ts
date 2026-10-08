@@ -58,9 +58,6 @@ export const PICKUP_HOURS = '10:00 AM - 8:00 PM ET'
 // Standard turnaround for pickup AND local delivery (business days).
 export const STANDARD_FULFILLMENT_DAYS = 3
 
-// Orders at or over this subtotal ship standard for free (the product page says so too).
-export const FREE_SHIPPING_THRESHOLD = 50
-
 // Rush upgrade: next-business-day pickup or delivery for a flat fee, only
 // available when the order is placed before the cutoff in warehouse time.
 export const RUSH_FEE = 7.99

@@ -9,12 +9,13 @@ import { MemoryRouter } from 'react-router-dom'
 afterEach(cleanup)
 
 let role = 'admin'
+let siteMenuHidden = false
 vi.mock('../context/SupabaseAuthContext', () => ({
   useAuth: () => ({ user: { id: 'u1', email: 'a@b.c', role, username: 'admin' }, signOut: vi.fn() }),
 }))
 vi.mock('../context/CartContext', () => ({ useCart: () => ({ state: { items: [] } }) }))
 vi.mock('../context/SidebarContext', () => ({
-  useSidebar: () => ({ isCollapsed: false, isMobileOpen: false, toggleSidebar: vi.fn(), closeMobile: vi.fn() }),
+  useSidebar: () => ({ isCollapsed: false, isMobileOpen: false, toggleSidebar: vi.fn(), closeMobile: vi.fn(), siteMenuHidden }),
 }))
 
 import { Sidebar } from './Sidebar'
@@ -40,5 +41,17 @@ describe('Sidebar admin section', () => {
     role = 'customer'
     draw('/')
     expect(screen.queryByText('Shop Admin')).toBeNull()
+  })
+
+  // David 2026-10-08: the one door still left the shop menu standing beside AdminShell's. While an
+  // admin page is open (AdminShell sets siteMenuHidden) the desktop shop menu is not drawn at all.
+  it('draws no desktop shop menu while an admin page brings its own', () => {
+    role = 'admin'
+    siteMenuHidden = true
+    const { container } = draw()
+    expect(container.querySelector('aside')).toBeNull()
+    siteMenuHidden = false
+    cleanup()
+    expect(draw().container.querySelector('aside')).not.toBeNull()
   })
 })

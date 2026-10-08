@@ -1,15 +1,18 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, MessageCircle, Sparkles, Package, Image as ImageIcon,
   FlaskConical, Shirt, Layers, Tag, Ticket, Mail, Users, ScrollText, Gift, Banknote,
-  FileText, Boxes, Send, Palette, CheckCircle2,
+  FileText, Boxes, Send, Palette, CheckCircle2, ArrowLeft,
   type LucideIcon,
 } from 'lucide-react'
+import { useSidebar } from '../../context/SidebarContext'
 
 // The one admin nav. Every admin page is wrapped in <AdminShell> at the route, so
 // the shop's tools live in one grouped list instead of 20 flat tabs plus a pile of
 // side doors. Tab items open AdminDashboard (`/admin?tab=…`); the rest are pages.
+// On desktop it is the ONLY menu: the shop sidebar steps aside while it is open
+// (David 2026-10-08, "we still have 2 nav bars"), and Back to Shop takes you out.
 export interface AdminNavItem {
   label: string
   to: string
@@ -98,6 +101,12 @@ export function isNavActive(item: AdminNavItem, pathname: string, search: string
 const AdminShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { pathname, search } = useLocation()
   const flat = ADMIN_NAV.flatMap(g => g.items.filter(i => !i.sub))
+  const { setSiteMenuHidden } = useSidebar()
+
+  useEffect(() => {
+    setSiteMenuHidden(true)
+    return () => setSiteMenuHidden(false)
+  }, [setSiteMenuHidden])
 
   return (
     <div className="lg:flex lg:items-start">
@@ -105,6 +114,14 @@ const AdminShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
         aria-label="Admin sections"
         className="hidden lg:block w-56 shrink-0 sticky top-0 self-start max-h-screen overflow-y-auto border-r border-border bg-card px-3 py-5"
       >
+        <Link
+          to="/"
+          className="mb-4 flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-sm font-semibold text-text hover:border-primary hover:text-primary transition-colors"
+        >
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" />
+          <img src="/mr-imagine/mr-imagine-head.png" alt="" className="h-5 w-auto" />
+          Back to Shop
+        </Link>
         <div className="px-2 pb-4">
           <div className="text-sm font-display font-bold text-text">ITP Admin</div>
           <div className="text-xs text-muted">Everything that runs the shop</div>
