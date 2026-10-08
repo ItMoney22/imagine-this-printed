@@ -5,8 +5,47 @@ import {
   blankUnitPriceDollars,
   blankFromPriceDollars,
   blankPricingOf,
-  isBlankGarmentMeta
+  isBlankGarmentMeta,
+  buildBlankPricingByColor
 } from './blank-pricing.js'
+
+describe('buildBlankPricingByColor (Jiffy cost per colour, David 2026-10-07)', () => {
+  const sizes = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL']
+  // Real 2026-10-07 Gildan G500 costs: White has a one-size sale on S.
+  const pricing = buildBlankPricingByColor(
+    {
+      White: { S: 1.82, M: 2.79, L: 2.79, XL: 2.79, '2XL': 5.38, '3XL': 7.17, '4XL': 7.5, '5XL': 7.5 },
+      Black: { S: 2.99, M: 2.99, L: 2.99, XL: 2.99, '2XL': 6.93, '3XL': 8.6, '4XL': 9.53, '5XL': 9.53 },
+      Navy: { S: 2.99, M: 2.99, L: 2.99, XL: 2.99, '2XL': 6.93, '3XL': 8.6, '4XL': 9.53, '5XL': 9.53 },
+      Maroon: { S: 3.92, M: 3.92, L: 3.92, XL: 3.92, '2XL': 6.91, '3XL': 8.92 }, // no 4XL/5XL at Jiffy
+    },
+    sizes,
+    15
+  )
+
+  it('prices each colour off its own cost at +15%', () => {
+    expect(blankUnitPriceDollars(pricing, 'M', 'Black')).toBe(3.44)
+    expect(blankUnitPriceDollars(pricing, '2XL', 'Black')).toBe(7.97)
+    expect(blankUnitPriceDollars(pricing, 'M', 'Maroon')).toBe(4.51)
+  })
+
+  it('prices the whole S-XL band off its highest cost, so a one-size sale never sets the price', () => {
+    expect(blankUnitPriceDollars(pricing, 'S', 'White')).toBe(3.21) // 2.79 * 1.15, not 1.82 * 1.15
+    expect(blankUnitPriceDollars(pricing, 'XL', 'White')).toBe(3.21)
+  })
+
+  it('refuses a size Jiffy does not carry in that colour instead of falling back to default', () => {
+    expect(pricing.by_color_only).toBe(true)
+    expect(blankUnitPriceDollars(pricing, '4XL', 'Maroon')).toBeNull()
+    expect(blankUnitPriceDollars(pricing, 'XS', 'Black')).toBeNull()
+    expect(blankUnitPriceDollars(pricing, '4XL', 'Black')).toBe(10.96)
+  })
+
+  it('uses the most common colour table as the default for an unlisted colour', () => {
+    expect(pricing.default.M).toBe(3.44)
+    expect(blankUnitPriceDollars(pricing, 'M', 'Some New Colour')).toBe(3.44)
+  })
+})
 
 describe('markupPrice', () => {
   it('adds the markup and rounds to whole cents', () => {

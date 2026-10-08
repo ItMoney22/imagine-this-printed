@@ -76,7 +76,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   // canonical panel list (a legacy '8x11' row shows the real 8x10 panel, an
   // empty column still offers both); apparel falls back to shirt sizes; a 3D
   // print with no explicit tiers comes back EMPTY, meaning one size.
-  const displaySizes = sizeChoicesFor(product)
+  // A blank in a picked colour only offers the sizes Jiffy carries in that colour.
+  const blankPricing = isBlankProduct(product) ? blankPricingOf(product.metadata) : null
+  const displaySizes = sizeChoicesFor(product).filter(
+    (s: string) => !blankPricing || !selectedColor || blankUnitPriceDollars(blankPricing, s, selectedColor) !== null
+  )
   const hasSizes = displaySizes.length > 0
   // Same option sets as ProductPage (David 2026-10-07): a transfer has no
   // shirt colours and no placement, and opens on its adult size.
@@ -426,7 +430,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                   <button
                     key={hex}
                     type="button"
-                    onClick={() => setSelectedColor(hex)}
+                    onClick={() => {
+                      setSelectedColor(hex)
+                      // The picked size isn't carried in this colour: drop it.
+                      if (blankPricing && selectedSize && blankUnitPriceDollars(blankPricing, selectedSize, hex) === null) setSelectedSize(null)
+                    }}
                     title={label}
                     aria-label={`Select ${label}`}
                     className={`w-8 h-8 rounded-full border-2 transition-all flex items-center justify-center ${

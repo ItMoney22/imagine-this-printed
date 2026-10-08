@@ -778,7 +778,11 @@ const ProductPage: React.FC = () => {
               // real 8x10 panel; an empty column offers both), everything else
               // shows its own column when set and a type-aware fallback
               // otherwise. Blanks carry their real per-size price on the button.
-              const displaySizes: string[] = sizeChoices
+              // A blank in a picked colour only offers the sizes Jiffy carries in that colour
+              // (its price table has no entry for the rest, and checkout refuses them).
+              const displaySizes: string[] = blankPricing && selectedColor
+                ? sizeChoices.filter(sz => blankUnitPriceDollars(blankPricing, sz, selectedColor) !== null)
+                : sizeChoices
               // A one-size product (a 3D print with no explicit tiers) has no
               // picker at all — see the requiresSize gate on add-to-cart.
               if (displaySizes.length === 0) return null
@@ -947,6 +951,8 @@ const ProductPage: React.FC = () => {
                         key={color}
                         onClick={() => {
                           setSelectedColor(color)
+                          // The picked size isn't carried in this colour: drop it so the buyer picks one that is.
+                          if (blankPricing && selectedSize && blankUnitPriceDollars(blankPricing, selectedSize, color) === null) setSelectedSize('')
                           // A blank with a render for this colour puts it in
                           // the hero slot — make sure the hero is what's showing.
                           if (isBlank && blankColorImages[color]) { setSelectedImage(0); setVideoActive(false) }

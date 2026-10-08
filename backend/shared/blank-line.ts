@@ -74,7 +74,8 @@ export interface BlankTierSpec {
   heroColor: string
 }
 
-export const BLANK_MARKUP_PCT = 10
+// David 2026-10-07: "redo all our blanks based off of Jiffy's pricing, 15% markup" (was 10%).
+export const BLANK_MARKUP_PCT = 15
 
 /** "Our label" story shared by every tier's copy. */
 export const BLANK_LABEL_NOTE =

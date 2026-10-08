@@ -13,7 +13,9 @@
 //
 // Usage (from backend/, reads backend/.env):
 //   npx tsx --env-file=.env scripts/seed-blanks.ts --dry-run
-//   npx tsx --env-file=.env scripts/seed-blanks.ts                 # account cost basis, 10% markup, active
+//   npx tsx --env-file=.env scripts/seed-blanks.ts                 # jiffy basis (each colour's own cost), 15% markup, active
+//   npx tsx scripts/jiffy-capture.ts                               # refresh data/jiffy-blank-costs.json first
+//   npx tsx --env-file=.env scripts/seed-blanks.ts --basis account # the old 9/2 two-group costs (white + one colour price)
 //   npx tsx --env-file=.env scripts/seed-blanks.ts --basis list    # reprice off Jiffy list price
 //   npx tsx --env-file=.env scripts/seed-blanks.ts --markup 15
 //   npx tsx --env-file=.env scripts/seed-blanks.ts --status draft
@@ -29,7 +31,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createClient } from '@supabase/supabase-js'
 import { BLANK_LINE, BLANK_MARKUP_PCT, BLANK_LABEL_NOTE, compareToLabel, colorSlug, type BlankTierSpec, type BlankColor } from '../shared/blank-line.js'
-import { buildBlankPricing, blankFromPriceDollars } from '../shared/blank-pricing.js'
+import { buildBlankPricing, buildBlankPricingByColor, blankFromPriceDollars } from '../shared/blank-pricing.js'
 
 // Per-colour renders written by scripts/render-blank-colors.ts. A colour whose
 // file exists gets `image` on its metadata entry so the product page can swap
@@ -51,11 +53,14 @@ const opt = (name: string): string | undefined => {
 }
 
 const DRY_RUN = flag('dry-run')
-const BASIS = (opt('basis') || 'account') as 'account' | 'list'
+// Each colour's own Jiffy cost (scripts/jiffy-capture.ts) is the default since 2026-10-08.
+const JIFFY_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../data/jiffy-blank-costs.json')
+const BASIS = (opt('basis') || 'jiffy') as 'jiffy' | 'account' | 'list'
+const JIFFY = BASIS === 'jiffy' ? JSON.parse(fs.readFileSync(JIFFY_FILE, 'utf8')) : null
 const MARKUP = Number(opt('markup') ?? BLANK_MARKUP_PCT)
 const STATUS = (opt('status') || 'active') as 'active' | 'draft'
 
-if (!['account', 'list'].includes(BASIS)) throw new Error(`--basis must be account|list, got ${BASIS}`)
+if (!['jiffy', 'account', 'list'].includes(BASIS)) throw new Error(`--basis must be jiffy|account|list, got ${BASIS}`)
 if (!Number.isFinite(MARKUP) || MARKUP < 0) throw new Error(`--markup must be a number, got ${opt('markup')}`)
 if (!['active', 'draft'].includes(STATUS)) throw new Error(`--status must be active|draft, got ${STATUS}`)
 
@@ -65,12 +70,16 @@ if (!SUPABASE_URL || !SERVICE_KEY) throw new Error('SUPABASE_URL / SUPABASE_SERV
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY)
 
 function buildRow(t: BlankTierSpec, knownColumns: Set<string> | null) {
-  const cost = t.cost[BASIS]
-  const pricing = buildBlankPricing(cost, t.whiteColors, MARKUP)
+  const jiffy = JIFFY?.tiers?.[t.id]
+  if (BASIS === 'jiffy' && !jiffy) throw new Error(`no Jiffy capture for ${t.id}: run scripts/jiffy-capture.ts`)
+  const cost = t.cost[BASIS === 'list' ? 'list' : 'account']
+  const pricing = jiffy ? buildBlankPricingByColor(jiffy.colors, t.sizes, MARKUP) : buildBlankPricing(cost, t.whiteColors, MARKUP)
   // "from" for the card = lowest price in the whole table (usually White S-XL).
   const fromPrice = blankFromPriceDollars(pricing) ?? 0
   // cost_price (when the column exists) = the default-colour S/M cost.
-  const baseCost = cost.default.M ?? cost.default.S ?? Object.values(cost.default)[0]
+  const baseCost = jiffy
+    ? Math.round(((pricing.default.M ?? pricing.default.S) / (1 + MARKUP / 100)) * 100) / 100
+    : cost.default.M ?? cost.default.S ?? Object.values(cost.default)[0]
 
   const colorsWithImages = t.colors.map(c => {
     const image = colorImagePath(t, c)
@@ -125,6 +134,7 @@ function buildRow(t: BlankTierSpec, knownColumns: Set<string> | null) {
         markup_pct: MARKUP,
         cost_basis: BASIS,
         cost: t.cost,
+        ...(jiffy ? { jiffy_cost: { captured_at: JIFFY.capturedAt, source: JIFFY.source, by_color: jiffy.colors } } : {}),
         pricing,
         seeded_by: 'backend/scripts/seed-blanks.ts',
         seeded_at: new Date().toISOString()
@@ -189,8 +199,10 @@ async function run() {
       '3XL': d['3XL'],
       '4XL': d['4XL'],
       '5XL': d['5XL'] ?? '—',
-      'white S-XL': w?.S ?? w?.M ?? '—',
-      colours: t.colors.length
+      'white S-XL': w?.M ?? w?.S ?? '—',
+      colours: t.colors.length,
+      'own price': Object.keys(pricing.by_color ?? {}).length,
+      'sizes not carried': t.colors.reduce((n, c) => n + t.sizes.filter(s => !(pricing.by_color?.[c.name] ?? {})[s]).length, 0)
     })
     if (DRY_RUN) continue
 

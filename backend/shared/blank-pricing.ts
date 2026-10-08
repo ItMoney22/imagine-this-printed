@@ -23,8 +23,12 @@ export type SizePriceTable = Record<string, number>
 export interface BlankPricing {
   /** Price per size for every colour not listed in by_color. */
   default: SizePriceTable
-  /** Colour-name → per-size override (today only White, which Jiffy sells cheaper). */
+  /** Colour-name → per-size override. Since 2026-10-08 every listed colour has its own table, priced off
+   *  that colour's own Jiffy cost (scripts/jiffy-capture.ts). */
   by_color?: Record<string, SizePriceTable>
+  /** When true, a colour listed in by_color sells ONLY the sizes in its own table: Jiffy does not carry the
+   *  rest in that colour (e.g. Soft Ring-Spun Maroon has no XS or 5XL), so there is no fallback to default. */
+  by_color_only?: boolean
 }
 
 /** Round a marked-up cost to whole cents. 2.99 * 1.10 = 3.289 → 3.29. */
@@ -53,6 +57,43 @@ export function buildBlankPricing(
     for (const name of whiteColorNames) pricing.by_color[name] = white
   }
   return pricing
+}
+
+/** Sizes in the S-XL band are priced off the HIGHEST cost in the band, so a one-size Jiffy sale (White S
+ *  at $1.82 while M-XL were $2.79 on 2026-10-07) never sets our price; 2XL and up are priced per size. */
+export const BLANK_BAND_SIZES = ['XS', 'S', 'M', 'L', 'XL']
+
+/**
+ * Pricing from each colour's OWN Jiffy cost (David 2026-10-07: "redo all our blanks based off of Jiffy's
+ * pricing, 15% markup ... based off of color"). `costsByColor` holds only the sizes Jiffy carries in that
+ * colour; `sizes` is the tier's size list (order + which sizes we sell at all). The default table is the
+ * most common colour table, used only for a colour name that is not listed.
+ */
+export function buildBlankPricingByColor(
+  costsByColor: Record<string, SizePriceTable>,
+  sizes: string[],
+  markupPct: number
+): BlankPricing {
+  const by_color: Record<string, SizePriceTable> = {}
+  for (const [color, costs] of Object.entries(costsByColor)) {
+    const band = sizes.filter(s => BLANK_BAND_SIZES.includes(s) && Number.isFinite(costs[s])).map(s => costs[s])
+    const bandMax = band.length ? Math.max(...band) : null
+    const table: SizePriceTable = {}
+    for (const s of sizes) {
+      if (!Number.isFinite(costs[s])) continue
+      const cost = BLANK_BAND_SIZES.includes(s) && bandMax !== null ? bandMax : costs[s]
+      table[s] = markupPrice(cost, markupPct)
+    }
+    if (Object.keys(table).length) by_color[color] = table
+  }
+  const counts = new Map<string, { n: number; table: SizePriceTable }>()
+  for (const table of Object.values(by_color)) {
+    const key = JSON.stringify(sizes.map(s => table[s] ?? null))
+    const hit = counts.get(key)
+    counts.set(key, { n: (hit?.n ?? 0) + 1, table })
+  }
+  const common = [...counts.values()].sort((a, b) => b.n - a.n)[0]?.table ?? {}
+  return { default: common, by_color, by_color_only: true }
 }
 
 /** True when a product's metadata marks it as a blank garment (mirrors
@@ -98,6 +139,8 @@ export function blankUnitPriceDollars(
       if (name.trim().toLowerCase() === wantColor) {
         const v = lookupSize(table, size)
         if (v !== null) return v
+        // Not carried in this colour: refuse rather than sell a shirt we cannot buy.
+        if (pricing.by_color_only) return null
         break
       }
     }
