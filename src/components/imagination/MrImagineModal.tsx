@@ -35,6 +35,8 @@ interface MrImagineModalProps {
   onImageGenerated: (imageUrl: string, metadata?: MrImagineGeneratedImageMetadata) => void;
   /** Called with the user's new ITC balance right after a generation charges. */
   onBalanceUpdate?: (newBalance: number) => void;
+  /** Opens with this idea already typed (the station's idea box, Ideas to try, Add Words). */
+  initialPrompt?: string;
 }
 
 type GenerationState = 'idle' | 'generating' | 'complete' | 'error';
@@ -172,6 +174,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
   itcBalance,
   onImageGenerated,
   onBalanceUpdate,
+  initialPrompt,
 }) => {
   // Form state
   const [prompt, setPrompt] = useState('');
@@ -211,6 +214,11 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
 
   // Trial tracking (synced with localStorage)
   const [trialsRemaining, setTrialsRemaining] = useState(freeTrials.aiGeneration);
+
+  // An idea typed elsewhere in the station arrives already filled in.
+  useEffect(() => {
+    if (isOpen && initialPrompt) setPrompt(initialPrompt.slice(0, 500));
+  }, [isOpen, initialPrompt]);
 
   useEffect(() => {
     const savedTrials = localStorage.getItem('itp-ai-generation-trials');

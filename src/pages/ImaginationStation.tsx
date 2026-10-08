@@ -7,7 +7,7 @@ import { useAuth } from '../context/SupabaseAuthContext';
 import { useGuestGate } from '../components/GuestGate';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../hooks/useToast';
-import { imaginationApi, apiFetch } from '../lib/api';
+import { imaginationApi, apiFetch, flareApi } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import ErrorBoundary from '../components/ErrorBoundary';
 import type {
@@ -22,6 +22,9 @@ import type {
 } from '../types';
 import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal, MakeProductModal } from '../components/imagination';
 import FlareLab from '../components/imagination/flare/FlareLab';
+import type { FlareOp } from '../components/imagination/flare/flareGuide';
+import { StationSteps, ToolGroup, ToolRow, StationWelcome, AddWordsModal, type StationStep } from '../components/imagination/station/StationParts';
+import { IDEAS_TO_TRY } from '../components/imagination/station/stationIdeas';
 import type { Layer as SimpleLayer } from '../types';
 import {
   calculateDpi,
@@ -74,7 +77,10 @@ import {
   Download,
   ChevronLeft,
   Maximize2,
-  Minimize2
+  Minimize2,
+  ArrowLeft,
+  Shapes,
+  Sparkle
 } from 'lucide-react';
 
 // Sheet preset configurations
@@ -281,7 +287,12 @@ const ImaginationStation: React.FC = () => {
   // Studio designs (separate from sheet layers)
   const [designs, setDesigns] = useState<StudioDesign[]>([]);
   const [activeDesignId, setActiveDesignId] = useState<string | null>(null);
-  const [sheetOpen, setSheetOpen] = useState(false);
+  // The sheet panel stays open beside the studio on wide screens (approved mock c591c12d).
+  const [sheetOpen, setSheetOpen] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1280);
+  const [mrImaginePrompt, setMrImaginePrompt] = useState('');
+  const [showAddWords, setShowAddWords] = useState(false);
+  const [flareOp, setFlareOp] = useState<FlareOp>('edit');
+  const [flareFrom, setFlareFrom] = useState<number | null>(null);
   const [reimagineDesignId, setReimagineDesignId] = useState<string | null>(null);
 
   // Processing states for individual tools
@@ -310,6 +321,12 @@ const ImaginationStation: React.FC = () => {
   } | null>(null);
 
   // Undo/Redo history
+  useEffect(() => {
+    flareApi.pricing()
+      .then(p => { const low = Number(p?.perImage?.low); if (Number.isFinite(low) && low > 0) setFlareFrom(low); })
+      .catch(() => { /* chips fall back to the Lab's default */ });
+  }, []);
+
   const [layerHistory, setLayerHistory] = useState<ImaginationLayer[][]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
   const isUndoRedoAction = useRef(false);
@@ -1814,9 +1831,14 @@ const ImaginationStation: React.FC = () => {
   const handleFileUploadToDesigns = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
+    await uploadFilesToDesigns(Array.from(files));
+  };
+
+  const uploadFilesToDesigns = async (files: File[]) => {
+    if (files.length === 0) return;
     setIsProcessing(true);
     try {
-      for (const file of Array.from(files)) {
+      for (const file of files) {
         const localUrl = URL.createObjectURL(file);
         let finalUrl = localUrl;
         // A guest's upload stays on their screen until they make an account.
@@ -2094,7 +2116,7 @@ const ImaginationStation: React.FC = () => {
   // Loading state
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-indigo-950 via-purple-950 to-fuchsia-950 flex items-center justify-center relative overflow-hidden">
+      <div className="min-h-screen bg-gradient-to-br from-[#f6f1ff] via-[#efe9fb] to-[#fce7f3] flex items-center justify-center relative overflow-hidden">
         {/* Animated background */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-cyan-500/20 rounded-full blur-3xl animate-pulse"></div>
@@ -2118,11 +2140,11 @@ const ImaginationStation: React.FC = () => {
           </div>
 
           <h2 className="text-3xl font-bold mb-3">
-            <span className="bg-gradient-to-r from-white via-cyan-200 to-white bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-[#9b30ff] to-[#e0218a] bg-clip-text text-transparent">
               Loading Imagination Station
             </span>
           </h2>
-          <p className="text-white/60 flex items-center justify-center gap-2">
+          <p className="text-[#5b4a7a] flex items-center justify-center gap-2">
             <Sparkles className="w-4 h-4 text-fuchsia-400 animate-pulse" />
             Preparing your creative workspace...
             <Sparkles className="w-4 h-4 text-cyan-400 animate-pulse" style={{ animationDelay: '0.5s' }} />
@@ -2460,6 +2482,43 @@ const ImaginationStation: React.FC = () => {
   const preset = presets ? presets[sheet.print_type as PrintType] : { name: sheet.print_type };
   const activeDesign = designs.find(d => d.id === activeDesignId) ?? null;
 
+  // ---- Station redo helpers (approved mock c591c12d) ----
+  const priceLabel = (key: string) => {
+    const trials = getFreeTrial(key);
+    if (trials > 0) return `${trials} free`;
+    const cost = getFeaturePrice(key);
+    return cost > 0 ? `${cost} ITC` : 'Free';
+  };
+  const isAdminUser = user?.role === 'admin';
+  const labPrice = isAdminUser ? 'Free' : `from ${flareFrom ?? 10} ITC`;
+  const needDesign = () => toast.warning('Make or upload a design first', 'Then pick a tool to polish it.');
+  const openImagine = (prompt = '') => {
+    if (!requireAccount('studio-imagine')) return;
+    setMrImaginePrompt(prompt);
+    setShowMrImagineModal(true);
+  };
+  const openLab = (op: FlareOp) => {
+    if (!activeDesign) { needDesign(); return; }
+    if (!requireAccount('studio-edit')) return;
+    setFlareOp(op);
+    setShowFlareLab(true);
+  };
+  const surpriseIdea = async (): Promise<string | null> => {
+    try {
+      const { data } = await imaginationApi.getRandomIdea();
+      const idea = String(data?.idea || '').trim();
+      if (idea) return idea.slice(0, 500);
+    } catch { /* guests and offline fall back below */ }
+    return IDEAS_TO_TRY[Math.floor(Math.random() * IDEAS_TO_TRY.length)].prompt;
+  };
+  const step: StationStep =
+    layers.length > 0 ? (sheetOpen && activePanel === 'order' ? 4 : 3) : designs.length > 0 ? 2 : 1;
+  const goToStep = (n: StationStep) => {
+    if (n === 1) openImagine('');
+    else if (n === 2) { if (!activeDesign) needDesign(); }
+    else { setSheetOpen(true); setActivePanel(n === 4 ? 'order' : 'design'); }
+  };
+
   // Resize the selected layer to a preset width (height follows aspect ratio)
   const applyQuickSize = (newWidth: number, printSizeLabel?: string) => {
     const currentLayer = selectedLayers[0];
@@ -2491,20 +2550,31 @@ const ImaginationStation: React.FC = () => {
     <div className="h-screen flex flex-col bg-bg text-text overflow-hidden">
 
       {/* HEADER */}
-      <header className="h-12 bg-card border-b border-text/10 flex items-center justify-between px-2 sm:px-3 shrink-0 shadow-sm">
+      <header className="h-14 bg-card border-b border-text/10 flex items-center justify-between gap-2 px-2 sm:px-4 shrink-0 shadow-sm">
         <div className="flex items-center gap-1.5 sm:gap-3 min-w-0">
-          <Link to="/" className="flex items-center gap-2 hover:opacity-80 transition-opacity shrink-0" title="Back to Home">
-            <img src="/itp-logo-v3.png" alt="ITP" className="h-6 sm:h-7 w-auto" />
+          <Link to="/" className="flex items-center gap-2 shrink-0 hover:opacity-80 transition-opacity" title="Imagine This Printed home">
+            <img src="/mr-imagine/mr-imagine-head.png" alt="" className="h-9 w-auto" />
+            <span className="hidden lg:flex flex-col leading-none">
+              <span className="st-hero-word font-black text-xl tracking-tight">imagine</span>
+              <span className="text-[9px] font-bold tracking-[0.22em] text-text">THIS PRINTED</span>
+            </span>
+            <span className="sr-only">Imagine This Printed</span>
           </Link>
-          <div className="hidden sm:block w-px h-5 bg-text/10" />
-          <div className="hidden sm:flex items-center gap-1">
-            <Link to="/catalog" className="p-1.5 text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Products">
-              <ShoppingBag className="w-4 h-4" />
-            </Link>
-            <Link to="/wallet" className="p-1.5 text-muted hover:text-primary hover:bg-primary/10 rounded-lg transition-colors" title="Wallet">
-              <img src="/itc-coin.png" alt="ITC" className="w-4 h-4 object-contain" />
-            </Link>
-          </div>
+          <Link
+            to="/"
+            className="inline-flex items-center gap-1.5 shrink-0 rounded-full st-pill px-2.5 sm:px-3.5 py-1.5 text-xs sm:text-sm font-semibold transition-colors"
+            title="Back to the shop"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            <span className="hidden sm:inline">Back to Shop</span>
+            <span className="sm:hidden">Shop</span>
+          </Link>
+          <nav className="hidden 2xl:flex items-center gap-1 text-sm font-medium text-muted whitespace-nowrap">
+            <Link to="/catalog" className="st-link px-2 py-1 rounded-lg">Shop</Link>
+            <Link to="/toys" className="st-link px-2 py-1 rounded-lg">Toy Factory</Link>
+            <Link to="/blanks" className="st-link px-2 py-1 rounded-lg">Blank Tees</Link>
+            <Link to="/community" className="st-link px-2 py-1 rounded-lg">Community</Link>
+          </nav>
           <div className="hidden sm:block w-px h-5 bg-text/10" />
           <div className="flex items-center gap-1 sm:gap-2 min-w-0">
             <span className="text-base sm:text-lg shrink-0">{preset?.icon}</span>
@@ -2512,7 +2582,7 @@ const ImaginationStation: React.FC = () => {
               type="text"
               value={sheet.name}
               onChange={(e) => { setSheet({ ...sheet, name: e.target.value }); setSaveStatus('unsaved'); }}
-              className="bg-transparent text-text font-medium text-xs sm:text-sm border-none focus:outline-none focus:ring-0 max-w-[80px] sm:max-w-[160px]"
+              className="bg-transparent text-text font-medium text-xs sm:text-sm border-none focus:outline-none focus:ring-0 max-w-[80px] sm:max-w-[200px] 2xl:max-w-[260px]"
               title="Project name"
             />
           </div>
@@ -2537,14 +2607,14 @@ const ImaginationStation: React.FC = () => {
               <span className="hidden sm:inline">Save</span>
             </button>
           </div>
-          <button onClick={() => { if (requireAccount('studio-save')) setShowProjectsModal(true); }} className="hidden sm:flex px-3 py-1.5 bg-card text-text border border-text/10 rounded-lg text-sm font-medium hover:bg-primary/5 transition-colors items-center gap-1.5" title="My Projects">
+          <button onClick={() => { if (requireAccount('studio-save')) setShowProjectsModal(true); }} className="hidden sm:flex px-3 py-1.5 bg-card text-text border border-text/10 rounded-lg text-sm font-medium hover:bg-primary/5 transition-colors items-center gap-1.5 whitespace-nowrap" title="My Projects">
             <Layers className="w-3.5 h-3.5" />
             Projects
           </button>
           {isGuestSheet ? (
             <button
               onClick={() => requireAccount('studio-save')}
-              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors text-sm font-semibold"
+              className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-primary/10 text-primary rounded-lg border border-primary/20 hover:bg-primary/20 transition-colors text-sm font-semibold whitespace-nowrap"
               title="Make a free account to save and order"
             >
               <Sparkles className="w-3.5 h-3.5" />
@@ -2564,7 +2634,7 @@ const ImaginationStation: React.FC = () => {
           )}
           <button
             onClick={() => setSheetOpen(o => !o)}
-            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold border transition-colors ${
+            className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold border transition-colors whitespace-nowrap ${
               sheetOpen ? 'bg-primary text-white border-primary' : 'bg-card text-text border-text/20 hover:border-primary/50 hover:text-primary'
             }`}
             title="Toggle Imagination Sheet"
@@ -2580,181 +2650,47 @@ const ImaginationStation: React.FC = () => {
         </div>
       </header>
 
+      <StationSteps step={step} onStep={goToStep} />
+
       {/* MAIN CONTENT */}
       <div className="flex-1 flex overflow-hidden">
 
-        {/* LEFT TOOLS RAIL */}
-        <aside className="w-14 md:w-52 bg-card border-r border-text/10 flex flex-col shrink-0 overflow-y-auto">
+        {/* LEFT TOOLS RAIL: Make / Polish / Sheet, every tool with its before/after picture and price */}
+        <aside className="w-[68px] md:w-60 lg:w-72 bg-card border-r border-text/10 flex flex-col shrink-0 overflow-y-auto">
+          <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileUploadToDesigns} className="hidden" />
 
-          {/* Create section */}
-          <div className="p-2 md:p-3 border-b border-text/10">
-            <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Create</p>
-            <button
-              onClick={() => { if (requireAccount('studio-imagine')) setShowMrImagineModal(true); }}
-              className="w-full mb-1.5 flex flex-col md:flex-row items-center md:items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-medium hover:from-fuchsia-700 hover:to-pink-700 transition-all shadow-sm"
-              title="Generate AI image"
-            >
-              <Sparkles className="w-5 h-5 shrink-0" />
-              <div className="hidden md:flex flex-col items-start">
-                <span className="text-sm font-semibold leading-tight">Imagine</span>
-                <span className="text-[10px] text-white/70">
-                  {getFreeTrial('generate') > 0 ? `${getFreeTrial('generate')} free` : `${getFeaturePrice('generate')} ITC`}
-                </span>
-              </div>
-            </button>
-            <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileUploadToDesigns} className="hidden" />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isProcessing}
-              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-medium hover:from-purple-700 hover:to-purple-800 transition-all shadow-sm disabled:opacity-50"
-              title="Upload images"
-            >
-              <Upload className="w-5 h-5 shrink-0" />
-              <span className="hidden md:block text-sm font-semibold">Upload</span>
-            </button>
-          </div>
+          <ToolGroup title="Make" icon={<Sparkles className="w-3.5 h-3.5" />}>
+            <ToolRow label="Imagine with Mr. Imagine" art="imagine" price={priceLabel('generate')} onClick={() => openImagine('')} highlight title="Describe an idea and Mr. Imagine draws it" />
+            <ToolRow label="Upload art" beforeIcon={<Upload className="w-4 h-4" />} afterSrc="/station/ideas/tiger.webp" price="Free" onClick={() => fileInputRef.current?.click()} busy={isProcessing} title="Upload your own images" />
+            <ToolRow label="Add Words" art="words" price={priceLabel('generate')} onClick={() => { if (requireAccount('studio-imagine')) setShowAddWords(true); }} title="Type words and get styled lettering" />
+          </ToolGroup>
 
-          {/* Edit Design section */}
-          <div className="p-2 md:p-3 border-b border-text/10">
-            <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Edit Design</p>
-            <button
-              onClick={() => { if (!activeDesign) toast.warning('Select a design first', 'Click a design in your gallery.'); else if (requireAccount('studio-edit')) setShowFlareLab(true); }}
-              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-gradient-to-r from-orange-500/10 via-fuchsia-500/10 to-violet-600/10 text-text hover:from-orange-500/20 hover:to-violet-600/20 border border-fuchsia-500/30"
-              title="Imagination Lab: edit, paint & replace, text swap, references, variations, true transparency"
-            >
-              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-orange-500 via-fuchsia-500 to-violet-600 flex items-center justify-center shrink-0">
-                <Sparkles className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
-              </div>
-              <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Imagination Lab</span>
-                <span className="text-xs text-muted">9 Imagination tools</span>
-              </div>
-            </button>
-            <button
-              onClick={() => { if (activeDesign) openReimagineItForDesign(activeDesign.id); else toast.warning('Select a design first', 'Click a design in your gallery.'); }}
-              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30"
-              title="Reimagine active design"
-            >
-              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shrink-0">
-                <RefreshCw className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />
-              </div>
-              <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Reimagine</span>
-                <span className="text-xs text-muted">{getFeaturePrice('reimagine_standard') || 1} ITC</span>
-              </div>
-            </button>
-            <button
-              onClick={handleDesignEnhance}
-              disabled={isEnhancing || !activeDesignId}
-              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-              title="Enhance active design"
-            >
-              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
-                {isEnhancing ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <Wand2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
-              </div>
-              <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Enhance</span>
-                <span className="text-xs text-muted">{getFreeTrial('enhance') > 0 ? `${getFreeTrial('enhance')} free` : `${getFeaturePrice('enhance')} ITC`}</span>
-              </div>
-            </button>
-            <button
-              onClick={handleDesignRemoveBg}
-              disabled={isRemovingBg || !activeDesignId}
-              className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-              title="Remove background from active design"
-            >
-              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
-                {isRemovingBg ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <Scissors className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
-              </div>
-              <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Remove BG</span>
-                <span className="text-xs text-muted">{getFreeTrial('bg_remove') > 0 ? `${getFreeTrial('bg_remove')} free` : `${getFeaturePrice('bg_remove')} ITC`}</span>
-              </div>
-            </button>
-            <button
-              onClick={handleDesignUpscale}
-              disabled={isUpscaling || !activeDesignId}
-              className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-              title="Upscale active design"
-            >
-              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shrink-0">
-                {isUpscaling ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <ZoomIn className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
-              </div>
-              <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Upscale 2x</span>
-                <span className="text-xs text-muted">{getFreeTrial('upscale_2x') > 0 ? `${getFreeTrial('upscale_2x')} free` : `${getFeaturePrice('upscale_2x')} ITC`}</span>
-              </div>
-            </button>
-            <button
-              onClick={handleDesignHalftone}
-              disabled={isHalftoning || !activeDesignId}
-              className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-              title="Apply a DTF halftone dot-screen to the active design"
-            >
-              <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-rose-500 to-fuchsia-600 flex items-center justify-center shrink-0">
-                {isHalftoning ? <Loader2 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white animate-spin" /> : <Grid3X3 className="w-3.5 h-3.5 md:w-4 md:h-4 text-white" />}
-              </div>
-              <div className="hidden md:flex flex-col">
-                <span className="font-medium text-sm">Halftone</span>
-                <span className="text-xs text-muted">DTF dot-screen · free</span>
-              </div>
-            </button>
-          </div>
+          <ToolGroup title="Polish" icon={<Wand2 className="w-3.5 h-3.5" />}>
+            <ToolRow label="Magic Edit" art="edit" price={labPrice} note="say the change" onClick={() => openLab('edit')} title="Describe a change and it is made" />
+            <ToolRow label="Paint and Replace" art="inpaint" price={labPrice} onClick={() => openLab('inpaint')} title="Paint over a part and say what goes there" />
+            <ToolRow label="Remove Background" art="removebg" price={priceLabel('bg_remove')} onClick={() => (activeDesign ? handleDesignRemoveBg() : needDesign())} busy={isRemovingBg} />
+            <ToolRow label="Sharpen for Print" art="sharpen" price={priceLabel('upscale_2x')} note="crisp, more pixels" onClick={() => (activeDesign ? handleDesignUpscale() : needDesign())} busy={isUpscaling} />
+            <ToolRow label="Print Cleanup" art="cleanup" price={labPrice} onClick={() => openLab('cleanup')} title="Clean noise and dirty edges before printing" />
+            <ToolRow label="Restyle" art="restyle" price={labPrice} onClick={() => openLab('restyle')} />
+            <ToolRow label="Variations" art="variations" price={labPrice} onClick={() => openLab('variations')} title="More versions of this design" />
+            <ToolRow label="Reimagine" art="reimagine" price={`${getFeaturePrice('reimagine_standard') || 1} ITC`} onClick={() => (activeDesign ? openReimagineItForDesign(activeDesign.id) : needDesign())} />
+            <ToolRow label="Enhance" art="enhance" price={priceLabel('enhance')} onClick={() => (activeDesign ? handleDesignEnhance() : needDesign())} busy={isEnhancing} />
+            <ToolRow label="Halftone" art="halftone" price="Free" note="dot-screen" onClick={() => (activeDesign ? handleDesignHalftone() : needDesign())} busy={isHalftoning} />
+            <ToolRow label="More Lab tools" icon={<Sparkle className="w-4 h-4" />} price={labPrice} note="text swap, team colors, blend" onClick={() => openLab('text')} title="Text Swap, Reference Blend, Clear Background, Team Colors" />
+          </ToolGroup>
 
-          {/* Sheet Tools - only shown when sheet has layers */}
-          {layers.length > 0 && (
-            <div className="p-2 md:p-3 border-b border-text/10">
-              <p className="hidden md:block text-xs font-semibold text-muted uppercase tracking-wider mb-2">Sheet Tools</p>
-              <button
-                onClick={handleAutoNest}
-                disabled={isProcessing || layers.length === 0}
-                className="w-full mb-1.5 flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-                title="Auto-Nest: optimize layout"
-              >
-                <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center shrink-0">
-                  {isProcessing ? <Loader2 className="w-3.5 h-3.5 text-white animate-spin" /> : <LayoutGrid className="w-3.5 h-3.5 text-white" />}
-                </div>
-                <div className="hidden md:flex flex-col">
-                  <span className="font-medium text-sm">Auto-Nest</span>
-                  <span className="text-xs text-muted">{getFeaturePrice('auto_nest')} ITC</span>
-                </div>
-              </button>
-              <button
-                onClick={handleSmartFill}
-                disabled={isProcessing || layers.length === 0}
-                className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 rounded-xl text-left transition-all bg-bg text-text hover:bg-primary/5 border border-transparent hover:border-primary/30 disabled:opacity-50"
-                title="Smart Fill: fill empty space"
-              >
-                <div className="w-7 h-7 md:w-8 md:h-8 rounded-lg bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shrink-0">
-                  <Copy className="w-3.5 h-3.5 text-white" />
-                </div>
-                <div className="hidden md:flex flex-col">
-                  <span className="font-medium text-sm">Smart Fill</span>
-                  <span className="text-xs text-muted">{getFeaturePrice('smart_fill')} ITC</span>
-                </div>
-              </button>
-            </div>
-          )}
-
-          {/* Text & Shapes */}
-          <div className="p-2 md:p-3">
-            <button
-              onClick={() => setShowAddElementPanel(true)}
-              disabled={isProcessing}
-              className="w-full flex flex-col md:flex-row items-center gap-1 md:gap-3 px-2 md:px-3 py-2 md:py-2.5 bg-gradient-to-r from-blue-600 to-cyan-600 text-white rounded-xl font-medium hover:from-blue-700 hover:to-cyan-700 transition-all shadow-sm disabled:opacity-50"
-              title="Add text or shapes to sheet"
-            >
-              <Plus className="w-5 h-5 shrink-0" />
-              <span className="hidden md:block text-sm font-semibold">Text & Shapes</span>
-            </button>
-          </div>
+          <ToolGroup title="Sheet" icon={<LayoutGrid className="w-3.5 h-3.5" />}>
+            <ToolRow label="Auto-Fill Sheet" art="autofill" price={priceLabel('smart_fill')} onClick={() => (layers.length ? handleSmartFill() : toast.info('Your sheet is empty', 'Send a design to the sheet first.'))} busy={isProcessing && layers.length > 0} title="Fill the empty space with copies" />
+            <ToolRow label="Tidy Layout" icon={<LayoutGrid className="w-4 h-4" />} price={priceLabel('auto_nest')} onClick={() => (layers.length ? handleAutoNest() : toast.info('Your sheet is empty', 'Send a design to the sheet first.'))} title="Pack everything tightly to save sheet space" />
+            <ToolRow label="Text and Shapes" icon={<Shapes className="w-4 h-4" />} price="Free" onClick={() => setShowAddElementPanel(true)} title="Add text or shapes to the sheet" />
+          </ToolGroup>
         </aside>
 
         {/* CENTER - Studio area */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
 
           {/* Active Design Preview */}
-          <div className="flex-1 relative bg-bg flex items-center justify-center overflow-hidden p-4">
+          <div className={`flex-1 relative bg-bg flex justify-center p-3 sm:p-5 ${activeDesign ? 'items-center overflow-hidden' : 'items-start overflow-y-auto'}`}>
             {activeDesign ? (
               <div className="flex flex-col items-center gap-4 max-w-2xl w-full h-full">
                 <div className="flex-1 flex items-center justify-center w-full">
@@ -2786,7 +2722,7 @@ const ImaginationStation: React.FC = () => {
                     className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
                   >
                     {isRemovingBg ? <Loader2 className="w-4 h-4 animate-spin" /> : <Scissors className="w-4 h-4" />}
-                    Remove BG
+                    Remove Background
                   </button>
                   <button
                     onClick={handleDesignUpscale}
@@ -2794,7 +2730,7 @@ const ImaginationStation: React.FC = () => {
                     className="flex items-center gap-1.5 px-3 py-2 bg-card border border-text/10 rounded-lg text-sm font-medium text-text hover:border-primary/40 hover:text-primary transition-colors disabled:opacity-50"
                   >
                     {isUpscaling ? <Loader2 className="w-4 h-4 animate-spin" /> : <ZoomIn className="w-4 h-4" />}
-                    Upscale
+                    Sharpen for Print
                   </button>
                   <button
                     onClick={handleDesignHalftone}
@@ -2833,48 +2769,34 @@ const ImaginationStation: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="text-center max-w-sm">
-                <div className="w-20 h-20 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                  <Sparkles className="w-10 h-10 text-primary/60" />
-                </div>
-                <h3 className="text-lg font-bold text-text mb-2">Imagine your first design</h3>
-                <p className="text-sm text-muted mb-6">
-                  Generate AI art, upload your own artwork, or reimagine something new. Your designs stay here until you send them to the Imagination Sheet.
-                </p>
-                <div className="flex flex-col gap-2">
-                  <button
-                    onClick={() => { if (requireAccount('studio-imagine')) setShowMrImagineModal(true); }}
-                    className="px-5 py-2.5 bg-gradient-to-r from-fuchsia-600 to-pink-600 text-white rounded-xl font-semibold hover:from-fuchsia-700 hover:to-pink-700 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Sparkles className="w-4 h-4" />
-                    Generate with Mr. Imagine
-                  </button>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="px-5 py-2.5 bg-gradient-to-r from-purple-600 to-purple-700 text-white rounded-xl font-semibold hover:from-purple-700 hover:to-purple-800 transition-all flex items-center justify-center gap-2"
-                  >
-                    <Upload className="w-4 h-4" />
-                    Upload Images
-                  </button>
-                </div>
-              </div>
+              <StationWelcome
+                onImagine={(prompt) => openImagine(prompt)}
+                onSurprise={surpriseIdea}
+                onFiles={(files) => { void uploadFilesToDesigns(files); }}
+                onBrowse={() => fileInputRef.current?.click()}
+                imaginePrice={getFreeTrial('generate') > 0 ? `${getFreeTrial('generate')} free tries left` : `${getFeaturePrice('generate')} ITC per design`}
+                uploading={isProcessing}
+              />
             )}
           </div>
 
           {/* My Designs Gallery Strip */}
           {designs.length > 0 && (
-            <div className="h-28 border-t border-text/10 bg-card flex-shrink-0">
-              <div className="h-full flex items-center gap-2 px-3 overflow-x-auto">
-                <span className="text-xs font-semibold text-muted uppercase tracking-wider whitespace-nowrap shrink-0 hidden md:block">My Designs</span>
+            <div className="h-36 border-t border-text/10 bg-card flex-shrink-0">
+              <div className="h-full flex items-center gap-3 px-3 overflow-x-auto">
+                <span className="hidden md:flex flex-col shrink-0 pr-1">
+                  <span className="text-sm font-bold text-text whitespace-nowrap">My Designs</span>
+                  <span className="text-xs text-muted">{designs.length} ready</span>
+                </span>
                 {designs.map(design => (
                   <div
                     key={design.id}
                     onClick={() => setActiveDesignId(design.id)}
-                    className={`relative shrink-0 w-20 h-20 rounded-lg overflow-hidden cursor-pointer border-2 transition-all group ${
+                    className={`relative shrink-0 w-24 h-24 rounded-xl overflow-hidden cursor-pointer border-2 bg-white transition-all group ${
                       design.id === activeDesignId ? 'border-primary shadow-md' : 'border-transparent hover:border-primary/40'
                     }`}
                   >
-                    <img src={design.url} alt={design.name} className="w-full h-full object-cover" />
+                    <img src={design.url} alt={design.name} className="w-full h-full object-contain" />
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1 gap-1">
                       <button
                         onClick={(e) => { e.stopPropagation(); sendDesignToSheet(design); }}
@@ -3060,6 +2982,16 @@ const ImaginationStation: React.FC = () => {
                               ))}
                             </div>
                           </div>
+
+                          {(selectedLayers[0].layer_type === 'image' || selectedLayers[0].layer_type === 'ai_generated') && (
+                            <button
+                              onClick={() => { if (requireAccount('studio-edit')) setShowITPEnhanceModal(true); }}
+                              className="st-soft w-full px-2 py-1.5 rounded text-xs font-semibold transition-colors flex items-center justify-center gap-1"
+                              title="Remove background, sharpen or enhance this piece on the sheet"
+                            >
+                              <Wand2 className="w-3 h-3" /> Polish this piece
+                            </button>
+                          )}
 
                           <div className="flex gap-2">
                             <button onClick={duplicateSelectedLayers} className="flex-1 px-2 py-1.5 bg-bg text-text rounded text-xs font-medium hover:bg-text/10 transition-colors flex items-center justify-center gap-1">
@@ -3350,7 +3282,8 @@ const ImaginationStation: React.FC = () => {
       {/* Mr. Imagine Modal */}
       <MrImagineModal
         isOpen={showMrImagineModal}
-        onClose={() => setShowMrImagineModal(false)}
+        onClose={() => { setShowMrImagineModal(false); setMrImaginePrompt(''); }}
+        initialPrompt={mrImaginePrompt}
         pricing={{
           autoNest: getFeaturePrice('auto_nest'),
           smartFill: getFeaturePrice('smart_fill'),
@@ -3401,6 +3334,8 @@ const ImaginationStation: React.FC = () => {
       {/* Flare Lab */}
       {showFlareLab && activeDesign && (
         <FlareLab
+          key={flareOp}
+          initialOp={flareOp}
           isOpen={showFlareLab}
           onClose={() => setShowFlareLab(false)}
           imageUrl={activeDesign.url}
@@ -3410,6 +3345,12 @@ const ImaginationStation: React.FC = () => {
           onUpscaleForPrint={handleFlareUpscale}
         />
       )}
+
+      <AddWordsModal
+        isOpen={showAddWords}
+        onClose={() => setShowAddWords(false)}
+        onCreate={(prompt) => { setShowAddWords(false); openImagine(prompt); }}
+      />
 
       {/* ITP Enhance Modal */}
       <ITPEnhanceModal
