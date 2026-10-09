@@ -552,7 +552,7 @@ function buildCompositePrompt(opts: RunMockupOpts): string {
  * "unworn", "hollow", the frame "contains only" the garment, the backdrop is
  * "uninterrupted". Do not reintroduce "no ..." / "do NOT ..." phrasing here.
  */
-function buildFlux2SingleCallPrompt(opts: RunMockupOpts): string {
+export function buildFlux2SingleCallPrompt(opts: RunMockupOpts): string {
   const productName = PRODUCT_NAMES[opts.productType] ?? 't-shirt'
   const fabricColor = COLOR_DESC[opts.shirtColor] ?? 'black'
   const placement = PLACEMENT_DESC[opts.printPlacement ?? 'front-center'] ?? PLACEMENT_DESC['front-center']

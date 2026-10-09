@@ -141,6 +141,14 @@ export interface EtsyShots {
    * finds a pile of a step-flow shot's earlier, possibly QA-rejected retakes.
    */
   stepModel?: boolean[]
+  /**
+   * Which engine drew each shot, parallel to `images` (e.g.
+   * `openai/gpt-image-2.5-flare`, `google/nano-banana-2-lite`). Board task
+   * d9c0e648: 71 on-person images from the last 90 days carried no model at
+   * all, because only the Step Flow path stamped one. Every path now records
+   * it here and on the mirrored product_assets row (`metadata.model_id`).
+   */
+  models?: string[]
   started_at?: string
   generated_at?: string
   error?: string
@@ -1497,7 +1505,7 @@ async function checkPrintedText(
  * covered print; it provably cannot catch wrong lettering (David 2026-09-09).
  * The text pass catches exactly that and nothing else.
  */
-async function verifyShot(designUrl: string, shotUrl: string, shirtColor: string): Promise<ShotCheck | null> {
+export async function verifyShot(designUrl: string, shotUrl: string, shirtColor: string): Promise<ShotCheck | null> {
   const visual = await verifyDesignFidelity(designUrl, shotUrl)
   if (visual && !visual.ok) return visual
   const text = await checkPrintedText(designUrl, shotUrl, shirtColor)
@@ -1733,19 +1741,21 @@ async function generateShots(productId: string, userId: string, cast: CastMember
 
     const images: string[] = []
     const checks: ShotCheck[] = []
+    const models: string[] = []
     for (const [i, shot] of plan.entries()) {
       console.log(`[etsy-shots] ${productId} ${shot.key} cast: ${shot.signature} [slate ${shot.variant}]`)
       await saveShotsState(productId, { stage: stageFor(shot, colorFor(i), i, plan.length) })
-      const { url, check } = await renderVerifiedShot(shot, colorFor(i), ctx)
+      const { url, check, modelId } = await renderVerifiedShot(shot, colorFor(i), ctx)
       images.push(url)
       checks.push(check)
+      models.push(modelId ?? '')
       // Persist incrementally so a failure on shot 2 still keeps shot 1 — and
       // so the panel shows each thumbnail the moment it exists.
-      await saveShotsState(productId, { images: [...images], checks: [...checks] })
+      await saveShotsState(productId, { images: [...images], checks: [...checks], models: [...models] })
     }
 
-    await saveShotsState(productId, { status: 'done', images, checks, stage: undefined, generated_at: new Date().toISOString(), error: undefined })
-    await mirrorShotsToProductAssets(productId, images, checks)
+    await saveShotsState(productId, { status: 'done', images, checks, models, stage: undefined, generated_at: new Date().toISOString(), error: undefined })
+    await mirrorShotsToProductAssets(productId, images, checks, models)
   } catch (err: any) {
     console.error(`[etsy-shots] generation failed for ${productId}:`, err?.message || err)
     await saveShotsState(productId, { status: 'failed', stage: undefined, error: String(err?.message || err).slice(0, 300) })
@@ -1768,58 +1778,73 @@ async function generateShots(productId: string, userId: string, cast: CastMember
  * Best-effort throughout — the shoot itself already succeeded, so a mirroring
  * failure must never mark it failed.
  */
-async function mirrorShotsToProductAssets(productId: string, images: string[], checks: ShotCheck[]): Promise<void> {
+async function mirrorShotsToProductAssets(productId: string, images: string[], checks: ShotCheck[], models: string[] = []): Promise<void> {
   try {
-    const keep = images
-      .map((url, i) => ({ url, i, ok: checks[i]?.ok !== false }))
-      .filter(s => typeof s.url === 'string' && /^https?:\/\//.test(s.url))
-
-    const denied = keep.filter(s => !s.ok)
+    const denied = images.filter((url, i) => typeof url === 'string' && /^https?:\/\//.test(url) && checks[i]?.ok === false)
     if (denied.length) {
       console.warn(`[etsy-shots] ${productId}: ${denied.length} shot(s) failed QA and were NOT added to the product mockups`)
     }
 
-    // Roles are positional and stable, so a re-shoot replaces its own slot
-    // rather than accumulating duplicates.
-    const roles = keep.filter(s => s.ok).map(s => ({ ...s, role: `mockup_model_${s.i + 1}` }))
-    if (roles.length === 0) return
+    const rows = mirroredShotRows(productId, images, checks, models)
+    if (rows.length === 0) return
 
     await supabase
       .from('product_assets')
       .delete()
       .eq('product_id', productId)
-      .in('asset_role', roles.map(r => r.role))
+      .in('asset_role', rows.map(r => r.asset_role))
 
-    const { error } = await supabase.from('product_assets').insert(
-      roles.map(r => ({
-        product_id: productId,
-        kind: 'mockup',
-        // GCS public URLs are .../<bucket>/<path>; keep the object path when we
-        // can so these rows look like every other asset row.
-        path: (() => { try { return new URL(r.url).pathname.split('/').slice(2).join('/') || null } catch { return null } })(),
-        url: r.url,
-        width: 1024,
-        height: 1024,
-        asset_role: r.role,
-        // Never primary: the ghost mannequin owns the hero slot.
-        is_primary: false,
-        display_order: 5 + r.i,
-        metadata: {
-          template: 'etsy_model_shot',
-          generated_with: 'etsy-model-shots',
-          generated_at: new Date().toISOString(),
-          qa_ok: true,
-        },
-      }))
-    )
+    const { error } = await supabase.from('product_assets').insert(rows)
     if (error) {
       console.error(`[etsy-shots] ${productId}: mirroring shots to product_assets failed:`, error.message)
       return
     }
-    console.log(`[etsy-shots] ${productId}: mirrored ${roles.length} model shot(s) into product_assets`)
+    console.log(`[etsy-shots] ${productId}: mirrored ${rows.length} model shot(s) into product_assets`)
   } catch (err: any) {
     console.error(`[etsy-shots] ${productId}: mirroring threw (non-fatal):`, err?.message || err)
   }
+}
+
+/**
+ * The product_assets rows a finished shoot mirrors into: QA-passed shots only,
+ * positional roles, and the engine that drew each one. Pure, so the stamping
+ * is testable without a database.
+ */
+export function mirroredShotRows(
+  productId: string,
+  images: string[],
+  checks: ShotCheck[],
+  models: string[] = [],
+  now: string = new Date().toISOString()
+) {
+  return images
+    .map((url, i) => ({ url, i, ok: checks[i]?.ok !== false }))
+    .filter(s => typeof s.url === 'string' && /^https?:\/\//.test(s.url) && s.ok)
+    .map(r => ({
+      product_id: productId,
+      kind: 'mockup',
+      // GCS public URLs are .../<bucket>/<path>; keep the object path when we
+      // can so these rows look like every other asset row.
+      path: (() => { try { return new URL(r.url).pathname.split('/').slice(2).join('/') || null } catch { return null } })(),
+      url: r.url,
+      width: 1024,
+      height: 1024,
+      // Roles are positional and stable, so a re-shoot replaces its own slot
+      // rather than accumulating duplicates.
+      asset_role: `mockup_model_${r.i + 1}`,
+      // Never primary: the ghost mannequin owns the hero slot.
+      is_primary: false,
+      display_order: 5 + r.i,
+      metadata: {
+        template: 'etsy_model_shot',
+        generated_with: 'etsy-model-shots',
+        generated_at: now,
+        qa_ok: true,
+        // Which engine drew it, same key the Step Flow path writes. Absent
+        // only for a shot that predates `models` (better blank than guessed).
+        ...(models[r.i] ? { model_id: models[r.i] } : {}),
+      },
+    }))
 }
 
 // Replace exactly one shot, keeping the others (David 2026-07-31: "i need a way
@@ -1851,7 +1876,7 @@ async function reshootOne(productId: string, userId: string, index: number, cast
 
     console.log(`[etsy-shots] ${productId} reshoot #${index + 1} cast: ${plan.signature} [slate ${plan.variant}]`)
     await saveShotsState(productId, { stage: stageFor(plan, colorFor(index), index, index + 1) })
-    const { url, check } = await renderVerifiedShot(plan, colorFor(index), ctx)
+    const { url, check, modelId } = await renderVerifiedShot(plan, colorFor(index), ctx)
 
     // Re-read at write time: the admin may have pruned another shot while this ran.
     const { data: fresh } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
@@ -1859,24 +1884,27 @@ async function reshootOne(productId: string, userId: string, index: number, cast
     const images = [...current.images]
     const castLabels = [...(current.cast ?? [])]
     const checks = [...(current.checks ?? [])]
+    const models = [...(current.models ?? [])]
     // The list shrank under us — append rather than write past the end.
     const at = index < images.length ? index : images.length
     images[at] = url
     castLabels[at] = plan.label
     checks[at] = check
+    models[at] = modelId ?? ''
 
     await saveShotsState(productId, {
       status: 'done',
       images,
       cast: castLabels,
       checks,
+      models,
       stage: undefined,
       generated_at: new Date().toISOString(),
       error: undefined
     })
     // Keep the mirrored mockups in step with the reshoot, or the product would
     // keep showing the model the admin just rejected.
-    await mirrorShotsToProductAssets(productId, images, checks)
+    await mirrorShotsToProductAssets(productId, images, checks, models)
   } catch (err: any) {
     console.error(`[etsy-shots] reshoot failed for ${productId} #${index + 1}:`, err?.message || err)
     await saveShotsState(productId, { status: 'failed', stage: undefined, error: String(err?.message || err).slice(0, 300) })
@@ -2013,6 +2041,7 @@ export async function shootOneModelShot(
   const priorChecks = current?.checks ?? []
   const priorCast = current?.cast ?? []
   const priorStepModel = current?.stepModel ?? []
+  const priorModels = current?.models ?? []
 
   // A redo REPLACES its own prior slot (by URL) instead of appending — see
   // opts.replaceUrl's doc comment above.
@@ -2022,6 +2051,7 @@ export async function shootOneModelShot(
   let checks: ShotCheck[]
   let cast: string[]
   let stepModel: boolean[]
+  const models = [...priorModels]
   if (replaceAt >= 0) {
     images = [...priorImages]
     images[replaceAt] = url
@@ -2031,12 +2061,14 @@ export async function shootOneModelShot(
     cast[replaceAt] = plan.label
     stepModel = [...priorStepModel]
     stepModel[replaceAt] = true
+    models[replaceAt] = modelId ?? ''
   } else {
     images = [...priorImages, url]
     checks = [...priorChecks, check]
     cast = [...priorCast, plan.label]
     stepModel = [...priorStepModel]
     stepModel[images.length - 1] = true
+    models[images.length - 1] = modelId ?? ''
   }
 
   const { error: updErr } = await supabase
@@ -2054,6 +2086,7 @@ export async function shootOneModelShot(
           checks,
           cast,
           stepModel,
+          models,
           generated_at: new Date().toISOString(),
         },
       },
@@ -2065,7 +2098,7 @@ export async function shootOneModelShot(
   // POSITION over the whole accumulated etsy_shots.images, so a caller that
   // also writes its own mockup_model_1 row (the step flow does, per redo)
   // would end up with the same shot under two roles. The caller owns the row.
-  if (opts.mirror) await mirrorShotsToProductAssets(productId, images, checks)
+  if (opts.mirror) await mirrorShotsToProductAssets(productId, images, checks, models)
   return { url, check, modelId }
 }
 
@@ -2141,7 +2174,8 @@ export async function setModelShots(productId: string, images: string[]): Promis
     status: clean.length ? 'done' : (previous?.status === 'generating' ? 'generating' : 'done'),
     images: clean,
     cast: realign(previous?.cast),
-    checks: realign(previous?.checks)
+    checks: realign(previous?.checks),
+    models: realign(previous?.models)
   }
   const { error: updErr } = await supabase
     .from('products')
