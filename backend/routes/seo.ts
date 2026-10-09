@@ -18,7 +18,7 @@ const STATIC_PATHS = ['', '/catalog', '/community', '/imagination-station', '/co
 // still renders hardcoded mock data ("Premium Apparel Co.", see
 // src/pages/VendorStorefront.tsx:43), so every such URL would be a duplicate
 // fake page. Add them here when the page is wired to a real vendor table.
-const CATEGORY_PATHS = ['dtf-transfers', 'shirts', 'tumblers', 'hoodies', '3d-prints', 'metal-art']
+const CATEGORY_PATHS = ['dtf-transfers', 'shirts', 'tumblers', 'hoodies', '3d-prints', 'home-decor', 'metal-art']
 
 const xmlEscape = (s: string) =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;')

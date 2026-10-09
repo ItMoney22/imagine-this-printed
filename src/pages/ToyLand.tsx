@@ -236,6 +236,7 @@ const ToyLand: React.FC = () => {
           padding: 2.5rem 0 3rem;
         }
         .tf-grownups h2 { font-size: 1.15rem; font-weight: 700; letter-spacing: .02em; }
+        .tf-magnet-warn { margin-top: 1rem; font-size: .85rem; line-height: 1.5; color: #ffd7d7; background: rgba(220, 38, 38, .18); border: 1px solid rgba(248, 113, 113, .55); border-radius: 12px; padding: .7rem .9rem; }
         .tf-trust { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-top: 1.2rem; }
         @media (max-width: 820px) { .tf-trust { grid-template-columns: repeat(2, 1fr); } }
         .tf-trust div { font-size: .85rem; color: #aab1dc; line-height: 1.5; }
@@ -300,7 +301,7 @@ const ToyLand: React.FC = () => {
             <div className="tf-step">
               <div className="tf-step-num" style={{ color: SPOOLS.red }}>1</div>
               <h3>Dream it up</h3>
-              <p>Type or say your wildest idea in the Toy Maker. Our art robot draws it while you watch — change anything until it's perfect.</p>
+              <p>Kids shout out their wildest idea, a grown-up types or says it in the Toy Maker. Our art robot draws it while you watch — change anything until it's perfect.</p>
             </div>
             <div className="tf-step">
               <div className="tf-step-num" style={{ color: SPOOLS.yellow }}>2</div>
@@ -331,6 +332,11 @@ const ToyLand: React.FC = () => {
               <span className="tf-chip">🐉 Pet companion <b>$9.99</b></span>
               <span className="tf-chip">🧲 Extra magnets <b>$2.99</b></span>
             </div>
+            <p className="tf-magnet-warn" role="note">
+              <b>Ages 14+.</b> WARNING: Contains small magnets. Swallowed magnets can stick
+              together inside the body and cause serious injury or death. Get medical help
+              right away if a magnet is swallowed or inhaled. Small parts: choking hazard.
+            </p>
             <div style={{ marginTop: '2.2rem' }}>
               <span className="tf-eyebrow" style={{ color: SPOOLS.teal }}>Paint your own</span>
               <h2 className="tf-h2 tf-display" style={{ fontSize: '1.7rem' }}>The exact paints for YOUR toy</h2>
@@ -447,9 +453,10 @@ const ToyLand: React.FC = () => {
           <h2>For grown-ups 👋</h2>
           <div className="tf-trust">
             <div>
-              <strong>Kid-safe material</strong>
-              Printed in PLA, a rigid plant-based plastic. Magnets are recessed and
-              glued — always supervise children under 3.
+              <strong>Ages 14+: small magnets</strong>
+              Printed in PLA, a rigid plant-based plastic, with small magnets glued
+              into the hands. Swallowed magnets can cause serious injury or death,
+              so keep figures and spare magnets away from young children.
             </div>
             <div>
               <strong>Printed by us</strong>
@@ -457,9 +464,10 @@ const ToyLand: React.FC = () => {
               before it ships. No warehouse, no mystery factory.
             </div>
             <div>
-              <strong>Checkout is yours</strong>
-              Kids design for free, no account needed. A grown-up's free account
-              comes in when you mix the toy, and nothing prints until you order it.
+              <strong>A grown-up drives</strong>
+              The Toy Maker and checkout are for ages 13 and up, so a grown-up types
+              while the kids dream. Trying it is free with no account; nothing prints
+              until you order it.
             </div>
             <div>
               <strong>Have your own 3D file?</strong>

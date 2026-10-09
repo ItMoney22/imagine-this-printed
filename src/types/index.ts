@@ -11,7 +11,7 @@ export interface Product {
   description: string
   price: number
   images: string[]
-  category: 'dtf-transfers' | 'shirts' | 'tumblers' | 'hoodies' | '3d-models' | '3d-prints' | 'metal-art'
+  category: 'dtf-transfers' | 'shirts' | 'tumblers' | 'hoodies' | '3d-models' | '3d-prints' | 'metal-art' | 'home-decor'
   inStock: boolean
   vendorId?: string
   approved?: boolean

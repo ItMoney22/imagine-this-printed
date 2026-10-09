@@ -18,6 +18,6 @@ export const BUSINESS_PHONE: string | undefined = rawPhone && rawPhone.trim() ? 
 export const POLICY_UPDATED = {
   shipping: 'October 7, 2026',
   returns: 'October 7, 2026',
-  privacy: 'October 7, 2026',
+  privacy: 'October 9, 2026',
   terms: 'October 7, 2026'
 } as const

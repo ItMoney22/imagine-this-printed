@@ -7,6 +7,16 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-10-09 — `listing_honesty_fixes` NOT YET APPLIED (Zero Saturn, Watchtower `389defc8`)
+
+- `20261009120000_listing_honesty_fixes.sql` — data only (5 product rows), idempotent. Candle holder 43d607e5 to
+  `home-decor` with `metadata.not_included=["Candle"]` and `print3d.enabled=true, magnet_sockets=0` (keeps it on the
+  printer route in print-bridge.ts), "scream-inspired" removed; the two $8.95 "clock" metal prints renamed/described as
+  prints with no clock works; school icon d467c2b6 leads with a filled-in example image.
+- Apply AFTER the branch's code is on main (the catalog needs the Home Decor tab first or the candle drops out of
+  every tab but All Products). Proven twice in PGlite on copies of the live rows; previous values in
+  `memory/watchtower/projects/imagine-this-printed/2026-10-09-listing-honesty-undo.json`.
+
 ## 2026-09-22 — `print_materials` APPLIED + TRACKED, initial stock seeded (Lucas Blaze, Watchtower `c89e511c`)
 
 - `20260819230000_print_materials.sql` — **APPLIED LIVE** 2026-09-22 via

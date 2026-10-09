@@ -184,7 +184,39 @@ export function productKindOf(product: Pick<Product, 'category' | 'metadata'>): 
   const t = String(product?.metadata?.product_template || product?.metadata?.category || '').toLowerCase()
   if (c.includes('metal') || t.includes('metal') || t.includes('wall')) return 'metal'
   if (c.includes('3d') || c.includes('toy') || t.includes('3d') || t.includes('toy')) return '3d'
+  // Home decor is printed on the same 3D printers (the candle holder), so it
+  // sells like a 3D print: one size, no shirt tools. It just isn't a toy.
+  if (c === HOME_DECOR_CATEGORY) return '3d'
   return 'apparel'
+}
+
+/** 3D-printed decor that is not a toy (task 389defc8: the candle holder). */
+export const HOME_DECOR_CATEGORY = 'home-decor'
+
+/**
+ * "Candle not included" — what the product photo shows that the box does not
+ * hold. Read from metadata.not_included (e.g. ["Candle"]); null when nothing.
+ */
+export function notIncludedNote(product: Pick<Product, 'metadata'> | null | undefined): string | null {
+  const raw = product?.metadata?.not_included
+  const items = (Array.isArray(raw) ? raw : []).map(x => String(x).trim()).filter(Boolean)
+  if (items.length === 0) return null
+  const list = items.length === 1 ? items[0] : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+  return `${list} not included`
+}
+
+/** Age floor for anything with magnets in it (CPSC magnet rule territory). */
+export const MAGNET_AGE_FLOOR = 14
+
+/**
+ * True when a printed figure carries magnets: Toy Factory figures record
+ * print3d.magnet_sockets, and the magnet add-on is sold with them.
+ */
+export function hasMagnets(product: Pick<Product, 'category' | 'metadata'> | null | undefined): boolean {
+  const m = product?.metadata
+  if (!m) return false
+  if (Number(m.print3d?.magnet_sockets) > 0) return true
+  return Array.isArray(m.addons) && m.addons.includes('toy_magnet_pair')
 }
 
 // Canonical catalog category id used by the storefront filter/sidebar. Falls
@@ -218,6 +250,7 @@ const CATEGORY_ALIASES: Record<string, string> = {
 }
 
 export function canonicalCategoryOf(product: Pick<Product, 'category' | 'metadata'>): string {
+  if (String(product?.category || '').toLowerCase().trim() === HOME_DECOR_CATEGORY) return HOME_DECOR_CATEGORY
   const kind = productKindOf(product)
   if (kind === 'metal') return 'metal-art'
   if (kind === '3d') return '3d-prints'
@@ -237,6 +270,7 @@ export const STOREFRONT_CATEGORIES: { id: string; label: string }[] = [
   { id: 'tumblers', label: 'Tumblers' },
   { id: 'dtf-transfers', label: 'DTF Transfers' },
   { id: '3d-prints', label: '3D Prints' },
+  { id: 'home-decor', label: 'Home Decor' },
   { id: 'metal-art', label: 'Metal Art' },
 ]
 

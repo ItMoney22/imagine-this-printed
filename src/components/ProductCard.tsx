@@ -9,7 +9,7 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
+import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, notIncludedNote } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
@@ -300,6 +300,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             {product.name}
           </h3>
         </Link>
+        {/* The photo shows something the box does not hold (task 389defc8). */}
+        {notIncludedNote(product) && (
+          <p className="-mt-1 mb-2 text-xs font-semibold text-amber-700">{notIncludedNote(product)}</p>
+        )}
         {!compact && <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>}
 
         {/* Social Stats */}

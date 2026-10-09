@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../../lib/supabase'
 import { applyStorefrontVisibility } from '../../lib/product-visibility'
 import { STOREFRONT_PRODUCT_COLUMNS, mapProductRow } from '../../lib/storefront-row'
-import { isBlankProduct, productKindOf } from '../../lib/product-kind'
+import { isBlankProduct, productKindOf, HOME_DECOR_CATEGORY } from '../../lib/product-kind'
 import type { Product } from '../../types'
 
 /**
@@ -33,7 +33,9 @@ export interface HomeShop {
 
 const EMPTY_COUNTS: Record<DoorId, number> = { tees: 0, hoodies: 0, toys: 0, metal: 0, dtf: 0, blanks: 0 }
 
-function doorOf(p: Product): DoorId {
+function doorOf(p: Product): DoorId | null {
+  // Printed home decor (the candle holder) is not a toy and has no door.
+  if (p.category === HOME_DECOR_CATEGORY) return null
   if (isBlankProduct(p)) return 'blanks'
   const kind = productKindOf(p)
   if (kind === 'metal') return 'metal'
@@ -44,7 +46,7 @@ function doorOf(p: Product): DoorId {
 }
 
 /** A Toy Factory figurine, not other 3D decor (the candle holder is 3D too). */
-const isFigurine = (p: Product) => productKindOf(p) === '3d' && !!p.metadata?.print3d
+const isFigurine = (p: Product) => productKindOf(p) === '3d' && !!p.metadata?.print3d && p.category !== HOME_DECOR_CATEGORY
 
 function summarize(products: Product[], now = new Date()): Omit<HomeShop, 'loading'> {
   const sellable = products.filter((p) => !isBlankProduct(p))
@@ -67,7 +69,10 @@ function summarize(products: Product[], now = new Date()): Omit<HomeShop, 'loadi
   const toyFrom = toys.length ? Math.min(...toys.map((t) => t.price).filter((n) => n > 0)) : null
 
   const counts = { ...EMPTY_COUNTS }
-  for (const p of products) counts[doorOf(p)] += 1
+  for (const p of products) {
+    const door = doorOf(p)
+    if (door) counts[door] += 1
+  }
   return { popular, seasonal, toys, toyFrom: Number.isFinite(toyFrom) ? toyFrom : null, counts }
 }
 

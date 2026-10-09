@@ -15,7 +15,7 @@ import { getPromoBadge } from '../utils/product-promo'
 import { STANDARD_FULFILLMENT_DAYS } from '../utils/shipping-calculator'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
+import { resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, notIncludedNote, hasMagnets, MAGNET_AGE_FLOOR } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
@@ -339,6 +339,8 @@ const ProductPage: React.FC = () => {
   // where the shopper brings the art (blanks, personalizable templates).
   const options = listingOptionSets(product)
   const isTransfer = options.kind === 'dtf-transfer'
+  const notIncluded = notIncludedNote(product)
+  const magnetFigure = productKind === '3d' && hasMagnets(product)
   // The sizes this listing actually offers. Empty = a one-size product (a 3D
   // print with no explicit tiers), which hides the picker below and drops the
   // "please select a size" gate — it used to demand a choice between four
@@ -646,6 +648,15 @@ const ProductPage: React.FC = () => {
               ))}
             </div>
           )}
+
+          {/* What the photo shows but the box does not hold (task 389defc8:
+              the candle on the candle holder). Sits under the photo so it is
+              read with it, on a phone too. */}
+          {notIncluded && (
+            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+              {notIncluded}. The photo shows it for display only.
+            </p>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -758,6 +769,12 @@ const ProductPage: React.FC = () => {
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
                 <span>{productKind === '3d' ? '3D printed in our Georgia shop after you order' : isTransfer ? 'DTF transfer, printed after you order. This is the transfer only; no shirt is included' : 'Made to order, printed after you order'}</span>
               </li>
+              {notIncluded && (
+                <li className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
+                  <span>{notIncluded}</span>
+                </li>
+              )}
               <li className="flex items-center gap-2">
                 <div className="w-1.5 h-1.5 rounded-full bg-primary/40"></div>
                 <span>Ships from Georgia, USA</span>
@@ -768,6 +785,19 @@ const ProductPage: React.FC = () => {
               </li>
             </ul>
           </div>
+          )}
+
+          {/* Magnet figures: age rating + the magnet ingestion warning
+              (task 389defc8). Same wording as the Toy Factory page. */}
+          {magnetFigure && (
+            <div className="rounded-lg border-2 border-red-300 bg-red-50 p-4 text-sm text-red-900" role="note">
+              <p className="font-bold">Ages {MAGNET_AGE_FLOOR}+. WARNING: Contains small magnets.</p>
+              <p className="mt-1">
+                Swallowed magnets can stick together inside the body and cause serious injury or death.
+                Get medical help right away if a magnet is swallowed or inhaled. Small parts: choking hazard.
+                Not for children under {MAGNET_AGE_FLOOR}.
+              </p>
+            </div>
           )}
 
           <div className="border-t card-border pt-6">

@@ -128,7 +128,7 @@ export default function PrivacyPolicy() {
           <section>
             <h2 className="text-2xl font-bold text-text mb-4">8. Children's Privacy</h2>
             <p className="text-muted leading-relaxed">
-              Our services are not intended for children under 13. We do not knowingly collect personal information from children under 13. If you believe we have collected such information, please contact us immediately.
+              Our website, including the Toy Maker on our Toy Factory page, is for people 13 and older. Kids are welcome to dream up a toy with a parent or guardian, but the grown-up types or says the idea, makes any account and places the order. We do not knowingly collect personal information, including typed or recorded ideas, from children under 13. If you believe we have collected such information, please contact us immediately and we will delete it. Our toy figures contain small magnets and are rated ages 14 and up.
             </p>
           </section>
 

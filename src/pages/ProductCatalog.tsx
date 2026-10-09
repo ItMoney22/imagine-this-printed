@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react'
-import { useParams, useLocation } from 'react-router-dom'
+import { useParams, useLocation, Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ProductCard from '../components/ProductCard'
 import { canonicalCategoryOf, categoryValuesFor } from '../lib/product-kind'
@@ -254,6 +254,13 @@ const ProductCatalog: React.FC = () => {
       )
     },
     {
+      id: 'home-decor', name: 'Home Decor', icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 11l9-7 9 7M5 10v10h14V10M10 20v-5h4v5" />
+        </svg>
+      )
+    },
+    {
       id: 'metal-art', name: 'Metal Art', icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v14a1 1 0 01-1 1H5a1 1 0 01-1-1V5zm3 2h10v7l-3-3-4 4-3-2v-6z" />
@@ -443,6 +450,39 @@ const ProductCatalog: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* DTF: what you can order beyond the ready-made designs below.
+                Gang sheet numbers are the Imagination Station's own: 22.5"
+                wide, 24"-240" long, $0.02 per square inch (calculateSheetPrice
+                in ImaginationStation.tsx), so 22.5" x 24" is $10.80. */}
+            {selectedCategory === 'dtf-transfers' && (
+              <div className="mb-6 bg-white rounded-2xl shadow-soft border border-slate-100 p-5 sm:p-6">
+                <h2 className="text-lg font-bold text-slate-900">Your art or ours, pressed by you</h2>
+                <p className="text-sm text-slate-600 mt-1">
+                  DTF transfers are printed film you heat-press onto your own shirt, bag or hat. No shirt is included.
+                </p>
+                <ul className="mt-4 grid gap-3 sm:grid-cols-3 text-sm">
+                  <li className="rounded-xl bg-slate-50 p-3">
+                    <span className="block font-semibold text-slate-900">Single transfers</span>
+                    <span className="text-slate-600">11 in for adult shirts, 8 in for youth. Pick the size on any design below.</span>
+                  </li>
+                  <li className="rounded-xl bg-slate-50 p-3">
+                    <span className="block font-semibold text-slate-900">Gang sheets</span>
+                    <span className="text-slate-600">22.5 in wide, 24 in to 240 in long. A 22.5 x 24 in sheet is $10.80.</span>
+                  </li>
+                  <li className="rounded-xl bg-slate-50 p-3">
+                    <span className="block font-semibold text-slate-900">Upload your own</span>
+                    <span className="text-slate-600">Drop your PNG on a sheet, fill the rest with our designs, and order.</span>
+                  </li>
+                </ul>
+                <Link
+                  to="/imagination-station"
+                  className="mt-4 inline-flex w-full sm:w-auto items-center justify-center rounded-xl bg-purple-600 px-5 py-3 text-sm font-bold text-white hover:bg-purple-700 transition-colors"
+                >
+                  Build a gang sheet with your art
+                </Link>
+              </div>
+            )}
 
             {/* Products Grid/List */}
             {loading ? (
