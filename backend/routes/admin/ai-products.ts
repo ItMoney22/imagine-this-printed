@@ -474,12 +474,20 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
     // the brief itself declared productKind:'metal', a stronger signal than
     // either the admin dropdown or isTemplate, neither of which the Step Flow
     // studio ever sends alongside a metal brief.
+    // Where the category came from rides on the row (metadata.category_source)
+    // so the product-kind resolver (shared/product-kind.ts, task 28ab467c) can
+    // tell the admin's AUTHORITATIVE pick from the 'shirts' fallback below.
+    // The model's own valid slug stays unstamped: neither the admin's word nor
+    // a default, it is judged like any legacy row.
+    let categorySource: 'admin' | 'default' | undefined
     if (stepProductKind === 'metal') {
       normalized.category_slug = 'metal-art'
       normalized.category_name = 'Metal Art'
+      categorySource = 'admin'
     } else if (isTemplate) {
       normalized.category_slug = 'templates'
       normalized.category_name = 'Templates'
+      categorySource = 'admin'
     } else if (wizardCategory) {
       if (normalized.category_slug !== wizardCategory) {
         req.log?.warn(
@@ -488,9 +496,11 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
         )
       }
       normalized.category_slug = wizardCategory
+      categorySource = 'admin'
     } else if (!PRODUCT_CATEGORY_SLUGS.includes(normalized.category_slug as any)) {
       req.log?.warn({ model: normalized.category_slug }, '[ai-products] ⚠️ unknown category slug → shirts')
       normalized.category_slug = 'shirts'
+      categorySource = 'default'
     }
     if (normalized.category_slug !== normalized.category_name) {
       const known: Record<string, string> = {
@@ -567,6 +577,7 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
         print_locations: printLocations,
         metadata: {
           ai_generated: true,
+          ...(categorySource ? { category_source: categorySource } : {}),
           ...(studioOwnerId ? { creator_studio: true, creator_id: studioOwnerId } : {}),
           original_prompt: prompt,
           image_prompt: normalized.image_prompt,

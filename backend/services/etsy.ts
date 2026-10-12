@@ -29,6 +29,7 @@ import {
   TRANSFER_SHEET_SIZES,
   etsyTierConfig,
   taxonomyIdForCategory,
+  taxonomyIdForProduct,
   tierCopy
 } from '../shared/etsy-tiers.js'
 
@@ -667,10 +668,14 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
     }
 
     // Transfer/download carry their own Etsy category; only the primary tier
-    // falls back to the ITP-category map.
-    const taxonomyId = opts.taxonomyId ?? tierCfg.taxonomyId ?? taxonomyIdFor(product.category)
+    // falls back to the product's own kind (shared/etsy-tiers taxonomyIdForProduct:
+    // a row whose kind is flagged for review, or that nothing identifies, waits
+    // for a human instead of listing under the tee default — task 28ab467c).
+    const primary = (opts.taxonomyId ?? tierCfg.taxonomyId) ? null : taxonomyIdForProduct(product)
+    if (primary?.blockedReason) throw new Error(primary.blockedReason)
+    const taxonomyId = opts.taxonomyId ?? tierCfg.taxonomyId ?? primary?.taxonomyId ?? null
     if (!taxonomyId) {
-      throw new Error(`No Etsy taxonomy id for category "${product.category}" — set ETSY_TAXONOMY_MAP or pass taxonomyId (browse GET /api/admin/etsy/taxonomy)`)
+      throw new Error(`No Etsy taxonomy id for category "${primary?.category ?? product.category}" — set ETSY_TAXONOMY_MAP or pass taxonomyId (browse GET /api/admin/etsy/taxonomy)`)
     }
 
     const price = Math.max(

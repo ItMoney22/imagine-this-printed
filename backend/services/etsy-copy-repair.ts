@@ -30,9 +30,10 @@ import {
   COMPOSER_MODEL,
   composerClient,
   etsyAnchorPriceFor,
-  isHoodieProduct,
   type EtsyPack,
 } from './etsy-seo-composer.js'
+import { floorKindOf, toKindStamp, type ProductKind } from '../shared/product-kind.js'
+import { resolveProductKind } from './product-kind-jev.js'
 import {
   DESCRIPTION_MIN_CHARS,
   FILLER_TAGS,
@@ -61,6 +62,9 @@ export interface CopySubject {
   garment?: string | null
   /** Catalogue `search_keywords`, the free source of real buyer phrases. */
   keywords?: string | null
+  /** The resolved product kind (shared/product-kind.ts), when the caller has
+   *  one. Absent → the deterministic floor reads category/garment/name. */
+  kind?: ProductKind | null
   title: string
   description: string
   tags: string[]
@@ -80,27 +84,34 @@ export interface RepairedCopy {
 // These are the ONLY vocabulary the deterministic path can reach for, so each
 // entry has to be true of the thing being sold, not merely plausible.
 // ---------------------------------------------------------------------------
-type Kind = 'hoodie' | 'tee' | 'metal' | 'transfer' | 'other'
+type Kind = ProductKind
 
-export function kindOf(subject: Pick<CopySubject, 'category' | 'garment' | 'name'>): Kind {
-  const category = String(subject.category ?? '')
-  if (category === 'metal-art') return 'metal'
-  if (category === 'dtf-transfers') return 'transfer'
-  if (category === 'hoodies') return 'hoodie'
-  if (isHoodieProduct({ category: subject.category, name: subject.name, metadata: { garment: subject.garment } })) {
-    return 'hoodie'
-  }
-  if (category === 'shirts') return 'tee'
-  if (/tee|shirt/i.test(String(subject.garment ?? ''))) return 'tee'
-  return 'other'
+/**
+ * The kind whose vocabulary this listing gets. The caller's resolved kind
+ * (admin pick / Jev / floor — shared/product-kind.ts) when it has one; else the
+ * deterministic floor, which is the old category → garment → hoodie-name order.
+ * Nothing identifiable → 'other', whose words claim no garment at all (before
+ * task 28ab467c 'other' fell through to tee copy, so a 3D figurine was sold as
+ * "a soft unisex tee").
+ */
+export function kindOf(subject: Pick<CopySubject, 'category' | 'garment' | 'name'> & { kind?: ProductKind | null }): Kind {
+  if (subject.kind) return subject.kind
+  return floorKindOf({
+    category: subject.category,
+    name: subject.name,
+    metadata: subject.garment ? { garment: subject.garment } : {},
+  }).kind ?? 'other'
 }
 
 const PRODUCT_NOUN: Record<Kind, string> = {
   hoodie: 'Unisex Hoodie',
   tee: 'Unisex Graphic Tee',
+  youth_tee: 'Youth Graphic Tee',
   metal: 'Metal Print Wall Art',
   transfer: 'DTF Transfer',
-  other: 'Print',
+  '3d': '3D Printed Figure',
+  tumbler: 'Tumbler',
+  other: 'Design',
 }
 
 /** The tail that turns a bare design name into a listing title. Every clause
@@ -108,9 +119,12 @@ const PRODUCT_NOUN: Record<Kind, string> = {
 const TITLE_TAIL: Record<Kind, string[]> = {
   hoodie: ['Cozy Graphic Sweatshirt', 'Made to Order Gift Idea'],
   tee: ['Soft Graphic T-Shirt', 'Made to Order Gift Idea'],
+  youth_tee: ['Soft Kids T-Shirt', 'Made to Order Gift Idea'],
   metal: [`Glossy ${METAL_ART_SUBSTRATE.charAt(0).toUpperCase()}${METAL_ART_SUBSTRATE.slice(1)} Wall Decor`, 'Ready to Hang Art Print'],
   transfer: ['Ready to Press Heat Transfer', 'Made to Order'],
-  other: ['Made to Order Print'],
+  '3d': ['Made to Order Collectible', 'Desk and Shelf Decor'],
+  tumbler: ['Made to Order Drinkware', 'Gift Idea'],
+  other: ['Made to Order Gift Idea'],
 }
 
 /** Buyer phrases by product kind, in the order they are worth having. Filler
@@ -127,6 +141,11 @@ const PHRASE_BANK: Record<Kind, string[]> = {
     'gift for her', 'gift for him', 'birthday gift idea', 'christmas gift idea',
     'oversized tee', 'everyday outfit', 'summer graphic tee', 'aesthetic tee',
   ],
+  youth_tee: [
+    'kids graphic tee', 'youth t shirt', 'kids t shirt', 'boys graphic tee', 'girls graphic tee',
+    'gift for kids', 'kids birthday gift', 'christmas gift idea', 'back to school tee',
+    'kids outfit', 'school day shirt', 'youth graphic tee', 'everyday kids tee',
+  ],
   metal: [
     'metal wall art', `${METAL_ART_SUBSTRATE} wall art`, 'wall decor print', 'living room decor',
     'office wall art', 'bedroom wall decor', 'gift for art lover', 'housewarming gift',
@@ -139,10 +158,20 @@ const PHRASE_BANK: Record<Kind, string[]> = {
     'gift for crafter', 'sublimation alternative', 'apparel transfer', 'press ready design',
     'custom transfer print',
   ],
+  '3d': [
+    '3d printed figure', 'collectible figure', '3d print gift', 'desk decor figure', 'shelf decor',
+    'gift for collector', 'birthday gift idea', 'christmas gift idea', 'gamer desk decor',
+    'made to order', 'mini figurine', 'display figure', 'unique desk toy',
+  ],
+  tumbler: [
+    'custom tumbler', 'tumbler gift', 'drinkware gift', 'gift for her', 'gift for him',
+    'birthday gift idea', 'christmas gift idea', 'made to order', 'coworker gift idea',
+    'gift for friend', 'unique drinkware', 'everyday tumbler', 'small shop find',
+  ],
   other: [
     'made to order', 'gift for her', 'gift for him', 'birthday gift idea', 'christmas gift idea',
-    'home decor print', 'statement piece', 'custom print design', 'small shop find',
-    'handmade shop gift', 'unique wall decor', 'everyday essential', 'modern print design',
+    'unique gift idea', 'statement piece', 'custom design gift', 'small shop find',
+    'handmade shop gift', 'gift for friend', 'everyday essential', 'coworker gift idea',
   ],
 }
 
@@ -154,12 +183,24 @@ const STOPWORDS = new Set([
 
 const isFiller = (tag: string): boolean => FILLER_TAGS.has(normalise(tag))
 
+/** The noun a subject phrase is paired with ("cherry blossom hoodie"). */
+const SUBJECT_NOUN: Record<Kind, string> = {
+  hoodie: 'hoodie',
+  tee: 'shirt',
+  youth_tee: 'kids shirt',
+  metal: 'wall art',
+  transfer: 'transfer',
+  '3d': 'figure',
+  tumbler: 'tumbler',
+  other: 'gift',
+}
+
 /** Subject phrases pulled out of the design's own name — the tags that are
  *  actually about THIS design rather than about the product category. */
 export function subjectPhrases(name: string, kind: Kind): string[] {
   const words = normalise(name).split(' ').filter(w => w.length > 2 && !STOPWORDS.has(w))
   if (!words.length) return []
-  const noun = kind === 'metal' ? 'wall art' : kind === 'hoodie' ? 'hoodie' : kind === 'transfer' ? 'transfer' : 'shirt'
+  const noun = SUBJECT_NOUN[kind]
   const out: string[] = []
   // Longest first: a two-word subject ("cherry blossom") is a better tag than
   // either word alone, and pairing it with the product noun is the shape
@@ -317,13 +358,45 @@ function bodyFor(kind: Kind, name: string): string {
       'Store flat and out of direct sunlight until you press it.',
     ].join('\n')
   }
-  const garmentWord = kind === 'hoodie' ? 'hoodie' : 'tee'
+  if (kind === '3d') {
+    return [
+      'The figure',
+      `${name}, 3D printed to order as a collectible piece for a desk or a shelf.`,
+      '',
+      'What you get',
+      'One printed figure — the photos show the piece itself.',
+      '',
+      'Made to order',
+      'Every piece is printed in Rockmart, Georgia once you order.',
+      '',
+      'Care',
+      'Dust with a soft dry cloth.',
+    ].join('\n')
+  }
+  if (kind === 'tumbler' || kind === 'other') {
+    // No sanctioned material, size or care facts exist for these, so the body
+    // says only what is true of every ITP product and names no garment.
+    const noun = kind === 'tumbler' ? 'tumbler' : 'piece'
+    return [
+      'The design',
+      `${name}, an original design printed to order.`,
+      '',
+      'Made to order',
+      `Every ${noun} is printed in Rockmart, Georgia once you order, so it is made just for you.`,
+      '',
+      'Questions',
+      'Message us before you order if you want to check a size, a colour or any other detail.',
+    ].join('\n')
+  }
+  const garmentWord = kind === 'hoodie' ? 'hoodie' : kind === 'youth_tee' ? 'youth tee' : 'tee'
   return [
     'The design',
     `${name}, printed with vivid DTF ink so the colours stay bright wash after wash.`,
     '',
     kind === 'hoodie' ? 'The hoodie' : 'The shirt',
-    `A soft unisex ${garmentWord} with a classic fit. Size up if you like it roomy and oversized.`,
+    kind === 'youth_tee'
+      ? "A soft youth tee with a classic fit, cut in kids' sizes. Check the youth size chart before you order."
+      : `A soft unisex ${garmentWord} with a classic fit. Size up if you like it roomy and oversized.`,
     '',
     'Made to order',
     `Every ${garmentWord} is printed by hand in Rockmart, Georgia once you order.`,
@@ -345,7 +418,11 @@ function repairDescription(subject: CopySubject, changes: string[]): string {
         ? `${squash(subject.name)} on a glossy ${METAL_ART_SUBSTRATE} panel, made to order and ready to hang.`
         : kind === 'transfer'
           ? `${squash(subject.name)} as a ready-to-press DTF transfer, printed to order for your own garments.`
-          : `${squash(subject.name)} printed on a soft unisex ${kind === 'hoodie' ? 'hoodie' : 'tee'}, made to order in Rockmart, Georgia.`
+          : kind === '3d'
+            ? `${squash(subject.name)} as a 3D printed collectible figure, made to order in Rockmart, Georgia.`
+            : kind === 'tumbler' || kind === 'other'
+              ? `${squash(subject.name)}, an original design made to order in Rockmart, Georgia.`
+              : `${squash(subject.name)} printed on a soft ${kind === 'youth_tee' ? 'youth tee for kids' : `unisex ${kind === 'hoodie' ? 'hoodie' : 'tee'}`}, made to order in Rockmart, Georgia.`
   }
   if (hook.length > HOOK_MAX_CHARS) {
     // The mobile preview cuts at ~155 characters, so a too-long opener is
@@ -421,6 +498,7 @@ async function modelRepair(subject: CopySubject, objections: string[]): Promise<
           content: JSON.stringify({
             product_name: subject.name,
             category: subject.category,
+            product_kind: kindOf(subject),
             current_title: subject.title,
             current_tags: subject.tags,
             current_description: subject.description,
@@ -473,11 +551,16 @@ export async function repairEtsyPack(productId: string, objections: string[]): P
 
   const metadata: Record<string, any> = (product as any).metadata ?? {}
   const existing: EtsyPack | undefined = metadata.etsy_pack
+  // One decision for the whole repair: the admin's pick, else Jev (when on and
+  // sure), else the floor. A row nothing identifies keeps neutral words
+  // ('other') and the stamp below flags it for a human — never tee copy.
+  const kindDecision = await resolveProductKind(product as any)
   const subject: CopySubject = {
     channel: 'etsy',
     name: squash(product.name),
     category: product.category ?? null,
-    garment: metadata.step_flow?.garment ?? metadata.garment ?? null,
+    garment: typeof (metadata.step_flow?.garment ?? metadata.garment) === 'string' ? (metadata.step_flow?.garment ?? metadata.garment) : null,
+    kind: kindDecision.kind,
     keywords: (product as any).search_keywords ?? null,
     title: squash(existing?.title || (product as any).meta_title || product.name || ''),
     description: String(existing?.description || product.description || (product as any).meta_description || '').trim(),
@@ -508,7 +591,7 @@ export async function repairEtsyPack(productId: string, objections: string[]): P
 
   const pack: EtsyPack = {
     ...(existing ?? {
-      price: etsyAnchorPriceFor(product as any),
+      price: etsyAnchorPriceFor(product as any, kindDecision.kind),
       colors: [],
       composed_at: new Date().toISOString(),
       model: 'repair',
@@ -522,7 +605,7 @@ export async function repairEtsyPack(productId: string, objections: string[]): P
 
   const { error: updErr } = await supabase
     .from('products')
-    .update({ metadata: { ...metadata, etsy_pack: pack } })
+    .update({ metadata: { ...metadata, etsy_pack: pack, product_kind: toKindStamp(kindDecision, product as any) } })
     .eq('id', productId)
   if (updErr) throw new Error(`Failed to persist the repaired pack: ${updErr.message}`)
 

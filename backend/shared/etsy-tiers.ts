@@ -31,6 +31,14 @@
 //         Transfers > Clip Art & Image Files
 // ---------------------------------------------------------------------------
 
+import {
+  adminKindOf,
+  categoryForKind,
+  floorKindOf,
+  readKindStamp,
+  type ProductKindInput,
+} from './product-kind.js'
+
 export const ETSY_TIERS = ['primary', 'transfer', 'download'] as const
 export type EtsyTier = typeof ETSY_TIERS[number]
 
@@ -129,6 +137,50 @@ export function taxonomyIdForCategory(category: string | null): number | null {
   }
   const fallback = Number(process.env.ETSY_DEFAULT_TAXONOMY_ID)
   return Number.isFinite(fallback) && fallback > 0 ? fallback : null
+}
+
+// --- Product -> taxonomy (task 28ab467c) --------------------------------------
+// The category column alone was the whole answer, so a row with no category
+// fell to ETSY_DEFAULT_TAXONOMY_ID (in practice the tee node) and a row whose
+// kind was in doubt listed anyway. Now the product's kind decision
+// (shared/product-kind.ts, stamped on metadata.product_kind by the composer and
+// the copy repair) is consulted first:
+//   1. a stamp flagged needs_review blocks the listing with the reason — a
+//      human picks the category, which makes the stamp stale and clears it;
+//   2. the admin's pick (Step Flow garment, metal brief, wizard category) wins;
+//   3. else the category column, exactly as before;
+//   4. a row with NO category takes the resolved kind's category (a Jev
+//      decision, or the deterministic floor), never a silent default;
+//   5. nothing at all → blocked, not shirts.
+
+export interface ProductTaxonomy {
+  taxonomyId: number | null
+  /** The ITP category the id was resolved from. */
+  category: string | null
+  /** Set when the listing must wait for a human; taxonomyId is null then. */
+  blockedReason?: string
+}
+
+export function taxonomyIdForProduct(product: ProductKindInput): ProductTaxonomy {
+  const admin = adminKindOf(product)
+  const stamp = readKindStamp(product)
+  const column = String(product.category ?? '').trim() || null
+  if (!admin && stamp?.needs_review) {
+    return { taxonomyId: null, category: column, blockedReason: `Check what this product is before it lists on Etsy: ${stamp.note}` }
+  }
+  const category =
+    (admin ? categoryForKind(admin.kind) : null) ||
+    column ||
+    (stamp?.kind ? categoryForKind(stamp.kind) : null) ||
+    categoryForKind(floorKindOf(product).kind)
+  if (!category) {
+    return {
+      taxonomyId: null,
+      category: null,
+      blockedReason: 'Nothing on this product says what it is (no category, garment or template) — set its category first.',
+    }
+  }
+  return { taxonomyId: taxonomyIdForCategory(category), category }
 }
 
 // --- Sheet sizes -----------------------------------------------------------

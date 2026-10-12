@@ -26,6 +26,8 @@ import { supabase } from '../lib/supabase.js'
 import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './etsy-listing-fields.js'
 import { METAL_ART_SIZES, METAL_ART_SUBSTRATE, METAL_ART_MOUNTING_COPY, ETSY_SIZE_KEYS } from '../shared/metal-art.js'
 import { COLORS, type ColorId } from '../shared/catalog-capability.js'
+import { resolvedKindOf, toKindStamp, type ProductKind } from '../shared/product-kind.js'
+import { resolveProductKind } from './product-kind-jev.js'
 
 // OpenRouter-first since 2026-08-20 (David's cost pass): copy is a text job
 // Gemini Flash handles for ~nothing, and it rides a SEPARATE wallet — the
@@ -58,14 +60,16 @@ export const ETSY_ANCHOR_PRICE = Number(process.env.ETSY_ANCHOR_PRICE || 25)
  */
 export const ETSY_HOODIE_ANCHOR_PRICE = Number(process.env.ETSY_HOODIE_ANCHOR_PRICE || 40)
 
-/** Is this product a hoodie/sweatshirt, whichever way it was created? */
+/**
+ * Is this product a hoodie/sweatshirt, whichever way it was created? One
+ * answer with the rest of the pipeline (shared/product-kind.ts): the admin's
+ * pick, else the kind stamped by the last compose/repair, else the floor —
+ * category hoodies, a hoodie garment, or a word-bounded "hoodie"/"sweatshirt"
+ * in the name (a TEE whose design mentions a hooded figure is still a tee, and
+ * must not silently pick up the hoodie anchor).
+ */
 export function isHoodieProduct(product: { category?: unknown; name?: unknown; metadata?: any }): boolean {
-  if (String(product.category ?? '') === 'hoodies') return true
-  const garment = product.metadata?.step_flow?.garment ?? product.metadata?.garment
-  if (typeof garment === 'string' && /hoodie|sweatshirt/i.test(garment)) return true
-  // Word-bounded on purpose: a TEE whose design mentions a hooded figure is
-  // still a tee, and must not silently pick up the hoodie anchor.
-  return /\bhoodie\b|\bsweatshirt\b/i.test(String(product.name ?? ''))
+  return resolvedKindOf(product) === 'hoodie'
 }
 
 /**
@@ -75,9 +79,12 @@ export function isHoodieProduct(product: { category?: unknown; name?: unknown; m
  * anchor on purpose — its size variations carry the real ladder, and its
  * storefront 4x6 price is far below what the Etsy listing should open at.
  */
-export function etsyAnchorPriceFor(product: { category?: unknown; name?: unknown; metadata?: any }): number {
-  if (String(product.category ?? '') === 'metal-art') return ETSY_ANCHOR_PRICE
-  return isHoodieProduct(product) ? ETSY_HOODIE_ANCHOR_PRICE : ETSY_ANCHOR_PRICE
+export function etsyAnchorPriceFor(
+  product: { category?: unknown; name?: unknown; metadata?: any },
+  kind: ProductKind | null = resolvedKindOf(product)
+): number {
+  if (String(product.category ?? '') === 'metal-art' || kind === 'metal') return ETSY_ANCHOR_PRICE
+  return kind === 'hoodie' ? ETSY_HOODIE_ANCHOR_PRICE : ETSY_ANCHOR_PRICE
 }
 
 const openai = USE_OPENROUTER
@@ -136,24 +143,94 @@ export function defaultColorsFor(product: any): string[] {
   return [...new Set([own, DEFAULT_SECOND_COLOR])]
 }
 
-const SYSTEM_PROMPT =
-  'You write Etsy listing copy for ImagineThisPrinted, a custom print shop selling soft unisex tees ' +
-  'with DTF-printed designs, made to order in Rockmart, Georgia. Respond ONLY with JSON: ' +
-  '{"title": string, "tags": string[], "description": string}. Rules: ' +
-  'TITLE: clear and human-readable — Etsy\'s current quality guidance explicitly penalizes keyword-stuffed, ' +
-  'comma-stacked titles (their own listing feedback rewrites them). Format: the design name, one or two ' +
-  'natural style descriptors, the product type, then optionally ONE "|" separator and a short audience/fit ' +
-  'phrase. Example shape: "Simply Be You Retro Varsity T-Shirt | Unisex Graphic Tee". Aim for 50-90 ' +
-  'characters. No comma-separated keyword lists, no repeated synonyms, no emoji, no ALL-CAPS words, no ' +
-  'quotes. Every search phrase you would have stacked in the title belongs in the tags instead. ' +
-  'TAGS (exactly 13): 2-3 word lowercase buyer phrases, each <=20 characters, no duplicates or ' +
-  'near-duplicates, no bare generic words like "shirt". Spread across: style/aesthetic, audience, ' +
-  'occasion/season, gift phrasing, and the design subject. ' +
-  'DESCRIPTION: first line is a hook <=155 chars saying what it is and who it is for (that is the ' +
-  'mobile preview). Then short scannable sections: the design; the shirt (soft unisex tee, vibrant ' +
-  'DTF print); a sizing nudge (size up for an oversized fit); made to order + printed in Rockmart, ' +
-  'Georgia; care (machine wash cold, inside out). Friendly and concrete. Never invent facts, ' +
-  'materials, or shipping promises.'
+// What the listing is selling, per kind — the only facts the non-metal prompt
+// may state. Before task 28ab467c there was ONE garment prompt and it said
+// "soft unisex tees" for everything that was not metal-art, so every hoodie,
+// DTF transfer and 3D figurine got tee copy (the 2026-10-12 dry run counted 34).
+interface KindCopyFacts {
+  selling: string
+  example: string
+  item: string
+  sizing: string | null
+  care: string
+}
+
+const KIND_COPY: Record<Exclude<ProductKind, 'metal'>, KindCopyFacts> = {
+  tee: {
+    selling: 'soft unisex tees with DTF-printed designs',
+    example: 'Simply Be You Retro Varsity T-Shirt | Unisex Graphic Tee',
+    item: 'the shirt (soft unisex tee, vibrant DTF print)',
+    sizing: 'a sizing nudge (size up for an oversized fit)',
+    care: 'care (machine wash cold, inside out)',
+  },
+  hoodie: {
+    selling: 'soft unisex hoodies with DTF-printed designs',
+    example: 'Simply Be You Retro Varsity Hoodie | Unisex Graphic Sweatshirt',
+    item: 'the hoodie (soft unisex hoodie, vibrant DTF print)',
+    sizing: 'a sizing nudge (size up for an oversized fit)',
+    care: 'care (machine wash cold, inside out)',
+  },
+  youth_tee: {
+    selling: 'soft youth tees for kids with DTF-printed designs',
+    example: 'Simply Be You Retro Varsity Kids T-Shirt | Youth Graphic Tee',
+    item: "the shirt (soft youth tee cut in kids' sizes, vibrant DTF print)",
+    sizing: 'a sizing nudge (check the youth size chart)',
+    care: 'care (machine wash cold, inside out)',
+  },
+  transfer: {
+    selling: 'ready-to-press DTF heat transfers (the printed film only, no garment included)',
+    example: 'Simply Be You Retro Varsity DTF Transfer | Ready to Press Heat Transfer',
+    item: 'the transfer (full-color DTF film for cotton, polyester or blends; the garment is NOT included)',
+    sizing: 'how to press (heat press at 300-320F for 10-15 seconds with medium pressure)',
+    care: 'storage (keep flat and out of direct sunlight until pressed)',
+  },
+  '3d': {
+    selling: 'made-to-order 3D printed collectible figures',
+    example: 'Simply Be You Retro Varsity Figure | 3D Printed Collectible',
+    item: 'the piece (3D printed to order, a collectible for a desk or a shelf)',
+    sizing: null,
+    care: 'care (dust with a soft dry cloth)',
+  },
+  tumbler: {
+    selling: 'drinkware printed with original designs',
+    example: 'Simply Be You Retro Varsity Tumbler | Made to Order Drinkware',
+    item: 'the tumbler (state only what the given name and description say about it)',
+    sizing: null,
+    care: 'care (only what the given description says; otherwise leave care out)',
+  },
+  other: {
+    selling: 'original designs on made-to-order products',
+    example: 'Simply Be You Retro Varsity Design | Made to Order Gift',
+    item: 'the item (state only what the given name and description say it is, and never call it a shirt unless they do)',
+    sizing: null,
+    care: 'care (only what the given description says; otherwise leave care out)',
+  },
+}
+
+/** The non-metal system prompt for a kind. The tee prompt is byte-for-byte the
+ *  one every listing before 2026-10-12 was written with. */
+export function composerPromptFor(kind: Exclude<ProductKind, 'metal'>): string {
+  const f = KIND_COPY[kind]
+  return (
+    `You write Etsy listing copy for ImagineThisPrinted, a custom print shop selling ${f.selling}, ` +
+    'made to order in Rockmart, Georgia. Respond ONLY with JSON: ' +
+    '{"title": string, "tags": string[], "description": string}. Rules: ' +
+    'TITLE: clear and human-readable — Etsy\'s current quality guidance explicitly penalizes keyword-stuffed, ' +
+    'comma-stacked titles (their own listing feedback rewrites them). Format: the design name, one or two ' +
+    'natural style descriptors, the product type, then optionally ONE "|" separator and a short audience/fit ' +
+    `phrase. Example shape: "${f.example}". Aim for 50-90 ` +
+    'characters. No comma-separated keyword lists, no repeated synonyms, no emoji, no ALL-CAPS words, no ' +
+    'quotes. Every search phrase you would have stacked in the title belongs in the tags instead. ' +
+    'TAGS (exactly 13): 2-3 word lowercase buyer phrases, each <=20 characters, no duplicates or ' +
+    'near-duplicates, no bare generic words like "shirt". Spread across: style/aesthetic, audience, ' +
+    'occasion/season, gift phrasing, and the design subject. ' +
+    'DESCRIPTION: first line is a hook <=155 chars saying what it is and who it is for (that is the ' +
+    `mobile preview). Then short scannable sections: the design; ${f.item}; ` +
+    (f.sizing ? `${f.sizing}; ` : '') +
+    `made to order + printed in Rockmart, Georgia; ${f.care}. Friendly and concrete. Never invent facts, ` +
+    'materials, or shipping promises.'
+  )
+}
 
 // Metal art variant — same JSON contract, wall-art copy instead of apparel.
 //
@@ -229,7 +306,13 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
   if (error) throw new Error(`Product lookup failed: ${error.message}`)
   if (!product) throw new Error(`Product ${productId} not found`)
 
-  const isMetal = String(product.category) === 'metal-art'
+  // What is being sold decides the prompt, the anchor and the colour axis —
+  // the admin's pick, else Jev (when on and sure), else the floor. A product
+  // nothing identifies is not composed as a tee: it waits for its category.
+  const kindDecision = await resolveProductKind(product)
+  if (!kindDecision.kind) throw new Error(kindDecision.note)
+  const kind = kindDecision.kind
+  const isGarment = kind === 'tee' || kind === 'hoodie' || kind === 'youth_tee'
   let fields: { title: string, tags: string[], description: string } | null = null
   if (openai) {
     try {
@@ -238,13 +321,14 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
         response_format: { type: 'json_object' },
         ...(isReasoningModel ? { max_completion_tokens: 900 } : { max_tokens: 900 }),
         messages: [
-          { role: 'system', content: isMetal ? METAL_SYSTEM_PROMPT : SYSTEM_PROMPT },
+          { role: 'system', content: kind === 'metal' ? METAL_SYSTEM_PROMPT : composerPromptFor(kind) },
           {
             role: 'user',
             content: JSON.stringify({
               name: product.name,
               description: product.description,
               category: product.category,
+              product_kind: kind,
               existing_keywords: product.search_keywords,
               original_prompt: (product as any).metadata?.original_prompt || (product as any).metadata?.image_prompt || null
             })
@@ -268,15 +352,16 @@ export async function composeEtsyPack(productId: string): Promise<EtsyPack> {
     // Size variation (services/etsy.ts METAL_SIZES). No color axis.
     // Garments anchor by what they are — a hoodie at the tee price is margin
     // handed away on every sale.
-    price: etsyAnchorPriceFor(product as any),
-    colors: isMetal ? [] : (existingColors?.length ? existingColors : defaultColorsFor(product)),
+    price: etsyAnchorPriceFor(product as any, kind),
+    // Only a garment has a shirt colour to pick; a panel, transfer or figure does not.
+    colors: !isGarment ? [] : (existingColors?.length ? existingColors : defaultColorsFor(product)),
     composed_at: new Date().toISOString(),
     model: openai ? COMPOSER_MODEL : 'mechanical'
   }
 
   const { error: updErr } = await supabase
     .from('products')
-    .update({ metadata: { ...((product as any).metadata || {}), etsy_pack: pack } })
+    .update({ metadata: { ...((product as any).metadata || {}), etsy_pack: pack, product_kind: toKindStamp(kindDecision, product) } })
     .eq('id', productId)
   if (updErr) throw new Error(`Failed to persist etsy_pack: ${updErr.message}`)
 
