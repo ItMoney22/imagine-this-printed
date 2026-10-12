@@ -4772,3 +4772,9 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-12) — ITP checkout 2-for-$25 + forged bundle flag (task b81a65f5, daisy-carter)
+### File shortlist (approved scope)
+- `backend/services/order-pricing.ts` (+ test), `backend/routes/stripe.ts`, `src/pages/Checkout.tsx`, `src/context/CartContext.test.tsx` (parity test)
+### Work log (append-only)
+- 2026-10-12 (daisy-carter): Checkout usdTotal now pools BUNDLE_DEAL; server reads eligibility from products.metadata (fetchBundleEligibleIds), ignores body flag. vitest backend+Cart green, tsc 0.

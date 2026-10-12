@@ -505,13 +505,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       // carries 3d-print color_mode/include_paint_kit OPTIONS — never a
       // trusted dollar amount. See order-pricing.ts GAP 1 / GAP 2.
       weight: item?.product?.weight != null ? Number(item.product.weight) : null,
-      metadata: item?.product?.metadata ?? null,
-      // "2 for $25" bundle eligibility (GAP 4) — mirrors the top-level flag
-      // src/context/CartContext.tsx reads off product.isThreeForTwentyFive.
-      // metadata (above) already carries metadata.isThreeForTwentyFive, but
-      // that alone isn't the full eligibility rule the cart uses — see
-      // backend/shared/promos.ts isBundleEligible.
-      isThreeForTwentyFive: item?.product?.isThreeForTwentyFive ?? null
+      metadata: item?.product?.metadata ?? null
+      // "2 for $25" eligibility is deliberately NOT forwarded: the pricing
+      // engine reads it from the products row (fetchBundleEligibleIds), since
+      // anything in this body, including product.metadata, is forgeable.
     }))
 
     let pricing

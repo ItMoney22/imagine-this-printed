@@ -10,6 +10,7 @@ import { apiFetch } from '../lib/api'
 import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
+import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
 import { getLandingUtms } from '../utils/utm'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
@@ -386,7 +387,17 @@ const Checkout: React.FC = () => {
 
     // Calculate base total (blank garments price per size + colour off their
     // own table — backend/shared/blank-pricing.ts; mirrors CartContext)
-    const usdBaseTotal = usdItems.reduce((sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity), 0)
+    // The "2 for $25" deal is pooled across every eligible line exactly like
+    // CartContext.calculateTotal and the server's computeSubtotalCents (blanks
+    // never qualify). Without this the page asked for $50 against a $25 cart.
+    const isBundleLine = (item: (typeof usdItems)[number]) =>
+      !isBlankGarmentMeta(item.product.metadata) && isBundleEligible(item.product)
+    const bundleQty = usdItems.reduce((sum, item) => sum + (isBundleLine(item) ? item.quantity : 0), 0)
+    const usdBaseTotal =
+      usdItems.reduce(
+        (sum, item) => sum + (isBundleLine(item) ? 0 : lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity),
+        0
+      ) + bundleTotalCents(bundleQty, BUNDLE_DEAL.priceCents) / 100
     const itcBaseTotal = itcItems.reduce((sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity), 0)
 
     // Add-on upsells (e.g. metal-art easel stand / wall mount), priced per unit.
@@ -413,7 +424,8 @@ const Checkout: React.FC = () => {
     // only negative term in the total, so the cap is what keeps this page
     // inside the 1-cent tolerance the server re-price gate enforces.
     const youthDiscount = usdItems.reduce((sum, item) => {
-      if (isBlankGarmentMeta(item.product.metadata) || !isYouthSize(item.selectedSize)) return sum
+      // Bundle lines never earn the youth markdown (flat promo price; mirrors CartContext + server).
+      if (isBlankGarmentMeta(item.product.metadata) || isBundleLine(item) || !isYouthSize(item.selectedSize)) return sum
       const otherPerUnit =
         lineBasePrice(item.product, item.selectedSize, item.selectedColor) +
         (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
