@@ -1,0 +1,128 @@
+{
+  "generated_at": "2026-10-12T16:01:01.508Z",
+  "live_code": "origin/main ad57532",
+  "branch_code": "HEAD b5a58bc",
+  "live_blank_rows": 4,
+  "uncarried_sold_by_live_code": 10,
+  "uncarried_sold_by_branch_code": 0,
+  "blanks": [
+    {
+      "id": "9d2df3cd-1986-4d05-9d80-4be9c4245ef0",
+      "name": "Classic Heavy Cotton Tee — Blank",
+      "by_color_only": true,
+      "colours": 28,
+      "uncarried_sold_live": 0,
+      "uncarried_branch_refuses": 0,
+      "uncarried_total": 0
+    },
+    {
+      "id": "c46cde94-3b92-45cf-adeb-dea2553c2e26",
+      "name": "Heavyweight Garment-Dyed Tee — Blank",
+      "by_color_only": true,
+      "colours": 54,
+      "uncarried_sold_live": 0,
+      "uncarried_branch_refuses": 0,
+      "uncarried_total": 0
+    },
+    {
+      "id": "274d05c2-22a4-4db6-92bb-cf6927d539c0",
+      "name": "Premium Retail-Fit Tee — Blank",
+      "by_color_only": true,
+      "colours": 49,
+      "uncarried_sold_live": 0,
+      "uncarried_branch_refuses": 0,
+      "uncarried_total": 0
+    },
+    {
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "name": "Soft Ring-Spun Tee — Blank",
+      "by_color_only": true,
+      "colours": 34,
+      "uncarried_sold_live": 10,
+      "uncarried_branch_refuses": 10,
+      "uncarried_total": 10
+    }
+  ],
+  "uncarried": [
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Sky",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Gold",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Sage",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Azalea",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Heliconia",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Cherry Red",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Light Pink",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Mint Green",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Forest Green",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    },
+    {
+      "product": "Soft Ring-Spun Tee — Blank",
+      "id": "7c0f8ab3-9d2f-42af-bb74-3190697a9493",
+      "color": "Dark Chocolate",
+      "size": "4XL",
+      "live": 12.18,
+      "branch": null
+    }
+  ]
+}

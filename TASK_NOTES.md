@@ -5055,6 +5055,9 @@ No new code: a merge, gates and a walk.
 - merge of cc27627 only (backend/shared/blank-pricing.ts, blank-line.ts, services/tripo3d.ts, worker/ai-jobs-worker.ts,
   src/components/ProductCard.tsx, src/pages/ProductPage.tsx, backend/data/jiffy-blank-costs.json, scripts)
 - `TASK_NOTES.md`
+- send-back fix (Nine 2026-10-12, "no proof a checker could follow"): the live-vs-branch proof lived only in a
+  scratchpad. Added, read-only, no app code: `scripts/proof-blank-size-gating.ts` (reruns the check off anon REST),
+  `docs/ship-proof-jiffy-tripo-2026-10-12/` (README report, live-vs-branch.json, verify logs, 3 walk shots).
 
 ### Work log (append-only)
 - 2026-10-12 (rhea-cassien): today's ITP slot was already used (ship/2026-10-12-2d97a651 = main 7314e53, 15:17Z) and only
@@ -5064,3 +5067,9 @@ No new code: a merge, gates and a walk.
   sells 10 colour/size combos Jiffy does not carry (e.g. Soft Ring-Spun Sky/Gold/Sage/Azalea 4XL at $12.18); this
   branch refuses all 10. Walked /product/7c0f8ab3 on vite :5191 at 1400 and 390: Black XS-5XL, Sky S-3XL, a 4XL picked
   on Black is dropped on switching to Sky.
+- 2026-10-12 (rhea-cassien, send-back fix): Nine sent the card back for "no proof a checker could follow" (the
+  live-vs-branch check lived only in a scratchpad). Merged live main ad57532 (Nine's Step Flow hotfix) clean (b5a58bc).
+  Added scripts/proof-blank-size-gating.ts (rerunnable, anon REST, read-only) and docs/ship-proof-jiffy-tripo-2026-10-12/:
+  live code sells 10 uncarried combos, branch 0; walks replayed at $0 (Sky S-3XL on page + card, 4XL dropped at 390);
+  Tripo V3 key live (task GET 404 not 401, balance 450 credits); verify 166/2377; vite build ok; 10/13 superset
+  (+051355f cost sync, +35cc532b on-person stamping) merges clean and passes 171/2440.
