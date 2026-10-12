@@ -100,10 +100,10 @@ export const SUPPORT_CATEGORY_CRITERIA: Record<SupportCategory, string> = {
 }
 
 export const SUPPORT_PRIORITY_CRITERIA: Record<SupportPriority, string> = {
-  urgent: 'A damaged or wrong order the customer is upset about, a large bulk order or deadline-driven event order, or money taken without the order being fulfilled — handle within hours',
-  high: 'A real customer with a problem that blocks them (billing issue, refund, order missing past its window) or a bulk-quote lead — handle today',
-  normal: 'A routine question from a real customer: order status, design help, general questions — handle within a day',
-  low: 'Spam, tests, gibberish, or nothing to act on — can wait or be ignored',
+  urgent: 'Money was taken and the order was never fulfilled, the customer says they are upset or angry, or there is a hard deadline in the next day or two (an event, a gift date, a large bulk order under time pressure) — handle within hours',
+  high: 'A real customer has something wrong that needs fixing: a damaged, defective, cracked, peeling, torn, faded or misprinted item; the wrong item, size or colour; a missing piece; a refund or cancellation request; a billing problem; an order missing past its delivery window; or a bulk-quote sales lead — handle today. Calm, matter-of-fact wording does not make this any less true',
+  normal: 'A routine question from a real customer where nothing is broken and nothing was charged wrong: order status, design help, how-to and general questions — handle within a day',
+  low: 'Not a real customer problem at all: spam, a bot-filled form, a test submission, or gibberish with nothing to act on. Never the right answer for an actual product defect or complaint, however calmly it is worded',
 }
 
 export interface TicketInput {
@@ -299,7 +299,7 @@ export function describeTicketTriage(tr: TicketTriage): string {
 // Shared mailbox
 // ---------------------------------------------------------------------------
 
-export const EMAIL_LABELS = ['sales_lead', 'customer_issue', 'supplier', 'etsy_notification', 'newsletter', 'spam'] as const
+export const EMAIL_LABELS = ['sales_lead', 'customer_issue', 'supplier', 'etsy_notification', 'newsletter', 'internal', 'spam'] as const
 export type EmailLabel = (typeof EMAIL_LABELS)[number]
 
 export const NEEDS_REPLY = ['today', 'this_week', 'no'] as const
@@ -311,6 +311,7 @@ export const EMAIL_LABEL_CRITERIA: Record<EmailLabel, string> = {
   supplier: 'A company we buy from or ship with writing about a SPECIFIC purchase or account of ours: an order confirmation, shipment, invoice, or a support ticket we opened with them. Their marketing blasts are newsletter, not supplier',
   etsy_notification: 'An automated message from Etsy about our own shop: sales, payments, sign-in alerts, weekly shop stats, listing performance, seller tips',
   newsletter: 'Marketing or promotional mail sent to a list — including promo blasts and design tips from our own suppliers: product promos, trend roundups, platform announcements, "rate us" review requests, receipts from tools we subscribe to, automatic out-of-office replies',
+  internal: "Our OWN system or team writing to us, not a customer or an outside company: an automated daily ops report, a new-support-ticket alert, or a note from David Trinidad (the shop owner) or another Imagine This Printed teammate",
   spam: 'Unsolicited cold pitches (SEO, lead lists, lead-gen agencies, influencer offers for unrelated products), phishing, or junk',
 }
 
@@ -339,11 +340,20 @@ export interface EmailFloor {
 const RE_NOREPLY = /^(no-?reply|do-?not-?reply|noreply\.[a-z.]+|mailer-daemon|postmaster)@/i
 const RE_AUTOREPLY = /^(automatic reply|auto(matische)? ?(reply|antwort)|out of (the )?office|abwesenheitsnotiz)\b/i
 const ETSY_DOMAIN = /@([a-z0-9-]+\.)*etsy\.com$/i
+// Mail FROM our own domain (ops reports, "New Support Ticket" alerts a mailbox
+// sends to itself) or from David's own known addresses is never a customer, a
+// newsletter or spam — a real customer or an outside company never has one of
+// these. Checked before anything content-based so a system alert can never be
+// read as a complaint (or a complaint-shaped one, like "Pluto is receive-ready",
+// misread as spam).
+const OWN_DOMAIN = /@([a-z0-9-]+\.)*imaginethisprinted\.com$/i
+const RE_KNOWN_INTERNAL_SENDER = /davidltrinidad/i
 
 /**
  * Deterministic floor for mail. Only rules that cannot be wrong: a no-reply
- * address cannot be answered, an auto-responder is not a conversation, and
- * mail from etsy.com is Etsy. Everything else is left to Jev or a human.
+ * address cannot be answered, an auto-responder is not a conversation, mail
+ * from etsy.com is Etsy, and mail from our own domain or David's own address
+ * is internal. Everything else is left to Jev or a human.
  */
 export function emailFloor(e: EmailInput): EmailFloor {
   const from = (e.from_address || '').trim().toLowerCase()
@@ -352,6 +362,11 @@ export function emailFloor(e: EmailInput): EmailFloor {
   let label: EmailLabel | undefined
   let needsReply: 'no' | undefined
   if (ETSY_DOMAIN.test(from)) { label = 'etsy_notification'; rules.push('domain:etsy') }
+  if (!label && (OWN_DOMAIN.test(from) || RE_KNOWN_INTERNAL_SENDER.test(from))) {
+    label = 'internal'
+    needsReply = 'no'
+    rules.push('sender:internal')
+  }
   if (RE_NOREPLY.test(from)) { needsReply = 'no'; rules.push('sender:no_reply') }
   if (RE_AUTOREPLY.test(subject)) { needsReply = 'no'; label ??= 'newsletter'; rules.push('subject:auto_reply') }
   return { label, needsReply, rules }

@@ -51,7 +51,7 @@ describe('every Jev question is a multi-option choice with a written description
   it('option sets match the spec exactly', () => {
     expect(Object.keys(SUPPORT_CATEGORY_CRITERIA)).toEqual(['order_status', 'wrong_or_damaged', 'refund_request', 'design_help', 'bulk_quote', 'billing', 'spam'])
     expect(Object.keys(SUPPORT_PRIORITY_CRITERIA)).toEqual(['urgent', 'high', 'normal', 'low'])
-    expect(Object.keys(EMAIL_LABEL_CRITERIA)).toEqual(['sales_lead', 'customer_issue', 'supplier', 'etsy_notification', 'newsletter', 'spam'])
+    expect(Object.keys(EMAIL_LABEL_CRITERIA)).toEqual(['sales_lead', 'customer_issue', 'supplier', 'etsy_notification', 'newsletter', 'internal', 'spam'])
     expect(Object.keys(NEEDS_REPLY_CRITERIA)).toEqual(['today', 'this_week', 'no'])
     expect(Object.keys(ETSY_FLAG_CRITERIA)).toEqual(['none', 'personalization', 'change_request', 'problem'])
   })
@@ -88,6 +88,17 @@ describe('support tickets', () => {
     const tr = await triageTicket(damaged, fakeJev({ t_category: { choice: 'wrong_or_damaged', confidence: 0.99 }, t_priority: { choice: 'low', confidence: 0.99 } }))
     expect(tr.priority).toBe('high')
     expect(tr.prioritySource).toBe('floor')
+  })
+
+  it('a confident wrong_or_damaged CATEGORY still floors priority to high with no keyword hit and a wrong Jev priority answer', async () => {
+    // Real prod case (task 09d844e1): "print cracked and peeling" tripped the
+    // keyword floor, but a defect described in other words would not — the
+    // category-based elevation below is the only thing that saves it then.
+    const input = { subject: 'Order issue', description: 'The ink came off in the wash and it looks awful now', customerCategory: 'general' }
+    expect(ticketFloor(input).minPriority).toBeUndefined()
+    const tr = await triageTicket(input, fakeJev({ t_category: { choice: 'wrong_or_damaged', confidence: 0.89 }, t_priority: { choice: 'low', confidence: 0.78 } }))
+    expect(tr.category).toBe('wrong_or_damaged')
+    expect(tr.priority).toBe('high')
   })
 
   it('a confident bulk/damaged CATEGORY lifts priority even when the floor had no keyword', async () => {
@@ -174,6 +185,25 @@ describe('shared mailbox', () => {
     expect(emailFloor(emails[3])).toMatchObject({ needsReply: 'no' })
     expect(emailFloor({ id: 'x', from_address: 'a@b.com', subject: 'Automatic reply: Welcome' })).toMatchObject({ needsReply: 'no', label: 'newsletter' })
     expect(emailFloor(emails[1])).toEqual({ label: undefined, needsReply: undefined, rules: [] })
+  })
+
+  it('floor: our own domain and David\'s own address are internal — never customer_issue, newsletter or spam', () => {
+    expect(emailFloor({ id: 'x', from_address: 'wecare@imaginethisprinted.com', subject: 'New Support Ticket #4821' }))
+      .toMatchObject({ label: 'internal', needsReply: 'no' })
+    expect(emailFloor({ id: 'x', from_address: 'ops@imaginethisprinted.com', subject: 'Daily ops report' }))
+      .toMatchObject({ label: 'internal', needsReply: 'no' })
+    expect(emailFloor({ id: 'x', from_address: 'davidltrinidad@gmail.com', subject: 'Pluto is receive-ready' }))
+      .toMatchObject({ label: 'internal', needsReply: 'no' })
+    // A real customer's Etsy-domain address still wins the etsy_notification floor, not internal.
+    expect(emailFloor({ id: 'x', from_address: 'noreply@etsy.com', subject: 'You made a sale!' })).toMatchObject({ label: 'etsy_notification' })
+  })
+
+  it('an internal-sender email is never left to Jev, even when Jev itself misreads it as a customer issue', async () => {
+    const out = await triageEmails(
+      [{ id: 'i1', from_address: 'wecare@imaginethisprinted.com', subject: 'New Support Ticket #4821', body: 'A new ticket was filed by a customer.' }],
+      fakeJev({ e0_label: { choice: 'customer_issue', confidence: 0.9 }, e0_reply: { choice: 'today', confidence: 0.9 } })
+    )
+    expect(out.get('i1')).toMatchObject({ label: 'internal', needsReply: 'no', needsReview: false, labelSource: 'floor', replySource: 'floor' })
   })
 
   it('one batched call; every message comes back; confident answers decide; unsure is kept for the summary', async () => {

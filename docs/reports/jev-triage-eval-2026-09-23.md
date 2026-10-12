@@ -69,3 +69,50 @@ Production has no Etsy order with a buyer note yet: receipt ingest is waiting on
   needed a reply was ever left out of the summary.
 - **Rollback:** set `JEV_TRIAGE=shadow` (record Jev, the floor decides) or
   `JEV_TRIAGE=off`. This is an env flip with no deploy of code.
+
+## 2026-09-23 tuning pass — priority wording + internal-sender floor (Watchtower 09d844e1)
+
+Live verification of the first ship (task 6ff6495c) found two real gaps:
+
+1. A real contact-form ticket ("print cracked and peeling, need replacement") scored
+   category `wrong_or_damaged` @0.89 correctly, but Jev's own **priority** call answered
+   `low` @0.78 — only the deterministic `keyword:damaged` floor and the
+   category-based elevation (`wrong_or_damaged` -> at least `high`) saved it. The
+   `SUPPORT_PRIORITY_CRITERIA` wording did not name damaged/defective goods under
+   `high` at all, and `low`'s wording ("nothing to act on") was plausible for a
+   calmly-worded complaint. Reworded `high` to explicitly list damaged, defective,
+   cracked, peeling, torn, faded and misprinted items, wrong item/size/colour and
+   missing pieces, and added "calm wording does not lower this" / "never the right
+   answer for an actual product defect, however calmly it is worded" to `high` and
+   `low` respectively.
+2. `GET /mailboxes/:id/messages?triage=1` on `wecare` labelled our OWN ops mail
+   (daily reports, "New Support Ticket" alerts sent by the mailbox to itself) as
+   `customer_issue`/`newsletter`, and labelled David Trinidad's own "Pluto is
+   receive-ready" mail `spam`. Added an `internal` `EmailLabel` plus a deterministic
+   floor (`sender:internal`): any `@imaginethisprinted.com` sender, or an address
+   containing `davidltrinidad`, floors to `label: 'internal', needsReply: 'no'`
+   before Jev is even asked — this is a hard floor, so it can never be overridden by
+   a wrong Jev guess (unit-tested: a fake Jev confidently answering `customer_issue`
+   still gets overridden to `internal`).
+
+**Re-ran against the same 77-ticket / 141-email / 12-Etsy-note dataset** (no real
+internal-sender rows exist in this corpus — that gap was only visible live, so it is
+covered by 2 new unit tests instead, not this eval):
+
+| | before (shipped) | after (this tuning) |
+|---|---|---|
+| ticket category | 100% | 100% |
+| ticket priority | 94.8% | 94.8% (same 4 misses — 3 sign-in tickets under-prioritized, 1 synthetic bulk-urgent; none are damaged/bulk) |
+| damaged/bulk rows below high | 0/4 | 0/4 |
+| mailbox label | 91.5% | 91.5% |
+| reply-needed kept | 14/14 | **14/14** |
+| Etsy flag | 100% | 100% |
+
+No regression on the historical corpus; the fix is confirmed by 6 new/updated unit
+tests in `jev-triage.test.ts` covering the no-keyword-floor damaged case and the
+internal-sender floor. `npx vitest run`: 1972/1974 pass (the 2 failures are the
+pre-existing, unrelated `etsy-copy-repair.test.ts` model-path assertions also seen
+on untouched `origin/main`). Not live-verified against the real `wecare`/`davidt`
+mailboxes from this worktree (no `backend/.env` / live creds here) — the next
+live-verification pass should re-run the same `?triage=1` GETs dr-dill used and
+confirm the ops-report and David-Trinidad rows now come back `internal`.
