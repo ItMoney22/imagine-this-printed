@@ -4772,3 +4772,15 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-12) — metal-art hold decision (task b656d9b1, mia-potts)
+
+### File shortlist (approved scope)
+- `docs/METAL_ART_HOLD.md` (record the decision), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (mia-potts): option B, hold lifted. David's 9/2 rework (b678e6c) fixed what the 8/24 pause was for, and
+  the unattended batch was retired 9/9. With the hold on, presentation QA blocks every metal-art product, so the Step
+  Flow Etsy step would fail on all metal. ITP_METAL_ART_HOLD=false set on Render API + worker, staged on both Fly apps;
+  the gate code (4ebf57e) rides merge batch a9abbfb (ship card bc79ffae). Offline probe on a9abbfb: unset = metal
+  BLOCK, false = metal PASS.
