@@ -89,6 +89,10 @@ const OrderStatus = lazy(() => import('./pages/OrderStatus'))
 const ClaimAccount = lazy(() => import('./pages/ClaimAccount'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminTeamTemplatesIndex = lazy(() => import('./pages/AdminTeamTemplatesIndex'))
+// The Step Flow builder (how David makes products). The 10/7 admin redo pointed it at
+// /imagination-station, the customer design studio, and every "continue in Step Flow"
+// deep link lost its product (David 2026-10-12).
+const AdminAIProductBuilder = lazy(() => import('./pages/AdminAIProductBuilder'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
 const TeamStudio = lazy(() => import('./pages/TeamStudio'))
 const ToyAR = lazy(() => import('./pages/ToyAR'))
@@ -280,7 +284,7 @@ function App() {
                   <Route path="/admin/kiosks" element={<RoleRoute allowedRoles={['admin', 'founder']}><KioskManagement /></RoleRoute>} />
                   <Route path="/admin/kiosk-analytics" element={<RoleRoute allowedRoles={['admin', 'founder', 'vendor']}><KioskAnalytics /></RoleRoute>} />
                   <Route path="/admin/social-content" element={<RoleRoute allowedRoles={['admin', 'founder', 'manager']}><SocialContentManagement /></RoleRoute>} />
-                  <Route path="/admin/ai/products/create" element={<Navigate to="/imagination-station" replace />} />
+                  <Route path="/admin/ai/products/create" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminAIProductBuilder /></AdminShell></RoleRoute>} />
                   <Route path="/admin/voice-settings" element={<RoleRoute allowedRoles={['admin']}><AdminVoiceSettings /></RoleRoute>} />
                   <Route path="/admin/imagination-products" element={<Navigate to="/admin?tab=pricing" replace />} />
                   <Route path="/admin/email-templates" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminEmailTemplates /></AdminShell></RoleRoute>} />
