@@ -1,0 +1,12 @@
+applied in txn: 20261013120000_itc_refund_guard.sql
+applied in txn: 20261013120100_crm_customer_aggregates.sql
+refund fn + grants             [{"anon":false,"authd":false,"svc":true}]
+refund unique index            [{"indexname":"idx_itc_transactions_user_type_created"},{"indexname":"itc_transactions_one_refund_per_debit"}]
+refund fake debit verdict      [{"v":{"ok":false,"code":"debit_not_found"}}]
+refund bad amount verdict      [{"v":{"ok":false,"code":"invalid_amount"}}]
+crm grants (anon/auth/svc)     [{"proname":"crm_customer_stats","anon":false,"authd":false,"svc":true,"secdef":false},{"proname":"crm_dashboard_totals","anon":false,"authd":false,"svc":true,"secdef":false},{"proname":"crm_ever_paid_statuses","anon":false,"authd":false,"svc":true,"secdef":false},{"proname":"crm_role_segments","anon":false,"authd":false,"svc":true,"secdef":false}]
+crm_dashboard_totals()         [{"customers":"6","paid_orders":"6","unpaid_drafts":"1","pending_orders":"0","revenue":"93.34"}]
+crm_role_segments()            [{"role":"customer","customers":"3"},{"role":"admin","customers":"2"},{"role":"vendor","customers":"1"}]
+crm_customer_stats page 1      [{"n":"6"}]
+ROLLED BACK
+after rollback (both null = nothing written): [{"rf":null,"crm":"crm_dashboard_totals"}]

@@ -1,0 +1,13 @@
+applied 20261013120000_itc_refund_guard (from HEAD)
+applied 20261013120100_crm_customer_aggregates (from HEAD)
+┌─────────┬──────────────────────────┬───────┬───────┬──────┐
+│ (index) │ proname                  │ anon  │ authd │ svc  │
+├─────────┼──────────────────────────┼───────┼───────┼──────┤
+│ 0       │ 'crm_customer_stats'     │ false │ false │ true │
+│ 1       │ 'crm_dashboard_totals'   │ false │ false │ true │
+│ 2       │ 'crm_ever_paid_statuses' │ false │ false │ true │
+│ 3       │ 'crm_role_segments'      │ false │ false │ true │
+│ 4       │ 'refund_itc_for_debit'   │ false │ false │ true │
+└─────────┴──────────────────────────┴───────┴───────┴──────┘
+ledger: [{"version":"20261013120000","name":"itc_refund_guard"},{"version":"20261013120100","name":"crm_customer_aggregates"}]
+ROLLED BACK (nothing written)

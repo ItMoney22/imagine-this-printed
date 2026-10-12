@@ -1,0 +1,9 @@
+products all                       count=236 rows=50 first=Parental Juggling Act Tee
+products in_flow                   count=12 rows=12 first=Parental Juggling Act Tee
+products from_flow                 count=23 rows=23 first=Parental Juggling Act Tee
+products status=active             count=35 rows=35 first=Midnight Misfits Moon Portrait (Distress
+products search "shirt" (2 ors)    count=168 rows=50 first=Parental Juggling Act Tee
+products collection none           count=228 rows=50 first=Parental Juggling Act Tee
+client-side equivalents: all 236 search shirt 168 in_flow 12 from_flow 23
+users search a                     count=6 rows=6 first=undefined
+vendor products head               count=0 rows=undefined first=undefined

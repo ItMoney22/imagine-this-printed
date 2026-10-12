@@ -18,6 +18,10 @@ lacks; Render is still prod, the Fly cutover 4e42e490 has not happened).
   20260922170000_crm_customer_aggregates.sql move to free 202610 versions.
 
 ### Work log (append-only)
+- 2026-10-12 (ada-brooks): 13 of 15 rows merged onto live main a28c1b1 (+ Sifu bef81073); held 05d90a09 (superseded by Team
+  Studio) and 6bec6d3b (workflow scope; Fly not cut over). Two migrations renamed off taken versions (20261013120000 refund
+  guard, 20261013120100 CRM). verify 178 files / 2626 pass, backend tsc clean, vite build ok; trial with the 10/13 superset
+  182 / 2691. Walked the variant-priced product page + cart at 1400 + 390. Proof: docs/ship-proof-merge-batch-e14d239c-2026-10-12/.
 
 ## Current request (2026-10-12) — remodel pages 2-5 live walk: nothing may cover a buy button (Watchtower 45434545, zero-nine)
 
