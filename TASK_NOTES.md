@@ -5045,3 +5045,22 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
 - 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).
 
 - 2026-10-08 (zero-nine, code-here): ship branch earth/zero-nine/ship-itp-amelia-redos-admin-menu = main 79cf763 + Amelia whole-site redo (b9656cc9) + Imagination Station redo (1edebb4) + one-admin-menu (b036572) + fix: AdminShell sets SidebarContext.siteMenuHidden so the desktop shop sidebar steps aside on admin pages, Back to Shop pill on top. Conflicts kept Daisy creator treatment (ProductPage, YouMayAlsoLike lanes), 2XL +$2.50 on cart chip/line, Sal guest wording on Toy Factory, main support-A1 chat widget, one FREE_SHIPPING_THRESHOLD. tsc clean, vitest 165/2365, vite build ok. Walked 1440: /admin one menu, catalog, product, Walk By Faith (Design by Darrell, no off-lane row), cart 2XL line $27.50, /toys, /imagination-station. Scope: SidebarContext.tsx, Sidebar.tsx(+test), App.tsx, AdminShell.tsx, YouMayAlsoLike.tsx, shipping-calculator.ts.
+
+## Current request (2026-10-12) — SHIP ITP: Jiffy per-colour blanks size gating + Tripo V2->V3 (task 67f1d6f2, rhea-cassien)
+
+Bring cc27627 (earth/zero-nine/itp-blanks-jiffy) onto live main and prove it, so Nine's ship tool can take it.
+No new code: a merge, gates and a walk.
+
+### File shortlist (approved scope — 2026-10-12 ship prep)
+- merge of cc27627 only (backend/shared/blank-pricing.ts, blank-line.ts, services/tripo3d.ts, worker/ai-jobs-worker.ts,
+  src/components/ProductCard.tsx, src/pages/ProductPage.tsx, backend/data/jiffy-blank-costs.json, scripts)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (rhea-cassien): today's ITP slot was already used (ship/2026-10-12-2d97a651 = main 7314e53, 15:17Z) and only
+  zero-nine may ship, so this is ship-READY, not shipped. Fast-forwarded to origin/main 7314e53, merged cc27627 clean
+  (fe810ca); also merge-tree clean against Nine's pending hotfix ship/2026-10-12-9c35b0bf. npm run verify: tsc clean,
+  vitest 166 files / 2377 pass; vite build OK. Live DB: all 4 blanks carry by_color_only=true. Production code still
+  sells 10 colour/size combos Jiffy does not carry (e.g. Soft Ring-Spun Sky/Gold/Sage/Azalea 4XL at $12.18); this
+  branch refuses all 10. Walked /product/7c0f8ab3 on vite :5191 at 1400 and 390: Black XS-5XL, Sky S-3XL, a 4XL picked
+  on Black is dropped on switching to Sky.
