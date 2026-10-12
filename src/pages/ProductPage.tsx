@@ -19,7 +19,7 @@ import { SizeGuide } from '../components/product/SizeGuide'
 import { YouMayAlsoLike } from '../components/product/YouMayAlsoLike'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
-import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
+import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, lineBasePrice, isVariantPricedProduct, variantTiersFor, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
@@ -365,10 +365,21 @@ const ProductPage: React.FC = () => {
   // Quality picker: tee blanks on a tee, hoodie blanks on a hoodie, none on a
   // transfer or a blank. Only the tee line carries a tier to the cart today —
   // a hoodie has the one blank, which needs no recording.
-  const blankTiers = garmentTiersFor(options.blankPicker)
-  const showGarmentTiers = blankTiers.length > 0
-  const cartTier = options.blankPicker === 'tee' ? selectedTier : undefined
-  const tierUpcharge = cartTier ? garmentTierUpcharge(cartTier) : 0
+  //
+  // Printed apparel that carries its own size x colour x tier retail table
+  // (backend/shared/variant-pricing.ts, stamped off the real Jiffy costs, task
+  // 767f74d4) prices every size and blank from that table: the picker offers
+  // only the blanks the table carries, the size buttons and tier cards show
+  // the real price, and no flat tier upcharge rides on top. A YOUTH size has
+  // one blank (the youth cut — there is no youth Comfort Colors to buy), so the
+  // picker hides and the line rides the base tier its variant price already is.
+  const isVariantPriced = isVariantPricedProduct(product)
+  const variantTierIds = isVariantPriced ? variantTiersFor(product) : null
+  const youthSelected = isYouthSize(selectedSize)
+  const blankTiers = garmentTiersFor(options.blankPicker).filter(t => !variantTierIds || variantTierIds.includes(t.id))
+  const showGarmentTiers = blankTiers.length > 0 && !(isVariantPriced && youthSelected)
+  const cartTier = options.blankPicker === 'tee' && !(isVariantPriced && youthSelected) ? selectedTier : undefined
+  const tierUpcharge = cartTier && !isVariantPriced ? garmentTierUpcharge(cartTier) : 0
 
   // The template is read straight off the product row. Only `fields` and
   // `upcharge` are used here — zones, fonts and colours never leave the
@@ -409,7 +420,16 @@ const ProductPage: React.FC = () => {
   // the panel size (4x6 $8.95 / 8x10 $16.95), shared with the cart/checkout
   // and the server's pricing engine so the number can't change on the way
   // to the receipt. Everything else is products.price.
-  const unitPrice = unitBasePrice(product, selectedSize)
+  // What the customer is actually charged for one unit of the current
+  // selection. The youth markdown is a separate rail on top of the variant
+  // table (see computeExtrasCentsPerUnit), so a page that printed the stamped
+  // price for a youth size would quote $3 more than the cart collects.
+  const variantUnitFor = (size?: string | null, tier?: string | null): number => {
+    const base = lineBasePrice(product, size, selectedColor, tier)
+    if (!isVariantPriced || !isYouthSize(size)) return base
+    return Math.max(0, Math.round((base - YOUTH_SIZE_DISCOUNT_DOLLARS) * 100) / 100)
+  }
+  const unitPrice = variantUnitFor(selectedSize, cartTier)
   const priceIsFrom = productKind === 'metal' && !selectedSize && hasPriceRange(product)
   const toggleAddon = (addon: { id: string; name: string; price: number }) => {
     setSelectedAddons(prev =>
@@ -802,11 +822,17 @@ const ProductPage: React.FC = () => {
                     const isSelected = selectedSize === size
                     // Blank garments: the real price for this size (in the
                     // selected colour group) lives on the button itself.
-                    const sizePrice = blankPricing ? blankUnitPriceDollars(blankPricing, size, selectedColor) : null
+                    const sizePrice = blankPricing
+                      ? blankUnitPriceDollars(blankPricing, size, selectedColor)
+                      : isVariantPriced
+                        ? variantUnitFor(size, cartTier)
+                        : null
                     // Printed tees and hoodies: the whole amount this size
                     // adds or takes off ("+$2.50", "-$3.00"), the same rails
                     // the server charges.
-                    const deltaLabel = formatPriceDelta(sizePriceDelta(product, size))
+                    // A variant-priced listing prints the real per-size price
+                    // instead (sizePrice above), so it gets no delta badge.
+                    const deltaLabel = isVariantPriced ? '' : formatPriceDelta(sizePriceDelta(product, size))
                     return (
                       <button
                         key={size}
@@ -934,6 +960,15 @@ const ProductPage: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {blankTiers.map(tier => {
                     const isSelected = selectedTier === tier.id
+                    // A variant-priced listing knows what this blank really
+                    // costs in the picked size, so the card shows that
+                    // difference, not the flat ladder. Before a size is picked
+                    // it quotes the first adult size, so the number does not
+                    // jump the moment a size is chosen.
+                    const deltaSize = selectedSize || sizeChoices.find(sz => !isYouthSize(sz)) || null
+                    const delta = isVariantPriced && deltaSize
+                      ? Math.round((variantUnitFor(deltaSize, tier.id) - variantUnitFor(deltaSize, DEFAULT_GARMENT_TIER_ID)) * 100) / 100
+                      : tier.upcharge
                     return (
                       <button
                         key={tier.id}
@@ -947,7 +982,7 @@ const ProductPage: React.FC = () => {
                           </span>
                           <span className="font-semibold text-sm text-text flex-1">{tier.label}</span>
                           <span className="text-xs font-semibold text-muted">
-                            {tier.upcharge > 0 ? `+$${tier.upcharge.toFixed(2)}` : 'included'}
+                            {delta > 0 ? `+${delta.toFixed(2)}` : 'included'}
                           </span>
                         </div>
                         <p className="text-xs text-muted mt-1 line-clamp-2">{tier.blurb}</p>
@@ -956,9 +991,9 @@ const ProductPage: React.FC = () => {
                     )
                   })}
                 </div>
-                {tierUpcharge > 0 && (
+                {(isVariantPriced ? Boolean(selectedSize) && Boolean(cartTier) : tierUpcharge > 0) && (
                   <p className="text-xs text-muted mt-1.5">
-                    Unit price with this blank: <span className="text-text font-semibold">${(product.price + tierUpcharge).toFixed(2)}</span>
+                    Unit price with this blank: <span className="text-text font-semibold">${(isVariantPriced ? unitPrice : product.price + tierUpcharge).toFixed(2)}</span>
                   </p>
                 )}
               </div>

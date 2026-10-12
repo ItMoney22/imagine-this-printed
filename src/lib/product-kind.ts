@@ -10,6 +10,13 @@
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 import { isBlankGarmentMeta, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import {
+  variantPricingOf,
+  hasVariantPricing,
+  variantUnitPriceDollars,
+  variantTierIds
+} from '../../backend/shared/variant-pricing'
+import { isBundleEligible } from '../../backend/shared/promos'
+import {
   normalizeGarment,
   adultSizesForGarment,
   youthSizesForGarment,
@@ -105,24 +112,74 @@ export function unitBasePrice(product: Pick<Product, 'price' | 'category' | 'met
 
 /** Catalog-card price: a metal print's smallest offered size ("from $8.95"), else products.price. */
 /**
- * One cart/checkout line's BASE unit price, with BOTH special rails in one
+ * True when a PRINTED garment carries its own size x colour x tier retail
+ * table (products.metadata.garment.variant_pricing, stamped by
+ * backend/scripts/reprice-catalog-variants.ts off the real supplier costs).
+ *
+ * A line that prices from that table must NOT also collect the flat plus-size
+ * upcharge or the flat garment-tier upcharge — both of those were crude
+ * stand-ins for exactly the cost difference the table now carries, so charging
+ * both is charging twice. The youth markdown is NOT a cost proxy (a youth
+ * blank actually costs MORE than an adult small) — it is a deliberate
+ * markdown, so it still applies. See backend/shared/variant-pricing.ts.
+ */
+export function isVariantPricedProduct(product: Pick<Product, 'metadata'>): boolean {
+  return hasVariantPricing(product?.metadata) && !isBlankGarmentMeta(product?.metadata)
+}
+
+/** The garment tiers a variant-priced listing can actually be sold in. */
+export function variantTiersFor(product: Pick<Product, 'metadata'>): string[] {
+  return isVariantPricedProduct(product) ? variantTierIds(variantPricingOf(product?.metadata)) : []
+}
+
+/**
+ * One cart/checkout line's BASE unit price, with every special rail in one
  * place so the storefront can never disagree with the server:
  *   1. a BLANK garment prices off its size x colour table (blank-pricing.ts),
- *   2. a METAL print off the panel size the customer picked,
- *   3. everything else off the flat catalog price.
+ *   2. a PRINTED garment off its size x colour x tier table (variant-pricing.ts),
+ *   3. a METAL print off the panel size the customer picked,
+ *   4. everything else off the flat catalog price.
  * Same precedence as computeLineItemCents in backend/services/order-pricing.ts
  * (blank checked first - a product is never both).
  */
 export function lineBasePrice(
   product: Pick<Product, 'price' | 'category' | 'metadata' | 'sizes'>,
   selectedSize?: string | null,
-  selectedColor?: string | null
+  selectedColor?: string | null,
+  selectedTier?: string | null
 ): number {
   if (isBlankGarmentMeta(product?.metadata)) {
     const p = blankUnitPriceDollars(blankPricingOf(product?.metadata), selectedSize, selectedColor)
     if (p !== null) return p
+  } else if (hasVariantPricing(product?.metadata)) {
+    const p = variantUnitPriceDollars(variantPricingOf(product?.metadata), selectedSize, selectedColor, selectedTier)
+    if (p !== null) return p
   }
   return unitBasePrice(product, selectedSize)
+}
+
+/**
+ * The youth markdown actually taken off ONE unit of a line, capped at whatever
+ * else that unit costs — the same floor the server applies with
+ * Math.max(0, ...) in computeExtrasCentsPerUnit.
+ *
+ * It exists so the per-line figure the cart and checkout PRINT is the figure
+ * the subtotal CHARGES. They used to disagree: the line showed the listing
+ * price while the total quietly took $3 off, which reads as a pricing bug to
+ * anyone checking their own arithmetic — and got louder once every size began
+ * printing its own real price.
+ *
+ * Blanks are excluded for the same reason they skip every other rail: their
+ * size x colour table is already the whole answer.
+ */
+export function youthMarkdownFor(
+  product: Pick<Product, 'metadata'>,
+  selectedSize: string | null | undefined,
+  otherPerUnit: number
+): number {
+  if (isBlankGarmentMeta(product?.metadata)) return 0
+  if (!isYouthSize(selectedSize)) return 0
+  return Math.min(YOUTH_SIZE_DISCOUNT_DOLLARS, Math.max(0, Number(otherPerUnit) || 0))
 }
 
 export function startingPrice(product: Pick<Product, 'price' | 'category' | 'metadata' | 'sizes'>): number {
@@ -460,10 +517,18 @@ export function defaultSizeFor(product: Pick<Product, 'category' | 'metadata' | 
  * youth size, printed tees and hoodies only. Blanks and metal price each size
  * outright and show that price instead, so they carry no delta.
  */
-export function sizePriceDelta(product: Pick<Product, 'category' | 'metadata'>, size: string): number {
+export function sizePriceDelta(
+  product: Pick<Product, 'category' | 'metadata'> & { isThreeForTwentyFive?: boolean | null },
+  size: string
+): number {
   const kind = listingKindOf(product)
   if (kind !== 'tee' && kind !== 'hoodie') return 0
-  if (isPlusSize(size)) return PLUS_SIZE_UPCHARGE_DOLLARS
+  // A variant-priced printed garment already carries the real bigger-blank
+  // cost in its own per-size price (lineBasePrice), so the flat +$2.50 is not
+  // added on top — except inside the "2 for $25" bundle, whose base ignores
+  // the product price. Mirrors CartContext ownsPriceTable and the server's
+  // computeExtrasCentsPerUnit (task 767f74d4).
+  if (isPlusSize(size)) return isVariantPricedProduct(product) && !isBundleEligible(product) ? 0 : PLUS_SIZE_UPCHARGE_DOLLARS
   if (isYouthSize(size)) return -YOUTH_SIZE_DISCOUNT_DOLLARS
   return 0
 }

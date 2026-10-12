@@ -18,6 +18,7 @@ import AdminImaginationProducts from './admin/ImaginationProducts'
 import AdminCouponManagement from '../components/AdminCouponManagement'
 import AdminInventoryManagement from '../components/AdminInventoryManagement'
 import AdminPrintMaterials from '../components/AdminPrintMaterials'
+import AdminVariantMargins from '../components/AdminVariantMargins'
 import AdminOpsMonitor from '../components/AdminOpsMonitor'
 import AdminEtsyPanel from '../components/AdminEtsyPanel'
 import AdminMrsImagine from '../components/AdminMrsImagine'
@@ -235,12 +236,15 @@ const AdminDashboard: React.FC = () => {
     : 'overview' // vendors / models / tryon were retired: old links land on the overview
   const [selectedTab, setSelectedTab] = useState<AdminTab>(tabFromUrl)
   const [usersView, setUsersView] = useState<'accounts' | 'wallets'>(rawTab === 'wallet' ? 'wallets' : 'accounts')
-  const [pricingView, setPricingView] = useState<'itc' | 'products'>(rawTab === 'imagination' ? 'products' : 'itc')
+  const [pricingView, setPricingView] = useState<'itc' | 'products' | 'margins'>(
+    rawTab === 'imagination' ? 'products' : rawTab === 'margins' ? 'margins' : 'itc'
+  )
   // The sidebar changes ?tab= without remounting this page, so follow the URL.
   useEffect(() => {
     setSelectedTab(tabFromUrl)
     if (rawTab === 'wallet') setUsersView('wallets')
     if (rawTab === 'imagination') setPricingView('products')
+    if (rawTab === 'margins') setPricingView('margins')
   }, [tabFromUrl, rawTab])
   // One place that moves the dashboard to a tab, so the overview cards and the
   // sidebar can never drift apart on how the URL is kept in sync.
@@ -3439,12 +3443,16 @@ const AdminDashboard: React.FC = () => {
           )
         }
 
-        {/* Pricing: ITC prices and Imagination products share one tab */}
+        {/* Pricing: ITC prices, Imagination products and garment margins share one tab */}
         {selectedTab === 'pricing' && (
           <SegmentedToggle
             value={pricingView}
             onChange={setPricingView}
-            options={[{ value: 'itc', label: 'ITC prices' }, { value: 'products', label: 'Imagination products' }]}
+            options={[
+              { value: 'itc', label: 'ITC prices' },
+              { value: 'products', label: 'Imagination products' },
+              { value: 'margins', label: 'Garment margins' },
+            ]}
           />
         )}
         {
@@ -3602,6 +3610,13 @@ const AdminDashboard: React.FC = () => {
         {
           selectedTab === 'materials' && (
             <AdminPrintMaterials />
+          )
+        }
+
+        {/* Pricing > Garment margins - blank cost vs retail vs margin per variant (Watchtower 767f74d4) */}
+        {
+          selectedTab === 'pricing' && pricingView === 'margins' && (
+            <AdminVariantMargins />
           )
         }
 

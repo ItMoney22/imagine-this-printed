@@ -73,6 +73,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
 export const LEGACY_TABS: Record<string, string> = {
   'itc-pricing': 'pricing',
   imagination: 'pricing',
+  margins: 'pricing',
   wallet: 'users',
 }
 

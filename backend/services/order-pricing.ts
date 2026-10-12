@@ -77,6 +77,13 @@ import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
 import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normalizeMetalSizeKey } from '../shared/metal-art.js'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
+import {
+  variantUnitPriceDollars,
+  variantPricingOf,
+  variantTierIds,
+  DEFAULT_VARIANT_TIER,
+  type VariantPricing
+} from '../shared/variant-pricing.js'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -271,6 +278,22 @@ export interface PricingDependencies {
    */
   fetchBlankPricing: (ids: string[]) => Promise<Map<string, BlankPricing>>
   /**
+   * Returns productId -> per size/colour/tier RETAIL table for the subset of
+   * ids that are PRINTED garments carrying
+   * products.metadata.garment.variant_pricing (stamped by
+   * backend/scripts/reprice-catalog-variants.ts off the real supplier costs —
+   * see backend/shared/variant-pricing.ts).
+   *
+   * Read from the DB row, never from the cart's copy of metadata, for exactly
+   * the same reason fetchBlankPricing is: a client's metadata is as forgeable
+   * as its price. A variant-priced line skips the flat plus-size and
+   * garment-tier upcharges — its table already carries the real cost
+   * difference, so collecting both would charge twice. Optional so existing
+   * injected-deps callers/tests keep compiling; absent = flat pricing, exactly
+   * as before.
+   */
+  fetchVariantPricing?: (ids: string[]) => Promise<Map<string, VariantPricing>>
+  /**
    * Returns the subset of catalog ids that are METAL PRINTS (category /
    * metadata template, judged by backend/shared/metal-art.ts
    * isMetalProductRow). A metal print's unit price is decided by the panel
@@ -380,21 +403,33 @@ function computeExtrasCentsPerUnit(
   item: PricingCartItem,
   id: string,
   errors: string[],
-  opts: { blank?: boolean; bundle?: boolean } = {}
+  opts: { blank?: boolean; bundle?: boolean; variant?: boolean } = {}
 ): number {
   let extraCents = 0
+  // A line priced from its own size x colour x tier table has already paid
+  // for the bigger blank inside the unit price — the flat +$2.50 and the flat
+  // tier ladder were crude stand-ins for exactly that difference, so applying
+  // them on top is charging twice. Mirrors src/lib/product-kind.ts
+  // isVariantPricedProduct. NOT applied to a bundle line: a "2 for $25" base
+  // price ignores the product's own price entirely, so the flat plus-size
+  // rule is still the only thing covering a 3XL there.
+  const ownTable = Boolean(opts.blank) || Boolean(opts.variant)
 
   // Blank garments price per size + colour straight off their DB table
   // (backend/shared/blank-pricing.ts) — that table already carries Jiffy's
   // real 2XL-5XL upcharges, and a blank IS its tier, so neither flat
   // upcharge applies. Mirrors src/context/CartContext.tsx calculateTotal.
-  if (!opts.blank && isPlusSize(item.selectedSize)) {
+  if (!ownTable && isPlusSize(item.selectedSize)) {
     extraCents += PLUS_SIZE_UPCHARGE_CENTS
   }
 
   // Youth sizes come off the LISTING price. Two carve-outs, both deliberate:
   //   - blanks, for the same reason the plus-size upcharge skips them: a
   //     blank's DB size × colour table is already its whole price;
+  //     (a VARIANT-priced printed garment still gets it — the youth markdown
+  //     is not a cost proxy. A youth blank costs MORE than an adult small
+  //     ($3.22 vs $2.99 on a Gildan), so the $3 off is a deliberate price
+  //     decision, not an approximation of a cost the table now knows.)
   //   - bundle lines, because the 2-for-$25 deal is a flat promotional price
   //     that already ignores the product's own price entirely. Stacking $3 off
   //     on top of it would sell a bundled youth tee at $9.50 — discounting a
@@ -405,7 +440,7 @@ function computeExtrasCentsPerUnit(
     extraCents -= YOUTH_SIZE_DISCOUNT_CENTS
   }
 
-  if (!opts.blank && item.selectedTier) {
+  if (!ownTable && item.selectedTier) {
     const tierCents = GARMENT_TIER_UPCHARGE_CENTS[item.selectedTier]
     if (tierCents === undefined) {
       errors.push(`Unrecognized garment tier "${item.selectedTier}" for item ${id}`)
@@ -432,7 +467,8 @@ export function computeLineItemCents(
   productPriceMap: Map<string, number>,
   customItemPriceMap: Map<string, number> = new Map(),
   blankPricingMap: Map<string, BlankPricing> = new Map(),
-  metalProductIds: Set<string> = new Set()
+  metalProductIds: Set<string> = new Set(),
+  variantPricingMap: Map<string, VariantPricing> = new Map()
 ): { cents: number; errors: string[]; warnings: string[] } {
   const errors: string[] = []
   const warnings: string[] = []
@@ -446,6 +482,10 @@ export function computeLineItemCents(
 
   let unitCents: number | null = null
   const isBlank = UUID_RE.test(id) && blankPricingMap.has(id)
+  // A printed garment carrying its own size x colour x tier retail table.
+  // Never both — fetchVariantPricing excludes blanks.
+  const variantPricing = !isBlank && UUID_RE.test(id) ? variantPricingMap.get(id) : undefined
+  let isVariant = false
 
   if (isBlank) {
     // Blank garment: the DB-fetched size × colour table IS the price.
@@ -456,6 +496,32 @@ export function computeLineItemCents(
       errors.push(`Blank garment ${id} has no price for size "${item.selectedSize ?? ''}"`)
     } else {
       unitCents = Math.round(unitDollars * 100)
+    }
+  } else if (variantPricing && productPriceMap.has(id)) {
+    // PRINTED garment, priced per variant: (blank cost x 1.20) + decoration.
+    // The table already carries the real 2XL-5XL and premium-blank cost, so
+    // computeExtrasCentsPerUnit skips the flat plus-size and tier upcharges
+    // for this line (opts.variant below).
+    const tier = String(item.selectedTier || DEFAULT_VARIANT_TIER)
+    const known = variantTierIds(variantPricing)
+    if (!known.includes(tier)) {
+      // A garment we cannot source in that blank. Serving it the standard
+      // price would sell something we can't make at a price we never set —
+      // same hard-error posture the flat tier ladder already took.
+      errors.push(`Garment tier "${tier}" is not offered on product ${id} (offered: ${known.join(', ') || 'none'})`)
+    } else {
+      const unitDollars = variantUnitPriceDollars(variantPricing, item.selectedSize, item.selectedColor, tier)
+      if (unitDollars === null) {
+        // An odd/legacy size string the table has no row for. The listing
+        // price is still a real, authored price for this product (unlike a
+        // blank, whose column price is only a "from"), so fall back to it
+        // with the flat rails rather than blocking the order — and say so.
+        warnings.push(`Product ${id} has no variant price for size "${item.selectedSize ?? ''}" — charged at its listing price`)
+        unitCents = Math.round(productPriceMap.get(id)! * 100)
+      } else {
+        unitCents = Math.round(unitDollars * 100)
+        isVariant = true
+      }
     }
   } else if (UUID_RE.test(id) && productPriceMap.has(id)) {
     if (metalProductIds.has(id)) {
@@ -522,7 +588,7 @@ export function computeLineItemCents(
   // Floored at zero: the youth discount is the first NEGATIVE extra this
   // function can return, so a listing priced under $3 could otherwise produce
   // a negative line and credit the customer.
-  const perUnitCents = Math.max(0, unitCents + computeExtrasCentsPerUnit(item, id, errors, { blank: isBlank }))
+  const perUnitCents = Math.max(0, unitCents + computeExtrasCentsPerUnit(item, id, errors, { blank: isBlank, variant: isVariant }))
 
   return { cents: perUnitCents * quantity, errors, warnings }
 }
@@ -532,7 +598,8 @@ export function computeSubtotalCents(
   productPriceMap: Map<string, number>,
   customItemPriceMap: Map<string, number> = new Map(),
   blankPricingMap: Map<string, BlankPricing> = new Map(),
-  metalProductIds: Set<string> = new Set()
+  metalProductIds: Set<string> = new Set(),
+  variantPricingMap: Map<string, VariantPricing> = new Map()
 ): { subtotalCents: number; errors: string[]; warnings: string[] } {
   let subtotalCents = 0
   const errors: string[] = []
@@ -562,7 +629,7 @@ export function computeSubtotalCents(
       })
 
     if (!eligible) {
-      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
+      const result = computeLineItemCents(item, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds, variantPricingMap)
       subtotalCents += result.cents
       errors.push(...result.errors)
       warnings.push(...result.warnings)
@@ -857,6 +924,26 @@ const defaultDependencies: PricingDependencies = {
     return map
   },
 
+  async fetchVariantPricing(ids: string[]) {
+    const map = new Map<string, VariantPricing>()
+    if (ids.length === 0) return map
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, metadata')
+      .in('id', ids)
+      .not('metadata->garment->variant_pricing', 'is', null)
+    if (error) {
+      throw new Error(`Failed to load variant pricing: ${error.message}`)
+    }
+    for (const row of data || []) {
+      // A blank is priced by fetchBlankPricing; it must never be both.
+      if (row?.id == null || isBlankGarmentMeta(row.metadata)) continue
+      const pricing = variantPricingOf(row.metadata)
+      if (pricing) map.set(String(row.id), pricing)
+    }
+    return map
+  },
+
   async fetchMetalProductIds(ids: string[]) {
     const metal = new Set<string>()
     if (ids.length === 0) return metal
@@ -976,6 +1063,12 @@ export async function calculateOrderPricing(
   const blankPricingMap = catalogIds.length > 0 ? await deps.fetchBlankPricing(catalogIds) : new Map<string, BlankPricing>()
   const metalProductIds =
     catalogIds.length > 0 && deps.fetchMetalProductIds ? await deps.fetchMetalProductIds(catalogIds) : new Set<string>()
+  // Printed garments priced per size x colour x tier off the real supplier
+  // costs — see fetchVariantPricing / backend/shared/variant-pricing.ts.
+  const variantPricingMap =
+    catalogIds.length > 0 && deps.fetchVariantPricing
+      ? await deps.fetchVariantPricing(catalogIds)
+      : new Map<string, VariantPricing>()
 
   const customItems = input.items.filter(i => {
     const id = String(i.productId ?? '')
@@ -983,7 +1076,14 @@ export async function calculateOrderPricing(
   })
   const customItemPriceMap = customItems.length > 0 ? await deps.fetchCustomItemPrices(customItems) : new Map<string, number>()
 
-  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
+  const subtotalResult = computeSubtotalCents(
+    input.items,
+    productPriceMap,
+    customItemPriceMap,
+    blankPricingMap,
+    metalProductIds,
+    variantPricingMap
+  )
   errors.push(...subtotalResult.errors)
   warnings.push(...subtotalResult.warnings)
   const subtotalCents = subtotalResult.subtotalCents

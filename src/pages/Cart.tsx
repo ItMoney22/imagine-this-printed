@@ -6,7 +6,8 @@ import { YouMayAlsoLike } from '../components/product/YouMayAlsoLike'
 import { shippingCalculator } from '../utils/shipping-calculator'
 import { SHOP_PLACE } from '../config/business-info'
 import { getColorName } from '../utils/color-presets'
-import { addonsUnitTotal, lineBasePrice, printLocationLabel, sizePriceDelta, formatPriceDelta } from '../lib/product-kind'
+import { addonsUnitTotal, lineBasePrice, printLocationLabel, sizePriceDelta, formatPriceDelta, isVariantPricedProduct, youthMarkdownFor } from '../lib/product-kind'
+import { isBundleEligible } from '../../backend/shared/promos'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import type { CartItem } from '../types'
 
@@ -30,7 +31,9 @@ function choiceChips(item: CartItem): string[] {
   if (place) chips.push(`${place} print`)
   const tier = item.selectedTier ? getGarmentTier(item.selectedTier) : null
   if (tier) {
-    const up = garmentTierUpcharge(item.selectedTier)
+    // A variant-priced line carries its blank in the unit price, so the chip
+    // names the blank without quoting the flat ladder.
+    const up = isVariantPricedProduct(item.product) && !isBundleEligible(item.product) ? 0 : garmentTierUpcharge(item.selectedTier)
     chips.push(up > 0 ? `${tier.label} (+$${up.toFixed(2)})` : tier.label)
   }
   for (const addon of item.selectedAddons ?? []) chips.push(`+ ${addon.name} (+$${addon.price.toFixed(2)})`)
@@ -90,8 +93,16 @@ const Cart: React.FC = () => {
         <div className="lg:col-span-2">
           <ul className="space-y-3 sm:space-y-4">
             {state.items.map((item) => {
-              const unit = lineBasePrice(item.product, item.selectedSize, item.selectedColor)
-              const line = (unit + sizeUpcharge(item) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity
+              // Same rails as the cart total (CartContext calculateTotal): a
+              // variant-priced garment's size and blank are already in its unit
+              // price, so no flat tier upcharge rides on top, and the youth
+              // markdown the subtotal takes shows on the line too (not on a
+              // "2 for $25" line, whose bundle price is the promo).
+              const variant = isVariantPricedProduct(item.product) && !isBundleEligible(item.product)
+              const unit = lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier)
+              const perUnit = unit + sizeUpcharge(item) + (variant ? 0 : garmentTierUpcharge(item.selectedTier)) + addonsUnitTotal(item.selectedAddons)
+              const youthOff = isBundleEligible(item.product) ? 0 : youthMarkdownFor(item.product, item.selectedSize, perUnit)
+              const line = (perUnit - youthOff) * item.quantity
               return (
                 <li key={item.id} className="bg-card rounded-2xl border border-border shadow-soft p-3 sm:p-4 flex gap-3 sm:gap-5">
                   <Link to={`/product/${item.product.slug || item.product.id}`} className="shrink-0">

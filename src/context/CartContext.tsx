@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useState, useCallback, useEffect } from 'react'
 import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
-import { addonsUnitTotal, addonsSignature, personalizationSignature, lineBasePrice } from '../lib/product-kind'
+import { addonsUnitTotal, addonsSignature, personalizationSignature, lineBasePrice, isVariantPricedProduct } from '../lib/product-kind'
 import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
@@ -151,6 +151,21 @@ type CartAction =
 // backend/services/order-pricing.ts exactly (the server re-prices checkout).
 const isBlankLine = (item: CartItem): boolean => isBlankGarmentMeta(item.product.metadata)
 
+// A PRINTED garment that carries its own size x colour x tier retail table
+// (products.metadata.garment.variant_pricing — backend/shared/variant-pricing.ts,
+// stamped off the real Jiffy costs). Like a blank, that table already contains
+// the real 2XL-5XL and premium-blank difference, so the flat +$2.50 and the
+// flat $3/$5/$7 tier ladder must NOT be added on top — that would charge for
+// the bigger blank twice. The youth markdown still applies: a youth blank
+// costs MORE than an adult small, so the $3 off is a price decision, not a
+// cost approximation. Mirrors computeExtrasCentsPerUnit server-side.
+//
+// A bundle-eligible line is the exception, exactly as on the server: the
+// "2 for $25" base ignores the product's own price entirely, so the flat
+// rails are the only thing covering a 3XL inside a bundle.
+const ownsPriceTable = (item: CartItem): boolean =>
+  isBlankLine(item) || (isVariantPricedProduct(item.product) && !isBundleEligible(item.product))
+
 /** Round a dollar figure to whole cents — the $3 youth discount is the first
  *  subtraction in this total, and 24.95 - 3 style arithmetic is exactly where
  *  binary-float dust shows up against the server's integer-cent math. */
@@ -166,7 +181,7 @@ const calculateTotal = (items: CartItem[]): number => {
   // Calculate plus size upcharge for non-eligible items (blanks excluded —
   // their size price is already in the table)
   const nonEligiblePlusSizeUpcharge = nonEligibleItems.reduce((sum, item) => {
-    if (!isBlankLine(item) && isPlusSize(item.selectedSize)) {
+    if (!ownsPriceTable(item) && isPlusSize(item.selectedSize)) {
       return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
     }
     return sum
@@ -185,10 +200,11 @@ const calculateTotal = (items: CartItem[]): number => {
   // tolerance that gates checkout.
   const nonEligibleYouthDiscount = nonEligibleItems.reduce((sum, item) => {
     if (isBlankLine(item) || !isYouthSize(item.selectedSize)) return sum
+    const owns = ownsPriceTable(item)
     const otherPerUnit =
-      lineBasePrice(item.product, item.selectedSize, item.selectedColor) +
-      (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
-      garmentTierUpcharge(item.selectedTier) +
+      lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier) +
+      (!owns && isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
+      (owns ? 0 : garmentTierUpcharge(item.selectedTier)) +
       addonsUnitTotal(item.selectedAddons)
     return sum + Math.min(YOUTH_SIZE_DISCOUNT_DOLLARS, otherPerUnit) * item.quantity
   }, 0)
@@ -197,7 +213,7 @@ const calculateTotal = (items: CartItem[]): number => {
   // - youth discount)
   const nonEligibleTotal = reduceToCents(
     nonEligibleItems.reduce(
-      (sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor) * item.quantity),
+      (sum, item) => sum + (lineBasePrice(item.product, item.selectedSize, item.selectedColor, item.selectedTier) * item.quantity),
       0
     ) + nonEligiblePlusSizeUpcharge - nonEligibleYouthDiscount
   )
@@ -226,7 +242,7 @@ const calculateTotal = (items: CartItem[]): number => {
 
   // Garment quality tier upcharge (Gildan classic vs Softstyle / Bella+Canvas /
   // Comfort Colors). Per unit; mirrors GARMENT_TIER_UPCHARGE_CENTS server-side.
-  const tierTotal = items.reduce((sum, item) => sum + (isBlankLine(item) ? 0 : garmentTierUpcharge(item.selectedTier)) * item.quantity, 0)
+  const tierTotal = items.reduce((sum, item) => sum + (ownsPriceTable(item) ? 0 : garmentTierUpcharge(item.selectedTier)) * item.quantity, 0)
 
   return nonEligibleTotal + eligibleTotal + eligiblePlusSizeUpcharge + addonsTotal + tierTotal
 }
