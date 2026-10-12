@@ -2,6 +2,12 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { apiFetch } from '../lib/api'
+import { Pagination } from '../components/Pagination'
+
+// Both queues were unbounded reads of tables that only ever grow (Watchtower
+// task 582e38ea). Approved posts in particular is a permanent archive - there
+// is no version of "every approved post ever" that belongs in a browser tab.
+const PAGE_SIZE = 24
 
 interface SocialSubmission {
   id: string
@@ -59,7 +65,18 @@ const SocialContentManagement: React.FC = () => {
   const { user } = useAuth()
   const [activeTab, setActiveTab] = useState<'pending' | 'approved' | 'analytics'>('pending')
   const [pendingSubmissions, setPendingSubmissions] = useState<SocialSubmission[]>([])
+  const [pendingPage, setPendingPage] = useState(1)
+  const [pendingTotal, setPendingTotal] = useState(0)
+  const [pendingBusy, setPendingBusy] = useState(false)
   const [approvedPosts, setApprovedPosts] = useState<SocialPost[]>([])
+  const [approvedPage, setApprovedPage] = useState(1)
+  const [approvedTotal, setApprovedTotal] = useState(0)
+  const [approvedBusy, setApprovedBusy] = useState(false)
+  // Whole-table figures for the header tiles. Counting the loaded page would
+  // under-report the queue the moment it outgrows one page - which is the one
+  // number this screen exists to show.
+  const [featuredTotal, setFeaturedTotal] = useState(0)
+  const [totalViews, setTotalViews] = useState(0)
   const [analytics, setAnalytics] = useState<Analytics | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -83,36 +100,58 @@ const SocialContentManagement: React.FC = () => {
   ]
 
   const fetchPendingSubmissions = useCallback(async () => {
+    setPendingBusy(true)
     try {
-      const { data, error: fetchError } = await supabase
+      const from = (pendingPage - 1) * PAGE_SIZE
+      const { data, error: fetchError, count } = await supabase
         .from('social_submissions')
-        .select('*')
+        .select('*', { count: 'exact' })
         .eq('status', 'pending')
         .order('submitted_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
 
       if (fetchError) throw fetchError
       setPendingSubmissions(data || [])
+      setPendingTotal(count ?? 0)
     } catch (err: any) {
       console.error('[social] Error fetching submissions:', err)
       setError(err.message)
+    } finally {
+      setPendingBusy(false)
     }
-  }, [])
+  }, [pendingPage])
 
   const fetchApprovedPosts = useCallback(async () => {
+    setApprovedBusy(true)
     try {
-      const { data, error: fetchError } = await supabase
+      const from = (approvedPage - 1) * PAGE_SIZE
+      const { data, error: fetchError, count } = await supabase
         .from('social_posts')
-        .select('*')
+        .select('*', { count: 'exact' })
         .in('status', ['approved', 'featured'])
         .order('approved_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1)
 
       if (fetchError) throw fetchError
       setApprovedPosts(data || [])
+      setApprovedTotal(count ?? 0)
+
+      // Featured count and total views describe the whole archive, so they are
+      // asked for separately instead of summed over the page. `head: true`
+      // transfers no rows; the view sum reads one narrow column.
+      const [featured, views] = await Promise.all([
+        supabase.from('social_posts').select('id', { count: 'exact', head: true }).eq('is_featured', true),
+        supabase.from('social_posts').select('view_count').in('status', ['approved', 'featured']).range(0, 4999)
+      ])
+      setFeaturedTotal(featured.count ?? 0)
+      setTotalViews(((views.data || []) as any[]).reduce((sum, row) => sum + (row.view_count || 0), 0))
     } catch (err: any) {
       console.error('[social] Error fetching posts:', err)
       setError(err.message)
+    } finally {
+      setApprovedBusy(false)
     }
-  }, [])
+  }, [approvedPage])
 
   const fetchAnalytics = useCallback(async () => {
     try {
@@ -324,15 +363,15 @@ const SocialContentManagement: React.FC = () => {
             <div className="flex flex-wrap gap-3">
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Pending</span>
-                <p className="text-white text-xl font-bold">{pendingSubmissions.length}</p>
+                <p className="text-white text-xl font-bold">{pendingTotal}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Approved</span>
-                <p className="text-white text-xl font-bold">{approvedPosts.length}</p>
+                <p className="text-white text-xl font-bold">{approvedTotal}</p>
               </div>
               <div className="bg-white/10 backdrop-blur-sm rounded-xl px-4 py-3 border border-white/20">
                 <span className="text-purple-100 text-xs uppercase tracking-wider">Featured</span>
-                <p className="text-white text-xl font-bold">{approvedPosts.filter(p => p.is_featured).length}</p>
+                <p className="text-white text-xl font-bold">{featuredTotal}</p>
               </div>
             </div>
           </div>
@@ -351,7 +390,7 @@ const SocialContentManagement: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Pending Review</p>
-                <p className="text-2xl font-bold text-text">{pendingSubmissions.length}</p>
+                <p className="text-2xl font-bold text-text">{pendingTotal}</p>
               </div>
             </div>
           </div>
@@ -365,7 +404,7 @@ const SocialContentManagement: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Approved Posts</p>
-                <p className="text-2xl font-bold text-text">{approvedPosts.length}</p>
+                <p className="text-2xl font-bold text-text">{approvedTotal}</p>
               </div>
             </div>
           </div>
@@ -379,7 +418,7 @@ const SocialContentManagement: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Featured</p>
-                <p className="text-2xl font-bold text-text">{approvedPosts.filter(p => p.is_featured).length}</p>
+                <p className="text-2xl font-bold text-text">{featuredTotal}</p>
               </div>
             </div>
           </div>
@@ -394,7 +433,7 @@ const SocialContentManagement: React.FC = () => {
               </div>
               <div className="ml-4">
                 <p className="text-sm font-medium text-muted">Total Views</p>
-                <p className="text-2xl font-bold text-text">{formatNumber(approvedPosts.reduce((sum, p) => sum + (p.view_count || 0), 0))}</p>
+                <p className="text-2xl font-bold text-text">{formatNumber(totalViews)}</p>
               </div>
             </div>
           </div>
@@ -404,8 +443,8 @@ const SocialContentManagement: React.FC = () => {
         <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-2 mb-6">
           <nav className="flex space-x-2">
             {[
-              { id: 'pending', label: 'Pending Review', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', count: pendingSubmissions.length },
-              { id: 'approved', label: 'Approved Posts', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', count: approvedPosts.length },
+              { id: 'pending', label: 'Pending Review', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z', count: pendingTotal },
+              { id: 'approved', label: 'Approved Posts', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', count: approvedTotal },
               { id: 'analytics', label: 'Analytics', icon: 'M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z' }
             ].map((tab) => (
               <button
@@ -436,7 +475,7 @@ const SocialContentManagement: React.FC = () => {
         {/* Pending Submissions Tab */}
         {activeTab === 'pending' && (
           <div className="space-y-6">
-            {pendingSubmissions.length === 0 ? (
+            {pendingTotal === 0 ? (
               <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-12 text-center">
                 <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -512,13 +551,21 @@ const SocialContentManagement: React.FC = () => {
                 ))}
               </div>
             )}
+            <Pagination
+              page={pendingPage}
+              limit={PAGE_SIZE}
+              total={pendingTotal}
+              onPageChange={setPendingPage}
+              busy={pendingBusy}
+              label="pending submissions"
+            />
           </div>
         )}
 
         {/* Approved Posts Tab */}
         {activeTab === 'approved' && (
           <div className="space-y-6">
-            {approvedPosts.length === 0 ? (
+            {approvedTotal === 0 ? (
               <div className="bg-card rounded-xl shadow-lg border border-purple-500/10 p-12 text-center">
                 <svg className="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
@@ -618,6 +665,14 @@ const SocialContentManagement: React.FC = () => {
                 ))}
               </div>
             )}
+            <Pagination
+              page={approvedPage}
+              limit={PAGE_SIZE}
+              total={approvedTotal}
+              onPageChange={setApprovedPage}
+              busy={approvedBusy}
+              label="approved posts"
+            />
           </div>
         )}
 
