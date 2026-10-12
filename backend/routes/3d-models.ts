@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js'
 import { validatePrompt, Style3D, STYLES } from '../services/nano-banana-3d.js'
 import { SIZE_TIERS, PrintSizeTier } from '../services/tripo3d.js'
 import { requireRole } from '../middleware/supabaseAuth.js'
+import { signOwnModelFile, withPreviewLinks } from '../services/model-files.js'
 
 const router = Router()
 
@@ -213,10 +214,14 @@ router.get('/list', requireAuth, async (req: Request, res: Response): Promise<an
       return res.status(500).json({ error: 'Failed to fetch models' })
     }
 
+    // Mesh files are private (task 1417e863): the preview gets a short-lived
+    // GLB link, the STL only ever comes from the license route.
+    const models = await Promise.all((data || []).map(m => withPreviewLinks(m)))
+
     res.json({
       ok: true,
-      models: data || [],
-      count: data?.length || 0
+      models,
+      count: models.length
     })
   } catch (error: any) {
     console.error('[3d-models] List error:', error.message)
@@ -324,11 +329,15 @@ router.get(
         }
       }
 
-      const enriched = (models ?? []).map((m: any) => ({
+      // Admins download both files from the Toy Lab: short-lived links,
+      // signed per request (the rows hold private references, task 1417e863).
+      const enriched = await Promise.all((models ?? []).map(async (m: any) => ({
         ...m,
+        glb_url: await signOwnModelFile(m, 'glb'),
+        stl_url: await signOwnModelFile(m, 'stl'),
         owner_email: ownerMap[m.user_id]?.email ?? null,
         owner_username: ownerMap[m.user_id]?.username ?? null
-      }))
+      })))
 
       res.json({ ok: true, models: enriched, count: count ?? enriched.length })
     } catch (error: any) {
@@ -499,6 +508,8 @@ router.post(
           metadata: {
             print3d: {
               enabled: true,
+              // Private references (gs://...), not links: products is public,
+              // and the print bridge signs them per pull (task 1417e863).
               glb_url: model.glb_url ?? null,
               stl_url: model.stl_url ?? null,
               source_model_id: model.id,
@@ -628,7 +639,8 @@ router.get('/public/:id/ar', async (req: Request, res: Response): Promise<any> =
     res.json({
       ok: true,
       name: displayName,
-      glb_url: model.glb_url ?? null,
+      // Short-lived link: the AR viewer loads it at once (task 1417e863).
+      glb_url: await signOwnModelFile(model, 'glb'),
       concept_image_url: model.concept_image_url ?? null,
       video_url: nfc.video_url ?? null
     })
@@ -658,7 +670,7 @@ router.get('/:id', requireAuth, async (req: Request, res: Response): Promise<any
       return res.status(404).json({ error: 'Model not found' })
     }
 
-    res.json({ ok: true, model })
+    res.json({ ok: true, model: await withPreviewLinks(model) })
   } catch (error: any) {
     console.error('[3d-models] Get error:', error.message)
     res.status(500).json({ error: 'Failed to fetch model' })
@@ -971,7 +983,10 @@ router.get('/:id/download/:format', requireAuth, async (req: Request, res: Respo
       })
     }
 
-    const url = format === 'glb' ? model.glb_url : model.stl_url
+    // The file is private (task 1417e863): sign a short-lived link to THIS
+    // model's own object, saved under a friendly name.
+    const filename = `figurine-${id.slice(0, 8)}.${format}`
+    const url = await signOwnModelFile(model, format as 'glb' | 'stl', { downloadName: filename })
 
     if (!url) {
       return res.status(404).json({
@@ -983,7 +998,7 @@ router.get('/:id/download/:format', requireAuth, async (req: Request, res: Respo
       ok: true,
       format,
       downloadUrl: url,
-      filename: `figurine-${id.slice(0, 8)}.${format}`,
+      filename,
       license: purchasedLicenses.includes('commercial') ? 'commercial' : 'personal'
     })
   } catch (error: any) {
@@ -1069,10 +1084,10 @@ router.post('/:id/order', requireAuth, async (req: Request, res: Response): Prom
       category: '3d-prints',
       price: totalPrice,
       images: [model.concept_image_url].filter(Boolean),
+      // No mesh links here: this rides the cart and the order snapshot, and the
+      // print bridge reads the files from the model row (task 1417e863).
       metadata: {
         model_id: model.id,
-        stl_url: model.stl_url,
-        glb_url: model.glb_url,
         material: 'pla',
         color: colorMode === 'color4' ? 'color4' : 'grey',
         color_mode: colorMode,

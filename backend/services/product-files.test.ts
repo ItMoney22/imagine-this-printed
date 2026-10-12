@@ -19,7 +19,15 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 
 let assetRows: any[] = []
 let productRows: any[] = []
+let printFileRows: any[] = []
 let assetError: { message: string } | null = null
+
+// Creator print files are private (task b312de9c): product-files signs a link
+// per read. The fake signer makes the link's origin (bucket + path) visible.
+vi.mock('./google-cloud-storage.js', () => ({
+  signObjectInBucket: async (bucket: string, path: string, ttl: number) => `https://signed.test/${bucket}/${path}?ttl=${ttl}`,
+  uploadBufferToBucket: async (_b: string, _buf: Buffer, path: string) => path,
+}))
 
 vi.mock('../lib/supabase.js', () => {
   const makeChain = (resolve: () => any) => {
@@ -35,7 +43,9 @@ vi.mock('../lib/supabase.js', () => {
           makeChain(() =>
             table === 'product_assets'
               ? { data: assetError ? null : assetRows, error: assetError }
-              : { data: productRows, error: null }
+              : table === 'product_print_files'
+                ? { data: printFileRows, error: null }
+                : { data: productRows, error: null }
           ).select(...args),
       }),
     },
@@ -58,6 +68,7 @@ const asset = (over: Partial<any>) => ({
 beforeEach(() => {
   assetRows = []
   productRows = []
+  printFileRows = []
   assetError = null
 })
 
@@ -155,6 +166,22 @@ describe('getProductFilesFor', () => {
   it('does no query at all for an empty id list', async () => {
     expect(await getProductFilesFor([])).toEqual({})
   })
+
+  it("signs a creator's private print file as both the design and the DTF file", async () => {
+    productRows = [{ id: 'p1', metadata: { source: 'merch-studio', print_file_placements: ['front'], assets: { mockups: ['https://cdn/m1.png'] } } }]
+    printFileRows = [{ product_id: 'p1', bucket: 'imagine-this-printed-products', front_path: 'print-files/merch-studio/darrell/b1/front.png', back_path: null }]
+    const files = (await getProductFilesFor(['p1']))['p1']
+    expect(files.dtf).toBe('https://signed.test/imagine-this-printed-products/print-files/merch-studio/darrell/b1/front.png?ttl=720')
+    expect(files.design).toBe(files.dtf)
+    expect(files.mockups).toEqual([{ role: 'mockup', url: 'https://cdn/m1.png' }])
+  })
+
+  it('never lets the private print file override a real DTF asset row', async () => {
+    assetRows = [asset({ id: 'd', kind: 'dtf', url: 'https://cdn/dtf.png' })]
+    printFileRows = [{ product_id: 'p1', bucket: 'b', front_path: 'print-files/x/front.png', back_path: null }]
+    const files = (await getProductFilesFor(['p1']))['p1']
+    expect(files.dtf).toBe('https://cdn/dtf.png')
+  })
 })
 
 describe('attachProductFiles', () => {
@@ -179,6 +206,36 @@ describe('attachProductFiles', () => {
     const orders = [{ id: 'o1', order_items: [{ id: 'i1', product_id: null, metadata: {} }] }]
     const [out] = await attachProductFiles(orders as any)
     expect((out.order_items as any)[0].product_files).toEqual(emptyProductFiles())
+  })
+
+  it("turns an order line's private print_file_refs into short-lived print_files links", async () => {
+    const orders = [{
+      id: 'o1',
+      order_items: [{
+        id: 'i1',
+        product_id: 'p1',
+        metadata: {
+          design_url: null,
+          print_file_refs: { bucket: 'imagine-this-printed-products', front: 'print-files/a/front.png', back: 'print-files/a/back.png' },
+        },
+      }],
+    }]
+    const [out] = await attachProductFiles(orders as any)
+    const meta = (out.order_items as any)[0].metadata
+    expect(meta.print_files).toEqual({
+      front: 'https://signed.test/imagine-this-printed-products/print-files/a/front.png?ttl=720',
+      back: 'https://signed.test/imagine-this-printed-products/print-files/a/back.png?ttl=720',
+    })
+    // The refs stay as they were; nothing is written back to the order.
+    expect(meta.print_file_refs.front).toBe('print-files/a/front.png')
+    expect(orders[0].order_items[0].metadata).not.toHaveProperty('print_files')
+  })
+
+  it('keeps the print_files an older order line stored', async () => {
+    const legacy = { front: 'https://cdn/old-front.png' }
+    const orders = [{ id: 'o1', order_items: [{ id: 'i1', product_id: 'p1', metadata: { print_files: legacy } }] }]
+    const [out] = await attachProductFiles(orders as any)
+    expect((out.order_items as any)[0].metadata.print_files).toEqual(legacy)
   })
 
   it('leaves orders untouched when there are no items', async () => {
