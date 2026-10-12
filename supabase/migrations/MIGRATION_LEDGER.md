@@ -41,6 +41,99 @@ db push`/`db reset` was run, nothing was written to the live database.
   DELETE. The real `matchMaterials()` was then run against the seeded stock and
   produced `Load filament: 1. Black …; 2. Coral Pink …; 3. White …; 4. NO STOCK
   MATCH for #0000ff — restock needed`.
+## 2026-09-22 — email_logs authenticated INSERT dropped (Sifu, Watchtower `0c9f693c`)
+
+New file: **`20260922220000_drop_email_logs_authenticated_insert.sql`**. Closes
+the residual `82d4ae2e` left live on purpose. `"Service can insert email logs"`
+was `FOR INSERT TO authenticated WITH CHECK (true)` — any signed-in customer
+could forge an `email_logs` row. `service_role` has `rolbypassrls`, and no
+`src/` path writes the table, so the policy granted nothing the backend used.
+One guarded `DROP POLICY IF EXISTS` behind `to_regclass`. The admin SELECT
+policy is untouched. Grants (including `TRUNCATE`, which RLS does not gate)
+stay with Watchtower `b6d6720f`. Verifier: the name is gone from
+`KNOWN_LIVE_RESIDUALS` and listed in `CLOSED_RESIDUALS`, because the live
+wide-open scan only sees `public` / `anon` and would not notice this policy
+coming back.
+
+## 2026-09-22 — legacy wide-open RLS policies reconciled FORWARD (Sifu, Watchtower `82d4ae2e`)
+
+New file: **`20260922210000_drop_legacy_wide_open_rls_policies.sql`**. Full
+writeup with the audit table and the live evidence:
+`docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md`.
+
+**The gap.** The August 2026 hardening (2026-08-06 `security_round2`, and commit
+`dbb8476` on 2026-08-19 for the anon INSERT policies) dropped wide-open policies
+by running SQL straight at production — path (2)/(3) below. Production was
+correct; the repo was not. `002_rls_policies.sql` and
+`20251231000002_community_features.sql` still `CREATE` those policies and nothing
+later dropped them, so `supabase db reset` / a staging stack / a DR rebuild /
+a test database replayed the chain and came up **wide open** while production was
+locked. A fresh environment was strictly less safe than prod.
+
+**What the new file does.** Seven `DROP POLICY IF EXISTS` statements, each behind
+a `to_regclass(...) IS NOT NULL` guard inside one `DO $$ … $$` block:
+`points_transactions` / `itc_transactions` / `referral_transactions` /
+`order_items` / `vendor_payouts` / `founder_earnings` (all six "System can …"
+policies from `002_rls_policies.sql`) and `community_boost_earnings`
+("System can insert earnings"). **No historical migration was edited** —
+checksums and history intact.
+
+- The guards are not decoration: `DROP POLICY IF EXISTS "p" ON t` still raises
+  `42P01` when `t` is missing (`IF EXISTS` covers the policy, not the relation —
+  verified live inside a rolled-back transaction). Without them the file aborts
+  on a partially provisioned database.
+- The nine wide-open policies in `20251219_coupons_giftcards_support.sql` needed
+  **no** new statement — `20260805_security_lockdown.sql` and
+  `20260805_02_discount_codes_lockdown.sql` sort after it and already drop all of
+  them forward. Listed in the new file's comments so nobody re-derives it.
+- **Nine public `FOR SELECT USING (true)` policies were deliberately retained**
+  (`products`, `imagination_pricing`, `imagination_products`,
+  `imagination_product_sizes`, `shipping_methods`, `social_votes`,
+  `community_boosts`, `agent_status`, `product_copurchase`). Each is a real
+  storefront read through the anon client; dropping one is an outage, not a fix.
+  They are allow-listed **by name** in the verifier so a future pass cannot
+  quietly take one out.
+
+**Applied to prod? YES — 2026-09-22, and it was a proven no-op.** Executed inside
+a transaction with a full `pg_policies` snapshot either side: **0 removed, 0
+added, 187 policies before and 187 after** — expected, because production was
+already hardened. Because it is a proven no-op it was committed and the tracking
+row inserted, so version `20260922210000` now exists in
+`supabase_migrations.schema_migrations` and `supabase migration up` will not
+replay it.
+
+- **Version-number collisions are real on this repo.** The first pick,
+  `20260922160000`, was already taken in `schema_migrations` by
+  `20260922160000_products_maker_agent_id` (a different agent's unmerged branch),
+  and `20260922120000` is used by **two** different files across branches
+  (`signup_wallet_and_welcome_email` and `itc_refund_guard`). The insert used
+  `ON CONFLICT (version) DO NOTHING`, so nothing was overwritten — but check
+  `SELECT version FROM supabase_migrations.schema_migrations` **and**
+  `git log --all --name-only -- 'supabase/migrations/*'` before choosing a stamp.
+
+**Re-runnable proof:** `scripts/verify-rls-policy-reconciliation.mjs` (new).
+Static mode needs no credentials and is CI-safe; `--live` additionally diffs the
+replayed set against production `pg_policies` (one read-only SELECT). Replayed
+set went from **149 policies / 13 wide-open** to **142 / 6**, and all six
+survivors are allow-listed with a reason. Exit code 0.
+
+**Two things it found and did NOT fix** (both filed as follow-ups):
+
+1. `email_logs` · `Service can insert email logs` ·
+   `FOR INSERT TO authenticated WITH CHECK (true)`
+   (`20251223000000_email_templates.sql:104`) is **live in production**, so
+   dropping it here would make the replay *diverge*. No browser-client writes
+   that table, so it looks removable — but that is a production change and needs
+   its own reviewed migration.
+2. **Production is MORE open than the chain on `products`.** Live carries
+   `Anyone can view products` `USING (true)`, which exists in **no migration
+   file**; the chain only ever creates `All users can view approved products`
+   `USING (approved = true AND status = 'active')`. Measured live: **2,474 of
+   2,602 `products` rows are not approved and not active and are readable with
+   the public anon key**, design library and unreleased drafts included. Same
+   shape for `imagination_products`, `imagination_product_sizes` and
+   `shipping_methods` (legitimate public reads, but created by no file, so
+   staging/DR comes up without them).
 
 ## 2026-08-19 — vendor-marketplace bundle MERGED to `main` + tracking rows reconciled (Levi James, Watchtower `c53ca544`)
 
@@ -696,3 +789,5 @@ a reviewed, deliberate action, not a rubber stamp.
 | `20261007120000_signup_bot_flag.sql` | **YES — applied 2026-10-07** (Zero Nine, Watchtower task 673c0b4a; dry-run in a rolled-back transaction first, then applied in one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | Marks bot signups, deletes nothing. Adds `signup_name_bigrams` (729 letter-pair log-probs from real names; RLS on, no policies), `signup_name_score()` + `signup_bot_verdict()` (execute revoked from anon/authenticated), trigger `on_auth_user_flag_bot` (AFTER INSERT on auth.users: strong bot names get `user_profiles.metadata.bot_suspect`; errors swallowed so it can never fail a signup) and a DORMANT gate `on_auth_user_gate_bot` (BEFORE INSERT: refuses strong bot names only while `admin_settings.signup_bot_gate` = "block"). Backfill marked all 152 bot accounts (147 strong + 5 weak/new/never-signed-in/no-orders); the 5 real accounts untouched; auth.users 157 before and after. Proven live with admin-created probes (bot flagged, real not, gate refused bot only while on), probes then removed. Rollback = drop both triggers, the four functions and the table; `update user_profiles set metadata = metadata - 'bot_suspect'`. Writeup: `docs/SIGNUP_BOT_PROTECTION.md` section 6. |
 | `20261007200000_product_print_files.sql` | **YES — applied 2026-10-07** (Zero Pluto, Watchtower task b312de9c; one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | Creator print files leave the public products row. Creates `product_print_files` (product_id PK → products ON DELETE CASCADE, bucket, front_path, back_path, source): object PATHS in the private bucket, never URLs. RLS on with no policies and every grant revoked from anon/authenticated, so PostgREST refuses it to the website (verified: anon REST read = 401 permission denied; service role 200). Backfill done by `backend/scripts/move-creator-print-files-private.mjs` (3 merch-studio rows). Rollback = drop the table after restoring the public metadata from `E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-b312de9c-metadata-before.json`. |
 | `20261007210000_user_3d_models_server_writes_only.sql` | **YES — applied 2026-10-07** (Daisy Carter, Watchtower task 1417e863; dry-run in a rolled-back transaction first, then one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | Only the API writes `user_3d_models`. Drops the three user INSERT/UPDATE/DELETE policies, revokes every grant from `anon` and all writes from `authenticated` (SELECT on own rows kept). Proven live with an admin-created throwaway shopper before and after: before, the shopper's PostgREST INSERT of a `status=ready, purchased_licenses={commercial}, print_price_usd=0.01` row answered 201 and a PATCH self-granting the license + $0.01 price on a server-made row answered 200 and changed it; after, both 403 `permission denied for table user_3d_models` with the row unchanged, own-row SELECT still 200. Probe user + rows deleted. Rollback = re-create the three policies from `20251224000000_user_3d_models.sql` and `GRANT INSERT, UPDATE, DELETE ON public.user_3d_models TO authenticated`. Same task moved the 35 paid mesh files to the private bucket (`backend/scripts/move-3d-model-files-private.mjs`). |
+| `20260922210000_drop_legacy_wide_open_rls_policies.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 82d4ae2e; proven no-op — executed in a transaction with a full `pg_policies` snapshot either side, 0 removed / 0 added / 187 before / 187 after, then committed and the tracking row inserted into `supabase_migrations.schema_migrations`) | Forward reconciliation of the legacy wide-open RLS policies. Seven guarded `DROP POLICY IF EXISTS` statements (`points_transactions`, `itc_transactions`, `referral_transactions`, `order_items`, `vendor_payouts`, `founder_earnings`, `community_boost_earnings`) so a from-scratch replay stops recreating `TO public` write policies that production dropped by hand in August. **No historical migration edited.** Nine public `FOR SELECT USING (true)` policies deliberately retained and allow-listed by name. Idempotent and safe to re-run: every drop is `IF EXISTS` behind a `to_regclass(...) IS NOT NULL` guard (a bare `DROP POLICY IF EXISTS` still raises 42P01 when the table is missing). Verify with `node scripts/verify-rls-policy-reconciliation.mjs --live`. Full writeup: `docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md`. |
+| `20260922220000_drop_email_logs_authenticated_insert.sql` | **YES — applied 2026-09-22** (Sifu, Watchtower task 0c9f693c; executed in a transaction, snapshot either side, committed only when the sole change was the removal of `"Service can insert email logs"`, then the tracking row was inserted into `supabase_migrations.schema_migrations`) | Drops the authenticated `WITH CHECK (true)` INSERT policy on `email_logs` that `82d4ae2e` retained so its own replay would not diverge. Service-role writers are unaffected (`rolbypassrls`). Admin SELECT policy untouched. Idempotent: `DROP POLICY IF EXISTS` behind `to_regclass('public.email_logs') IS NOT NULL`. |
