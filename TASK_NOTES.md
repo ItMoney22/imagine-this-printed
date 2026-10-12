@@ -5142,3 +5142,9 @@ to shirts. Rollout `PRODUCT_KIND_JEV` = shadow (default) | on | off, measured fi
   category_source stamp. Dry run on all 2,605 live rows: $0.0998, 98% agree, 29 on-mode reviews (21 real misroutes),
   shadow changes 0 rows (docs/reports/jev-product-kind-dryrun-2026-10-12.md). vitest 170 files / 2429 pass (+48 new;
   mutations turn 6 red), backend tsc clean bar the 6 known TS2742, app tsc 0, vite build green, eslint 0 errors.
+- 2026-10-12 (zero-nine, ship card 332c46f6): fast-forwarded onto 8887982. Gates green: verify 170 files / 2429, vite
+  build ok, backend tsc only the 6 known TS2742. ITP's daily non-hotfix ship was already used at 15:30Z, so this rides
+  the 10/13 superset (card 4646cb1f). With 4646cb1f's five branches the code merges clean (only TASK_NOTES conflicts,
+  union), and vitest on the combined tree passes 179 files / 2550. Dry run re-run on the live catalogue: 28 on-mode
+  reviews (21 real, 7 false alarms; "Best Mom Ever Badge" fell to 0.83), shadow changes 0, $0.0998. Report:
+  docs/reports/jev-product-kind-ship-2026-10-12.md. Flag flip script: flip-product-kind-jev.cjs (memory tree).
