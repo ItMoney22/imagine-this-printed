@@ -1,0 +1,20 @@
+/* Catalog banner (task b9656cc9, approved mock c71ae9d0): the photo melts into
+   warm paper on the headline side so ink text stays readable in every width. */
+.catalog-fade {
+  background: linear-gradient(90deg,
+    color-mix(in srgb, var(--bg-warm) 94%, transparent) 0%,
+    color-mix(in srgb, var(--bg-warm) 70%, transparent) 38%,
+    transparent 68%);
+}
+@media (max-width: 639px) {
+  .catalog-fade {
+    background: linear-gradient(90deg,
+      color-mix(in srgb, var(--bg-warm) 92%, transparent) 0%,
+      color-mix(in srgb, var(--bg-warm) 78%, transparent) 55%,
+      color-mix(in srgb, var(--bg-warm) 20%, transparent) 100%);
+  }
+}
+
+/* The shelf pills scroll sideways on a phone without a scrollbar strip under them. */
+.catalog-pills { scrollbar-width: none; }
+.catalog-pills::-webkit-scrollbar { display: none; }

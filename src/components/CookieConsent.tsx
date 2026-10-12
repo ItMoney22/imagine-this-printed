@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-
-const COOKIE_CONSENT_KEY = 'itp_cookie_consent'
+import { COOKIE_CONSENT_KEY, clearPendingReferral } from '../utils/referral-capture'
 
 interface CookieConsentProps {
   onAccept?: () => void
@@ -30,7 +29,9 @@ export function CookieConsent({ onAccept, onDecline, inline = false }: CookieCon
 
   const handleDecline = () => {
     localStorage.setItem(COOKIE_CONSENT_KEY, 'declined')
-    // Clear any existing tracking cookies
+    // Forget a stored referral link; captureReferralFromUrl() stores no new one.
+    clearPendingReferral()
+    // Clear the referral cookies an older build named (never actually set).
     document.cookie = 'itp_referral=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'
     document.cookie = 'itp_referral_ts=; expires=Thu, 01 Jan 1970 00:00:00 GMT; path=/'
     setShowBanner(false)
@@ -44,7 +45,7 @@ export function CookieConsent({ onAccept, onDecline, inline = false }: CookieCon
     <div className={`${inline ? 'relative' : 'fixed bottom-0 left-0 right-0 z-50'} px-3 py-2 sm:px-4 bg-white text-gray-900 border-b border-primary/30 shadow-sm`}>
       <div className="max-w-7xl mx-auto flex flex-row items-center justify-between gap-3">
         <p className="flex-1 text-gray-900 text-xs sm:text-sm">
-          We use cookies for referral credit.{' '}
+          We keep a friend&apos;s referral link on this device so they get credit.{' '}
           <a href="/privacy" className="text-primary hover:text-primary/80 underline">Privacy</a>
         </p>
         <div className="flex gap-2 sm:gap-3 shrink-0">

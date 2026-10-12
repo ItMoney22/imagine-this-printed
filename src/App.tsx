@@ -14,6 +14,7 @@ import { Footer } from './components/Footer'
 import KioskRoute from './components/KioskRoute'
 import ProtectedRoute from './components/ProtectedRoute'
 import RoleRoute from './components/RoleRoute'
+import { GuestGateProvider } from './components/GuestGate'
 import { MrImagineChatWidget } from './components/MrImagineChatWidget'
 import { MrImagineCartNotification } from './components/mr-imagine/MrImagineCartNotification'
 import FloatingCart from './components/FloatingCart'
@@ -22,6 +23,7 @@ import { MrImagineNotificationProvider } from './components/MrImagineNotificatio
 import { ToastContainer } from './components/ToastContainer'
 import { ImaginationErrorBoundary } from './components/imagination'
 import CookieConsent from './components/CookieConsent'
+import ReferralApplier from './components/ReferralApplier'
 
 // Eagerly-loaded pages: public/landing routes that should be on the first
 // paint (the rest is below as React.lazy chunks). Auth + catalog + cart are
@@ -87,6 +89,10 @@ const OrderStatus = lazy(() => import('./pages/OrderStatus'))
 const ClaimAccount = lazy(() => import('./pages/ClaimAccount'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
 const AdminTeamTemplatesIndex = lazy(() => import('./pages/AdminTeamTemplatesIndex'))
+// The Step Flow builder (how David makes products). The 10/7 admin redo pointed it at
+// /imagination-station, the customer design studio, and every "continue in Step Flow"
+// deep link lost its product (David 2026-10-12).
+const AdminAIProductBuilder = lazy(() => import('./pages/AdminAIProductBuilder'))
 const ImaginationStation = lazy(() => import('./pages/ImaginationStation'))
 const TeamStudio = lazy(() => import('./pages/TeamStudio'))
 const ToyAR = lazy(() => import('./pages/ToyAR'))
@@ -118,7 +124,7 @@ function ScrollToTop() {
 // Layout component that conditionally shows sidebar
 function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
-  const { isCollapsed } = useSidebar()
+  const { isCollapsed, siteMenuHidden } = useSidebar()
   const isFullScreen = FULL_SCREEN_ROUTES.some(route => location.pathname.startsWith(route))
 
   return (
@@ -127,7 +133,7 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       {!isFullScreen && <MobileTopBar />}
       <main
         className={`flex-1 min-w-0 overflow-x-hidden min-h-screen transition-all duration-300 ${
-          !isFullScreen ? `pt-16 lg:pt-0 ${isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''
+          !isFullScreen ? `pt-16 lg:pt-0 ${siteMenuHidden ? '' : isCollapsed ? 'lg:ml-16' : 'lg:ml-60'}` : ''
         }`}
       >
         {!isFullScreen && <CookieConsent inline />}
@@ -136,7 +142,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
       {!isFullScreen && <MrImagineChatWidget />}
       <MrImagineCartNotification />
-      <FloatingCart />
+      {/* Only where no shop sidebar/top bar shows the cart: beside the sidebar its pill sat on the
+          product page's Add to cart at 1440 and its drawer covered the page after a quick-add (45434545). */}
+      {(isFullScreen || siteMenuHidden) && <FloatingCart />}
       <WatchtowerTaskButton />
       <ToastContainer />
       {isFullScreen && <CookieConsent />}
@@ -156,6 +164,8 @@ function App() {
                   <Router>
                     <ScrollToTop />
                     <AnalyticsTracker />
+                    <ReferralApplier />
+                    <GuestGateProvider>
                     <AppLayout>
                 <Suspense fallback={
                   <div className="min-h-[40vh] flex items-center justify-center">
@@ -197,8 +207,10 @@ function App() {
                   <Route path="/toys" element={<ToyLand />} />
                   <Route path="/models" element={<ToyLand />} />
                   <Route path="/3d-models" element={<ToyLand />} />
-                  <Route path="/toy-creator" element={<ProtectedRoute><ToyCreator /></ProtectedRoute>} />
-                  <Route path="/metal-art" element={<ProtectedRoute><MetalArtStudio /></ProtectedRoute>} />
+                  {/* PUBLIC — guests build a toy or a metal print; the account is
+                      asked for only at the step that saves or spends (task 8c67fe67). */}
+                  <Route path="/toy-creator" element={<ToyCreator />} />
+                  <Route path="/metal-art" element={<MetalArtStudio />} />
                   {/* PUBLIC — opened by scanning the NFC tag in a printed figurine */}
                   <Route path="/ar/:modelId" element={<ToyAR />} />
                   <Route path="/wallet" element={<Wallet />} />
@@ -214,7 +226,8 @@ function App() {
                   <Route path="/about" element={<About />} />
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/help" element={<Help />} />
-                  <Route path="/community" element={<ProtectedRoute><Community /></ProtectedRoute>} />
+                  {/* PUBLIC — anyone can read the feed; voting/posting ask for an account. */}
+                  <Route path="/community" element={<Community />} />
 
                   {/* Legal Pages */}
                   <Route path="/privacy" element={<PrivacyPolicy />} />
@@ -273,7 +286,7 @@ function App() {
                   <Route path="/admin/kiosks" element={<RoleRoute allowedRoles={['admin', 'founder']}><KioskManagement /></RoleRoute>} />
                   <Route path="/admin/kiosk-analytics" element={<RoleRoute allowedRoles={['admin', 'founder', 'vendor']}><KioskAnalytics /></RoleRoute>} />
                   <Route path="/admin/social-content" element={<RoleRoute allowedRoles={['admin', 'founder', 'manager']}><SocialContentManagement /></RoleRoute>} />
-                  <Route path="/admin/ai/products/create" element={<Navigate to="/imagination-station" replace />} />
+                  <Route path="/admin/ai/products/create" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminAIProductBuilder /></AdminShell></RoleRoute>} />
                   <Route path="/admin/voice-settings" element={<RoleRoute allowedRoles={['admin']}><AdminVoiceSettings /></RoleRoute>} />
                   <Route path="/admin/imagination-products" element={<Navigate to="/admin?tab=pricing" replace />} />
                   <Route path="/admin/email-templates" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminEmailTemplates /></AdminShell></RoleRoute>} />
@@ -289,13 +302,13 @@ function App() {
                       </ImaginationErrorBoundary>
                     }
                   />
+                  {/* PUBLIC — a guest gets an in-memory sheet and can try the studio;
+                      saving, ordering and the AI tools ask for an account. */}
                   <Route
                     path="/imagination-station"
                     element={
                       <ImaginationErrorBoundary>
-                        <ProtectedRoute>
-                          <ImaginationStation />
-                        </ProtectedRoute>
+                        <ImaginationStation />
                       </ImaginationErrorBoundary>
                     }
                   />
@@ -303,9 +316,7 @@ function App() {
                     path="/imagination-station/:id"
                     element={
                       <ImaginationErrorBoundary>
-                        <ProtectedRoute>
-                          <ImaginationStation />
-                        </ProtectedRoute>
+                        <ImaginationStation />
                       </ImaginationErrorBoundary>
                     }
                   />
@@ -316,8 +327,9 @@ function App() {
                   {/* Kiosk Routes */}
                   <Route path="/kiosk/:kioskId" element={<KioskRoute />} />
 
-                  {/* Business Routes */}
-                  <Route path="/wholesale" element={<ProtectedRoute><WholesalePortal /></ProtectedRoute>} />
+                  {/* Business Routes — PUBLIC info + apply; the portal itself shows
+                      only to a signed-in account. */}
+                  <Route path="/wholesale" element={<WholesalePortal />} />
 
                   {/* Debug Route */}
                   <Route path="/debug/images" element={<ImageDebug />} />
@@ -338,6 +350,7 @@ function App() {
                   </Routes>
                   </Suspense>
                   </AppLayout>
+                  </GuestGateProvider>
                 </Router>
                 </SidebarProvider>
               </MrImagineNotificationProvider>

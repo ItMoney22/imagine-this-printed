@@ -5,6 +5,7 @@ import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { requireAuth } from '../middleware/supabaseAuth.js'
 import { getPrediction, GHOST_MANNEQUIN_SUPPORTED_CATEGORIES, GHOST_MANNEQUIN_SUPPORTED_PRODUCT_TYPES } from '../services/replicate.js'
 import { sendEmail } from '../utils/email.js'
+import { isCreatorProductMeta } from '../shared/creator-product.js'
 
 const router = Router()
 
@@ -1317,6 +1318,10 @@ router.post('/download', requireAuth, async (req: Request, res: Response): Promi
 const ITC_PER_USD = 100
 
 function digitalDeliverables(product: any): { kind: string; label: string; url: string }[] {
+  // A creator's own apparel never sells its print file as a download: it
+  // undercut the shirt and handed out the art (David 2026-10-07, Darrell's
+  // "Walk By Faith"). No deliverables = buy-digital refuses, download 403s.
+  if (isCreatorProductMeta(product?.metadata)) return []
   const a = product?.metadata?.assets && typeof product.metadata.assets === 'object' ? product.metadata.assets : {}
   const out: { kind: string; label: string; url: string }[] = []
   if (a.clean) out.push({ kind: 'design', label: 'Design — clean art (PNG)', url: a.clean })

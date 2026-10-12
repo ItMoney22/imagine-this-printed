@@ -5,7 +5,7 @@
  * DOTENV_CONFIG_PATH=.env npx tsx backend/scripts/test-voice-chat.ts
  */
 
-import { generateVoiceResponse, AVAILABLE_VOICES, EMOTIONS } from '../services/voiceGenerator.js'
+import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { generateAssistantResponse, resetConversation } from '../services/designAssistant.js'
 
 // Test user ID
@@ -21,14 +21,10 @@ async function testVoiceGeneration() {
   console.log('')
 
   try {
-    const audioUrl = await generateVoiceResponse(testText, {
-      voiceId: AVAILABLE_VOICES.CALM_WOMAN,
-      emotion: EMOTIONS.HAPPY,
-      speed: 0.95,
-    })
+    const audioUrl = await generateVoiceResponse(testText)
 
     console.log('✅ Voice generated successfully!')
-    console.log('Audio URL:', audioUrl)
+    console.log('Audio data URL:', audioUrl.length, 'chars')
     console.log('')
   } catch (error: any) {
     console.error('❌ Voice generation failed:', error.message)
@@ -91,14 +87,10 @@ async function testFullVoiceCycle() {
 
     // Generate voice
     console.log('\n🎤 Generating voice...')
-    const audioUrl = await generateVoiceResponse(aiResponse.text, {
-      voiceId: AVAILABLE_VOICES.CALM_WOMAN,
-      emotion: EMOTIONS.AUTO,
-      speed: 0.95,
-    })
+    const audioUrl = await generateVoiceResponse(aiResponse.text)
 
     console.log('✅ Voice generated!')
-    console.log('Audio URL:', audioUrl)
+    console.log('Audio data URL:', audioUrl.length, 'chars')
     console.log('')
     console.log('🎯 Full cycle complete!')
   } catch (error: any) {
