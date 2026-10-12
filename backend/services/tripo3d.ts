@@ -1,7 +1,22 @@
 /**
- * Tripo3D v2.5 Image-to-3D client (direct Tripo platform API).
+ * Tripo3D image-to-3D client (direct Tripo platform API, V3).
  *
- * Uses TRIPO_API_KEY → https://api.tripo3d.ai/v2/openapi/task
+ * Uses TRIPO_API_KEY → POST https://openapi.tripo3d.ai/v3/generation/image-to-model,
+ * then GET /v3/tasks/{task_id} until success.
+ *
+ * V2 (https://api.tripo3d.ai/v2/openapi/task) is switched OFF on 2026-11-01 00:00
+ * Beijing (2026-10-31 16:00 UTC); migrated 2026-10-07 per
+ * https://developers.tripo3d.ai/en/docs/migration-v2-to-v3. V3 differences that
+ * matter here:
+ *   - one endpoint per job (no `type`), the image goes in `input` (URL or file_token)
+ *   - `model` replaces `model_version`; `model_seed` replaces `seed`
+ *   - `pbr` defaults to TRUE and forces texture on, so an untextured request must
+ *     send texture:false AND pbr:false or it is billed as textured
+ *   - `quad: true` forces FBX output; we need GLB for GLB -> STL, so quad is never sent
+ *   - the result is output.model_url (+ output.rendered_image_url), links that
+ *     EXPIRE after 5 minutes: callers download immediately
+ * Pricing (developers.tripo3d.ai/en/pricing, 1 credit = $0.01): image -> 3D is
+ * 20 credits untextured, 30 with standard texture; detailed (HD) texture +10.
  *
  * The fal.ai fallback was removed 2026-07-28 (Watchtower 5aeeab4f). It was
  * dead code: FAL_API_KEY is missing/revoked since the 2026-07 fal.ai purge,
@@ -11,7 +26,9 @@
  * Tripo3D outputs GLB by default. We convert to STL downstream with three.js.
  */
 
-const TRIPO_BASE = 'https://api.tripo3d.ai/v2/openapi'
+/** The ONE place for the Tripo API base + model version. */
+export const TRIPO_API_BASE = 'https://openapi.tripo3d.ai/v3'
+export const TRIPO_MODEL_VERSION = 'v3.1-20260211'
 
 function tripoToken(): string | null {
   return process.env.TRIPO_API_KEY ?? null
@@ -100,22 +117,32 @@ export const SIZE_TIERS: Record<PrintSizeTier, SizeTierConfig> = {
   large: {
     tier: 'large',
     label: 'Large',
-    description: '200mm tall — collector / centerpiece. Max detail, HD texture, quad mesh.',
+    description: '200mm tall — collector / centerpiece. Max detail, HD texture.',
     printHeightMm: 200,
     faceLimit: 50_000,
     texture: 'HD',
-    quad: true,
+    // Off since the V3 move: V3 `quad: true` forces FBX output and our GLB -> STL step needs GLB.
+    quad: false,
     itcCost: 220,
     printPriceUsd: 29.99,
     approxSeconds: 180,
   },
 }
 
+/**
+ * Texture to ask Tripo for. 'none' = bare geometry (20 credits): enough for a
+ * single-color print (Mini-Me in white). 'standard' (30) / 'detailed' (40) give
+ * the colored preview and the palette full-color prints are planned from.
+ */
+export type TripoTextureMode = 'none' | 'standard' | 'detailed'
+
 export interface Tripo3DInput {
   imageUrl: string
   tier: PrintSizeTier
   seed?: number
   orientation?: 'default' | 'align_image'
+  /** Override the tier's texture (Mini-Me: white -> 'none', full color -> 'standard'). */
+  texture?: TripoTextureMode
 }
 
 export interface Tripo3DOutput {
@@ -125,28 +152,69 @@ export interface Tripo3DOutput {
   modelMetadata: {
     tier: PrintSizeTier
     faceLimit: number
-    texture: 'standard' | 'HD'
+    texture: TripoTextureMode
     quad: boolean
     autoSized: boolean
     provider: 'tripo'
+    model: string
+    creditsConsumed?: number
   }
   processingTimeSec: number
   raw?: unknown
 }
 
-interface TripoTaskResponse {
-  code: number
-  data: {
-    task_id?: string
-    status?: 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'unknown'
-    result?: {
-      pbr_model?: { url?: string; type?: string }
-      model?: { url?: string; type?: string }
-      rendered_image?: { url?: string; type?: string }
-    }
-    output?: any
-    progress?: number
-    error_msg?: string
+/** The tier's default texture as a V3 mode (toys keep the quality they had on V2). */
+export function tierTextureMode(cfg: SizeTierConfig): TripoTextureMode {
+  return cfg.texture === 'HD' ? 'detailed' : 'standard'
+}
+
+/** POST /v3/generation/image-to-model body (pure, unit-tested). */
+export function buildImageToModelRequest(input: Tripo3DInput, cfg: SizeTierConfig): Record<string, unknown> {
+  const textureMode = input.texture ?? tierTextureMode(cfg)
+  const textured = textureMode !== 'none'
+  const body: Record<string, unknown> = {
+    input: input.imageUrl,
+    model: TRIPO_MODEL_VERSION,
+    face_limit: cfg.faceLimit,
+    // pbr defaults to true in V3 and forces texture on: both must be false for bare geometry.
+    texture: textured,
+    pbr: textured,
+    auto_size: true
+  }
+  if (textured) {
+    body.texture_quality = textureMode === 'detailed' ? 'detailed' : 'standard'
+    // orientation only takes effect with texture on (V3 docs)
+    body.orientation = input.orientation ?? 'align_image'
+  }
+  if (input.seed !== undefined) body.model_seed = input.seed
+  return body
+}
+
+export type TripoTaskStatus = 'queued' | 'running' | 'success' | 'failed' | 'cancelled' | 'unknown'
+
+export interface ParsedTripoTask {
+  status: TripoTaskStatus
+  progress?: number
+  modelUrl?: string
+  previewUrl?: string
+  creditsConsumed?: number
+  error?: string
+}
+
+/** GET /v3/tasks/{id} response -> what we need (pure, unit-tested). */
+export function parseTripoTask(json: any): ParsedTripoTask {
+  const d = json?.data ?? {}
+  const out = d.output ?? {}
+  const statuses: TripoTaskStatus[] = ['queued', 'running', 'success', 'failed', 'cancelled']
+  const status: TripoTaskStatus = statuses.includes(d.status) ? d.status : 'unknown'
+  const credits = Number(d.credits_consumed)
+  return {
+    status,
+    progress: typeof d.progress === 'number' ? d.progress : undefined,
+    modelUrl: out.model_url || undefined,
+    previewUrl: out.rendered_image_url || undefined,
+    creditsConsumed: Number.isFinite(credits) ? credits : undefined,
+    error: d.error_msg || d.error?.message || d.message || json?.message || undefined
   }
 }
 
@@ -155,24 +223,13 @@ interface TripoTaskResponse {
  */
 async function generateViaTripo(input: Tripo3DInput, cfg: SizeTierConfig, start: number): Promise<Tripo3DOutput> {
   const token = tripoToken()!
-  console.log('[tripo3d] 🎲 Using direct Tripo platform API')
+  const textureMode = input.texture ?? tierTextureMode(cfg)
+  console.log('[tripo3d] 🎲 Using direct Tripo platform API (V3,', TRIPO_MODEL_VERSION + ', texture:', textureMode + ')')
 
   // Submit task
-  const submitBody: Record<string, any> = {
-    type: 'image_to_model',
-    file: { type: 'jpg', url: input.imageUrl }, // Tripo accepts URL
-    model_version: 'v2.5-20250123',
-    face_limit: cfg.faceLimit,
-    texture: true,
-    pbr: true,
-    texture_quality: cfg.texture === 'HD' ? 'detailed' : 'standard',
-    auto_size: true,
-    orientation: input.orientation ?? 'align_image',
-    quad: cfg.quad,
-  }
-  if (input.seed !== undefined) submitBody.seed = input.seed
+  const submitBody = buildImageToModelRequest(input, cfg)
 
-  const submit = await fetch(`${TRIPO_BASE}/task`, {
+  const submit = await fetch(`${TRIPO_API_BASE}/generation/image-to-model`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -186,7 +243,7 @@ async function generateViaTripo(input: Tripo3DInput, cfg: SizeTierConfig, start:
     const text = await submit.text().catch(() => '')
     throw new TripoError(`tripo submit ${submit.status}: ${text.slice(0, 400)}`, false)
   }
-  const submitJson = (await submit.json()) as TripoTaskResponse
+  const submitJson = (await submit.json()) as any
   const taskId = submitJson?.data?.task_id
   if (!taskId) {
     throw new TripoError(`tripo submit returned no task_id: ${JSON.stringify(submitJson).slice(0, 300)}`, false)
@@ -198,50 +255,51 @@ async function generateViaTripo(input: Tripo3DInput, cfg: SizeTierConfig, start:
   let lastStatus = ''
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 3000))
-    const sr = await fetch(`${TRIPO_BASE}/task/${taskId}`, {
+    const sr = await fetch(`${TRIPO_API_BASE}/tasks/${taskId}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     if (!sr.ok) continue
-    const status = (await sr.json()) as TripoTaskResponse
-    const s = status?.data?.status ?? ''
-    if (s !== lastStatus) {
-      console.log('[tripo3d] status:', s, status?.data?.progress !== undefined ? `(${status.data.progress}%)` : '')
-      lastStatus = s
+    const raw = await sr.json()
+    const task = parseTripoTask(raw)
+    if (task.status !== lastStatus) {
+      console.log('[tripo3d] status:', task.status, task.progress !== undefined ? `(${task.progress}%)` : '')
+      lastStatus = task.status
     }
-    if (s === 'success') {
-      const result = status.data?.result ?? status.data?.output ?? {}
-      const glbUrl = result.pbr_model?.url ?? result.model?.url
-      if (!glbUrl) {
-        console.error('[tripo3d] no model URL in success response:', JSON.stringify(status.data).slice(0, 500))
+    if (task.status === 'success') {
+      if (!task.modelUrl) {
+        console.error('[tripo3d] no model URL in success response:', JSON.stringify(raw?.data).slice(0, 500))
         throw new TripoError('Tripo3D returned no GLB URL on success', true)
       }
       const processingTimeSec = (Date.now() - start) / 1000
-      console.log('[tripo3d] ✅', cfg.label, 'tier complete in', processingTimeSec.toFixed(1) + 's')
+      console.log('[tripo3d] ✅', cfg.label, 'tier complete in', processingTimeSec.toFixed(1) + 's', task.creditsConsumed !== undefined ? `(${task.creditsConsumed} credits)` : '')
       return {
-        glbUrl,
-        pbrUrl: result.pbr_model?.url,
-        rendererPreviewUrl: result.rendered_image?.url,
+        glbUrl: task.modelUrl,
+        // V3 has one model download; with PBR on it IS the PBR model.
+        pbrUrl: textureMode !== 'none' ? task.modelUrl : undefined,
+        rendererPreviewUrl: task.previewUrl,
         modelMetadata: {
           tier: cfg.tier,
           faceLimit: cfg.faceLimit,
-          texture: cfg.texture,
-          quad: cfg.quad,
+          texture: textureMode,
+          quad: false,
           autoSized: true,
           provider: 'tripo',
+          model: TRIPO_MODEL_VERSION,
+          ...(task.creditsConsumed !== undefined ? { creditsConsumed: task.creditsConsumed } : {}),
         },
         processingTimeSec,
-        raw: status.data,
+        raw: raw?.data,
       }
     }
-    if (s === 'failed' || s === 'cancelled') {
-      throw new TripoError(`tripo task ${s}: ${status.data?.error_msg ?? 'unknown error'}`, true)
+    if (task.status === 'failed' || task.status === 'cancelled') {
+      throw new TripoError(`tripo task ${task.status}: ${task.error ?? 'unknown error'}`, true)
     }
   }
   throw new TripoError('tripo task: poll timeout (>6 min)', true)
 }
 
 /**
- * Generate a 3D model from a single image using Tripo3D v2.5.
+ * Generate a 3D model from a single image using Tripo3D (V3 API, TRIPO_MODEL_VERSION).
  *
  * Requires TRIPO_API_KEY. On failure the real Tripo error is surfaced — there
  * is no provider fallback (see the fal.ai note at the top of this file).
@@ -259,7 +317,7 @@ export async function generateTripo3D(input: Tripo3DInput): Promise<Tripo3DOutpu
   }
 
   const start = Date.now()
-  console.log('[tripo3d] 🎲 Generating', cfg.label, 'tier — face_limit:', cfg.faceLimit, 'texture:', cfg.texture, 'quad:', cfg.quad)
+  console.log('[tripo3d] 🎲 Generating', cfg.label, 'tier — face_limit:', cfg.faceLimit, 'texture:', input.texture ?? tierTextureMode(cfg))
 
   try {
     return await generateViaTripo(input, cfg, start)
