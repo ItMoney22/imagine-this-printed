@@ -14,7 +14,8 @@ import stepFlowRouter from './ai-products-step-flow.js'
 import { uploadImageFromUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { addWatermark } from '../../services/watermark.js'
 import { suggestProductTrends, suggestSimpleWordPhrases, type TrendFamily, type TrendSource } from '../../services/product-trends.js'
-import { applyImageSelection, createWatermarkedDesignAsset } from '../../services/product-build.js'
+import { applyImageSelection, createWatermarkedDesignAsset, resolveGarmentColor } from '../../services/product-build.js'
+import { toRenderableColor } from '../../services/garment-color.js'
 
 const replicateClient = new Replicate({ auth: process.env.REPLICATE_API_TOKEN! })
 
@@ -321,9 +322,16 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
       imageStyle,
       useSearch = false, // Default OFF - only enable for pop culture/trending
       category: requestedCategory,
-      // DTF Print Settings
+      // DTF Print Settings.
+      //
+      // shirtColor has NO default any more (David 2026-09-01: black line art
+      // mocked up on a black polo). An absent colour is not "black", it is "not
+      // decided yet" — the artwork does not exist at this point in the request,
+      // so there is nothing to measure. product-build.ts's resolveGarmentColor
+      // makes the call once the design has been generated and picked. A colour
+      // the admin DID name is recorded as `requested` and never overridden.
       productType = 'tshirt',
-      shirtColor = 'black',
+      shirtColor = null,
       printPlacement = 'front-center',
       printStyle = 'clean',
       printSizeInches = 11,
@@ -407,6 +415,10 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
     }
 
     // Step 1: Normalize with GPT (with optional search context)
+    // Only a real, renderable colour counts as a request; anything else is
+    // treated as "not decided" rather than quietly becoming a default.
+    const requestedShirtColor = toRenderableColor(shirtColor)
+
     const normalized = await normalizeProduct({
       prompt,
       priceTarget,
@@ -418,7 +430,7 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
       category: wizardCategory ?? undefined,
       // DTF settings for context
       productType,
-      shirtColor,
+      shirtColor: requestedShirtColor ?? undefined,
       printPlacement,
     })
 
@@ -581,7 +593,10 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
           // request-body defaults ('tshirt'/'front-center'), since a metal
           // panel is neither.
           product_type: stepProductKind === 'metal' ? 'metal-art' : productType,
-          shirt_color: shirtColor,
+          // Stamped ONLY when the caller named one. An unstamped row is
+          // measured at build time (services/product-build.ts); a stamped one
+          // is a human decision and is left alone.
+          ...(requestedShirtColor ? { shirt_color: requestedShirtColor, shirt_color_source: 'requested' } : {}),
           print_placement: stepProductKind === 'metal' ? 'not-applicable' : printPlacement,
           print_style: printStyle,
           // Physical print width (inches) — drives explicit scale language in
@@ -688,7 +703,7 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
             height: 2048,
             background: 'transparent',
             productType,
-            shirtColor,
+            shirtColor: requestedShirtColor,
             printPlacement,
             printStyle,
             imageStyle,
@@ -748,7 +763,7 @@ export async function handleAIProductCreate(req: Request, res: Response): Promis
           height: stepProductKind === 'metal' ? 1536 : 1024,
           background: normalized.background,
           productType,
-          shirtColor,
+          shirtColor: requestedShirtColor,
           printPlacement,
           printStyle,
           imageStyle,
@@ -832,14 +847,14 @@ router.post('/create', requireAuth, requireAdmin, rateLimitAI(5), handleAIProduc
 router.post('/one-shot', requireAuth, requireAdmin, rateLimitAI(10), async (req: Request, res: Response): Promise<any> => {
   const t0 = Date.now()
   try {
-    const { prompt, productType = 'tshirt', shirtColor = 'black', style } = req.body
+    const { prompt, productType = 'tshirt', shirtColor = null, style } = req.body
     if (!prompt || typeof prompt !== 'string' || prompt.trim().length < 3) {
       return res.status(400).json({ error: 'Prompt must be at least 3 characters' })
     }
 
     req.log?.info({ promptLen: prompt.length, productType, style }, '[ai-products/one-shot] 🎯 Starting 1-shot generation (OpenAI direct)')
 
-    const product = await generateOneShotViaOpenAI(prompt, productType, shirtColor, style)
+    const product = await generateOneShotViaOpenAI(prompt, productType, toRenderableColor(shirtColor), style)
     const processingTimeSec = (Date.now() - t0) / 1000
     req.log?.info({ productId: product.id, processingTimeSec }, '[ai-products/one-shot] ✅ Done')
 
@@ -875,13 +890,20 @@ const STYLE_SUFFIXES: Record<string, string> = {
  * Optional `style` adds a style-suffix lookup at the end, so admin selections
  * in the UI map directly through.
  */
-function buildDtfPrompt(prompt: string, productType: string, shirtColor: string, style?: string): string {
+function buildDtfPrompt(prompt: string, productType: string, shirtColor: string | null, style?: string): string {
   const styleHint = style && STYLE_SUFFIXES[style] ? ` ${STYLE_SUFFIXES[style]}.` : ''
+  // When no colour has been chosen yet — the normal case, because the garment
+  // is picked FROM this artwork after it exists — the prompt must not invent
+  // one. Asserting "pops against a black shirt" to a model, and then letting a
+  // different colour win downstream, is how black line art reached a black polo.
+  const contrastLine = shirtColor
+    ? `Vivid colors that pop against a ${shirtColor} shirt; avoid colors that match the shirt color.`
+    : 'Commit to ONE value key and stay there — predominantly dark ink or predominantly light ink, never a mid-grey hedge — because the garment colour is chosen after this render, from the artwork itself, to contrast with it.'
   return [
     `${prompt.trim()}.`,
     `Standalone graphic illustration on a fully transparent background, isolated artwork only — no t-shirt, no hoodie, no garment, no mockup, no model wearing it.`,
     `Bold, high-contrast, screen-print-ready style with sharp clean edges and a limited palette.`,
-    `Vivid colors that pop against a ${shirtColor} shirt; avoid colors that match the shirt color.`,
+    contrastLine,
     `Square 1:1 composition, centered subject with clear silhouette, edges fully transparent.${styleHint}`,
   ].join(' ')
 }
@@ -893,7 +915,7 @@ function buildDtfPrompt(prompt: string, productType: string, shirtColor: string,
 async function saveDraftProductRow(opts: {
   prompt: string
   productType: string
-  shirtColor: string
+  shirtColor: string | null
   gcsUrl: string
   modelId: string
   dtfSystemPrompt: string
@@ -932,7 +954,7 @@ async function saveDraftProductRow(opts: {
         original_prompt: prompt,
         model_id: modelId,
         product_type: productType,
-        shirt_color: shirtColor,
+        ...(shirtColor ? { shirt_color: shirtColor, shirt_color_source: 'requested' } : {}),
         dtf_system_prompt: dtfSystemPrompt,
       },
     })
@@ -953,7 +975,7 @@ async function saveDraftProductRow(opts: {
 async function generateOneShotViaOpenAI(
   prompt: string,
   productType: string,
-  shirtColor: string,
+  shirtColor: string | null,
   style?: string
 ): Promise<{ id: string; name: string; slug: string; image_url: string }> {
   const dtfSystemPrompt = buildDtfPrompt(prompt, productType, shirtColor, style)
@@ -992,7 +1014,7 @@ async function generateOneShotViaOpenAI(
 async function generateBulkViaImagen4Ultra(
   prompt: string,
   productType: string,
-  shirtColor: string,
+  shirtColor: string | null,
   style?: string
 ): Promise<{ id: string; name: string; slug: string; image_url: string }> {
   const dtfSystemPrompt = buildDtfPrompt(prompt, productType, shirtColor, style)
@@ -1084,7 +1106,7 @@ async function runWithConcurrency<T, R>(
 router.post('/bulk', requireAuth, requireAdmin, rateLimitAI(2), async (req: Request, res: Response): Promise<any> => {
   const t0 = Date.now()
   try {
-    const { prompts, productType = 'tshirt', shirtColor = 'black', style } = req.body
+    const { prompts, productType = 'tshirt', shirtColor = null, style } = req.body
     if (!Array.isArray(prompts) || prompts.length === 0) {
       return res.status(400).json({ error: 'prompts must be a non-empty array' })
     }
@@ -1102,7 +1124,7 @@ router.post('/bulk', requireAuth, requireAdmin, rateLimitAI(2), async (req: Requ
 
     const results = await runWithConcurrency(cleaned, 5, async (prompt, i) => {
       try {
-        const product = await generateBulkViaImagen4Ultra(prompt, productType, shirtColor, style)
+        const product = await generateBulkViaImagen4Ultra(prompt, productType, toRenderableColor(shirtColor), style)
         req.log?.info({ i, promptLen: prompt.length, productId: product.id }, '[ai-products/bulk] ✓')
         return { ok: true as const, prompt, product }
       } catch (err: any) {
@@ -1463,6 +1485,9 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
     }
 
     // Refresh the watermarked design copy alongside the mockups (fire-and-forget).
+    // The resolved design URL escapes this block because the garment-colour
+    // measurement below needs the same file that is about to be printed.
+    let designAssetUrlForColor: string | null = null
     {
       let designAsset: { id: string; url: string } | null = null
       if (selectedAssetId) {
@@ -1485,6 +1510,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
         if (data?.url) designAsset = data
       }
       if (designAsset) void createWatermarkedDesignAsset(id, designAsset)
+      designAssetUrlForColor = designAsset?.url ?? null
     }
 
     // Get image job for DTF settings. The admin builder creates these as
@@ -1507,9 +1533,22 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
     // The image job input is a secondary fallback for older rows; hard defaults last.
     const meta = (product.metadata as any) || {}
     const resolvedProductType = meta.product_type || imageJob?.input?.productType || 'tshirt'
-    const resolvedShirtColor = meta.shirt_color || imageJob?.input?.shirtColor || 'black'
     const resolvedPrintPlacement = meta.print_placement || imageJob?.input?.printPlacement || 'front-center'
     const resolvedPrintSize = Number(meta.print_size_inches) || Number(imageJob?.input?.printSizeInches) || 11
+
+    // Garment colour is MEASURED off the artwork, not defaulted — the same call
+    // services/product-build.ts makes, imported rather than copied because this
+    // fan-out and that one have already drifted apart twice (see the comment
+    // below about keeping them in lockstep).
+    const garmentColor = await resolveGarmentColor({
+      productId: id,
+      designUrl: designAssetUrlForColor,
+      productType: resolvedProductType,
+      category: product.category,
+      metadata: meta,
+      log: req.log,
+    })
+    const resolvedShirtColor = garmentColor.color
 
     const baseInput = {
       product_type: product.category || 'shirts',
@@ -1522,6 +1561,7 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
 
     console.log('[ai-products] 🎯 Mockup DTF settings:', {
       shirtColor: resolvedShirtColor,
+      shirtColorSource: garmentColor.source,
       productType: resolvedProductType,
       printPlacement: resolvedPrintPlacement,
       selectedAssetId: selectedAssetId || 'none (will use fallback)',
@@ -1631,6 +1671,25 @@ router.post('/:id/create-mockups', requireAuth, requireAdmin, async (req: Reques
           },
         })
         console.log('[ai-products] 👕 Adding pocket-scale mockup job')
+      }
+
+      // Second colourway — kept in lockstep with the twin fan-out in
+      // services/product-build.ts (buildMockupJobs). Only fires when the
+      // measurement says the design genuinely holds up on another base.
+      for (const alt of garmentColor.decision?.alternates ?? []) {
+        jobs.push({
+          product_id: id,
+          type: 'replicate_mockup_v2',
+          status: 'queued',
+          input: {
+            ...baseInput,
+            shirtColor: alt,
+            template: 'flat_lay',
+            printPlacement: frontPlacement,
+            mockupRole: `mockup_color_${alt}`,
+          },
+        })
+        console.log('[ai-products] 🎨 Adding second-colourway mockup job:', alt)
       }
     }
 
