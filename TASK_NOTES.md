@@ -5192,3 +5192,8 @@ Ada's e14d239c batch merges them as no-ops) because the verifier and doc live th
   as admin 2,605, pending queue 1, held-back library 2,369, no-op PATCH on a draft returns the row.
 - Fleet-browser walk of the live storefront at 1400 and 390: catalog 38 products with category counts, home, a live
   product page, /blanks all render; a draft's product URL shows Product Not Found.
+- 2026-10-12 SHIP 17d474e6 (zero-nine): branch fast-forwards live main a28c1b1 (8 files, docs/scripts/migrations only, no src/ or backend/);
+  verify-rls-policy-reconciliation --live PASS again; schema_migrations has 20260922210000, 20260922220000, 20261012210000;
+  apply script NOT re-run; npm run verify green (166 files / 2371). Not pushed 10/12 (ITP's one regular ship went 15:30Z,
+  this is not a hotfix): rides the 10/13 ship 4646cb1f. TASK_NOTES/LEDGER conflicts vs a9abbfb, eac8f19 and the other 10/13
+  tips resolve with the memory-tree resolve-append-only-notes.cjs (keeps both sides, no duplicated ledger section).
