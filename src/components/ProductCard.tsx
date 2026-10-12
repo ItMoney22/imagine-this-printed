@@ -504,7 +504,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               }, 2000)
             }}
             disabled={!product.inStock}
-            className={`w-full font-bold py-2.5 rounded-lg transition-all flex items-center justify-center text-sm ${compact ? 'px-2 gap-1.5 whitespace-nowrap' : 'px-4 gap-2 uppercase tracking-wider'} ${
+            className={`w-full font-bold py-2.5 rounded-lg transition-all flex items-center justify-center text-sm ${compact ? 'px-2 gap-1.5 text-xs sm:text-sm min-w-0' : 'px-4 gap-2 uppercase tracking-wider'} ${
               addedToCart
                 ? 'bg-green-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.5)]'
                 : showSizePicker && !readyToAdd
@@ -521,8 +521,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               </>
             ) : showSizePicker && !readyToAdd ? (
               <>
-                <ShoppingCart className="w-4 h-4" />
-                {`Pick ${missingSelections.join(' & ')}`}
+                <ShoppingCart className="w-4 h-4 shrink-0" />
+                <span className="truncate">{`Pick ${missingSelections.join(' & ')}`}</span>
               </>
             ) : (
               <>
