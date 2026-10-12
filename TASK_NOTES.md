@@ -5045,3 +5045,19 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
 - 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).
 
 - 2026-10-08 (zero-nine, code-here): ship branch earth/zero-nine/ship-itp-amelia-redos-admin-menu = main 79cf763 + Amelia whole-site redo (b9656cc9) + Imagination Station redo (1edebb4) + one-admin-menu (b036572) + fix: AdminShell sets SidebarContext.siteMenuHidden so the desktop shop sidebar steps aside on admin pages, Back to Shop pill on top. Conflicts kept Daisy creator treatment (ProductPage, YouMayAlsoLike lanes), 2XL +$2.50 on cart chip/line, Sal guest wording on Toy Factory, main support-A1 chat widget, one FREE_SHIPPING_THRESHOLD. tsc clean, vitest 165/2365, vite build ok. Walked 1440: /admin one menu, catalog, product, Walk By Faith (Design by Darrell, no off-lane row), cart 2XL line $27.50, /toys, /imagination-station. Scope: SidebarContext.tsx, Sidebar.tsx(+test), App.tsx, AdminShell.tsx, YouMayAlsoLike.tsx, shipping-calculator.ts.
+
+## Current request (2026-10-12) — ITP: backfill model_id on the 71 on-person images (task c7f6efdc, lucas-blaze)
+
+Stamp metadata.model_id (+ model_id_precision / model_id_likely / model_id_basis) onto the 71 unstamped
+mockup_model_* product_assets rows from Saturn job 20261007-td9c0e648's C2PA table, apply live, ledger it.
+
+### File shortlist (approved scope — 2026-10-12 model_id backfill)
+- new `supabase/migrations/20261012160000_backfill_on_person_model_id.sql` (applied live 2026-10-12)
+- `supabase/migrations/MIGRATION_LEDGER.md` (one row in "New since this ledger was written")
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (lucas-blaze): resolved the table's 8-char ids against live rows (71/71 matched product, role, created);
+  dry-run in a rolled-back txn (71 updated, other metadata keys unchanged, re-run 0), then applied in one txn with a
+  rollback-on-fail post-check + schema_migrations row 20261012160000. Live: done query 0; 19 nano-banana-2-lite exact,
+  52 openai/gpt-image vendor (likely 49 gpt-image-2, 3 'openai/gpt-image-2.5-flare|openai/gpt-image-2').
