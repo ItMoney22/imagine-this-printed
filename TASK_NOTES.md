@@ -5066,3 +5066,26 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
 - 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).
 
 - 2026-10-08 (zero-nine, code-here): ship branch earth/zero-nine/ship-itp-amelia-redos-admin-menu = main 79cf763 + Amelia whole-site redo (b9656cc9) + Imagination Station redo (1edebb4) + one-admin-menu (b036572) + fix: AdminShell sets SidebarContext.siteMenuHidden so the desktop shop sidebar steps aside on admin pages, Back to Shop pill on top. Conflicts kept Daisy creator treatment (ProductPage, YouMayAlsoLike lanes), 2XL +$2.50 on cart chip/line, Sal guest wording on Toy Factory, main support-A1 chat widget, one FREE_SHIPPING_THRESHOLD. tsc clean, vitest 165/2365, vite build ok. Walked 1440: /admin one menu, catalog, product, Walk By Faith (Design by Darrell, no off-lane row), cart 2XL line $27.50, /toys, /imagination-station. Scope: SidebarContext.tsx, Sidebar.tsx(+test), App.tsx, AdminShell.tsx, YouMayAlsoLike.tsx, shipping-calculator.ts.
+
+## Current request (2026-10-12) — ITP catalog: shirt mockup leads, names match art, no blank tiles (task 732f8a71, lucas-blaze)
+
+Finding: the 23e3e853 trim already landed (live storefront = 36 rows status=active+approved: 27 shirts, 3 hoodies,
+2 dtf, 4 3d). Spartans / Grumpy Bear teacher / Epic Black Tee / Magic Hat / Abstract Mind are now `draft` (out of the shop).
+No "Puerto Rico" row exists. What is left: ~15 of the 30 live garments lead with raw art (`/original/`, design-library,
+legacy `/products/*.png`), the Grumpy Cat hoodie leads with the painted checkerboard, and phone tiles blank (Robo Rascal,
+Wizard Beast, Similar Products).
+
+Decisions: (1) reorder `products.images` so the first real mockup (ghost mannequin > flat lay > hanger > composite >
+on-model) leads; raw art stays in the gallery, last. Backup JSON of every old array written before --apply. (2) The 3 garments
+with NO mockup get one from the free blank-composite tool (no model spend). (3) Blank tiles: IntersectionObserver preload
+margin, not native lazy only.
+
+### File shortlist (approved scope — 2026-10-12 catalog lead image)
+- `backend/scripts/lead-with-mockup.mjs` (new; dry-run default), `backend/scripts/lead-with-mockup.test.mjs` if pure helper split out
+- `src/lib/storefront-row.ts` / `src/components/ProductCard.tsx` / `src/components/ProductImage*.tsx` (phone blank-tile fix, whichever owns the <img>)
+- `src/pages/ProductPage.tsx` (Similar Products tile only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (lucas-blaze): merged origin/main; walked the live data (anon read): 36 active, list above.
+- 2026-10-12 (lucas-blaze): `getGalleryImages` now leads with a garment shot (ghost mannequin > flat lay > hanger > composite > mr_imagine > on-model) even over a watermarked display hero; 5 new tests, tsc 0, vitest 2371/2371. Phone blanks: ProductCard hover now mouse-pointer only (a tap stuck isHovered and faded the primary to opacity 0), ProtectedImage attaches src 1200px before scroll-in via IntersectionObserver, Similar Products img h-full. Live DB: composite tee mockups written for Cowboy vs Alien + Majestic Roar via backend/scripts/mockup-from-art.ts (images[] now led by the mockup; old arrays = [original]); Majestic Roar description rewritten (was "photorealistic"). Ember Warrior (bb7bd4f1) left: art is a real person's photo + name.
