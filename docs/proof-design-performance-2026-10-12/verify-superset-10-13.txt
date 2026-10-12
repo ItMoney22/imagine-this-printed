@@ -1,0 +1,10 @@
+10/13 superset probe (2026-10-12, rhea-cassien): 57fe025 (this branch) + 35cc532b + 8b0676b + 051355f + d50f833, merged in that order with git merge-tree + commit-tree; only TASK_NOTES.md conflicts (append-only, keep both sides; the four already conflict with live main there).
+dangling superset commit: 2573ea08381a9dc7ca0764deef085d8e87de30d0
+TSC_EXIT 0
+ Test Files  175 passed (175)
+      Tests  2492 passed (2492)
+
+> imagine-this-printed@0.0.0 typecheck
+> tsc -b --noEmit
+
+TYPECHECK_EXIT 0
