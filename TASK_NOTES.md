@@ -11,6 +11,9 @@ FloatingCart only where the shop sidebar is not showing (full-screen routes, adm
 ### File shortlist (approved scope — 2026-10-12 buy-button overlap)
 - `src/App.tsx` (AppLayout renders FloatingCart only when isFullScreen or siteMenuHidden)
 - `TASK_NOTES.md`
+- Send-back scope +2 (merged, not edited here): `src/components/MrImagineChatWidget.tsx` + `src/components/ProductCard.tsx`
+  from Amelia's db1d26c (task 41fe4abb). Nine sent the card back because the buy buttons were still covered LIVE; the
+  desktop chat pill over the catalog card was the second overlap, so both fixes ship together as one hotfix.
 
 ### Work log (append-only)
 - 2026-10-12 (zero-nine): live walk of prod ad57532 at 1440 + 390 (fleet browser): pages 2-5 load, Add to cart /
@@ -5086,3 +5089,4 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
 - 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).
 
 - 2026-10-08 (zero-nine, code-here): ship branch earth/zero-nine/ship-itp-amelia-redos-admin-menu = main 79cf763 + Amelia whole-site redo (b9656cc9) + Imagination Station redo (1edebb4) + one-admin-menu (b036572) + fix: AdminShell sets SidebarContext.siteMenuHidden so the desktop shop sidebar steps aside on admin pages, Back to Shop pill on top. Conflicts kept Daisy creator treatment (ProductPage, YouMayAlsoLike lanes), 2XL +$2.50 on cart chip/line, Sal guest wording on Toy Factory, main support-A1 chat widget, one FREE_SHIPPING_THRESHOLD. tsc clean, vitest 165/2365, vite build ok. Walked 1440: /admin one menu, catalog, product, Walk By Faith (Design by Darrell, no off-lane row), cart 2XL line $27.50, /toys, /imagination-station. Scope: SidebarContext.tsx, Sidebar.tsx(+test), App.tsx, AdminShell.tsx, YouMayAlsoLike.tsx, shipping-calculator.ts.
+- 2026-10-12 (amelia-chan, task 41fe4abb): desktop chat launcher avatar-only except top of home (or live chat); quick-add picker label truncates in compact cards. tsc 0; walked /catalog + / at 1440, /catalog picker at 390.
