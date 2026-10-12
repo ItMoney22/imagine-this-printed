@@ -1,0 +1,75 @@
+{
+ "captured_at": "2026-10-12T16:04:24.156Z",
+ "task": "d434dd6c-3ce1-406b-ace4-138a7f2f6862",
+ "note": "Before-values for docs/sql/2026-10-12-rename-hooded-ghost-candle-holder.sql. To undo, UPDATE each row back to these values. Captured read-only; the rename has NOT been applied.",
+ "products": [
+  {
+   "id": "43d607e5-e8e1-4b57-a52f-110a5cd6a1c3",
+   "name": "Gothic Ghost Face Candle Holder",
+   "meta_title": "Gothic Ghost Face Candle Holder 3D Print Design",
+   "description": "A chilling gothic design featuring an ivory, scream-inspired ghost mask emerging from flowing black hooded robes. The dramatic sculpted folds, shadowy black finish, and raised candle tray create a bold horror aesthetic perfect for fans of spooky, darkly elegant artwork.",
+   "meta_description": "Create a bold horror display with this Gothic Ghost Face candle holder—ivory mask, black hooded robes, and a raised tray for spooky ambiance.",
+   "search_keywords": "gothic ghost candle holder, halloween candle holder, ghost face 3d print, gothic home decor, horror themed decor, spooky candle stand, black and ivory gothic decor, raised candle tray holder, hooded ghost sculpture, 3d printed candle holder",
+   "metadata": {
+    "etsy_pack": {
+     "tags": [
+      "gothic candle holder",
+      "ghost face decor",
+      "3d printed holder",
+      "spooky home decor",
+      "horror collectible",
+      "shelf display piece",
+      "desk accent",
+      "unique gift",
+      "black ivory print",
+      "candle stand",
+      "creepy decor",
+      "artistic figurine",
+      "fantasy desk decor"
+     ],
+     "model": "google/gemini-2.5-flash",
+     "price": 25,
+     "title": "Gothic Ghost Face Candle Holder | Spooky Home Decor",
+     "colors": [
+      "Black"
+     ],
+     "composed_at": "2026-10-07T18:19:52.301Z",
+     "description": "Illuminate your space with a touch of the macabre with this Gothic Ghost Face Candle Holder, perfect for horror enthusiasts and lovers of dark aesthetics.\n\nThis chilling design features an ivory, scream-inspired ghost mask emerging from flowing black hooded robes. The dramatic sculpted folds, shadowy black finish, and raised candle tray create a bold horror aesthetic that is both spooky and elegantly artistic.\n\nThis piece is 3D printed with attention to detail, resulting in a sturdy object with a detailed layer finish. It's a striking addition to any shelf, desk, or altar.\n\nEach Gothic Ghost Face Candle Holder is made to order and 3D printed in Rockmart, Georgia.\n\nCare instructions: Wipe clean with a soft, dry cloth. Keep away from high heat sources to preserve its integrity."
+    },
+    "marketing_hooks": {
+     "captions": [
+      "Gothic Ghost Face candle holder with a dramatic hooded look—spooky and bold. 👻",
+      "Ivory scream-inspired mask meets black robes for dark, elegant vibes.",
+      "Light up your decor with this raised-tray horror centerpiece."
+     ],
+     "hashtags": [
+      "#gothicdecor",
+      "#halloweendecor",
+      "#ghostdecor",
+      "#candleholder",
+      "#horrordecor",
+      "#3dprint",
+      "#3dprinted",
+      "#gothichome",
+      "#spookystyle",
+      "#darkaesthetic"
+     ],
+     "product_url": "https://imaginethisprinted.com/product/43d607e5-e8e1-4b57-a52f-110a5cd6a1c3"
+    },
+    "seo_pack_generated_at": "2026-09-06T21:50:38.994Z"
+   }
+  }
+ ],
+ "social_outbox": [
+  {
+   "id": "ac5d5c7c-daf9-4c53-be4b-af44cd160708",
+   "caption": "Gothic Ghost Face candle holder with a dramatic hooded look—spooky and bold. 👻 https://imaginethisprinted.com/product/43d607e5-e8e1-4b57-a52f-110a5cd6a1c3?utm_source=tiktok&utm_medium=social&utm_campaign=ac5d5c7c-daf9-4c53-be4b-af44cd160708",
+   "listing": {
+    "price": 20,
+    "title": "Gothic Ghost Face Candle Holder",
+    "description": "A chilling gothic design featuring an ivory, scream-inspired ghost mask emerging from flowing black hooded robes. The dramatic sculpted folds, shadowy black finish, and raised candle tray create a bold horror aesthetic perfect for fans of spooky, darkly elegant artwork.",
+    "product_url": "https://imaginethisprinted.com/product/43d607e5-e8e1-4b57-a52f-110a5cd6a1c3?utm_source=tiktok&utm_medium=social&utm_campaign=ac5d5c7c-daf9-4c53-be4b-af44cd160708"
+   }
+  }
+ ]
+}

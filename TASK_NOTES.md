@@ -4772,3 +4772,14 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-12) — Ghostface likeness on the candle holder: David's call (task d434dd6c)
+Stale scope above belongs to earlier tasks. Rationale: decision record + a ready (unapplied) data fix; no app code changes.
+
+### File shortlist (approved scope — 2026-10-12 candle holder IP decision)
+- `docs/decisions/2026-10-12-ghostface-candle-holder.md` (new), `docs/decisions/2026-10-12-ghostface-candle-holder-undo.json` (new)
+- `docs/sql/2026-10-12-rename-hooded-ghost-candle-holder.sql` (new, NOT a migration: apply only on David's A or B)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (daisy-carter): sculpt + all 3 photos are the Ghostface mask in a shroud = Fun World's registered "Ghost Face Mask with Shroud" (VA 552-798), so a rename alone cannot clear it. Not on Etsy (API: 14 active/6 draft, none). Filed APPROVE a58ec168 (A rename+remodel / B rename / C pull+remodel / D keep; rec A). Rename SQL proven in rolled-back prod transactions: 0 hits after, idempotent, order-independent from 20261009120000. Nothing applied to prod.
