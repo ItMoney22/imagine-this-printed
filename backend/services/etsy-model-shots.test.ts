@@ -14,7 +14,7 @@ vi.mock('../lib/supabase.js', () => ({ supabase: { from: () => ({}), rpc: async 
 
 import sharp from 'sharp'
 
-import { buildGptPrompt, buildNanoPrompt, ensureListingResolution, resolveCast, composeSubject, listShotSubjects, ShotCastError, asksForAMissingBackground, comparePrintedText, DESIGN_FIDELITY_QA_PROMPT, type ShotPlan } from './etsy-model-shots.js'
+import { buildGptPrompt, buildNanoPrompt, ensureListingResolution, mirroredShotRows, resolveCast, composeSubject, listShotSubjects, ShotCastError, asksForAMissingBackground, comparePrintedText, DESIGN_FIDELITY_QA_PROMPT, type ShotPlan } from './etsy-model-shots.js'
 
 function plan(over: Partial<ShotPlan> = {}): ShotPlan {
   return {
@@ -443,5 +443,35 @@ describe('comparePrintedText', () => {
   it('tolerates one dropped short filler word but not a dropped headline word', () => {
     expect(comparePrintedText(DESIGN_WORDS, DESIGN_WORDS.filter((w) => w !== 'a')).ok).toBe(true)
     expect(comparePrintedText(DESIGN_WORDS, DESIGN_WORDS.filter((w) => w !== 'TRIMMING')).ok).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Model provenance (board task d9c0e648). The two-shot casting session mirrored
+// its shots into product_assets with no model at all, so 71 on-person images in
+// 90 days could not say what drew them. Every mirrored row now carries it.
+// ---------------------------------------------------------------------------
+describe('mirroredShotRows — every mirrored on-person shot names its engine', () => {
+  const img = (n: number) => `https://storage.googleapis.com/bucket/users/u/mockups/etsy_shot_p_shot${n}_1.png`
+
+  it('stamps metadata.model_id per shot, by position', () => {
+    const rows = mirroredShotRows('p', [img(1), img(2)], [{ ok: true }, { ok: true }], ['openai/gpt-image-2.5-flare', 'google/nano-banana-2-lite'], 'T')
+    expect(rows.map(r => [r.asset_role, r.metadata.model_id])).toEqual([
+      ['mockup_model_1', 'openai/gpt-image-2.5-flare'],
+      ['mockup_model_2', 'google/nano-banana-2-lite'],
+    ])
+  })
+
+  it('keeps the model aligned when a QA-failed shot in front of it is skipped', () => {
+    const rows = mirroredShotRows('p', [img(1), img(2)], [{ ok: false, reason: 'x' }, { ok: true }], ['openai/a', 'google/b'], 'T')
+    expect(rows).toHaveLength(1)
+    expect(rows[0].asset_role).toBe('mockup_model_2')
+    expect(rows[0].metadata.model_id).toBe('google/b')
+  })
+
+  it('leaves model_id off a shot that recorded none rather than guessing', () => {
+    const [row] = mirroredShotRows('p', [img(1)], [{ ok: true }], [], 'T')
+    expect(row.metadata).not.toHaveProperty('model_id')
+    expect(row.metadata.template).toBe('etsy_model_shot')
   })
 })

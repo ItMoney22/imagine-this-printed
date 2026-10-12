@@ -494,6 +494,32 @@ describe('runModelShot (via queueStepShots) — design-fidelity QA gating', () =
 
     expect(db.product_assets.some((a) => a.asset_role === 'mockup_model_1' && a.url === 'https://cdn/good.png')).toBe(true)
   })
+
+  // Board task d9c0e648: the engine that drew the shot is recorded on the job
+  // too, pass or fail, so QA failure rates per engine read straight off ai_jobs.
+  it('records the engine on the asset and on the job when the shot passes', async () => {
+    seedProduct()
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/good.png', check: { ok: true }, modelId: 'openai/gpt-image-2.5-flare' })
+
+    await queueStepShots('p1', 'user-1', ['model'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'done')
+
+    const asset = db.product_assets.find((a) => a.asset_role === 'mockup_model_1')!
+    expect(asset.metadata.model_id).toBe('openai/gpt-image-2.5-flare')
+    const job = db.ai_jobs.find((j) => j.input?.stepKey === 'model')!
+    expect(job.output).toEqual({ url: 'https://cdn/good.png', model_id: 'openai/gpt-image-2.5-flare' })
+  })
+
+  it('records the engine on the job when the shot fails QA', async () => {
+    seedProduct()
+    shootOneModelShot.mockResolvedValue({ url: 'https://cdn/rejected.png', check: { ok: false, reason: 'text was redrawn' }, modelId: 'google/nano-banana-2-lite' })
+
+    await queueStepShots('p1', 'user-1', ['model'])
+    await waitUntil(() => getStepFlow(db.products.find((p) => p.id === 'p1')!).shots.model?.status === 'failed')
+
+    const job = db.ai_jobs.find((j) => j.input?.stepKey === 'model')!
+    expect(job.output).toEqual({ url: 'https://cdn/rejected.png', model_id: 'google/nano-banana-2-lite' })
+  })
 })
 
 // David 2026-09-03: the on-person shot used to be fired with NO cast, so

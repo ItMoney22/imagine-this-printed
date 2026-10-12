@@ -756,7 +756,9 @@ async function runModelShot(
       // a wrong-design photo to the storefront the moment it's approved.
       const message = check.reason || 'Model shot failed design-fidelity QA'
       console.warn(`[step-flow/shots] ${productId} "${key}" failed QA (not mirrored): ${message}`)
-      await supabase.from('ai_jobs').update({ status: 'failed', error: message, updated_at: new Date().toISOString() }).eq('id', jobId)
+      // A rejected take was still drawn by something: record what, so a
+      // QA-failure rate per engine can be read straight off ai_jobs.
+      await supabase.from('ai_jobs').update({ status: 'failed', error: message, output: { url, ...(modelId ? { model_id: modelId } : {}) }, updated_at: new Date().toISOString() }).eq('id', jobId)
       await patchShotState(productId, key, { status: 'failed', error: message })
       return
     }
@@ -769,7 +771,7 @@ async function runModelShot(
       // log line (David 2026-09-10: "i need to know what is running what").
       ...(modelId ? { model_id: modelId } : {}),
     })
-    await supabase.from('ai_jobs').update({ status: 'succeeded', output: { url }, updated_at: new Date().toISOString() }).eq('id', jobId)
+    await supabase.from('ai_jobs').update({ status: 'succeeded', output: { url, ...(modelId ? { model_id: modelId } : {}) }, updated_at: new Date().toISOString() }).eq('id', jobId)
     // `check.degraded` means the shot came back as something other than what
     // was cast (today: both engines declined a child subject, so the youth
     // shirt was photographed empty). It is a usable photo, so this is a note
