@@ -5161,3 +5161,34 @@ checksums and history must stay intact), table-level `anon` write GRANTs
   (live, so dropping it would diverge), and production's `products`
   `USING (true)` SELECT policy, which exists in no migration file and exposes
   2,474 of 2,602 unapproved/inactive product rows to the anon key.
+
+## Current request (2026-10-12) — restrict products RLS to published rows + sync missing public policies (task 7e54a10f, cole-iverson)
+
+Follow-up of 82d4ae2e. Anon must read only `approved = true AND status = 'active'` products; signed-in readers of
+unpublished rows keep working; the live public reads on imagination_products / imagination_product_sizes /
+shipping_methods go into the chain. Branch carries Sifu's 6242274 + fb4de67 (merged by SHA, not cherry-picked, so
+Ada's e14d239c batch merges them as no-ops) because the verifier and doc live there.
+
+### File shortlist (approved scope — 2026-10-12 products RLS)
+- `supabase/migrations/20261012210000_restrict_products_public_read.sql` (new; applied live 2026-10-12)
+- `scripts/apply-restrict-products-public-read.mjs` (new: dry run / --apply in one transaction with in-transaction probe)
+- `scripts/verify-rls-policy-reconciliation.mjs` (strict convergence for 4 tables, visibility probe, live-only drift fails, SQL comments stripped)
+- `supabase/migrations/MIGRATION_LEDGER.md`, `docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md`, `TASK_NOTES.md`
+- READ-ONLY audit (no edits needed): every `from('products')` caller in `src/`, `api/_seo/*`, backend supabase clients
+
+### Work log (append-only) — 2026-10-12 products RLS
+- Audited all 56 `products` reads/writes in src/: storefront callers already filter to published rows; the only
+  readers of unpublished rows are admin/manager screens (AdminDashboard, PromoPicker admin lane, PromoPricingModal,
+  AdminTeamTemplatesIndex, TeamStudio, AdminAIProductBuilder, AdminCreateProductWizard), VendorDashboard (own rows)
+  and UserProfile (own designs). Customer Step Flow, backend and worker are service-role. Decision: role/owner-scoped
+  signed-in SELECT policies instead of moving ~30 admin call sites to new endpoints; no src change needed.
+- Live before: 2,605 products, 38 published, anon REST read 2,605 (2,567 unpublished). No staff/vendor/creator
+  SELECT policy existed, so a narrowed public read alone would have silently zeroed admin UPDATEs.
+- Wrote 20261012210000 + apply script; dry run rolled back clean; applied + recorded in schema_migrations.
+  Anon REST now 38 (0 unpublished, draft by id = []); catalogue tables 3 / 34 / 0 unchanged.
+- `verify-rls-policy-reconciliation.mjs --live` PASS: strict convergence identical (products 10/10, imagination 2/2,
+  sizes 2/2, shipping 1/1), probe anon 38, customer 38, draft owner 40, admin 2,605.
+- Real-JWT PostgREST check with a throwaway user (deleted after; 0 orphan rows): customer 38 + PATCH on a draft = 0 rows;
+  as admin 2,605, pending queue 1, held-back library 2,369, no-op PATCH on a draft returns the row.
+- Fleet-browser walk of the live storefront at 1400 and 390: catalog 38 products with category counts, home, a live
+  product page, /blanks all render; a draft's product URL shows Product Not Found.

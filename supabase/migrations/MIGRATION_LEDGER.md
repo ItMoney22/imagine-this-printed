@@ -7,6 +7,45 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-10-12 — products public read narrowed to published rows; catalogue policies codified (Cole Iverson, Watchtower `7e54a10f`)
+
+New file: **`20261012210000_restrict_products_public_read.sql`** — **APPLIED LIVE
+2026-10-12** in one transaction by `scripts/apply-restrict-products-public-read.mjs
+--apply`, dry-run first (rolled back), ledger row inserted into
+`supabase_migrations.schema_migrations` in the same transaction.
+
+- **The leak it closes.** Production's `products` SELECT policy was `"Anyone can
+  view products"` `USING (true)` and no migration created it. Measured through
+  the real anon key just before the apply: 2,605 rows readable, 2,567 of them
+  unpublished (drafts, design-library imports, rejected, archived). After: 38,
+  all published; a draft fetched by id returns `[]`.
+- **Replacement.** `"All users can view approved products"` `USING (approved =
+  true AND status = 'active')` for everyone (the 002 rule, now actually live),
+  plus three signed-in reads: `"Staff can view all products"` (admin/manager via
+  `get_user_role`), `"Vendors can view their own products"`, `"Creators can view
+  their own products"`. Every `src/` reader of unpublished rows is an admin,
+  vendor or the creator's own profile page; the customer Step Flow and every
+  backend path run on the service role.
+- **Chain convergence on `products`.** Dropped the chain-only `"Vendors can
+  manage their own products"` (002) and `"Admins have full access to all
+  products"` (005), which production never had, and codified production's three
+  `"Admins can insert/update/delete products"` with their live definitions.
+- **`imagination_products`, `imagination_product_sizes`, `shipping_methods`.**
+  Their live public reads and admin manage rules are now created by this file.
+  The tables themselves are still created by no migration, so every block sits
+  behind `to_regclass`.
+- **Proof.** `node scripts/verify-rls-policy-reconciliation.mjs --live` → PASS:
+  strict convergence on the four tables identical (10 / 2 / 2 / 1 policies,
+  expressions included), no live-only wide-open policy, probe: anon 38/38 with 0
+  unpublished, customer 38, draft owner 40 (published + own), admin 2,605/2,605.
+  Real-JWT PostgREST check with a throwaway user (deleted): customer reads 38 and
+  a PATCH on a draft matches 0 rows; promoted to admin it reads 2,605, the pending
+  queue, the 2,369 held-back library rows, and a no-op PATCH on a draft returns
+  the row.
+- **Rollback** (restores the old exposure, so only in an emergency):
+  `CREATE POLICY "Anyone can view products" ON public.products FOR SELECT USING (true);`
+  The new rules can stay; permissive policies are OR-ed.
+
 ## 2026-09-22 — email_logs authenticated INSERT dropped (Sifu, Watchtower `0c9f693c`)
 
 New file: **`20260922220000_drop_email_logs_authenticated_insert.sql`**. Closes
@@ -792,3 +831,4 @@ a reviewed, deliberate action, not a rubber stamp.
 | `20261007120000_signup_bot_flag.sql` | **YES — applied 2026-10-07** (Zero Nine, Watchtower task 673c0b4a; dry-run in a rolled-back transaction first, then applied in one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | Marks bot signups, deletes nothing. Adds `signup_name_bigrams` (729 letter-pair log-probs from real names; RLS on, no policies), `signup_name_score()` + `signup_bot_verdict()` (execute revoked from anon/authenticated), trigger `on_auth_user_flag_bot` (AFTER INSERT on auth.users: strong bot names get `user_profiles.metadata.bot_suspect`; errors swallowed so it can never fail a signup) and a DORMANT gate `on_auth_user_gate_bot` (BEFORE INSERT: refuses strong bot names only while `admin_settings.signup_bot_gate` = "block"). Backfill marked all 152 bot accounts (147 strong + 5 weak/new/never-signed-in/no-orders); the 5 real accounts untouched; auth.users 157 before and after. Proven live with admin-created probes (bot flagged, real not, gate refused bot only while on), probes then removed. Rollback = drop both triggers, the four functions and the table; `update user_profiles set metadata = metadata - 'bot_suspect'`. Writeup: `docs/SIGNUP_BOT_PROTECTION.md` section 6. |
 | `20261007200000_product_print_files.sql` | **YES — applied 2026-10-07** (Zero Pluto, Watchtower task b312de9c; one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | Creator print files leave the public products row. Creates `product_print_files` (product_id PK → products ON DELETE CASCADE, bucket, front_path, back_path, source): object PATHS in the private bucket, never URLs. RLS on with no policies and every grant revoked from anon/authenticated, so PostgREST refuses it to the website (verified: anon REST read = 401 permission denied; service role 200). Backfill done by `backend/scripts/move-creator-print-files-private.mjs` (3 merch-studio rows). Rollback = drop the table after restoring the public metadata from `E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-b312de9c-metadata-before.json`. |
 | `20261007210000_user_3d_models_server_writes_only.sql` | **YES — applied 2026-10-07** (Daisy Carter, Watchtower task 1417e863; dry-run in a rolled-back transaction first, then one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | Only the API writes `user_3d_models`. Drops the three user INSERT/UPDATE/DELETE policies, revokes every grant from `anon` and all writes from `authenticated` (SELECT on own rows kept). Proven live with an admin-created throwaway shopper before and after: before, the shopper's PostgREST INSERT of a `status=ready, purchased_licenses={commercial}, print_price_usd=0.01` row answered 201 and a PATCH self-granting the license + $0.01 price on a server-made row answered 200 and changed it; after, both 403 `permission denied for table user_3d_models` with the row unchanged, own-row SELECT still 200. Probe user + rows deleted. Rollback = re-create the three policies from `20251224000000_user_3d_models.sql` and `GRANT INSERT, UPDATE, DELETE ON public.user_3d_models TO authenticated`. Same task moved the 35 paid mesh files to the private bucket (`backend/scripts/move-3d-model-files-private.mjs`). |
+| `20261012210000_restrict_products_public_read.sql` | **YES — applied 2026-10-12** (Cole Iverson, Watchtower task 7e54a10f; dry-run in a rolled-back transaction first, then one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`) | `products` public read narrowed from `USING (true)` (2,567 unpublished rows readable with the anon key) to `approved = true AND status = 'active'`, plus signed-in reads for staff (admin/manager), vendors' own rows and creators' own rows. Chain-only products policies from 002/005 dropped, production's three admin write policies codified, and the live policies of `imagination_products`, `imagination_product_sizes`, `shipping_methods` codified behind `to_regclass`. Proof: `node scripts/verify-rls-policy-reconciliation.mjs --live` (strict convergence + visibility probe). See the dated section at the top of this file. |

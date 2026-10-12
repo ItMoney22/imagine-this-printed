@@ -23,8 +23,19 @@
  *     node scripts/verify-rls-policy-reconciliation.mjs
  *
  * Live mode additionally diffs the replayed set against production `pg_policies`
- * (read-only; a single SELECT):
+ * (read-only):
  *     node scripts/verify-rls-policy-reconciliation.mjs --live
+ * and, since task 7e54a10f (2026-10-12):
+ *   - fails on a wide-open policy that is live but created by no migration;
+ *   - checks STRICT_TABLES (products + the three public catalogue tables) for
+ *     exact convergence: every policy, narrow ones too, same command, roles and
+ *     expressions on both sides;
+ *   - runs a visibility probe in a READ ONLY transaction that is rolled back:
+ *     SET LOCAL ROLE anon / authenticated with request.jwt.claims (what
+ *     PostgREST does per request) and counts what anon, a signed-in customer,
+ *     the owner of a draft and an admin can SELECT from products. Anon and the
+ *     customer must see exactly the published rows; the owner published + own;
+ *     the admin everything; anon every catalogue-table row.
  *
  * Live mode reads DATABASE_URL from backend/.env, which OVERRIDES any inherited
  * process.env value on purpose -- dispatch/CLI shells on this box inherit a
@@ -34,8 +45,9 @@
  *     node scripts/verify-rls-policy-reconciliation.mjs --live \
  *       --env="D:/Projects for MetaSphere/imagine-this-printed/backend/.env"
  *
- * Exit code 0 = reconciled, 1 = a wide-open policy survives the replay (or the
- * replayed set disagrees with live on a wide-open policy).
+ * Exit code 0 = reconciled, 1 = a wide-open policy survives the replay, the
+ * replayed set disagrees with live on a wide-open policy or on any policy of a
+ * strict table, or the visibility probe finds the wrong rows.
  */
 
 import fs from 'node:fs'
@@ -52,7 +64,8 @@ const MIGRATIONS_DIR = path.join(REPO_ROOT, 'supabase', 'migrations')
  * storefront outage, not a security fix. Keyed `table||policyname`.
  */
 const ALLOWED_PUBLIC_READS = new Set([
-  'products||Anyone can view products',
+  // products is NOT here: its public read is narrowed to approved, active rows
+  // (20261012210000, task 7e54a10f), so USING (true) on it is a leak, not a read.
   'imagination_pricing||Anyone can read pricing',
   'imagination_products||Anyone can read imagination products',
   'imagination_product_sizes||Anyone can read imagination product sizes',
@@ -85,7 +98,20 @@ const CLOSED_RESIDUALS = new Set([
   // 20260922220000_drop_email_logs_authenticated_insert.sql (task 0c9f693c).
   // Was FOR INSERT TO authenticated WITH CHECK (true).
   'email_logs||Service can insert email logs',
+  // 20261012210000_restrict_products_public_read.sql (task 7e54a10f).
+  // Was FOR SELECT USING (true): 2,570 of 2,605 rows (drafts, the design
+  // library, rejected and archived products) readable with the anon key.
+  'products||Anyone can view products',
 ])
+
+/**
+ * Tables whose policy set must match production EXACTLY, narrow policies
+ * included: same names, same command, same roles, same expressions. The
+ * wide-open diff above ignores narrow drift on purpose (MIGRATION_LEDGER.md
+ * documents plenty of it elsewhere); these tables have been reconciled in full,
+ * so any drift on them is a regression. Live mode only.
+ */
+const STRICT_TABLES = ['products', 'imagination_products', 'imagination_product_sizes', 'shipping_methods']
 
 const CREATE_RE =
   /CREATE\s+POLICY\s+("([^"]+)"|[A-Za-z0-9_]+)\s+ON\s+([A-Za-z0-9_."]+)([\s\S]*?);/gi
@@ -112,7 +138,9 @@ function replayMigrations() {
   const state = new Map()
 
   for (const file of files) {
-    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8')
+    // Line comments out first: a `-- note` inside a policy body otherwise lands
+    // in the parsed USING text, and a commented-out statement would replay.
+    const sql = fs.readFileSync(path.join(MIGRATIONS_DIR, file), 'utf8').replace(/--[^\n]*/g, '')
     const events = []
 
     CREATE_RE.lastIndex = 0
@@ -174,7 +202,102 @@ function loadDatabaseUrl() {
   return null
 }
 
-async function fetchLivePolicies(url) {
+/**
+ * Expression text as comparable between a migration file and pg_policies.
+ * Postgres deparses `x IN ('a','b')` as `x = ANY (ARRAY['a'::text, ...])`,
+ * qualifies columns, adds `AS uid` aliases to scalar subqueries and wraps
+ * everything in parentheses, so all of that is stripped from both sides.
+ */
+const normExpr = (s) =>
+  s == null
+    ? ''
+    : String(s)
+        .toLowerCase()
+        .replace(/::[a-z_]+(\[\])?/g, '')
+        .replace(/\bas\s+[a-z_]+/g, '')
+        .replace(/\b[a-z_]+\./g, '')
+        .replace(/[\s()]/g, '')
+
+const normRoles = (r) =>
+  String(r ?? 'public')
+    .replace(/[{}]/g, '')
+    .split(/\s*,\s*/)
+    .map((x) => x.trim().toLowerCase())
+    .filter(Boolean)
+    .sort()
+    .join(',')
+
+/**
+ * Behaviour probe: count what anon, a signed-in customer, the owner of an
+ * unpublished row and an admin can actually SELECT. Read-only transaction,
+ * always rolled back; SET LOCAL ROLE + request.jwt.claims is exactly what
+ * PostgREST does per request, so this is the anon key's view of the table.
+ */
+async function probeVisibility(client) {
+  const one = async (sql, params) => (await client.query(sql, params)).rows[0]
+  const asRole = async (role, sub) => {
+    await client.query('RESET ROLE')
+    await client.query(`SELECT set_config('request.jwt.claims', $1, true)`, [
+      JSON.stringify(sub ? { sub, role } : { role }),
+    ])
+    await client.query(`SET LOCAL ROLE ${role}`)
+  }
+  const productCounts = () =>
+    one(`SELECT count(*)::int AS seen,
+                count(*) FILTER (WHERE NOT (approved IS TRUE AND status = 'active'))::int AS unpublished
+           FROM public.products`)
+  const publicCounts = () =>
+    one(`SELECT (SELECT count(*) FROM public.imagination_products)::int      AS imagination_products,
+                (SELECT count(*) FROM public.imagination_product_sizes)::int AS imagination_product_sizes,
+                (SELECT count(*) FROM public.shipping_methods)::int          AS shipping_methods`)
+
+  await client.query('BEGIN READ ONLY')
+  try {
+    const truth = await one(`SELECT count(*)::int AS total,
+                                    count(*) FILTER (WHERE approved IS TRUE AND status = 'active')::int AS published
+                               FROM public.products`)
+    const truthPublic = await publicCounts()
+    const admin = await one(`SELECT id FROM public.user_profiles WHERE role = 'admin' ORDER BY created_at LIMIT 1`)
+    // An owner of an unpublished row who is not staff, if one exists.
+    const owner = await one(`SELECT coalesce(p.created_by_user_id, p.vendor_id) AS id
+                               FROM public.products p
+                               JOIN public.user_profiles up ON up.id = coalesce(p.created_by_user_id, p.vendor_id)
+                              WHERE NOT (p.approved IS TRUE AND p.status = 'active')
+                                AND up.role NOT IN ('admin', 'manager')
+                              LIMIT 1`)
+    const ownerExpected = owner
+      ? (await one(`SELECT count(*)::int AS n FROM public.products
+                     WHERE (approved IS TRUE AND status = 'active')
+                        OR created_by_user_id = $1 OR vendor_id = $1`, [owner.id])).n
+      : null
+
+    await asRole('anon')
+    const anon = await productCounts()
+    const anonPublic = await publicCounts()
+
+    // A signed-in shopper with no rows of their own (random uid, no profile).
+    await asRole('authenticated', '00000000-0000-4000-8000-00000000c0de')
+    const customer = await productCounts()
+
+    let ownerSeen = null
+    if (owner) {
+      await asRole('authenticated', owner.id)
+      ownerSeen = (await productCounts()).seen
+    }
+
+    let adminSeen = null
+    if (admin) {
+      await asRole('authenticated', admin.id)
+      adminSeen = (await productCounts()).seen
+    }
+
+    return { truth, truthPublic, anon, anonPublic, customer, ownerSeen, ownerExpected, adminSeen, hasAdmin: !!admin }
+  } finally {
+    await client.query('ROLLBACK')
+  }
+}
+
+async function fetchLive(url) {
   // pg >= 8.16 reads `sslmode=require` as `verify-full` and dies on Supabase's
   // chain with SELF_SIGNED_CERT_IN_CHAIN -- strip it and pass ssl explicitly.
   const { default: pg } = await import('pg')
@@ -193,7 +316,8 @@ async function fetchLivePolicies(url) {
         WHERE schemaname = 'public'
         ORDER BY tablename, policyname`,
     )
-    return rows
+    const probe = await probeVisibility(client)
+    return { rows, probe }
   } finally {
     await client.end()
   }
@@ -251,7 +375,7 @@ async function main() {
       process.exit(2)
     }
     console.log(`live source    : ${db.source}`)
-    const rows = await fetchLivePolicies(db.url)
+    const { rows, probe } = await fetchLive(db.url)
     const liveKeys = new Map(rows.map((r) => [`${r.tablename.toLowerCase()}||${r.policyname}`, r]))
     console.log(`live set       : ${rows.length} policies`)
     console.log()
@@ -285,7 +409,12 @@ async function main() {
       console.log(`  replay-only : ${k}  (${note})`)
       if (tableExistsLive) failures.push([k, { file: 'REPLAY-ONLY', cmd: '?', roles: '?', using: '?', check: '?' }])
     }
-    for (const k of onlyLive) console.log(`  live-only   : ${k}`)
+    for (const k of onlyLive) {
+      // A wide-open policy production carries but no migration creates is drift:
+      // a rebuilt environment would not match production (task 7e54a10f).
+      console.log(`  live-only   : ${k}  (DRIFT -- no migration creates it)`)
+      failures.push([k, { file: 'LIVE-ONLY', cmd: '?', roles: '?', using: '?', check: '?' }])
+    }
     if (!onlyReplay.length && !onlyLive.length) console.log('  identical')
     console.log()
 
@@ -313,13 +442,82 @@ async function main() {
       }
     }
     console.log()
+
+    // Strict convergence on the fully reconciled tables: every policy, narrow
+    // ones included, must exist on both sides with the same command, roles and
+    // expressions.
+    console.log(`strict convergence (${STRICT_TABLES.join(', ')})`)
+    let strictDrift = 0
+    for (const table of STRICT_TABLES) {
+      const replayed = new Map([...state.entries()].filter(([, p]) => p.table === table))
+      const livePols = new Map(rows.filter((r) => r.tablename.toLowerCase() === table).map((r) => [`${table}||${r.policyname}`, r]))
+      for (const [key, p] of replayed) {
+        const r = livePols.get(key)
+        if (!r) {
+          console.log(`  DRIFT replay-only : ${key}  <- ${p.file}`)
+          strictDrift++
+          continue
+        }
+        const diffs = []
+        if (p.cmd !== r.cmd) diffs.push(`cmd ${p.cmd} vs ${r.cmd}`)
+        if (normRoles(p.roles) !== normRoles(r.roles)) diffs.push(`roles ${p.roles} vs ${r.roles}`)
+        if (normExpr(p.using) !== normExpr(r.qual)) diffs.push(`using ${p.using} vs ${r.qual}`)
+        if (normExpr(p.check) !== normExpr(r.with_check)) diffs.push(`check ${p.check} vs ${r.with_check}`)
+        if (diffs.length) {
+          console.log(`  DRIFT ${key}: ${diffs.join(' | ')}`)
+          strictDrift++
+        }
+      }
+      for (const key of livePols.keys()) {
+        if (!replayed.has(key)) {
+          console.log(`  DRIFT live-only   : ${key}`)
+          strictDrift++
+        }
+      }
+      console.log(`  ${table.padEnd(26)} replay ${replayed.size} / live ${livePols.size}`)
+    }
+    if (strictDrift) failures.push(['strict-convergence', { file: 'STRICT', cmd: '?', roles: '?', using: '?', check: `${strictDrift} drift` }])
+    else console.log('  identical')
+    console.log()
+
+    // What each caller can actually read, measured as that caller.
+    const p = probe
+    const probeFail = (why) => {
+      console.log(`  FAIL ${why}`)
+      failures.push(['visibility-probe', { file: 'PROBE', cmd: 'SELECT', roles: '?', using: '?', check: why }])
+    }
+    console.log('visibility probe (read-only transaction, rolled back)')
+    console.log(`  products total ${p.truth.total}, published (approved + active) ${p.truth.published}`)
+    console.log(`  anon                 sees ${p.anon.seen}, unpublished among them ${p.anon.unpublished}`)
+    if (p.anon.unpublished !== 0 || p.anon.seen !== p.truth.published) probeFail('anon must see exactly the published rows')
+    console.log(`  signed-in customer   sees ${p.customer.seen}, unpublished among them ${p.customer.unpublished}`)
+    if (p.customer.unpublished !== 0 || p.customer.seen !== p.truth.published) probeFail('a customer with no rows must see exactly the published rows')
+    if (p.ownerExpected != null) {
+      console.log(`  owner of a draft     sees ${p.ownerSeen} (published + own = ${p.ownerExpected})`)
+      if (p.ownerSeen !== p.ownerExpected) probeFail('an owner must see published rows plus their own')
+    } else {
+      console.log('  owner of a draft     (no non-staff owner of an unpublished row to probe)')
+    }
+    if (p.hasAdmin) {
+      console.log(`  admin                sees ${p.adminSeen} of ${p.truth.total}`)
+      if (p.adminSeen !== p.truth.total) probeFail('an admin must see every row')
+    }
+    for (const t of ['imagination_products', 'imagination_product_sizes', 'shipping_methods']) {
+      console.log(`  anon ${t.padEnd(26)} sees ${p.anonPublic[t]} of ${p.truthPublic[t]}`)
+      if (p.anonPublic[t] !== p.truthPublic[t]) probeFail(`anon must read every ${t} row`)
+    }
+    console.log()
   }
 
   if (failures.length) {
-    console.error(`FAIL: ${failures.length} unreconciled wide-open policy/policies.`)
+    console.error(`FAIL: ${failures.length} reconciliation failure(s): ${failures.map(([k]) => k).join(', ')}`)
     process.exit(1)
   }
-  console.log('PASS: no unreconciled wide-open RLS policy in the migration chain.')
+  console.log(
+    live
+      ? 'PASS: no unreconciled wide-open RLS policy, strict tables identical to production, visibility probe as expected.'
+      : 'PASS: no unreconciled wide-open RLS policy in the migration chain.',
+  )
 }
 
 main().catch((err) => {

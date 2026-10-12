@@ -244,6 +244,29 @@ catalogue reads; the finding there is only that no migration file creates them,
 so staging/DR would come up without them. Tracked in `MIGRATION_LEDGER.md` under
 the existing drift section.
 
+### Closed 2026-10-12 — Watchtower `7e54a10f` (Cole Iverson)
+
+All four rows above are closed by
+`supabase/migrations/20261012210000_restrict_products_public_read.sql`, applied
+live the same day:
+
+- `products`: the open read is gone. Everyone (anon included) reads
+  `approved = true AND status = 'active'`; signed-in admin/manager read every
+  row, vendors and creators read their own. Through the real anon key the table
+  went from 2,605 readable rows (2,567 unpublished) to 38, all published. The
+  `src/` audit found every reader of unpublished rows is an admin screen, a
+  vendor's own dashboard or a creator's own profile page; the customer Step Flow
+  and the backend use the service role. No frontend change was needed.
+- `imagination_products`, `imagination_product_sizes`, `shipping_methods`: the
+  live public reads (and the two admin manage rules) are now created by that
+  file, behind `to_regclass` because the tables themselves are still not in the
+  chain.
+- `products` narrow drift is reconciled too (chain-only 002/005 policies
+  dropped, the live admin write policies codified). The verifier now holds these
+  four tables to exact convergence and runs a visibility probe as anon, a
+  customer, a draft owner and an admin; `products||Anyone can view products` is
+  on `CLOSED_RESIDUALS`, so it failing to stay gone fails the check.
+
 ---
 
 ## Scope boundaries honoured
