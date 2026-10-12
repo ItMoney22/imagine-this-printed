@@ -4772,3 +4772,16 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-12) — ITP keeps its AI through the OpenRouter key wipe (task afe872a7, zero-saturn)
+Scope: infrastructure only. No repo file changes besides this note. Touched: Render worker srv-d7jppnn7f7vs73bb4p80
+env OPENROUTER_API_KEY (+ redeploy pinned to the live commit a28c1b1b), the shared tree's gitignored backend/.env
+(that one line), Sifu's vault_audit_log (one KEY_DELIVERED row). Read-only: backend/services/imagine-brain.ts,
+backend/routes/ai/mr-imagine-chat.ts, backend/routes/imagination-station.ts.
+
+### Work log (append-only)
+- 2026-10-12 (zero-saturn): Sifu minted OPENROUTER_API_KEY_PRINTED first on 9/26 and the API service already ran it,
+  but the worker and backend/.env were still on the pre-wipe key (fp 0d0a24c6bfcb). Moved both to the vault key
+  (fp 6034e727f510 = vault's recorded OpenRouter hash); worker deploy dep-db6grcd9fdbs73fgpe70 live 16:42Z. Proof:
+  chat.completions 200 google/gemini-2.5-flash with imagine-brain headers; live /api/ai/mr-imagine/chat 200
+  model google/gemini-2.5-flash + Render log line; live /api/imagination-station/ai/brainstorm 200.
