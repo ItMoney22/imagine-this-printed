@@ -12,6 +12,11 @@
  * UPDATE, finds the row no longer matches the WHERE clause, and the caller
  * skips side effects (crediting a wallet, refunding ITC, etc.) instead of
  * applying them twice.
+ *
+ * ITC purchases have no pre-existing row to flip, so they do not use that
+ * UPDATE. creditItcPurchaseOnce() reserves the payment intent inside
+ * claim_itc_purchase() (INSERT ... ON CONFLICT DO NOTHING) and feeds the
+ * result through claimOnce() so a redelivery takes this same early return.
  */
 
 /** Adds `delta` to a balance that may arrive as a string, number, null, or undefined. */
