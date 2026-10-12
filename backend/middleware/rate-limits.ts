@@ -146,4 +146,15 @@ export const publicWriteLimiter = makeLimiter({
   skip: isRead
 })
 
+/**
+ * Store analytics beacons (`/api/design-events`, task 47174caa). A shopper's tab
+ * sends one small batch every ~10s while browsing, so this sits well above
+ * publicWriteLimiter; past it a scripted flood just stops being counted.
+ */
+export const designEventsLimiter = makeLimiter({
+  name: 'design-events',
+  windowMs: 10 * 60 * 1000,
+  limit: envInt('RATE_LIMIT_DESIGN_EVENTS_MAX', 300)
+})
+
 export const rateLimitingEnabled = ENABLED

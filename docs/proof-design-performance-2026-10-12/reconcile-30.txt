@@ -1,0 +1,17 @@
+Vintage Brain Anatomy Tee - Witty & Retr views 420 clicks 2 pages 2 carts 0 orders 0
+Abstract Mind Tee - Monochrome Brain Tho views 200 clicks 15 pages 80 carts 0 orders 0
+Beam Me Up Retro Sci-Fi T-Shirt | Unisex views 4 clicks 0 pages 0 carts 0 orders 0
+Spooky Hoot Ghost Owl T-Shirt | Hallowee views 4 clicks 0 pages 0 carts 0 orders 0
+Gnome Abduction Funny Sci-Fi T-Shirt | U views 3 clicks 0 pages 0 carts 0 orders 0
+Roar to the Skies Lion Tee               views 1 clicks 0 pages 0 carts 0 orders 0
+Man I Love Frogs                         views 1 clicks 0 pages 0 carts 0 orders 0
+Gothic Ghost Face Candle Holder          views 1 clicks 0 pages 0 carts 0 orders 0
+Chill Alien: Intergalactic Smoke Break   views 1 clicks 0 pages 0 carts 0 orders 0
+Resting Witch Face                       views 1 clicks 0 pages 0 carts 0 orders 0
+Too Cute To Spook Ghost T-Shirt | Hallow views 4 clicks 2 pages 2 carts 1 orders 0
+Neon Koi Galaxy T-Shirt | Cosmic Fish Gr views 1 clicks 1 pages 1 carts 1 orders 0
+Minimalist Sarcastic Brain Humor T-Shirt views 320 clicks 22 pages 30 carts 12 orders 0
+
+30-day window 2026-09-12T17:00:08.142Z -> 2026-10-12T17:00:08.142Z
+checked 34 products across 35 prompt variants; shop CTR 0.043704474505723206
+RECONCILED: every product on the report matches its raw event and order counts

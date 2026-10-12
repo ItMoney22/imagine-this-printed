@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { CartItem, CartAddon, Product, AppliedCoupon } from '../types'
 import { addonsUnitTotal, addonsSignature, personalizationSignature, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge } from '../lib/garment-tiers'
+import { trackDesignEvent } from '../lib/design-events'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
@@ -351,6 +352,9 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const addToCart = (product: Product, quantity = 1, selectedSize?: string, selectedColor?: string, customDesign?: string, designData?: CartItem['designData'], paymentMethod?: 'usd' | 'itc', selectedAddons?: CartAddon[], printLocation?: CartItem['printLocation'], selectedTier?: string, personalization?: Record<string, string>) => {
     dispatch({ type: 'ADD_TO_CART', payload: { product, quantity, selectedSize, selectedColor, customDesign, designData, paymentMethod, selectedAddons, printLocation, selectedTier, personalization } })
+    // Design performance (task 47174caa): a house design went into the cart. A
+    // blank carrying the shopper's own art says nothing about our design.
+    if (!customDesign && !designData) trackDesignEvent('add_to_cart', product.id)
   }
 
   const removeFromCart = (itemId: string) => {

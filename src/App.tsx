@@ -61,6 +61,7 @@ const CRM = lazy(() => import('./pages/CRM'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
 const AdminEmail = lazy(() => import('./pages/AdminEmail'))
 const AdminToyLab = lazy(() => import('./pages/AdminToyLab'))
+const AdminDesignPerformance = lazy(() => import('./pages/AdminDesignPerformance'))
 const ToyCreator = lazy(() => import('./pages/ToyCreator'))
 const MetalArtStudio = lazy(() => import('./pages/MetalArtStudio'))
 const MarketingTools = lazy(() => import('./pages/MarketingTools'))
@@ -274,6 +275,7 @@ function App() {
                   <Route path="/admin/dashboard" element={<RoleRoute allowedRoles={['admin']}><AdminShell><AdminDashboard /></AdminShell></RoleRoute>} />
                   <Route path="/admin/email" element={<RoleRoute allowedRoles={['admin']}><AdminShell><AdminEmail /></AdminShell></RoleRoute>} />
                   <Route path="/admin/toys" element={<RoleRoute allowedRoles={['admin']}><AdminShell><AdminToyLab /></AdminShell></RoleRoute>} />
+                  <Route path="/admin/design-performance" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminDesignPerformance /></AdminShell></RoleRoute>} />
                   <Route path="/admin/control-panel" element={<RoleRoute allowedRoles={['admin', 'founder']}><AdminControlPanel /></RoleRoute>} />
                   <Route path="/admin-panel" element={<RoleRoute allowedRoles={['admin']}><AdminPanel /></RoleRoute>} />
                   <Route path="/admin/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><AdminShell><OrderManagement /></AdminShell></RoleRoute>} />

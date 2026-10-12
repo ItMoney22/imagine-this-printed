@@ -3,10 +3,11 @@ import { Link, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, MessageCircle, Sparkles, Package, Image as ImageIcon,
   FlaskConical, Shirt, Layers, Tag, Ticket, Mail, Users, ScrollText, Gift, Banknote,
-  FileText, Boxes, Send, Palette, CheckCircle2, ArrowLeft,
+  FileText, Boxes, Send, Palette, CheckCircle2, ArrowLeft, TrendingUp,
   type LucideIcon,
 } from 'lucide-react'
 import { useSidebar } from '../../context/SidebarContext'
+import { markStaffBrowser } from '../../lib/design-events'
 
 // The one admin nav. Every admin page is wrapped in <AdminShell> at the route, so
 // the shop's tools live in one grouped list instead of 20 flat tabs plus a pile of
@@ -41,6 +42,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
       { label: 'Products', to: '/admin?tab=products', icon: Package },
       { label: 'Creator Products', to: '/admin?tab=creator-products', icon: Palette },
       { label: 'Designs', to: '/admin?tab=designs', icon: ImageIcon },
+      { label: 'Design Performance', to: '/admin/design-performance', icon: TrendingUp, hint: 'Which designs get clicks, carts and sales' },
       { label: 'Toy Lab', to: '/admin/toys', icon: FlaskConical },
       { label: 'Team Templates', to: '/admin/team-templates', icon: Shirt },
       { label: 'Materials', to: '/admin?tab=materials', icon: Layers },
@@ -104,6 +106,8 @@ const AdminShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { setSiteMenuHidden } = useSidebar()
 
   useEffect(() => {
+    // The shop's own browsing never counts toward design click-through (task 47174caa).
+    markStaffBrowser()
     setSiteMenuHidden(true)
     return () => setSiteMenuHidden(false)
   }, [setSiteMenuHidden])

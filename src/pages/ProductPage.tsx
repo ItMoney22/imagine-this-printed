@@ -25,6 +25,7 @@ import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '.
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
 import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
 import { isCreatorProductMeta, creatorNameOf, creatorGarmentColor } from '../../backend/shared/creator-product'
+import { trackDesignEvent } from '../lib/design-events'
 import type { Product, CartAddon, TshirtPrintLocation } from '../types'
 
 // Perceived-luminance check for blank-garment swatches (their hexes come off
@@ -281,6 +282,13 @@ const ProductPage: React.FC = () => {
       if (metaDesc && prevDesc) metaDesc.content = prevDesc
     }
   }, [product])
+
+  // Design performance (task 47174caa): one product-page view per product opened,
+  // from a tile or from anywhere else. Add-to-cart rate is counted against these.
+  const viewedId = product?.id
+  useEffect(() => {
+    if (viewedId) trackDesignEvent('detail_view', viewedId, 'product')
+  }, [viewedId])
 
   // Track product view for recommendations
   useEffect(() => {

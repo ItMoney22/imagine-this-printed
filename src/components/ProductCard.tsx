@@ -9,6 +9,7 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
+import { designTileClick, observeDesignTile } from '../lib/design-events'
 import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
@@ -194,6 +195,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   // then clean art â€” NEVER the halftone / DTF deliverables (a raw halftone
   // looks bad as a grid thumbnail). Crossfade to the 2nd display image on hover.
   const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
+  // Design performance (task 47174caa): one impression when the tile is half on
+  // screen, one click when it opens the product page.
+  const tileRef = useMemo(() => observeDesignTile(product.id), [product.id])
+  const onTileClick = useMemo(() => designTileClick(product.id), [product.id])
+
   const galleryImgs = getGalleryImages(product)
   const imgs = galleryImgs.length > 0 ? galleryImgs : [FALLBACK]
   const primaryImage = imgs[0]
@@ -201,6 +207,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
   return (
     <div
+      ref={tileRef}
+      onClickCapture={onTileClick}
       className="group relative bg-card card-border rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1"
       // Mouse only: a tap on a phone fires mouseenter and never mouseleave, so the
       // primary image faded to opacity 0 over a still-unloaded hover image and the

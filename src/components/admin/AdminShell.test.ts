@@ -33,6 +33,7 @@ describe('admin nav', () => {
     expect(active('/admin/toys')).toEqual(['Toy Lab'])
     expect(active('/admin/team-templates/abc')).toEqual(['Team Templates'])
     expect(active('/admin/email')).toEqual(['Email'])
+    expect(active('/admin/design-performance', '?days=7')).toEqual(['Design Performance'])
     // The Step Flow builder is the admin product maker, not the customer studio (David 2026-10-12).
     expect(active('/admin/ai/products/create', '?mode=steps&productId=x')).toEqual(['Step Flow builder'])
     expect(items.find(i => i.label === 'Step Flow builder')?.to).toBe('/admin/ai/products/create')

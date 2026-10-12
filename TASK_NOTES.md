@@ -5089,3 +5089,33 @@ margin, not native lazy only.
 ### Work log (append-only)
 - 2026-10-12 (lucas-blaze): merged origin/main; walked the live data (anon read): 36 active, list above.
 - 2026-10-12 (lucas-blaze): `getGalleryImages` now leads with a garment shot (ghost mannequin > flat lay > hanger > composite > mr_imagine > on-model) even over a watermarked display hero; 5 new tests, tsc 0, vitest 2371/2371. Phone blanks: ProductCard hover now mouse-pointer only (a tap stuck isHovered and faded the primary to opacity 0), ProtectedImage attaches src 1200px before scroll-in via IntersectionObserver, Similar Products img h-full. Live DB: composite tee mockups written for Cowboy vs Alien + Majestic Roar via backend/scripts/mockup-from-art.ts (images[] now led by the mockup; old arrays = [original]); Majestic Roar description rewritten (was "photorealistic"). Ember Warrior (bb7bd4f1) left: art is a real person's photo + name.
+
+## Current request (2026-10-12) — Design-level click & conversion tracking per AI prompt (task 47174caa, rhea-cassien)
+
+Track tile views, click-through, product-page views, add-to-cart and paid orders per AI prompt variant (artwork -> prompt
+mapping), aggregate per window, an admin dashboard sortable so underperformers surface, and a prune/refresh flag.
+
+Decisions: events are first-party (our store + Supabase), not GA4; orders = paid web-store orders (payment_status paid,
+not cancelled, not Etsy) read live from orders/order_items, never copied; rates over a trailing 7/30/90-day window,
+product-level attribution (the design bought gets the order), no cross-session click matching; flags only mark, nothing
+is unpublished automatically.
+
+### File shortlist (approved scope — 2026-10-12 design performance)
+- `supabase/migrations/20261012170000_design_performance.sql` (new) + `supabase/migrations/MIGRATION_LEDGER.md`
+- `backend/services/design-prompt.ts` / `.test.ts`, `backend/services/design-performance.ts` / `.test.ts` (new)
+- `backend/routes/design-events.ts`, `backend/routes/admin/design-performance.ts` (new), `backend/index.ts` (mounts),
+  `backend/middleware/rate-limits.ts` (designEventsLimiter)
+- `backend/worker/design-performance-sweep.ts` / `.test.ts` (new), `backend/worker/index.ts`
+- `backend/scripts/design-performance-reconcile.ts` (new)
+- `src/lib/design-events.ts` (new), `src/components/ProductCard.tsx`, `src/context/CartContext.tsx`, `src/pages/ProductPage.tsx`
+- `src/pages/AdminDesignPerformance.tsx` (new), `src/App.tsx` (route), `src/components/admin/AdminShell.tsx` (+ test)
+- `docs/proof-design-performance-2026-10-12/*`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (rhea-cassien): branch fast-forwarded to origin/main bf16502 (was 49 behind). Migration dry-run in a rolled-back
+  prod transaction, then APPLIED LIVE + tracked (anon/authenticated REST on all 3 tables, the view and the RPC = 401).
+  tsc app clean, vitest 169 files / 2398 pass. Walked on :5180 -> branch API :4100 (prod DB): guest catalog -> tile click ->
+  size M -> add to cart landed impression/click/detail_view/add_to_cart rows stamped with the design-source asset id +
+  prompt variant; bot UA and a browser 'order' event dropped. Admin dashboard walked at 1400 + 390 (table, raw check
+  "Matches this row", compare view with prune/refresh/healthy on a seeded 3-prompt brief). Reconcile script: every product
+  matches raw counts at 30 and 90 days (90 includes 2 real paid orders). Every test row deleted after; 31 live mappings kept.
