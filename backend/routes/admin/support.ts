@@ -7,6 +7,9 @@ import {
     sendTicketResolvedEmail
 } from '../../utils/email.js'
 import { sortTicketQueue } from '../../lib/jev-triage.js'
+import { pingChristinaAboutTicket } from '../../services/support-ping.js'
+import { nameFromTicketDescription } from '../../utils/ticket-emails.js'
+import { agentAvailability } from '../../services/live-chat.js'
 
 dotenv.config()
 
@@ -153,23 +156,11 @@ const resolveTicketEmail = async (ticket: any): Promise<string | null> => {
 }
 
 /**
- * Check if any agent is online (from database)
+ * Check if any agent is online (from database). Christina counts whenever the bridge to her phone is up: Becky
+ * pings her and her answer lands in the customer's chat (services/support-ping.ts). Nobody ever set agent_status
+ * online, so before 2026-10-07 "talk to a person" always ended in "no agents are available".
  */
-export const checkAgentAvailability = async (): Promise<{ available: boolean; count: number }> => {
-    try {
-        const { data, error } = await supabase
-            .from('agent_status')
-            .select('id')
-            .eq('is_online', true)
-
-        if (error) throw error
-
-        return { available: (data?.length || 0) > 0, count: data?.length || 0 }
-    } catch (error) {
-        console.error('[Agent Availability] Error:', error)
-        return { available: false, count: 0 }
-    }
-}
+export const checkAgentAvailability = (): Promise<{ available: boolean; count: number }> => agentAvailability(supabase)
 
 // ===============================
 // TICKET ENDPOINTS
@@ -380,7 +371,8 @@ router.post('/tickets/:id/reply', requireSupportAccess, async (req: Request, res
         if (!isInternal) {
             if (ticket?.email) {
                 const agentName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Support Team'
-                await sendTicketReplyEmail(ticket.email, id, ticket.subject, content, agentName)
+                const customerName = nameFromTicketDescription(ticket.description) || ticket.user?.first_name || null
+                await sendTicketReplyEmail(ticket.email, id, ticket.subject, content, agentName, customerName)
             } else {
                 res.json({
                     message,
@@ -852,11 +844,18 @@ router.get('/tickets/:id/messages/poll', async (req: Request, res: Response) => 
                 .eq('id', session.agent_id)
                 .single()
             agentName = agentProfile?.first_name || null
+        } else if (session?.status === 'active') {
+            // Answered from Becky on Christina's phone (print-bridge /ticket-reply): no ITP login behind it.
+            agentName = process.env.BRIDGE_AGENT_NAME || 'Christina'
         }
 
         res.json({
             messages: messagesWithSender || [],
-            isLive: session?.status === 'active',
+            // 'waiting' is live too: the customer is in the chat waiting for the person. Counting only 'active'
+            // dropped every handoff on its first poll ("The support agent has left the chat").
+            isLive: session?.status === 'active' || session?.status === 'waiting',
+            // waiting = handed off, nobody has answered yet; active = Christina has replied; ended = closed.
+            sessionStatus: session?.status ?? null,
             agentName
         })
     } catch (error: any) {
@@ -891,6 +890,28 @@ router.post('/tickets/:id/messages', async (req: Request, res: Response) => {
             .single()
 
         if (error) throw error
+
+        // A customer waiting on a person wrote again: Christina sees it in Becky (same push tag, so it replaces
+        // the last one rather than stacking).
+        const { data: session } = await supabase
+            .from('chat_sessions')
+            .select('status')
+            .eq('ticket_id', id)
+            .maybeSingle()
+        if (session && session.status !== 'ended') {
+            const { data: ticket } = await supabase
+                .from('support_tickets')
+                .select('subject, email')
+                .eq('id', id)
+                .maybeSingle()
+            await pingChristinaAboutTicket({
+                kind: 'chat_message',
+                ticketId: id,
+                subject: ticket?.subject || 'Live chat',
+                message: String(content),
+                customerEmail: ticket?.email || null
+            })
+        }
 
         res.json({ message })
         return
@@ -932,7 +953,7 @@ router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
             .eq('id', id)
 
         // Create or update chat session as waiting
-        await supabase
+        const { error: sessionError } = await supabase
             .from('chat_sessions')
             .upsert({
                 ticket_id: id,
@@ -942,6 +963,8 @@ router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
             }, {
                 onConflict: 'ticket_id'
             })
+        // Unchecked until 2026-10-07: a guest (user_id null) failed a NOT NULL here and the chat never went live.
+        if (sessionError) console.error('[Escalation] chat session not created:', sessionError.message)
 
         // Create notification for agents
         await createNotification(
@@ -955,6 +978,13 @@ router.post('/tickets/:id/escalate', async (req: Request, res: Response) => {
         // Send escalation email to support team
         const resolvedEmail = await resolveTicketEmail(ticket)
         await sendTicketEscalationEmail(id, ticket.subject, resolvedEmail || 'No Email')
+        await pingChristinaAboutTicket({
+            kind: 'live_chat',
+            ticketId: id,
+            subject: ticket.subject,
+            message: ticket.description || ticket.subject,
+            customerEmail: resolvedEmail
+        })
 
         console.log(`[Escalation] Ticket ${id.slice(0, 8)} escalated - customer waiting for live chat`)
         res.json({ success: true, escalated: true })

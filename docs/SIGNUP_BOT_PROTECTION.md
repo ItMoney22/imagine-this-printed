@@ -190,3 +190,54 @@ produces, and signup, password sign-in, magic link and password reset all fail a
 - **`COMPLETE_DATABASE_SETUP.sql` still describes a `user_wallets` that does not
   exist** (`points_balance`, `lifetime_*`). It was already wrong before this task; the
   migration documents the real column names.
+
+---
+
+## 6. 2026-10-07 — the second wave, the contact form and inbound mail (Zero Nine, task 673c0b4a)
+
+**What was happening.** All 152 signups from 2026-09-23 to 2026-10-07 were bots: a
+scraped real person's address, random letters for a name ("Izoui Waugcj"), sent
+through the real Signup form (their metadata keys match `signUp()` exactly). Every
+one made Supabase send a confirmation email to a stranger. Separately, 569 of 572
+support tickets were one bot posting random strings straight to the API; until
+17ecd4c each fired an admin alert and a "we got your ticket" email to the address it
+typed.
+
+**What is live now (no deploy needed):**
+
+| Piece | Where | Effect |
+|---|---|---|
+| Contact-form content guard | `backend/lib/spam-guard.ts` (17ecd4c, main) | Bot-shaped tickets and Jev-confident spam are stored `category=spam, status=closed`, no admin alert, no email, normal 201. `support_tickets.status` has a CHECK of open/in_progress/resolved/closed, so "spam" lives in `category`. |
+| Bot-signup flag | `supabase/migrations/20261007120000_signup_bot_flag.sql` (applied + tracked) | `on_auth_user_flag_bot` marks strong new bot signups in `user_profiles.metadata.bot_suspect`. All 152 existing bot accounts marked; nothing deleted. |
+| Dormant signup gate | same migration, `on_auth_user_gate_bot` | Refuses strong bot signups only while `admin_settings.signup_bot_gate = "block"`. Off by default; proven on and off live with probe accounts. |
+
+**What ships with the next deploy (branch `earth/zero-nine/itp-stop-the-spam-and-lo-673c0b4a-muy9vxe1`):**
+
+- Signup form + auth modal honeypot (`src/components/HoneypotField.tsx`): filled = fake success, nothing sent.
+- Contact form Turnstile widget + server check (`backend/lib/turnstile.ts`): once
+  `TURNSTILE_SECRET_KEY` is set on Render, a post with no valid token gets a visible 400.
+- Resend inbound webhook (`backend/lib/inbound-spam.ts`): Jev spam at 0.85+ is stored
+  archived + read and NOT forwarded to the owner's phone; a sender past
+  `INBOUND_FORWARD_MAX_PER_SENDER_HOUR` (5) an hour is stored but not forwarded.
+  Unsigned/forged webhook posts were already refused with 401 (svix check).
+  The webhook is deliberately NOT rate-limited: a 429 to Resend loses real mail, and
+  the signature already shuts out every caller that is not Resend.
+
+**Keys, and where each one goes** (one Turnstile widget serves all three forms):
+
+| Value | Where | When |
+|---|---|---|
+| Turnstile site key | Vercel `VITE_TURNSTILE_SITE_KEY` (Production + Preview), then redeploy | first |
+| Turnstile secret | Render `TURNSTILE_SECRET_KEY` (API service) | after the site key is live |
+| Turnstile secret | Supabase → Authentication → Attack Protection → Turnstile | after the site key is live |
+
+Card 9fcb9c8a (Sifu) owns minting the widget; the vault's Cloudflare token cannot
+create widgets and the vault's Supabase PAT cannot see this project (both still true
+2026-10-07: management API answers 403).
+
+**Bot-flag criteria** (`signup_bot_verdict`): mean letter-pair log-probability of the
+two names under a model of ~1,600 real names; `strong` = score < -3.3 and neither name
+appears in the email; `weak` = score < -3.0 and neither name in the email. Live flag
+and gate use `strong` only (147/152 bots; 1 of 808 held-out real name pairs). The
+backfill also marks `weak` accounts created since 2026-09-01 that never signed in and
+have no orders (the other 5). Undo one: `update user_profiles set metadata = metadata - 'bot_suspect' where id = '<id>'`.

@@ -300,6 +300,15 @@ describe('isPlusSize — one definition, formerly copy-pasted into four files', 
     expect(isPlusSize('8x10')).toBe(false)
   })
 
+  it('never treats a DTF transfer sheet size as a plus size', () => {
+    // '8.5x11"' contains the '5X' token and '13x19"' contains '3X' — before
+    // this guard a transfer sold in those sheet sizes was charged the +$2.50
+    // shirt upcharge by the server and the cart alike.
+    for (const sz of ['8.5x11"', '11x17"', '13x19"', '13 x 19 in', '11 in (adult)', '8 in (youth)']) {
+      expect(isPlusSize(sz)).toBe(false)
+    }
+  })
+
   it('never charges a parent the plus-size upcharge on a youth shirt', () => {
     for (const sz of ['YXL', 'Youth XL', 'YM']) expect(isPlusSize(sz)).toBe(false)
   })

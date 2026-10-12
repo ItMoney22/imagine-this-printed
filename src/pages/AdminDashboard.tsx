@@ -2748,7 +2748,7 @@ const AdminDashboard: React.FC = () => {
                     🏷️ Promo Pricing
                   </button>
                   <button
-                    onClick={() => navigate('/imagination-station')}
+                    onClick={() => navigate('/admin/ai/products/create?mode=steps')}
                     className="bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl transition-colors shadow-lg shadow-purple-500/25"
                     title="Products are made in the Step Flow builder"
                   >

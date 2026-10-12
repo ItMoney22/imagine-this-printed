@@ -9,6 +9,7 @@ import { enhancePrompt } from './prompt-enhancer.js'
 import { buildDTFPrompt } from '../dtf-optimizer.js'
 import { metalScaleAnchor, type MetalArtSizeKey } from '../../shared/metal-art.js'
 import { getGarment } from '../../shared/catalog-capability.js'
+import { creditProviderOf } from '../provider-credit.js'
 
 export interface RunGenerateOpts {
   prompt: string
@@ -799,6 +800,11 @@ export async function runImageFlowMockup(opts: RunMockupOpts): Promise<{ url: st
       const r = await runReplicate({ modelId: model.id, input, timeoutMs: 150_000 })
       return { url: r.imageUrls[0], modelId: model.id }
     } catch (e: any) {
+      // An empty account is the one failure the fallback cannot help with:
+      // the 2-step chain bills the same Replicate account, and its error (a
+      // retired imagen-4-fast answers 404) would hide the 402 that should
+      // pause the queue (task dbce13a8).
+      if (creditProviderOf(e)) throw e
       // Never let the prototype take down a real mockup job — fall through to
       // the proven 2-step chain on any failure.
       console.warn(

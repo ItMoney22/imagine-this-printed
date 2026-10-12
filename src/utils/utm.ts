@@ -10,7 +10,7 @@
 // Attribution model: LAST touch wins. A visitor who arrives from a TikTok post
 // today and a different post next week is credited to the second post, because
 // the question David is actually asking is "which post drove this sale". A
-// visit with no utm params does NOT clear a stored one — direct returns and
+// visit with no utm params does NOT clear a stored campaign — direct returns and
 // internal navigation must not wipe the campaign that earned the visit.
 // ---------------------------------------------------------------------------
 
@@ -56,19 +56,61 @@ export function isExpired(record: LandingAttribution, now: number = Date.now()):
 export function captureLandingUtms(): LandingAttribution | null {
   if (typeof window === 'undefined') return null
   const utms = parseUtmParams(window.location.search)
-  if (Object.keys(utms).length === 0) return getLandingUtms()
+  if (Object.keys(utms).length === 0) {
+    const stored = getLandingUtms()
+    const referral = referralFromDocument(document.referrer, window.location.hostname)
+    // A tagged campaign outranks a bare referral; a referral only replaces
+    // nothing or an older referral (internal navigation never reaches here
+    // with an external referrer, so it cannot wipe anything).
+    if (!referral || (stored && stored.utm_medium !== 'referral')) return stored
+    persist(referral)
+    return referral
+  }
 
   const record: LandingAttribution = {
     ...utms,
     referrer: document.referrer ? document.referrer.slice(0, 300) : undefined,
     landed_at: new Date().toISOString()
   }
+  persist(record)
+  return record
+}
+
+function persist(record: LandingAttribution): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(record))
   } catch {
     // Private mode / storage full — attribution is best-effort, never fatal.
   }
-  return record
+}
+
+/**
+ * Pure: an untagged visit that arrived from ANOTHER site (Google, a blog, a
+ * link in a post) is still attributable. Same-host referrers are internal
+ * navigation and yield null. Search engines get medium 'organic', the rest
+ * 'referral' — the same split GA4 uses, so the order row and GA4 agree.
+ */
+export function referralFromDocument(
+  referrer: string,
+  ownHost: string,
+  now: Date = new Date()
+): LandingAttribution | null {
+  if (!referrer) return null
+  let host: string
+  try {
+    host = new URL(referrer).hostname.replace(/^www\./, '')
+  } catch {
+    return null
+  }
+  const own = ownHost.replace(/^www\./, '')
+  if (!host || host === own) return null
+  const organic = /(^|\.)(google|bing|duckduckgo|yahoo|ecosia|brave|baidu)\./.test(host + '.')
+  return {
+    utm_source: host,
+    utm_medium: organic ? 'organic' : 'referral',
+    referrer: referrer.slice(0, 300),
+    landed_at: now.toISOString()
+  }
 }
 
 /** The stored attribution for this visitor, or null when absent/expired/corrupt. */

@@ -32,7 +32,9 @@ export const COLOR_PRESETS: ColorPreset[] = [
 export function getColorName(hex: string | undefined | null): string {
   if (!hex) return ''
   const match = COLOR_PRESETS.find((c) => c.hex.toLowerCase() === hex.toLowerCase())
-  return match?.name ?? hex
+  if (match) return match.name
+  // Plain words from older rows ('black') read as names; capitalise them.
+  return /^#/.test(hex) ? hex : hex.charAt(0).toUpperCase() + hex.slice(1)
 }
 
 /**

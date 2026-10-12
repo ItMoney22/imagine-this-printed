@@ -24,23 +24,28 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
   const [recommendations, setRecommendations] = useState<Product[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const loadingRef = useRef(false)
+  // The cache key of the load in flight: a load for a page the shopper has
+  // already left must not paint its row on the page they moved to.
+  const loadingRef = useRef<string | null>(null)
 
   const loadRecommendations = useCallback(async () => {
-    // Generate cache key from context
-    const cacheKey = `${context.page}-${user?.id || 'anon'}-${context.limit || 6}`
+    // Generate cache key from context. The anchor product is part of it: each
+    // product page has its own row (a creator's page shows only their work),
+    // so one page's list must never be served on the next.
+    const cacheKey = `${context.page}-${context.currentProduct?.id || 'none'}-${user?.id || 'anon'}-${context.limit || 6}`
 
     // Check cache first
     const cached = recommendationsCache.get(cacheKey)
     if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+      loadingRef.current = null
       setRecommendations(cached.products)
       setIsLoading(false)
       return
     }
 
     // Prevent duplicate loads
-    if (loadingRef.current) return
-    loadingRef.current = true
+    if (loadingRef.current === cacheKey) return
+    loadingRef.current = cacheKey
 
     setIsLoading(true)
     setError(null)
@@ -61,15 +66,17 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
 
       // Cache the result
       recommendationsCache.set(cacheKey, { products, timestamp: Date.now() })
-      setRecommendations(products)
+      if (loadingRef.current === cacheKey) setRecommendations(products)
     } catch (err) {
-      setError('Failed to load recommendations')
+      if (loadingRef.current === cacheKey) setError('Failed to load recommendations')
       console.error('Error loading recommendations:', err)
     } finally {
-      setIsLoading(false)
-      loadingRef.current = false
+      if (loadingRef.current === cacheKey) {
+        setIsLoading(false)
+        loadingRef.current = null
+      }
     }
-  }, [context.page, context.limit, user?.id])
+  }, [context.page, context.limit, context.currentProduct?.id, user?.id])
 
   useEffect(() => {
     loadRecommendations()
