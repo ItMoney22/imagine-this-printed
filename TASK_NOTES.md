@@ -22,6 +22,11 @@ FloatingCart only where the shop sidebar is not showing (full-screen routes, adm
   button clear, sidebar / top-bar cart counts intact, pill still on full-screen /imagination-station. npm run verify
   165 files / 2365 pass, vite build OK. Seen, not fixed here (other owners): checkout ignores the 2-for-$25 bundle
   the cart and server apply; desktop "Chat with us" pill over the bottom-right catalog card while scrolling.
+- 2026-10-12 (zero-nine, send-back): merged origin/main + Amelia db1d26c (chat launcher avatar-only, task 41fe4abb)
+  + bf16502; verify 166 files / 2371 pass, vite build OK, backend tsc clean with declarations off. Shipped as a
+  hotfix: job ship-mv5h4s8c master_merge, Jev ship_now 86%, main a28c1b1, Vercel dpl_BjHYqAckTYARmPKCpn2Q5zyfet6H
+  READY. Live walk 1440 + 390: product Add to cart (2 in cart), catalog right-column card, cart Check out, checkout
+  Apply, toys Make my toy all clear and clicks land; no cart pill beside the sidebar, chat is a corner avatar.
 
 ## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
 
