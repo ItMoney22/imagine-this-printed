@@ -37,7 +37,7 @@ export const ADMIN_NAV: AdminNavGroup[] = [
   {
     title: 'Make',
     items: [
-      { label: 'Step Flow builder', to: '/imagination-station', icon: Sparkles, hint: 'The one way to make a product' },
+      { label: 'Step Flow builder', to: '/admin/ai/products/create', icon: Sparkles, hint: 'The one way to make a product' },
       { label: 'Products', to: '/admin?tab=products', icon: Package },
       { label: 'Creator Products', to: '/admin?tab=creator-products', icon: Palette },
       { label: 'Designs', to: '/admin?tab=designs', icon: ImageIcon },
