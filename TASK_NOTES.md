@@ -1,5 +1,21 @@
 # TASK_NOTES
 
+## Current request (2026-10-12) — merge Saturn's on-person model_id stamping (df79da8) onto main (Watchtower 6055f034, zero-saturn)
+
+New casting/reshoot shots wrote mockup_model_* rows with no metadata.model_id, so the step-flow engine line went blank
+after every reshoot (the 71 old rows were backfilled by c7f6efdc / 12ec1e1). df79da8 stamps them going forward.
+
+### File shortlist (approved scope — 2026-10-12 model_id stamping merge)
+- merge of df79da8 only: `backend/services/etsy-model-shots.ts` (+test), `backend/services/step-flow/shots.ts` (+test),
+  `backend/services/image-flow/worker-helpers.ts` (export only), `backend/scripts/ab-image-models-bakeoff.ts` + fixture,
+  `docs/IMAGE_MODEL_BAKEOFF_2026-10-09.md`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (zero-saturn): branch earth/zero-saturn/itp-merge-saturn-s-on-pe-6055f034-mv5fdgzk = origin/main 7314e53 +
+  merge of df79da8 (clean, no conflicts; also clean vs Nine's hotfix ship ad575329). `npm run verify`: tsc -b clean,
+  vitest 165 files / 2370 pass. Backend `tsc --noEmit` clean (6 TS2742 in untouched middleware/rate-limits.ts only with
+  declaration on, from node_modules junctioned to the shared checkout). Ship is Zero Nine's (SHIP_OWNERS).
+
 ## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
 
 The engine's ship gate (`npm run verify` inside zero-engine) went red on every ITP ship: zero-engine loads
