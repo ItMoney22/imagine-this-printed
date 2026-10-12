@@ -17,7 +17,7 @@ import Replicate from 'replicate'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import { MODELS } from '../../services/image-flow/models.js'
 import { supabase } from '../../lib/supabase.js'
-import { productPrintsOnBack } from '../../services/step-flow/shots.js'
+import { planSpinVideo, SPIN_VIDEO_SECONDS } from '../../services/spin-video.js'
 import { uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 
 const router = Router()
@@ -314,9 +314,6 @@ router.post('/replicate-search', requireAuth, requireRole(['admin', 'manager']),
 // engine = xai/grok-imagine-video on Replicate (image-to-video).
 // ---------------------------------------------------------------------------
 
-const SPIN_VIDEO_MODEL = process.env.SPIN_VIDEO_MODEL || 'xai/grok-imagine-video'
-const SPIN_VIDEO_SECONDS = Math.min(15, Math.max(3, Number(process.env.SPIN_VIDEO_SECONDS) || 5))
-
 const spinLimit = new Map<string, { count: number; resetAt: number }>()
 function checkSpinLimit(userId: string): boolean {
   const now = Date.now()
@@ -344,68 +341,38 @@ router.post('/spin-video', requireAuth, requireRole(['admin', 'manager']), async
     const productId = typeof req.body?.productId === 'string' ? req.body.productId : ''
     if (!productId) return res.status(400).json({ error: 'productId is required' })
 
+    // print_locations is selected on purpose: productPrintsOnBack() reads it,
+    // and without it a product whose back is only recorded as a placement
+    // (no metadata.print_artwork.back_image) silently shot a front-only video.
     const { data: product, error } = await supabase
       .from('products')
-      .select('id, name, images, metadata')
+      .select('id, name, images, metadata, print_locations')
       .eq('id', productId)
       .single()
     if (error || !product) return res.status(404).json({ error: 'Product not found' })
 
     const meta = (product.metadata || {}) as Record<string, any>
-    // Source frame (David 2026-09-02): ALWAYS the on-person mockup — the
-    // approved Step Flow model shot first, then the Etsy model shoot, then
-    // whatever the gallery leads with. Never a flat lay.
-    const stepModelShot: string | undefined =
-      meta.step_flow?.shots?.model?.approved && typeof meta.step_flow?.shots?.model?.url === 'string'
-        ? meta.step_flow.shots.model.url
-        : undefined
-    const shot: string | undefined = stepModelShot || meta.etsy_shots?.images?.[0] || product.images?.[0]
-    if (!shot) return res.status(400).json({ error: 'No model shot or image to animate — shoot the model first.' })
+    const plan = planSpinVideo(product as any)
+    if ('error' in plan) return res.status(400).json({ error: plan.error })
+    if (plan.warning) req.log?.warn({ productId, backSource: plan.backSource }, `[ai-realtime] spin video: ${plan.warning}`)
 
-    // David 2026-09-02: "i dont want the shirt to change color anymore ... they
-    // should be modeling the shirt sometimes the shirt can be under a jacket".
-    // The old prompt asked the fabric to swap colour mid-turn; now the garment
-    // and its print are locked and the person simply models it, with an open
-    // jacket styling one time in three.
-    const baseColor: string = String(meta.shirt_color || 'black').replace(/-/g, ' ')
-    const garmentNoun = meta.product_type === 'hoodie' ? 'hoodie' : 't-shirt'
-
-    // TWO-SIDED PRODUCTS TURN AROUND. David 2026-09-21: "when i do a video
-    // subject should turn around and show the back". A five-second clip of
-    // someone facing forward sells half of a front-and-back shirt — the back
-    // is the half the customer is paying extra for, and on a team shirt it is
-    // the half with their own name on it.
-    //
-    // The jacket variant is suppressed for these: an open jacket is styled to
-    // keep the FRONT visible, which is the opposite of what a turn is for.
-    const twoSided = productPrintsOnBack({ metadata: meta, print_locations: (product as any).print_locations })
-    const jacketVariant = !twoSided && Math.random() < 0.34
-    const styling = twoSided
-      ? `They start facing the camera so the front print reads clearly, then turn a full 180 degrees, unhurried, and hold with their back to the camera so the design on the BACK of the ${garmentNoun} is square-on, centred and fully legible for the last half of the clip. `
-      : jacketVariant
-        ? `They are wearing an open, unbuttoned jacket over the ${garmentNoun} (denim, flannel or a light bomber), and the front of the ${garmentNoun} with the printed design stays fully visible the whole time. `
-        : `They model the ${garmentNoun} naturally — shifting their weight, turning slightly to show the print, a relaxed smile, maybe tugging the hem straight. `
-    const prompt =
-      `Professional lifestyle fashion video of the same person from the reference image modeling the ${baseColor} ${garmentNoun}. ` +
-      styling +
-      `The ${garmentNoun} keeps EXACTLY the same ${baseColor} fabric colour and every printed graphic stays undistorted and fully legible throughout — no colour change, no new graphics, no text overlays. ` +
-      (twoSided
-        ? `Both printed designs are the ones already on the garment: do not invent, duplicate or mirror artwork onto either side. `
-        : '') +
-      `Natural handheld-steady camera, soft flattering light, same location as the reference, no cuts.`
-
-    const prediction = await replicate.predictions.create({
-      model: SPIN_VIDEO_MODEL,
-      input: { image: shot, prompt, duration: SPIN_VIDEO_SECONDS, resolution: '720p' },
-    })
+    const prediction = await replicate.predictions.create({ model: plan.model, input: plan.input })
 
     await supabase
       .from('products')
-      .update({ metadata: { ...meta, hero_video: { status: 'generating', prediction_id: prediction.id, started_at: new Date().toISOString() } } })
+      .update({ metadata: { ...meta, hero_video: { status: 'generating', prediction_id: prediction.id, model: plan.model, two_sided: plan.twoSided, back_source: plan.backSource, started_at: new Date().toISOString() } } })
       .eq('id', productId)
 
-    req.log?.info({ productId, predictionId: prediction.id }, '[ai-realtime] spin video started')
-    return res.json({ ok: true, predictionId: prediction.id, seconds: SPIN_VIDEO_SECONDS })
+    req.log?.info({ productId, predictionId: prediction.id, model: plan.model, backSource: plan.backSource }, '[ai-realtime] spin video started')
+    return res.json({
+      ok: true,
+      predictionId: prediction.id,
+      seconds: Number(plan.input.duration) || SPIN_VIDEO_SECONDS,
+      model: plan.model,
+      twoSided: plan.twoSided,
+      backSource: plan.backSource,
+      ...(plan.warning ? { warning: plan.warning } : {}),
+    })
   } catch (err) {
     req.log?.error({ err }, '[ai-realtime] spin video kick failed')
     return res.status(502).json({ error: 'Could not start the spin video.' })

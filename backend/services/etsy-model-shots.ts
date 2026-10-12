@@ -2150,3 +2150,90 @@ export async function setModelShots(productId: string, images: string[]): Promis
   if (updErr) throw new Error(`Failed to persist shots: ${updErr.message}`)
   return state
 }
+
+// ---------------------------------------------------------------------------
+// On-person BACK shot — David 2026-09-21/22: "if we do a video shoot it needs
+// to be able to show front nd back". The flat/ghost `mockup_back` shows the
+// back print on an empty garment; this is the same PERSON from the front
+// on-person shot, turned around, wearing the back print.
+//
+// It is an EDIT of the front shot rather than a fresh cast, on purpose: the
+// spin video interpolates front shot -> back shot, and two independent renders
+// would be two different people in two different rooms. INPUT 1 (the front
+// photo) carries the identity, wardrobe, scene and light; INPUT 2 is the back
+// artwork, so the video model never has to guess what the back looks like.
+// ---------------------------------------------------------------------------
+
+export function buildBackModelPrompt(shirtColor: string, garmentNoun: string, sizeInches: number, retryNote?: string): string {
+  return (
+    (retryNote
+      ? `RETRY. The previous attempt at this photograph FAILED design-fidelity QA: ${retryNote} ` +
+        `Fix precisely that, and follow the DESIGN FIDELITY rules below to the letter.\n`
+      : '') +
+    `INPUT 1 is a photograph of a person wearing a ${shirtColor} ${garmentNoun}. INPUT 2 is a flat 2D graphic ` +
+    `design (a DTF print artwork).\n` +
+    `Task: the SAME photograph a moment later, after the person has turned a full 180 degrees and now stands ` +
+    `with their BACK squarely to the camera. Keep everything else identical to INPUT 1: the same person (same ` +
+    `hair, build and skin tone), the same ${shirtColor} ${garmentNoun}, the same trousers and accessories, the ` +
+    `same location, background, lighting, camera height and framing. Their face is not visible.\n` +
+    `The BACK of the ${garmentNoun} carries the graphic from INPUT 2. Nothing from the front of the shirt in ` +
+    `INPUT 1 shows through, wraps around or is repeated on the back — the only artwork on the back is INPUT 2.\n` +
+    `Show the full back from shoulders to waist with realistic fabric texture, natural drape and true-to-life ` +
+    `lighting. Arms relaxed at the sides; hair, hands, bags and straps stay clear of the print.\n` +
+    `High-resolution product photography suitable for an online marketplace listing.\n` +
+    designFidelityRules('back-only', sizeInches)
+  )
+}
+
+/**
+ * Render the on-person back shot from an already-rendered FRONT on-person
+ * shot. Verified against the BACK artwork (not the front design) with one
+ * corrective retry, exactly like every other on-person shot. Does not touch
+ * metadata.etsy_shots — the Step Flow mirrors it into product_assets itself.
+ */
+export async function shootBackModelShot(
+  productId: string,
+  userId: string,
+  opts: { frontShotUrl: string; shirtColor?: ColorId; garment?: GarmentId }
+): Promise<{ url: string; check: ShotCheck; modelId?: string; backArtworkUrl: string }> {
+  if (!process.env.OPENAI_API_KEY) {
+    // nano-banana's fallback path is built around a stock anchor, which is the
+    // opposite of what this shot needs (the anchor IS the front photo). Fail
+    // loudly rather than quietly shooting a different person.
+    throw new Error('OPENAI_API_KEY is not configured — the on-person back shot needs the gpt-image edit engine')
+  }
+  const { data: product } = await supabase.from('products').select('metadata').eq('id', productId).maybeSingle()
+  const { colorFor, ctx } = await loadShotContext(productId, userId, { garment: opts.garment })
+  // The back artwork when one is tagged; otherwise the product's own design —
+  // the same rule the flat back mockup follows (a 'front-back' placement with
+  // no separate back file prints the one design on both sides).
+  const backArt: string = (product as any)?.metadata?.print_artwork?.back_image || ctx.designUrl
+  const shirtColor = opts.shirtColor ? (COLORS[opts.shirtColor]?.label.toLowerCase() ?? opts.shirtColor) : colorFor(0)
+
+  const render = async (retryNote?: string) =>
+    editOpenAIImage({
+      sourceUrl: opts.frontShotUrl,
+      refUrls: [backArt],
+      prompt: buildBackModelPrompt(shirtColor, ctx.garmentNoun, ctx.sizeInches, retryNote),
+      size: '1024x1536',
+      quality: 'high',
+      userId,
+      objectPath: `users/${userId}/mockups/etsy_shot_${productId}_back_model_${Date.now()}.png`,
+    })
+
+  const first = await render()
+  console.log(`[etsy-shots] ${productId} back-model via ${first.modelId} → ${first.url}`)
+  const verdict = await verifyShot(backArt, first.url, shirtColor)
+  if (!verdict || verdict.ok || asksForAMissingBackground(verdict.reason)) {
+    return { url: first.url, check: { ok: true }, modelId: first.modelId, backArtworkUrl: backArt }
+  }
+  console.warn(`[etsy-shots] ${productId} back-model failed fidelity QA: ${verdict.reason} — one retry`)
+  const retry = await render(verdict.reason)
+  const retryVerdict = await verifyShot(backArt, retry.url, shirtColor)
+  return {
+    url: retry.url,
+    check: !retryVerdict || retryVerdict.ok ? { ok: true, retried: true } : { ok: false, reason: retryVerdict.reason, retried: true },
+    modelId: retry.modelId,
+    backArtworkUrl: backArt,
+  }
+}

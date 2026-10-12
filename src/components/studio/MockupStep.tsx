@@ -74,6 +74,7 @@ export const shotLabel = (key: ShotKey): string => {
   if (key === 'product') return 'Product shot'
   if (key === 'hanger') return 'On a hanger'
   if (key === 'back') return 'Back view'
+  if (key === 'model-back') return 'On a person — back'
   if (key === 'model') return 'On a person'
   if (key.startsWith('model:')) return `On a person ${key.slice('model:'.length)}`
   if (key === 'details') return 'Product details card'
