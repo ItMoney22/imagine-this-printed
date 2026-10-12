@@ -1,5 +1,24 @@
 # TASK_NOTES
 
+## Current request (2026-10-12) — review + merge the 15 finished 9/22-9/30 branches as ONE ship batch (Watchtower e14d239c, ada-brooks)
+
+Zero Nine bundled 15 "merge X" rows on 9/25 (+ Sifu bef81073 on 9/30). None of them reached main. This branch =
+live main a28c1b1 + every branch that still belongs, conflicts resolved, gates run, for ONE ship by Nine (only
+zero-nine ships ITP). Held, not merged: 05d90a09 Amelia team-template rebuild (superseded 9/24 by Team Studio, Nine:
+do not merge) and 6bec6d3b Fly workflow (pushing a workflow file needs the workflow OAuth scope the fleet gh token
+lacks; Render is still prod, the Fly cutover 4e42e490 has not happened).
+
+### File shortlist (approved scope — 2026-10-12 merge batch)
+- Every file the merged branches touch (their own diffs, reviewed), plus the conflict files: TASK_NOTES.md,
+  supabase/migrations/MIGRATION_LEDGER.md, backend/routes/stripe.ts, backend/routes/storefront.ts,
+  backend/routes/user-products.ts, backend/services/jev.ts, backend/shared/product-gallery.ts,
+  src/pages/AdminDashboard.tsx, src/lib/product-kind.ts, src/pages/Cart.tsx, src/pages/Checkout.tsx,
+  src/pages/ProductPage.tsx, src/context/CartContext.tsx.
+- Migration renames (version collisions with live prod): 20260922120000_itc_refund_guard.sql and
+  20260922170000_crm_customer_aggregates.sql move to free 202610 versions.
+
+### Work log (append-only)
+
 ## Current request (2026-10-12) — remodel pages 2-5 live walk: nothing may cover a buy button (Watchtower 45434545, zero-nine)
 
 Amelia's pages 2-5 (b9656cc9, tip 4746d25) were already on origin/main via the 10/12 ship 7314e533, so this card is
