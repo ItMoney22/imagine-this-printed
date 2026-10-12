@@ -11,6 +11,7 @@ import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
 import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
+import { useFeaturedOffer } from '../lib/featured-offer'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
 
@@ -49,6 +50,7 @@ interface SocialPostRow {
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true, compact = false }) => {
+  const featuredOffer = useFeaturedOffer()
   const navigate = useNavigate()
   const { addToCart } = useCart()
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([])
@@ -266,6 +268,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           <div className="absolute top-2 left-2 z-10 mt-8">
             <span className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20 animate-pulse">
               {BUNDLE_DEAL.label}!
+            </span>
+          </div>
+        )}
+
+        {/* Seasonal code badge: only while the live code behind it is valid */}
+        {featuredOffer && (
+          <div className="absolute top-2 left-2 z-10 mt-24">
+            <span className="bg-primary text-bg text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+              {featuredOffer.percentOff}% off with {featuredOffer.code}
             </span>
           </div>
         )}

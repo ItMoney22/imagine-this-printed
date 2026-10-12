@@ -1,7 +1,5 @@
-import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { API_BASE } from '../lib/api'
-import type { FeaturedOffer } from '../../backend/shared/seasonal-offer'
+import { useFeaturedOffer } from '../lib/featured-offer'
 
 /** Last day the offer works, in the shopper's own words, e.g. "October 31". */
 export function offerEndLabel(endsAt: string): string {
@@ -11,17 +9,7 @@ export function offerEndLabel(endsAt: string): string {
 
 /** Home banner. Renders only while the live coupon behind it is valid. */
 export default function SeasonalOfferBanner() {
-  const [offer, setOffer] = useState<FeaturedOffer | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    fetch(`${API_BASE}/api/coupons/featured`)
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (alive && d?.offer) setOffer(d.offer) })
-      .catch(() => {})
-    return () => { alive = false }
-  }, [])
-
+  const offer = useFeaturedOffer()
   if (!offer) return null
   const min = offer.minOrderAmount ? ` on orders of $${offer.minOrderAmount} or more` : ''
   return (
