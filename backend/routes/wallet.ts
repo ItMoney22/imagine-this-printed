@@ -812,7 +812,7 @@ router.post('/deduct-itc', requireAuth, async (req: Request, res: Response): Pro
  *   * the credit is capped at the original debit amount.
  * The pairing is recorded as metadata.refunded_transaction_id on the refund row
  * and enforced by a unique index — see
- * supabase/migrations/20260922120000_itc_refund_guard.sql.
+ * supabase/migrations/20261013120000_itc_refund_guard.sql.
  */
 
 /**

@@ -54,7 +54,7 @@ function makeQuery(table: string) {
   const exec = () => {
     if (mode === 'insert') {
       const inserted = { id: nextId(table), created_at: new Date().toISOString(), ...payload }
-      // The partial unique index from 20260922120000_itc_refund_guard.sql.
+      // The partial unique index from 20261013120000_itc_refund_guard.sql.
       if (table === 'itc_transactions' && inserted.type === 'refund' && inserted.metadata?.refunded_transaction_id) {
         const clash = rows().some(
           (r) => r.type === 'refund' && r.metadata?.refunded_transaction_id === inserted.metadata.refunded_transaction_id
@@ -137,7 +137,7 @@ function makeQuery(table: string) {
 /**
  * JS transcription of public.refund_itc_for_debit() — the same decision table,
  * same verdict codes. Keep in step with
- * supabase/migrations/20260922120000_itc_refund_guard.sql.
+ * supabase/migrations/20261013120000_itc_refund_guard.sql.
  */
 function refundItcForDebit(args: Record<string, any>) {
   const { p_user_id, p_debit_id, p_amount, p_reference, p_description, p_reference_id } = args
