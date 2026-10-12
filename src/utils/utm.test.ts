@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest'
-import { parseUtmParams, isExpired, captureLandingUtms, getLandingUtms, clearLandingUtms } from './utm'
+import { parseUtmParams, isExpired, captureLandingUtms, getLandingUtms, clearLandingUtms, referralFromDocument } from './utm'
 
 const setUrl = (search: string) => {
   window.history.replaceState({}, '', `/product/galaxy-cat-tee${search}`)
@@ -87,5 +87,27 @@ describe('getLandingUtms', () => {
     captureLandingUtms()
     clearLandingUtms()
     expect(getLandingUtms()).toBeNull()
+  })
+})
+
+describe('referralFromDocument', () => {
+  const now = new Date('2026-10-07T12:00:00.000Z')
+  it('tags a search engine referrer as organic', () => {
+    expect(referralFromDocument('https://www.google.com/', 'imaginethisprinted.com', now)).toMatchObject({
+      utm_source: 'google.com',
+      utm_medium: 'organic',
+      referrer: 'https://www.google.com/'
+    })
+  })
+  it('tags another site as referral', () => {
+    expect(referralFromDocument('https://blog.example.org/post', 'www.imaginethisprinted.com', now)).toMatchObject({
+      utm_source: 'blog.example.org',
+      utm_medium: 'referral'
+    })
+  })
+  it('ignores empty, malformed and same-host referrers', () => {
+    expect(referralFromDocument('', 'imaginethisprinted.com', now)).toBeNull()
+    expect(referralFromDocument('not a url', 'imaginethisprinted.com', now)).toBeNull()
+    expect(referralFromDocument('https://www.imaginethisprinted.com/cart', 'imaginethisprinted.com', now)).toBeNull()
   })
 })

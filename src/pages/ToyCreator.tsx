@@ -20,6 +20,7 @@ import { usdToItcLabel } from '../lib/itc-pricing'
 import { Link, useNavigate } from 'react-router-dom'
 import { Model3DViewer } from '../components/3d-models/Model3DViewer'
 import { useCart } from '../context/CartContext'
+import { useGuestGate } from '../components/GuestGate'
 import { useToast } from '../hooks/useToast'
 import { apiFetch, API_BASE } from '../lib/api'
 import { supabase } from '../lib/supabase'
@@ -30,6 +31,9 @@ import type { PrintSizeTier, SizeTierConfig, User3DModel } from '../types'
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = 'itp-toy-creator-active'
+// A guest's picks, kept while they make an account so they come back to the
+// same creature (task 8c67fe67). Cleared once the toy is mixed.
+const DRAFT_KEY = 'itp-toy-creator-draft'
 const VOICE_MUTE_KEY = 'itp-toy-voice'
 
 type Stage = 'build' | 'splicing' | 'reveal' | 'pick-size' | 'incubation' | 'alive'
@@ -138,6 +142,38 @@ const SIZE_REFS: Record<PrintSizeTier, string> = {
 // ---------------------------------------------------------------------------
 // Asymptotic progress hook
 // ---------------------------------------------------------------------------
+interface ToyDraft { parts: ToyParts; colorMode: ColorMode }
+
+function readDraft(): ToyDraft | null {
+  try {
+    const raw = localStorage.getItem(DRAFT_KEY)
+    if (!raw) return null
+    const d = JSON.parse(raw) as Partial<ToyDraft>
+    if (!d?.parts || typeof d.parts !== 'object') return null
+    const p = d.parts as Partial<ToyParts>
+    return {
+      parts: {
+        head: typeof p.head === 'string' ? p.head : '',
+        body: typeof p.body === 'string' ? p.body : '',
+        strength: typeof p.strength === 'string' ? p.strength : '',
+        extras: Array.isArray(p.extras) ? p.extras.filter((x): x is string => typeof x === 'string') : [],
+        freeText: typeof p.freeText === 'string' ? p.freeText : '',
+      },
+      colorMode: d.colorMode === 'grey' ? 'grey' : 'color4',
+    }
+  } catch {
+    return null
+  }
+}
+
+function writeDraft(draft: ToyDraft) {
+  try { localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)) } catch { /* storage blocked: picks just won't survive */ }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(DRAFT_KEY) } catch { /* noop */ }
+}
+
 function useAsymptoticProgress(active: boolean, expectedSeconds: number) {
   const [progress, setProgress] = useState(0)
   const startRef = useRef<number | null>(null)
@@ -550,12 +586,13 @@ export default function ToyCreator() {
   const { addToCart } = useCart()
   const toast = useToast()
   const navigate = useNavigate()
+  const { requireAccount } = useGuestGate()
 
   // Stage machine
   const [stage, setStage] = useState<Stage>('build')
 
-  // Builder state
-  const [parts, setParts] = useState<ToyParts>({ head: '', body: '', strength: '', extras: [], freeText: '' })
+  // Builder state — a guest's saved picks come back after they sign up
+  const [parts, setParts] = useState<ToyParts>(() => readDraft()?.parts ?? { head: '', body: '', strength: '', extras: [], freeText: '' })
 
   // Active model
   const [model, setModel] = useState<User3DModel | null>(null)
@@ -567,7 +604,7 @@ export default function ToyCreator() {
 
   // Color mode — defaults FULL COLOR (David 2026-08-19: "i want it fully
   // printed in full color"); grey + paint-kit stays one click away.
-  const [colorMode, setColorMode] = useState<ColorMode>('color4')
+  const [colorMode, setColorMode] = useState<ColorMode>(() => readDraft()?.colorMode ?? 'color4')
 
   // Order state
   const [includePaintKit, setIncludePaintKit] = useState(false)
@@ -802,6 +839,7 @@ export default function ToyCreator() {
   // Voice recording (Path A)
   // ---------------------------------------------------------------------------
   const handleStartRecord = async () => {
+    if (!requireAccount('toy-voice')) return
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       const mr = new MediaRecorder(stream, { mimeType: 'audio/webm' })
@@ -885,6 +923,12 @@ export default function ToyCreator() {
   // ---------------------------------------------------------------------------
   const handleMix = async () => {
     if (!canMix) return
+    // A guest builds for free; mixing draws and saves the toy, so it asks for
+    // an account here — with their picks kept for when they come back.
+    if (!requireAccount('toy-mix')) {
+      writeDraft({ parts, colorMode })
+      return
+    }
     const prompt = buildPrompt()
     switchStage('splicing')
 
@@ -912,6 +956,7 @@ export default function ToyCreator() {
       setModel(m)
       setModelId(m.id)
       localStorage.setItem(STORAGE_KEY, m.id)
+      clearDraft()
       startPolling(m.id)
       fetchWallet()
     } catch (err: unknown) {

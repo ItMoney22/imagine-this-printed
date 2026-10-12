@@ -68,7 +68,7 @@ const BlankShirts: React.FC = () => {
           </h1>
           <p className="text-slate-300 text-base sm:text-xl leading-relaxed max-w-2xl mx-auto mb-8">
             The exact blanks we print on — tag out, our label in — sold plain. Four quality rungs,
-            every stat on the table, priced just over wholesale. Mix any sizes and colours, no minimums.
+            every stat on the table. Mix any sizes and colours, no minimums.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4">
             <a
@@ -86,7 +86,7 @@ const BlankShirts: React.FC = () => {
             </a>
           </div>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-slate-400 text-xs sm:text-sm">
-            <span className="flex items-center gap-1.5"><Scissors className="w-4 h-4 text-amber-300" /> Relabeled by hand</span>
+            <span className="flex items-center gap-1.5"><Scissors className="w-4 h-4 text-amber-300" /> Our label, sewn in</span>
             <span className="flex items-center gap-1.5"><Package className="w-4 h-4 text-amber-300" /> Same shirts under our prints</span>
             <span className="flex items-center gap-1.5"><Truck className="w-4 h-4 text-amber-300" /> Ships from Rockmart, GA</span>
           </div>
@@ -247,7 +247,7 @@ const BlankShirts: React.FC = () => {
             </table>
           </div>
           <p className="text-xs text-muted mt-3">
-            Prices are per shirt. White runs a little less on most rungs. Extended sizes cost more because the mills charge more for them — we pass that through, not pad it.
+            Prices are per shirt. White runs a little less on most rungs. Extended sizes are priced separately.
           </p>
         </div>
       </section>
@@ -271,9 +271,8 @@ const BlankShirts: React.FC = () => {
             </div>
             <div className="rounded-2xl border card-border bg-card p-6">
               <Package className="w-6 h-6 text-primary mb-3" />
-              <h3 className="font-display text-lg text-text mb-2">Priced just over wholesale</h3>
+              <h3 className="font-display text-lg text-text mb-2">Mix and match</h3>
               <p className="text-sm text-muted leading-relaxed">
-                We buy blanks by the case for our own printing and pass the price through with a small margin.
                 Mix sizes and colours freely — there are no minimums. Need 24+ or a run with your own label?{' '}
                 <Link to="/contact" className="text-primary hover:underline">Talk to us</Link>.
               </p>

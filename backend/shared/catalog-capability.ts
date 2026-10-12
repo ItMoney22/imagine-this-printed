@@ -134,9 +134,12 @@ export const PLUS_SIZE_UPCHARGE_DOLLARS = PLUS_SIZE_UPCHARGE_CENTS / 100
 /**
  * True for an apparel size that carries the plus-size upcharge.
  *
- * Two guards, both load-bearing:
+ * Three guards, all load-bearing:
  *   - a metal-art PANEL size is not apparel ('4x6' → '4X6', which contains the
  *     '4X' token) — the bug fixed 2026-09-02;
+ *   - a measured size is not apparel either: a DTF transfer sheet '8.5x11"'
+ *     contains '5X' and '13x19"' contains '3X', and a transfer width like
+ *     '11 in (adult)' is inches, not a shirt size (2026-10-07);
  *   - a YOUTH size is never a plus size, so a parent is never charged the
  *     upcharge on a child's shirt.
  * The substring match itself is preserved exactly as it was, so consolidating
@@ -145,6 +148,7 @@ export const PLUS_SIZE_UPCHARGE_DOLLARS = PLUS_SIZE_UPCHARGE_CENTS / 100
 export function isPlusSize(size?: string | null): boolean {
   if (!size) return false
   if (normalizeMetalSizeKey(size)) return false
+  if (/\d\s*x\s*\d|\d\s*(in\b|inch|")/i.test(size)) return false
   if (isYouthSize(size)) return false
   return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }

@@ -13,6 +13,7 @@ import { getSuppression } from '../services/email-suppression.js'
 import { resolveCarrier } from './carrier-tracking.js'
 import { buildOrderStatusUrl } from './order-status-token.js'
 import { buildAccountClaimUrl } from './account-claim-token.js'
+import { ticketReplyEmail } from './ticket-emails.js'
 import { couponBlockHtml, buildTotalsRows, totalsFootHtml, typedName, type EmailCoupon, type OrderTotals } from './email-blocks.js'
 
 // ---------------------------------------------------------------------------
@@ -618,16 +619,17 @@ export const sendTicketConfirmationEmail = async (
         <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
           <h3 style="color: #374151; margin-top: 0;">What happens next?</h3>
           <ul style="color: #6b7280; font-size: 15px; line-height: 1.8;">
-            <li>Our support team will review your request</li>
-            <li>You'll receive a response within 24 hours</li>
-            <li>We'll email you with updates</li>
+            <li>Christina and the team read every message</li>
+            <li>You'll hear back by email, usually within a day</li>
+            <li>Quote your reference number if you write again</li>
           </ul>
         </div>
 
         <div style="text-align: center; margin: 30px 0;">
-          <a href="${FRONTEND_URL}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
-            Continue Shopping
+          <a href="${FRONTEND_URL}/help" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
+            See Quick Answers
           </a>
+          <p style="color: #9ca3af; font-size: 13px; margin: 10px 0 0;">Sizing, shipping, returns and pickup, answered.</p>
         </div>
 
         <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
@@ -642,57 +644,22 @@ export const sendTicketConfirmationEmail = async (
 }
 
 /**
- * Send notification to customer when an agent replies to their ticket
+ * Send notification to customer when an agent replies to their ticket.
+ * Greets the name they typed and says who answered and about what (utils/ticket-emails.ts).
  */
 export const sendTicketReplyEmail = async (
   email: string,
   ticketId: string,
   subject: string,
   agentMessage: string,
-  agentName?: string
+  agentName?: string,
+  customerName?: string | null
 ): Promise<boolean> => {
+  const reply = ticketReplyEmail({ ticketId, subject, agentMessageHtml: agentMessage, agentName, customerName })
   return sendEmail({
     to: email,
-    subject: `📬 New Reply on Your Support Request - ${subject}`,
-    htmlContent: `
-      <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-        <div style="text-align: center; margin-bottom: 30px;">
-          <h1 style="color: #7c3aed; margin: 0;">New Reply From Support 📬</h1>
-        </div>
-
-        <div style="background: linear-gradient(135deg, #f3e8ff 0%, #fce7f3 100%); border-radius: 16px; padding: 20px; margin-bottom: 20px;">
-          <p style="color: #6b7280; font-size: 14px; margin: 0 0 5px 0;">Reference Number</p>
-          <p style="color: #7c3aed; font-size: 18px; font-weight: bold; margin: 0;">${ticketId.slice(0, 8).toUpperCase()}</p>
-          <p style="color: #374151; font-size: 16px; margin: 10px 0 0 0;">${subject}</p>
-        </div>
-
-        <div style="background: #fff; border: 2px solid #e5e7eb; border-radius: 16px; padding: 25px; margin-bottom: 20px;">
-          <div style="display: flex; align-items: center; margin-bottom: 15px;">
-            <div style="width: 40px; height: 40px; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 12px;">
-              <span style="color: white; font-weight: bold;">${(agentName || 'Support')[0].toUpperCase()}</span>
-            </div>
-            <div>
-              <p style="margin: 0; color: #374151; font-weight: 600;">${agentName || 'Support Team'}</p>
-              <p style="margin: 0; color: #9ca3af; font-size: 12px;">Support Agent</p>
-            </div>
-          </div>
-          <p style="color: #6b7280; font-size: 15px; line-height: 1.6; white-space: pre-wrap; margin: 0;">${agentMessage}</p>
-        </div>
-
-        <div style="text-align: center; margin: 30px 0;">
-          <a href="${FRONTEND_URL}" style="display: inline-block; background: linear-gradient(135deg, #7c3aed 0%, #ec4899 100%); color: white; padding: 15px 30px; text-decoration: none; border-radius: 12px; font-weight: bold; font-size: 16px;">
-            Reply to Support
-          </a>
-        </div>
-
-        <div style="border-top: 1px solid #e5e7eb; padding-top: 20px; margin-top: 30px;">
-          <p style="color: #9ca3af; font-size: 13px; text-align: center;">
-            You can reply directly to this email or use the chat widget on our website.<br>
-            - The Imagine This Printed Team
-          </p>
-        </div>
-      </div>
-    `
+    subject: reply.subject,
+    htmlContent: reply.html
   })
 }
 

@@ -24,6 +24,7 @@ import {
 import { uploadFile } from '../services/gcs-storage.js';
 import { listSuppressions, recordSuppression } from '../services/email-suppression.js';
 import { sortByReplyUrgency, triageEmails, wantsSummary, type EmailTriage } from '../lib/jev-triage.js';
+import { decideInboundFiling, bodyForTriage, type InboundFiling } from '../lib/inbound-spam.js';
 
 const router = Router();
 
@@ -1444,6 +1445,39 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
       );
     }
 
+    // Spam and floods are filed quietly (lib/inbound-spam.ts): still stored, never
+    // deleted, but not pushed to the owner's phone. Our own system mail (ticket
+    // alerts, daily ops) skips the Jev call and the throttle.
+    let filing: InboundFiling = { forward: true, archive: false, reason: 'ok' };
+    const subjectText = src.subject || data.subject || '(no subject)';
+    if ((mailboxes || []).length && from.address && !from.address.endsWith(`@${EMAIL_DOMAIN}`)) {
+      const sinceHour = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      const [{ count: recentFromSender }, triaged] = await Promise.all([
+        supabase
+          .from('email_messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('direction', 'inbound')
+          .eq('from_address', from.address)
+          .gte('created_at', sinceHour),
+        triageEmails([
+          {
+            id: emailId || 'inbound',
+            from_address: from.address,
+            from_name: from.name,
+            subject: subjectText,
+            body: bodyForTriage(textBody, htmlBody),
+          },
+        ]).catch(() => new Map<string, EmailTriage>()),
+      ]);
+      filing = decideInboundFiling({
+        triage: triaged.get(emailId || 'inbound'),
+        recentFromSender: recentFromSender ?? 0,
+      });
+      if (filing.reason !== 'ok') {
+        console.log('[email-webhook] filed quietly:', filing.reason, from.address, emailId);
+      }
+    }
+
     let inserted = 0;
     for (const mailbox of mailboxes || []) {
       const { error } = await supabase.from('email_messages').insert({
@@ -1460,6 +1494,7 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
         html_body: htmlBody,
         attachments,
         status: 'received',
+        ...(filing.archive ? { is_archived: true, is_read: true } : {}),
       });
       // Unique index (mailbox_id, resend_id) absorbs webhook retries
       if (!error) {
@@ -1467,7 +1502,7 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
         // Forward only behind a FIRST successful insert — a webhook retry hits
         // the dedupe index above and returns an error here, so retries can't
         // send duplicate copies to the personal address.
-        await forwardInbound({
+        if (filing.forward) await forwardInbound({
           mailbox,
           from,
           to: toAddressArray(src.to ?? data.to),
@@ -1502,7 +1537,7 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
       }
     }
 
-    res.json({ received: true, matched: inserted });
+    res.json({ received: true, matched: inserted, filed: filing.reason });
   } catch (error) {
     console.error('[email-webhook] error:', error);
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
