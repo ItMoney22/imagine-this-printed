@@ -1,12 +1,12 @@
 // MUST be the first import — see backend/load-env.ts.
 import '../load-env.js'
 import { startWorker } from './ai-jobs-worker.js'
+import { startDesignPerformanceSweep } from './design-performance-sweep.js'
 import { startEtsyWorker } from './etsy-jobs-worker.js'
 import { startTryOnRetentionSweep } from './tryon-retention-sweep.js'
 import { startMrsImagineDaily } from './mrs-imagine-daily.js'
 import { startStepFlowStallSweep } from './step-flow-stall-sweep.js'
 import { startDeliveryTrackingSweep } from './delivery-tracking-sweep.js'
-import { startDesignPerformanceSweep } from './design-performance-sweep.js'
 
 // Process-level crash handlers. Node 20 defaults to
 // --unhandled-rejections=throw, so ANY unhandled promise rejection anywhere in
@@ -54,14 +54,14 @@ startMrsImagineDaily()
 // that product. This fails them so the admin gets the buttons back. See
 // backend/worker/step-flow-stall-sweep.ts.
 startStepFlowStallSweep()
+// Scores every live design's prompt variant on the last 30 days of store clicks,
+// carts and paid orders, and stores its prune / refresh verdict (task 47174caa).
+// See backend/worker/design-performance-sweep.ts.
+startDesignPerformanceSweep()
 // Polls the carrier for every shipped order, moves delivered ones to
 // 'delivered' and mails the buyer their thank-you coupon. Needs
 // SHIPPO_API_TOKEN; logs and stays dark without it. See
 // backend/worker/delivery-tracking-sweep.ts.
 startDeliveryTrackingSweep()
-// Scores every live design's prompt variant on the last 30 days of store clicks,
-// carts and paid orders, and stores its prune / refresh verdict (task 47174caa).
-// See backend/worker/design-performance-sweep.ts.
-startDesignPerformanceSweep()
 
 console.log('Worker is running. Press Ctrl+C to stop.')
