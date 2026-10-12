@@ -982,7 +982,7 @@ const ProductPage: React.FC = () => {
                           </span>
                           <span className="font-semibold text-sm text-text flex-1">{tier.label}</span>
                           <span className="text-xs font-semibold text-muted">
-                            {delta > 0 ? `+${delta.toFixed(2)}` : 'included'}
+                            {delta > 0 ? `+$${delta.toFixed(2)}` : 'included'}
                           </span>
                         </div>
                         <p className="text-xs text-muted mt-1 line-clamp-2">{tier.blurb}</p>
