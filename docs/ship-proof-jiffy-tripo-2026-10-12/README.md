@@ -54,11 +54,11 @@ Shots: [`product-page-sky-1400.png`](product-page-sky-1400.png), [`product-page-
 
 ## 4. Gates
 
-- [`verify-branch.log`](verify-branch.log): `npm run verify` on b5a58bc, tsc clean, **166 files / 2377 tests pass**.
+- [`verify-branch.txt`](verify-branch.txt): `npm run verify` on b5a58bc, tsc clean, **166 files / 2377 tests pass**.
 - `npx vite build` on b5a58bc: built in 11s, exit 0.
 - `git merge-tree --write-tree` exit 0 against: origin/main ad57532 (pure descendant), local main 6e99462,
   Vinny's Jiffy cost sync 051355f (SHIP 0ad30c62), Saturn's on-person stamping 35cc532b (SHIP 4646cb1f).
-- **10/13 superset**: b5a58bc + 051355f + 35cc532b merge clean (tree c2411d7e). [`verify-superset-10-13.log`](verify-superset-10-13.log):
+- **10/13 superset**: b5a58bc + 051355f + 35cc532b merge clean (tree c2411d7e). [`verify-superset-10-13.txt`](verify-superset-10-13.txt):
   tsc clean, **171 files / 2440 tests pass**. The first two runs went red only on the environment: another session's cleanup
   emptied the shared `backend/node_modules/.prisma/client` at 12:04:25 (health.test.ts could not load Prisma), then a
   5s import timeout in print-bridge.test.ts while a second vitest ran next to it. That file passed alone (12/12), and the full rerun was green.

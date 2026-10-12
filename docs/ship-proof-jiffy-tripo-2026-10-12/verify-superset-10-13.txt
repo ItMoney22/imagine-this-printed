@@ -1,0 +1,18 @@
+
+> imagine-this-printed@0.0.0 verify
+> npm run typecheck && vitest run
+
+
+> imagine-this-printed@0.0.0 typecheck
+> tsc -b --noEmit
+
+
+ RUN  v4.1.10 C:/Users/David/AppData/Local/Temp/claude/D--watchtower-dispatch-worktrees-imagine-this-printed-rhea-cassien-ship-itp-jiffy-per-colou-67f1d6f2-mv5f50mx/eb275fed-104e-463d-a287-0aa135948079/scratchpad/superset
+
+
+ Test Files  171 passed (171)
+      Tests  2440 passed (2440)
+   Start at  12:08:09
+   Duration  14.02s (transform 13.84s, setup 2.94s, import 70.33s, tests 54.26s, environment 81.68s)
+
+EXIT 0

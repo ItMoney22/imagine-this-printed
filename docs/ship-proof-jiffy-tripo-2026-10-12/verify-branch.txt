@@ -1,0 +1,18 @@
+
+> imagine-this-printed@0.0.0 verify
+> npm run typecheck && vitest run
+
+
+> imagine-this-printed@0.0.0 typecheck
+> tsc -b --noEmit
+
+
+ RUN  v4.1.10 D:/watchtower-dispatch-worktrees/imagine-this-printed/rhea-cassien/ship-itp-jiffy-per-colou-67f1d6f2-mv5f50mx
+
+
+ Test Files  166 passed (166)
+      Tests  2377 passed (2377)
+   Start at  11:58:34
+   Duration  16.45s (transform 36.54s, setup 8.78s, import 122.79s, tests 55.42s, environment 75.24s)
+
+EXIT 0
