@@ -4772,3 +4772,24 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-12) — CRM notes + tags persist (task cab1aebf, dane-marsh)
+Stale scope above belongs to earlier tasks. Card said crm_notes/crm_tags were missing; on 2026-10-12 both
+exist live (from 20260728_messaging_crm_tables.sql, 0 rows) but with founder access, no UPDATE, no note
+DELETE, no updated_at, anon full grants. The page also never LOADED them (notes: [], tags = the role), so a
+saved note/tag vanished on reload, and the modal rendered a frozen copy of the customer.
+
+### File shortlist (approved scope — 2026-10-12 CRM notes + tags)
+- `supabase/migrations/20261012190000_crm_notes_and_tags.sql` (new), `supabase/migrations/MIGRATION_LEDGER.md`
+- `src/pages/CRM.tsx` (load + mutations + modal + role/tag split)
+- `src/lib/crm-notes-tags.ts` + `.test.ts` (new, pure helpers: tag normalising, row grouping)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (dane-marsh): migration proven in a rolled-back live txn (30/30 role checks; current live policies
+  failed 6), then APPLIED LIVE + tracked as 20261012190000; post-apply proof 30/30.
+- 2026-10-12 (dane-marsh): CRM.tsx now loads crm_notes + crm_tags, keeps role (user_profiles.role) and tags (crm_tags)
+  apart in state and on screen (solid role chip vs outlined tag pill with icon), modal reads the live row, inline tag
+  box replaces prompt(), remove checks the deleted row count. Real-data walk as an admin on vite dev: 18/18
+  (note + tag written, survive reload, tag removed, phone 390 no sideways scroll); walk rows deleted, minted session
+  revoked. tsc 0, lint 0 errors, vitest 146 files / 2200, vite build green.

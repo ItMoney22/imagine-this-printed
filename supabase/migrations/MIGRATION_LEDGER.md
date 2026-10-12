@@ -7,6 +7,27 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-10-12 — `crm_notes` + `crm_tags` admin/manager CRUD APPLIED + TRACKED (Dane Marsh, Watchtower `cab1aebf`)
+
+- `20261012190000_crm_notes_and_tags.sql` — **APPLIED LIVE** 2026-10-12 in one
+  transaction, **tracked** as version `20261012190000` in
+  `supabase_migrations.schema_migrations`, then `notify pgrst, 'reload schema'`.
+- Both tables were already live (from `20260728_messaging_crm_tables.sql`, 0 rows
+  each) but admitted `founder`, had no UPDATE policy on either table and no DELETE
+  on `crm_notes`, no `updated_at`, and `anon`/`authenticated` held every table
+  privilege incl. TRUNCATE. Now: SELECT/INSERT/UPDATE/DELETE `TO authenticated`
+  for `get_user_role(auth.uid()) IN ('admin','manager')` only (INSERT also needs
+  `created_by = auth.uid()`); anon has no grants; `updated_at` + triggers; FKs on
+  `user_profiles(id)` (customer CASCADE, author SET NULL); blank-note and tag-shape
+  CHECKs.
+- **Proven as real callers** (`SET ROLE` + `request.jwt.claims`) in a rolled-back
+  transaction, before and after the apply: 30/30 (admin full CRUD, manager allowed,
+  customer/vendor/founder see 0 rows and are refused writes, anon 42501). The
+  pre-migration live policies failed 6 of those 30.
+- Rollback = re-run section 3 of `20260728_messaging_crm_tables.sql` (the five old
+  policies) and drop the two `*_set_updated_at` triggers; the extra column and
+  constraints are harmless to leave.
+
 ## 2026-09-22 — `print_materials` APPLIED + TRACKED, initial stock seeded (Lucas Blaze, Watchtower `c89e511c`)
 
 - `20260819230000_print_materials.sql` — **APPLIED LIVE** 2026-09-22 via

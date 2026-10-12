@@ -1,27 +1,43 @@
 import React, { useState, useEffect, useMemo } from 'react'
+import { Tag as TagIcon } from 'lucide-react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { supabase } from '../lib/supabase'
 import { useToast } from '../hooks/useToast'
+import { normalizeCrmTag, groupCrmRows, toContactNote, CRM_TAG_MAX_LENGTH } from '../lib/crm-notes-tags'
 import type { CustomerContact, ContactNote, CustomJobRequest, Order } from '../types'
+
+// `tags` are staff labels from crm_tags; `role` is the account role from
+// user_profiles. They are kept apart so a role chip can never be "removed"
+// as if it were a tag.
+type CrmCustomer = CustomerContact & { role: string }
 
 const CRM: React.FC = () => {
   const { user } = useAuth()
   const toast = useToast()
   const [selectedTab, setSelectedTab] = useState<'customers' | 'jobs' | 'analytics' | 'orders'>('customers')
-  const [customers, setCustomers] = useState<CustomerContact[]>([])
+  const [customers, setCustomers] = useState<CrmCustomer[]>([])
   const [jobs, setJobs] = useState<CustomJobRequest[]>([])
   const [orders, setOrders] = useState<Order[]>([])
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerContact | null>(null)
+  // The modal reads the live row from `customers`, so a saved note or tag
+  // shows up without closing and reopening it.
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null)
+  const selectedCustomer = useMemo(
+    () => customers.find(c => c.id === selectedCustomerId) ?? null,
+    [customers, selectedCustomerId]
+  )
   const [showCustomerModal, setShowCustomerModal] = useState(false)
   const [newNote, setNewNote] = useState('')
+  const [newTag, setNewTag] = useState('')
+  const [showTagInput, setShowTagInput] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
-  const [filterTag, setFilterTag] = useState('')
+  const [filterRole, setFilterRole] = useState('')
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
   const [dateRange, setDateRange] = useState({ start: '', end: '' })
   const [chatMessages, setChatMessages] = useState<{[customerId: string]: Array<{id: string, message: string, sender: string, timestamp: string}>}>({})
   const [newChatMessage, setNewChatMessage] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [notesTagsError, setNotesTagsError] = useState<string | null>(null)
 
   // Fetch real data from Supabase
   useEffect(() => {
@@ -30,10 +46,15 @@ const CRM: React.FC = () => {
       setError(null)
 
       try {
-        // Fetch customers and orders in parallel
-        const [profilesResult, ordersResult] = await Promise.all([
+        // Fetch customers, orders and the staff notes/tags in parallel
+        const [profilesResult, ordersResult, notesResult, tagsResult] = await Promise.all([
           supabase.from('user_profiles').select('*').order('created_at', { ascending: false }),
-          supabase.from('orders').select('*').order('created_at', { ascending: false })
+          supabase.from('orders').select('*').order('created_at', { ascending: false }),
+          supabase
+            .from('crm_notes')
+            .select('id, customer_id, content, note_type, created_by, created_at')
+            .order('created_at', { ascending: false }),
+          supabase.from('crm_tags').select('customer_id, tag')
         ])
 
         if (profilesResult.error) throw profilesResult.error
@@ -41,6 +62,16 @@ const CRM: React.FC = () => {
 
         const profiles = profilesResult.data
         const ordersData = ordersResult.data
+
+        // Notes and tags failing to load must not take the customer list down
+        // with them; say so and show the list without them.
+        const notesTagsLoadError = notesResult.error || tagsResult.error
+        if (notesTagsLoadError) console.error('[CRM] Error loading notes/tags:', notesTagsLoadError)
+        setNotesTagsError(notesTagsLoadError ? notesTagsLoadError.message : null)
+        const { notesByCustomer, tagsByCustomer } = groupCrmRows(
+          notesResult.error ? [] : notesResult.data,
+          tagsResult.error ? [] : tagsResult.data
+        )
 
         // Calculate customer stats from orders
         const customerStats: Record<string, { totalSpent: number; totalOrders: number; lastOrderDate: string | null }> = {}
@@ -58,7 +89,7 @@ const CRM: React.FC = () => {
         })
 
         // Map user_profiles to CustomerContact format
-        const mappedCustomers: CustomerContact[] = (profiles || []).map((profile: any) => {
+        const mappedCustomers: CrmCustomer[] = (profiles || []).map((profile: any) => {
           const stats = customerStats[profile.id] || { totalSpent: 0, totalOrders: 0, lastOrderDate: null }
           return {
             id: profile.id,
@@ -67,8 +98,9 @@ const CRM: React.FC = () => {
             name: profile.display_name || profile.username || profile.email?.split('@')[0] || 'Unknown',
             phone: profile.phone || '',
             company: profile.company_name || '',
-            tags: profile.role ? [profile.role] : [],
-            notes: [],
+            role: profile.role || 'customer',
+            tags: tagsByCustomer[profile.id] || [],
+            notes: notesByCustomer[profile.id] || [],
             totalSpent: stats.totalSpent,
             totalOrders: stats.totalOrders,
             lastOrderDate: stats.lastOrderDate || undefined,
@@ -175,26 +207,37 @@ const CRM: React.FC = () => {
         note_type: 'general',
         created_by: user.id
       })
-      .select()
+      .select('id, customer_id, content, note_type, created_by, created_at')
       .single()
 
-    if (error) {
+    if (error || !data) {
       console.error('[CRM] Error saving note:', error)
       setCustomers(prev => prev.map(customer =>
         customer.id === customerId
           ? { ...customer, notes: customer.notes.filter(note => note.id !== tempId) }
           : customer
       ))
-      toast.error('Failed to save note', error.message)
+      setNewNote(content) // give the text back so it isn't lost
+      toast.error('Failed to save note', error?.message)
       return
     }
 
-    // Reconcile the optimistic temp id with the real DB-assigned id.
+    // Swap the optimistic note for the saved row (real id + server time).
+    const saved = toContactNote(data)
     setCustomers(prev => prev.map(customer =>
       customer.id === customerId
-        ? { ...customer, notes: customer.notes.map(note => note.id === tempId ? { ...note, id: data.id } : note) }
+        ? { ...customer, notes: customer.notes.map(note => note.id === tempId ? saved : note) }
         : customer
     ))
+  }
+
+  // Re-read one customer's tags so the chips match what crm_tags holds.
+  const reloadTags = async (customerId: string) => {
+    const { data, error } = await supabase.from('crm_tags').select('customer_id, tag').eq('customer_id', customerId)
+    if (error) return null
+    const tags = groupCrmRows([], data).tagsByCustomer[customerId] || []
+    setCustomers(prev => prev.map(c => c.id === customerId ? { ...c, tags } : c))
+    return tags
   }
 
   const removeTag = async (customerId: string, tagToRemove: string) => {
@@ -204,46 +247,54 @@ const CRM: React.FC = () => {
         : customer
     ))
 
-    const { error } = await supabase
+    // .select() returns the deleted rows: RLS refusing a delete is not an
+    // error to PostgREST, just zero rows, so check the count.
+    const { data, error } = await supabase
       .from('crm_tags')
       .delete()
       .eq('customer_id', customerId)
       .eq('tag', tagToRemove)
+      .select('id')
 
     if (error) {
       console.error('[CRM] Error removing tag:', error)
       setCustomers(prev => prev.map(customer =>
         customer.id === customerId && !customer.tags.includes(tagToRemove)
-          ? { ...customer, tags: [...customer.tags, tagToRemove] }
+          ? { ...customer, tags: [...customer.tags, tagToRemove].sort() }
           : customer
       ))
       toast.error('Failed to remove tag', error.message)
+      return
+    }
+
+    if (!data || data.length === 0) {
+      const tags = await reloadTags(customerId)
+      if (tags?.includes(tagToRemove)) toast.error('Failed to remove tag', 'The tag is still saved on this customer.')
     }
   }
 
   const addTag = async (customerId: string) => {
-    // TODO(audit #9): replace this `prompt()` with a tag-picker modal once
-    // we have a shared "edit-list-of-strings" pattern. Until then at least
-    // the button isn't inert and we de-dupe + trim.
-    const raw = prompt('Add tag (use - or _ instead of spaces):')
-    if (raw === null) return // user cancelled
-    const tag = raw.trim()
+    const tag = normalizeCrmTag(newTag)
     if (!tag || !user) return
 
     const customer = customers.find(c => c.id === customerId)
-    if (customer?.tags.includes(tag)) return // de-dupe
+    setNewTag('')
+    setShowTagInput(false)
+    if (customer?.tags.includes(tag)) return // already on this customer
 
     setCustomers(prev => prev.map(c => {
       if (c.id !== customerId) return c
       if (c.tags.includes(tag)) return c
-      return { ...c, tags: [...c.tags, tag] }
+      return { ...c, tags: [...c.tags, tag].sort() }
     }))
 
     const { error } = await supabase
       .from('crm_tags')
       .insert({ customer_id: customerId, tag, created_by: user.id })
 
-    if (error) {
+    // 23505 = the (customer_id, tag) pair is already saved (another tab or
+    // another admin): the chip we are showing is correct.
+    if (error && error.code !== '23505') {
       console.error('[CRM] Error adding tag:', error)
       setCustomers(prev => prev.map(c =>
         c.id === customerId ? { ...c, tags: c.tags.filter(t => t !== tag) } : c
@@ -356,6 +407,7 @@ const CRM: React.FC = () => {
       email: customer.email,
       phone: customer.phone,
       company: customer.company,
+      role: customer.role,
       tags: customer.tags.join('; '),
       totalOrders: customer.totalOrders,
       totalSpent: customer.totalSpent,
@@ -392,10 +444,10 @@ const CRM: React.FC = () => {
     return customers.filter(customer => {
       const matchesSearch = customer.name.toLowerCase().includes(q) ||
                            customer.email.toLowerCase().includes(q)
-      const matchesTag = !filterTag || customer.tags.includes(filterTag)
-      return matchesSearch && matchesTag
+      const matchesRole = !filterRole || customer.role === filterRole
+      return matchesSearch && matchesRole
     })
-  }, [customers, searchTerm, filterTag])
+  }, [customers, searchTerm, filterRole])
 
   const filteredOrders = useMemo(() => {
     const q = searchTerm.toLowerCase()
@@ -418,8 +470,8 @@ const CRM: React.FC = () => {
     })
   }, [orders, customers, searchTerm, orderStatusFilter, dateRange.start, dateRange.end])
 
-  const allTags = useMemo(
-    () => Array.from(new Set(customers.flatMap(c => c.tags))),
+  const allRoles = useMemo(
+    () => Array.from(new Set(customers.map(c => c.role))).sort(),
     [customers]
   )
 
@@ -579,6 +631,11 @@ const CRM: React.FC = () => {
         {/* Customers Tab */}
         {selectedTab === 'customers' && (
           <div className="space-y-6">
+            {notesTagsError && (
+              <div role="alert" className="bg-red-50 border border-red-200 rounded-md px-4 py-3 text-sm text-red-800">
+                Customer notes and tags didn't load ({notesTagsError}). The list below is shown without them.
+              </div>
+            )}
             <div className="flex flex-col sm:flex-row gap-4 mb-4">
               <div className="flex-1 relative">
                 <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -593,13 +650,13 @@ const CRM: React.FC = () => {
                 />
               </div>
               <select
-                value={filterTag}
-                onChange={(e) => setFilterTag(e.target.value)}
+                value={filterRole}
+                onChange={(e) => setFilterRole(e.target.value)}
                 className="px-4 py-2.5 bg-card border border-purple-500/20 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500 text-text"
               >
                 <option value="">All Roles</option>
-                {allTags.map(tag => (
-                  <option key={tag} value={tag}>{tag}</option>
+                {allRoles.map(role => (
+                  <option key={role} value={role}>{role}</option>
                 ))}
               </select>
               <button
@@ -638,6 +695,16 @@ const CRM: React.FC = () => {
                             <div className="ml-3">
                               <div className="text-sm font-medium text-text">{customer.name}</div>
                               <div className="text-xs text-muted">{customer.company || 'Individual'}</div>
+                              {customer.tags.length > 0 && (
+                                <div className="mt-1 flex flex-wrap gap-1" aria-label="CRM tags">
+                                  {customer.tags.slice(0, 3).map((tag) => (
+                                    <CrmTagChip key={tag} tag={tag} />
+                                  ))}
+                                  {customer.tags.length > 3 && (
+                                    <span className="text-[11px] text-muted">+{customer.tags.length - 3}</span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </td>
@@ -646,18 +713,7 @@ const CRM: React.FC = () => {
                           <div className="text-xs text-muted">{customer.phone || 'No phone'}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="flex flex-wrap gap-1">
-                            {customer.tags.map((tag) => (
-                              <span key={tag} className={`px-2.5 py-1 inline-flex text-xs font-semibold rounded-lg ${
-                                tag === 'admin' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
-                                tag === 'vendor' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
-                                tag === 'founder' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
-                                'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                              }`}>
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
+                          <RoleChip role={customer.role} />
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <span className="text-sm font-medium text-text">{customer.totalOrders}</span>
@@ -671,7 +727,10 @@ const CRM: React.FC = () => {
                         <td className="px-6 py-4 whitespace-nowrap">
                           <button
                             onClick={() => {
-                              setSelectedCustomer(customer)
+                              setSelectedCustomerId(customer.id)
+                              setNewNote('')
+                              setNewTag('')
+                              setShowTagInput(false)
                               setShowCustomerModal(true)
                             }}
                             className="px-3 py-1.5 bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 text-sm font-medium rounded-lg transition-colors"
@@ -951,12 +1010,12 @@ const CRM: React.FC = () => {
             <div className="bg-card rounded-lg shadow p-6">
               <h3 className="text-lg font-semibold text-text mb-4">Customer Segments</h3>
               <div className="space-y-3">
-                {allTags.map(tag => {
-                  const count = customers.filter(c => c.tags.includes(tag)).length
+                {allRoles.map(role => {
+                  const count = customers.filter(c => c.role === role).length
                   const percentage = customers.length > 0 ? (count / customers.length) * 100 : 0
                   return (
-                    <div key={tag} className="flex items-center justify-between">
-                      <span className="text-sm font-medium text-text">{tag}</span>
+                    <div key={role} className="flex items-center justify-between">
+                      <span className="text-sm font-medium text-text">{role}</span>
                       <div className="flex items-center">
                         <div className="w-20 bg-gray-200 rounded-full h-2 mr-2">
                           <div className="bg-purple-600 h-2 rounded-full" style={{ width: `${percentage}%` }}></div>
@@ -1020,6 +1079,7 @@ const CRM: React.FC = () => {
               <div>
                 <h4 className="font-semibold text-text mb-3">Account Summary</h4>
                 <div className="space-y-2 text-sm">
+                  <p className="flex items-center gap-2"><span className="font-medium">Role:</span> <RoleChip role={selectedCustomer.role} /></p>
                   <p><span className="font-medium">Total Orders:</span> {selectedCustomer.totalOrders}</p>
                   <p><span className="font-medium">Total Spent:</span> ${selectedCustomer.totalSpent.toFixed(2)}</p>
                   <p><span className="font-medium">Last Order:</span> {selectedCustomer.lastOrderDate ? new Date(selectedCustomer.lastOrderDate).toLocaleDateString() : 'Never'}</p>
@@ -1029,31 +1089,76 @@ const CRM: React.FC = () => {
             </div>
 
             <div className="mb-6">
-              <h4 className="font-semibold text-text mb-3">Tags</h4>
-              <div className="flex flex-wrap gap-2">
+              <h4 className="font-semibold text-text mb-1">Tags</h4>
+              <p className="text-xs text-muted mb-3">Your team's labels for this customer. Separate from their account role.</p>
+              <div className="flex flex-wrap items-center gap-2">
                 {selectedCustomer.tags.map((tag) => (
-                  <span key={tag} className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm flex items-center">
-                    {tag}
-                    <button
-                      onClick={() => removeTag(selectedCustomer.id, tag)}
-                      className="ml-2 text-purple-600 hover:text-purple-800"
-                    >
-                      ×
-                    </button>
-                  </span>
+                  <CrmTagChip
+                    key={tag}
+                    tag={tag}
+                    size="md"
+                    onRemove={() => removeTag(selectedCustomer.id, tag)}
+                  />
                 ))}
-                <button
-                  onClick={() => addTag(selectedCustomer.id)}
-                  className="px-3 py-1 border border-dashed card-border rounded-full text-sm text-muted hover:border-gray-400"
-                >
-                  + Add Tag
-                </button>
+                {showTagInput ? (
+                  <form
+                    className="flex items-center gap-2"
+                    onSubmit={(e) => {
+                      e.preventDefault()
+                      addTag(selectedCustomer.id)
+                    }}
+                  >
+                    <input
+                      type="text"
+                      autoFocus
+                      value={newTag}
+                      maxLength={CRM_TAG_MAX_LENGTH}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          setNewTag('')
+                          setShowTagInput(false)
+                        }
+                      }}
+                      placeholder="e.g. vip"
+                      aria-label="New tag"
+                      className="w-36 px-3 py-1 text-sm bg-card text-text border border-border rounded-full focus:outline-none focus:ring-2 focus:ring-accent"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!normalizeCrmTag(newTag)}
+                      className="px-3 py-1 text-sm rounded-full bg-accent text-white disabled:opacity-40"
+                    >
+                      Add
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewTag('')
+                        setShowTagInput(false)
+                      }}
+                      className="px-2 py-1 text-sm text-muted hover:text-text"
+                    >
+                      Cancel
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    onClick={() => setShowTagInput(true)}
+                    className="px-3 py-1 border border-dashed border-border rounded-full text-sm text-muted hover:text-text hover:border-accent"
+                  >
+                    + Add Tag
+                  </button>
+                )}
               </div>
             </div>
 
             <div className="mb-6">
               <h4 className="font-semibold text-text mb-3">Notes</h4>
               <div className="space-y-3 mb-4">
+                {selectedCustomer.notes.length === 0 && (
+                  <p className="text-sm text-muted">No notes yet. Only admins and managers can see notes.</p>
+                )}
                 {selectedCustomer.notes.map((note) => (
                   <div key={note.id} className="bg-card rounded-lg p-3">
                     <div className="flex justify-between items-start mb-2">
@@ -1072,21 +1177,29 @@ const CRM: React.FC = () => {
                 ))}
               </div>
 
-              <div className="flex space-x-2">
+              <form
+                className="flex space-x-2"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  addNote(selectedCustomer.id)
+                }}
+              >
                 <input
                   type="text"
                   value={newNote}
                   onChange={(e) => setNewNote(e.target.value)}
                   placeholder="Add a note..."
-                  className="flex-1 px-3 py-2 border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  aria-label="New note"
+                  className="flex-1 px-3 py-2 bg-card text-text border card-border rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
                 />
                 <button
-                  onClick={() => addNote(selectedCustomer.id)}
-                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md"
+                  type="submit"
+                  disabled={!newNote.trim()}
+                  className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-md disabled:opacity-40"
                 >
                   Add Note
                 </button>
-              </div>
+              </form>
             </div>
 
             {/* Internal Chat */}
@@ -1204,5 +1317,43 @@ const CRM: React.FC = () => {
     </div>
   )
 }
+
+// Account role: a solid, square-ish chip, never removable here.
+const RoleChip: React.FC<{ role: string }> = ({ role }) => (
+  <span
+    title="Account role"
+    className={`px-2.5 py-1 inline-flex text-xs font-semibold rounded-lg ${
+      role === 'admin' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
+      role === 'vendor' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+      role === 'founder' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+      'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+    }`}
+  >
+    {role}
+  </span>
+)
+
+// CRM tag (crm_tags): an outlined pill with a tag icon, so it can't be
+// mistaken for a role chip.
+const CrmTagChip: React.FC<{ tag: string; size?: 'sm' | 'md'; onRemove?: () => void }> = ({ tag, size = 'sm', onRemove }) => (
+  <span
+    className={`inline-flex items-center gap-1 rounded-full border border-accent bg-card text-accent font-medium ${
+      size === 'md' ? 'px-3 py-1 text-sm' : 'px-2 py-0.5 text-[11px]'
+    }`}
+  >
+    <TagIcon className={size === 'md' ? 'w-3.5 h-3.5' : 'w-3 h-3'} aria-hidden="true" />
+    {tag}
+    {onRemove && (
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`Remove tag ${tag}`}
+        className="ml-1 leading-none hover:text-text"
+      >
+        ×
+      </button>
+    )}
+  </span>
+)
 
 export default CRM
