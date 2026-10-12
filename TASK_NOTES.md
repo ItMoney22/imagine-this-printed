@@ -4772,3 +4772,24 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-12) — Ember Warrior tee bb7bd4f1: draft vs honest listing (task 6bcb0902, lucas-blaze)
+
+Nine's gate: live tee bb7bd4f1 'Ember Warrior Graphic Tee' leads with a real person's photo + the name SHYANNE
+(back print: SENIOR 2027) while the copy describes a generic tribal warrior. Decide A (draft) or B (keep, honest copy).
+
+### File shortlist (approved scope — 2026-10-12 Ember Warrior)
+- DATA ONLY: live `products` row bb7bd4f1-ba41-4890-aeea-118fcbed8a88, column `status` (one field). No code change.
+- `src/pages/ProductPage.tsx`, `src/pages/ProductCatalog.tsx`, `src/lib/storefront-row.ts` — READ ONLY, to prove what a
+  draft row shows to the public (catalog + direct /product/<id> link).
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (lucas-blaze): chose Option A. bb7bd4f1 art = a real teen's photo + "SHYANNE" front, "SENIOR 2027" back;
+  its one sale (ITP-MSJK1K3I-8GDG, paid + delivered 8/7) is the custom order it came from. Honest copy (B) would name a
+  minor in public SEO copy, and nobody else buys a shirt of a stranger's face. Live DB: status active->draft in one guarded
+  txn (only status + derived approved changed; live 36->35); restore manifest
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-12-ember-warrior-bb7bd4f1-draft.json. Fleet browser 390:
+  catalog All 35, ?q=warrior and home no longer show it, sitemap drops it. The direct /product/<id> link still renders
+  (ProductPage has no status filter, RLS USING true) -> follow-up card 8423e1ce. Correction: the row did have an on-model
+  front/back mockup (images[2]); it was just not first.
