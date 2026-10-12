@@ -5045,3 +5045,41 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
 - 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).
 
 - 2026-10-08 (zero-nine, code-here): ship branch earth/zero-nine/ship-itp-amelia-redos-admin-menu = main 79cf763 + Amelia whole-site redo (b9656cc9) + Imagination Station redo (1edebb4) + one-admin-menu (b036572) + fix: AdminShell sets SidebarContext.siteMenuHidden so the desktop shop sidebar steps aside on admin pages, Back to Shop pill on top. Conflicts kept Daisy creator treatment (ProductPage, YouMayAlsoLike lanes), 2XL +$2.50 on cart chip/line, Sal guest wording on Toy Factory, main support-A1 chat widget, one FREE_SHIPPING_THRESHOLD. tsc clean, vitest 165/2365, vite build ok. Walked 1440: /admin one menu, catalog, product, Walk By Faith (Design by Darrell, no off-lane row), cart 2XL line $27.50, /toys, /imagination-station. Scope: SidebarContext.tsx, Sidebar.tsx(+test), App.tsx, AdminShell.tsx, YouMayAlsoLike.tsx, shipping-calculator.ts.
+
+## Current request (2026-10-07) — ITP referral reward model, Nine's gate: option C (task 4cebbf83, dr-dill)
+
+Decision: C. Referrer 500 ITC ($5 store credit) when the friend's first order with $15+ of products (after
+discounts) is paid; friend gets a personal 10%-off first-order code (30 days, one use, bound to their account,
+auto-put in their cart). Sign-up still pays nothing. One code per order, so it never stacks with another code.
+Live read: real paid orders are $20-$40 of products; cheapest live listings are $3.07, hence the $15 floor.
+Built on the bdfa6939 referrals branch (19a5381, fast-forwarded in).
+
+### File shortlist (approved scope — 2026-10-07 referral reward C)
+- new `supabase/migrations/20261007233000_referral_reward_first_order_c.sql` (process_referral_reward mints the
+  welcome code; award_referral_first_order 500 ITC, order must be the friend's, paid, $15+ of products)
+- new `backend/shared/coupon-owner.ts` (one rule: owner_user_id + first_order_only), `backend/services/order-pricing.ts`
+  (+ test), `backend/routes/coupons.ts` (+ test)
+- `backend/services/referral-service.ts` (+ test), `backend/routes/wallet.ts` (GET /referral/welcome only),
+  `backend/services/order-refunds.ts` (+ test: reverse by related_order_id), `backend/utils/reward-calculator.ts` (mirror)
+- `src/lib/referral-program.ts`, `src/pages/Referrals.tsx`, `src/utils/referral-system.ts` (share pitch),
+  `src/utils/referral-capture.ts` + `src/components/ReferralApplier.tsx` (+ test), `src/context/CartContext.tsx`
+  (+ test: a percentage coupon follows the cart), `src/types/index.ts` (AppliedCoupon.maxDiscount)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): migration dry-run on the live DB in a rolled-back transaction: signup pays 0 + mints
+  WELCOME10-xxxxxx bound to the friend; repeat returns the same code; no order / unpaid / someone else's /
+  $14 order -> refused; $22.50 order -> referrer +500 ITC once, ledger + related_order_id; second order no-op;
+  anon/authenticated EXECUTE false. Checkout + /validate refuse the code for anyone else, guests, or after a
+  paid order. tsc app 0, backend 0 (known TS2742 only), vitest 148 files / 2239 pass.
+- 2026-10-07 (dr-dill): applied 20261007233000 live, walked it (fleet browser, local build of this branch + a
+  wallet/coupons-only API on :4242 against the live DB): fresh friend account landed on a ?ref link, signed in,
+  apply recorded the link + minted WELCOME10-N65KTA; adding a $25 tee put the code in the cart with a toast;
+  checkout showed -$2.50 / $22.50. Validate: friend valid, referrer "belongs to another account", guest "sign in".
+  Rolled-back live txn: $14 first order -> below_minimum, $25-$2.50 order -> referrer +500 ITC. Then REVERTED
+  the live functions to option A at the 01dd112c ship's request (it ships 19a5381's 50 ITC copy tonight; one ITP
+  ship a day): 20261007210000 bodies re-applied, 20261007233000 tracking row removed, QA code deactivated.
+  Apply 20261007233000 when this branch ships. Toast line shortened to fit one line at 390px.
+- 2026-10-07 (dr-dill): scope +1 file: `public/home/how-4-earn.webp` restored (byte-identical to the live file).
+  The home remodel b88f86c2 deleted it but /referrals still shows it; the 390px walk showed a broken hero.
+- 2026-10-12 (zero-nine, SHIP 4a9f9645): money-path review of option C (17ed070/b6a422c/0b65993) found no money-math defect; merged onto live main ad57532 (TASK_NOTES append-only conflict, both sides kept). Held for the 10/13 ITP ship (today's slot used 15:30Z + 15:55Z hotfix); apply 20261007233000 + its schema_migrations row right after that deploy.

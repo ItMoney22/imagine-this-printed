@@ -73,12 +73,14 @@ export const ITC_COMMISSION_RATES = {
   communityBoost: 1, // 1 ITC per boost received
 }
 
-// Referral System Configuration
+// Referral System Configuration. What actually pays lives in the database
+// (supabase/migrations/20261007233000_referral_reward_first_order_c.sql,
+// task 4cebbf83); these mirror it for reference only.
 export const REFERRAL_CONFIG = {
-  referrerSignupITC: 10, // ITC awarded to referrer when someone signs up
-  referrerPurchaseITC: 50, // ITC awarded when referred user makes first purchase
-  refereeITC: 0, // No welcome bonus (don't make it too easy to earn)
-  cookieDays: 90, // Referral tracking cookie duration
+  referrerSignupITC: 0, // sign-up pays nothing (bot sign-ups could farm it)
+  referrerPurchaseITC: 500, // award_referral_first_order v_bonus_itc: friend's first $15+ order
+  refereeITC: 0, // the friend gets a 10%-off first-order code instead of ITC
+  cookieDays: 30, // REFERRAL_LINK_DAYS: the link waits on the device (localStorage, not a cookie)
   firstPurchaseBonus: 1.5, // 50% extra ITC on first purchase (multiplier)
 }
 

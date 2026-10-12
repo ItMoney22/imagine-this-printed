@@ -160,6 +160,8 @@ export interface ReferralSignupResult {
   referrerId?: string
   referrerRewards?: { points: number; itc: number }
   refereeRewards?: { points: number; itc: number }
+  /** The friend's 10%-off first-order code, minted with the referral row. */
+  welcomeCode?: string | null
   /** Set on a refusal the client should treat as final (it clears the stored link). */
   reason?: ReferralSignupRefusal
   error?: string
@@ -183,11 +185,14 @@ export function newAccountRefusal(
 /**
  * Record that a new account joined through a referral link.
  *
- * Sign-up pays nothing (task bdfa6939, 2026-10-07: bot sign-ups could farm
- * it). process_referral_reward() writes the 'signup' referral_transactions row,
- * user_profiles.referred_by and referral_codes.total_uses in one transaction,
- * and refuses a second link for the same account. The referrer is paid later,
- * by processReferralFirstPurchase(), when this account's first order is paid.
+ * Sign-up pays no points or ITC (tasks bdfa6939 + 4cebbf83: bot sign-ups
+ * could farm it). process_referral_reward() writes the 'signup'
+ * referral_transactions row, user_profiles.referred_by,
+ * referral_codes.total_uses and the friend's welcome code (10% off their first
+ * order, bound to their account) in one transaction, and refuses a second link
+ * for the same account. The referrer is paid later, by
+ * processReferralFirstPurchase(), when this account's first qualifying order
+ * is paid.
  */
 export async function processReferralSignup(
   referralCode: string,
@@ -242,7 +247,8 @@ export async function processReferralSignup(
       transactionId: result.transaction_id,
       referrerId: result.referrer_id,
       referrerRewards: result.referrer_rewards,
-      refereeRewards: result.referee_rewards
+      refereeRewards: result.referee_rewards,
+      welcomeCode: result.welcome_code ?? null
     }
   } catch (error: any) {
     console.error('[ReferralService] Error processing referral signup:', error)
@@ -253,12 +259,86 @@ export async function processReferralSignup(
   }
 }
 
+export interface WelcomeCode {
+  code: string
+  percent: number
+  /** ISO, UTC. */
+  expiresAt: string | null
+}
+
 /**
- * Pay the referrer's first-order bonus (50 ITC, set in the
- * award_referral_first_order() database function) when a referred account's
- * first order is paid. Lifetime-once per referred account; the bonus row, the
- * wallet credit and the ledger row commit together. Safe to call on every paid
- * order: anything after the first is a no-op.
+ * Pure: may this discount_codes row still be used as `userId`'s welcome code?
+ * Same rules checkout applies (backend/shared/coupon-owner.ts), read ahead of
+ * time so the site only offers a code that will work.
+ */
+export function usableWelcomeCode(
+  row: {
+    code: string
+    value: number | string
+    is_active: boolean | null
+    expires_at: string | null
+    max_uses: number | null
+    current_uses: number | null
+    metadata?: Record<string, unknown> | null
+  } | null,
+  userId: string,
+  everPaidOrderCount: number,
+  now: number = Date.now()
+): WelcomeCode | null {
+  if (!row || !row.is_active) return null
+  if (row.metadata?.owner_user_id !== userId) return null
+  if (everPaidOrderCount > 0) return null
+  if (row.max_uses != null && (row.current_uses ?? 0) >= row.max_uses) return null
+  // timestamp without time zone holding UTC wall time
+  const expires = row.expires_at ? Date.parse(/(?:[zZ]|[+-]\d\d:?\d\d)$/.test(row.expires_at) ? row.expires_at : `${row.expires_at}Z`) : NaN
+  if (row.expires_at && (Number.isNaN(expires) || expires <= now)) return null
+  return {
+    code: row.code,
+    percent: Number(row.value),
+    expiresAt: Number.isNaN(expires) ? null : new Date(expires).toISOString()
+  }
+}
+
+/**
+ * The signed-in account's unused welcome code, or null. Read off the 'signup'
+ * referral row (one per account), so it finds the code on any device.
+ */
+export async function getWelcomeCodeForUser(userId: string): Promise<WelcomeCode | null> {
+  const { data: signup, error } = await supabase
+    .from('referral_transactions')
+    .select('metadata')
+    .eq('referee_id', userId)
+    .eq('type', 'signup')
+    .maybeSingle()
+  if (error) throw error
+  const code = signup?.metadata?.welcome_code
+  if (!code || typeof code !== 'string') return null
+
+  const { data: row, error: codeErr } = await supabase
+    .from('discount_codes')
+    .select('code, value, is_active, expires_at, max_uses, current_uses, metadata')
+    .eq('code', code)
+    .maybeSingle()
+  if (codeErr) throw codeErr
+  if (!row) return null
+
+  const { count, error: ordersErr } = await supabase
+    .from('orders')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId)
+    .in('payment_status', Array.from(EVER_PAID_STATUSES))
+  if (ordersErr) throw ordersErr
+
+  return usableWelcomeCode(row, userId, count ?? 0)
+}
+
+/**
+ * Pay the referrer's first-order bonus (500 ITC = $5, set in the
+ * award_referral_first_order() database function, task 4cebbf83) when a
+ * referred account's first order with at least $15 of products is paid.
+ * Lifetime-once per referred account; the bonus row, the wallet credit and the
+ * ledger row commit together. Safe to call on every paid order: once paid,
+ * the rest are no-ops; a smaller order leaves it for a later one.
  */
 export async function processReferralFirstPurchase(
   userId: string,

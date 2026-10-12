@@ -138,3 +138,53 @@ export function applyPendingReferral(post: ReferralPost = postApply): Promise<Re
   })
   return inFlight
 }
+
+// ---------------------------------------------------------------------------
+// The friend's welcome code (task 4cebbf83).
+//
+// Joining through a link gives the new account a personal code for 10% off
+// its first order (minted with the referral row; checkout only accepts it from
+// that account, before its first paid order). ReferralApplier asks the API for
+// it once the cart has something in it and puts it in the cart, once per code
+// per device: a customer who takes it out is not overruled on the next visit.
+// ---------------------------------------------------------------------------
+
+export const WELCOME_OFFERED_KEY = 'itp_welcome_code_offered'
+
+export interface WelcomeCode {
+  code: string
+  percent: number
+  expiresAt: string | null
+}
+
+export type WelcomeFetch = () => Promise<{ welcome?: WelcomeCode | null }>
+
+const getWelcome: WelcomeFetch = () => apiFetch('/api/wallet/referral/welcome')
+
+/** The signed-in account's unused welcome code, or null (also on any error). */
+export async function fetchWelcomeCode(get: WelcomeFetch = getWelcome): Promise<WelcomeCode | null> {
+  try {
+    const result = await get()
+    const welcome = result?.welcome
+    return welcome && typeof welcome.code === 'string' && welcome.code ? welcome : null
+  } catch {
+    return null
+  }
+}
+
+/** Has this device already put this code in the cart once? */
+export function wasWelcomeOffered(code: string): boolean {
+  try {
+    return window.localStorage.getItem(WELCOME_OFFERED_KEY) === code
+  } catch {
+    return false
+  }
+}
+
+export function markWelcomeOffered(code: string): void {
+  try {
+    window.localStorage.setItem(WELCOME_OFFERED_KEY, code)
+  } catch {
+    // Private mode: worst case the code is offered again next visit.
+  }
+}

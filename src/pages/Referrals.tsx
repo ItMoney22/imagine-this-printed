@@ -21,7 +21,11 @@ import { itcToUsdLabel } from '../lib/itc-pricing'
 import { referralSystem } from '../utils/referral-system'
 import type { ReferralCode, ReferralTransaction } from '../types'
 
-const { firstOrder: FIRST_ORDER_REWARD } = REFERRAL_REWARDS
+const { firstOrder: FIRST_ORDER_REWARD, friend: FRIEND_REWARD } = REFERRAL_REWARDS
+// "500 ITC ($5.00)", "$15", "10%": the numbers the database pays, in words.
+const REFERRER_REWARD = `${FIRST_ORDER_REWARD.referrerItc} ITC (${itcToUsdLabel(FIRST_ORDER_REWARD.referrerItc)})`
+const MIN_ORDER = `$${FIRST_ORDER_REWARD.minProductsUsd}`
+const FRIEND_OFF = `${FRIEND_REWARD.percentOff}%`
 
 const SHARE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   email: Mail,
@@ -49,12 +53,12 @@ const ReferralsPublic: React.FC = () => {
     {
       icon: UserCheck,
       title: 'A friend joins',
-      body: `They make their free account on the phone or computer they opened your link on, within ${REFERRAL_LINK_DAYS} days.`,
+      body: `They make their free account on the phone or computer they opened your link on, within ${REFERRAL_LINK_DAYS} days, and get ${FRIEND_OFF} off their first order.`,
     },
     {
       icon: ShoppingBag,
       title: 'You get rewarded on their first order',
-      body: `When that friend's first order is paid, you get ${FIRST_ORDER_REWARD.referrerItc} ITC in your wallet.`,
+      body: `When that friend's first order of ${MIN_ORDER} or more is paid, you get ${REFERRER_REWARD} in your wallet to spend in the shop.`,
     },
   ]
 
@@ -72,8 +76,8 @@ const ReferralsPublic: React.FC = () => {
               Share the shop. Get rewarded.
             </h1>
             <p className="text-muted text-base sm:text-lg leading-relaxed mb-6 max-w-xl">
-              Send friends your personal link. When a friend joins with it and their first order is
-              paid, you get {FIRST_ORDER_REWARD.referrerItc} ITC in your wallet.
+              Send friends your personal link. They get {FRIEND_OFF} off their first order, and when it
+              is paid ({MIN_ORDER} or more), you get {REFERRER_REWARD} to spend in the shop.
             </p>
             <div className="flex flex-col sm:flex-row gap-3">
               <button type="button" onClick={() => startAccount('referral-link')} className="btn-primary w-full sm:w-auto">
@@ -219,7 +223,7 @@ const Referrals: React.FC = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-text mb-2">Referral Program</h1>
-        <p className="text-muted">Earn {FIRST_ORDER_REWARD.referrerItc} ITC when a friend you refer places their first order</p>
+        <p className="text-muted">Earn {REFERRER_REWARD} when a friend you refer pays for a first order of {MIN_ORDER} or more. Your friend gets {FRIEND_OFF} off it.</p>
       </div>
 
       {/* Stats Cards */}
@@ -335,7 +339,7 @@ const Referrals: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-medium text-text">Friend Joins</h4>
-                    <p className="text-sm text-muted">Your friend makes a free account on the phone or computer they opened your link on, within {REFERRAL_LINK_DAYS} days</p>
+                    <p className="text-sm text-muted">Your friend makes a free account on the phone or computer they opened your link on, within {REFERRAL_LINK_DAYS} days, and gets {FRIEND_OFF} off their first order</p>
                   </div>
                 </div>
                 
@@ -345,7 +349,7 @@ const Referrals: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-medium text-text">You Earn Rewards</h4>
-                    <p className="text-sm text-muted">Get {FIRST_ORDER_REWARD.referrerItc} ITC when their first order is paid</p>
+                    <p className="text-sm text-muted">Get {REFERRER_REWARD} when their first order of {MIN_ORDER} or more is paid</p>
                   </div>
                 </div>
               </div>
@@ -357,9 +361,17 @@ const Referrals: React.FC = () => {
                 <div className="flex items-center justify-between p-3 bg-blue-50 rounded">
                   <div>
                     <p className="font-medium text-blue-900">Friend's First Order</p>
-                    <p className="text-sm text-blue-700">Paid to you once per friend</p>
+                    <p className="text-sm text-blue-700">Paid to you once per friend, on {MIN_ORDER} or more</p>
                   </div>
                   <span className="text-blue-600 font-bold">{FIRST_ORDER_REWARD.referrerItc} ITC</span>
+                </div>
+
+                <div className="flex items-center justify-between p-3 bg-green-50 rounded">
+                  <div>
+                    <p className="font-medium text-green-900">Your Friend Saves</p>
+                    <p className="text-sm text-green-700">Off their first order, for {FRIEND_REWARD.days} days after joining</p>
+                  </div>
+                  <span className="text-green-600 font-bold">{FRIEND_OFF}</span>
                 </div>
 
                 <div className="flex items-center justify-between p-3 bg-purple-50 rounded">

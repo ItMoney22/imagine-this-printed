@@ -1,5 +1,6 @@
 import type { ReferralCode, ReferralTransaction } from '../types'
 import { apiFetch } from '../lib/api'
+import { REFERRAL_REWARDS } from '../lib/referral-program'
 
 // The referral dashboard's client. Capturing a friend's ?ref= link and
 // applying it at first sign-in live in ./referral-capture.ts.
@@ -204,7 +205,8 @@ export class ReferralSystem {
     }>
   } {
     const referralUrl = this.generateReferralUrl(referralCode)
-    const pitch = `I've been getting custom prints from Imagine This Printed and thought you'd love it too. Take a look: ${referralUrl}`
+    // The friend's own reason to click (task 4cebbf83): their first-order discount.
+    const pitch = `I've been getting custom prints from Imagine This Printed and thought you'd love it too. Make a free account through my link and get ${REFERRAL_REWARDS.friend.percentOff}% off your first order: ${referralUrl}`
 
     return {
       messages: [

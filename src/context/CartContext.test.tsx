@@ -15,7 +15,7 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, cleanup } from '@testing-library/react'
-import { CartProvider, useCart } from './CartContext'
+import { CartProvider, useCart, couponDiscountFor } from './CartContext'
 import type { CartItem, Product } from '../types'
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
@@ -316,5 +316,21 @@ describe('CartContext', () => {
       })
       expect(result.current.state.total).toBe(45)
     })
+  })
+})
+
+describe('couponDiscountFor (task 4cebbf83: the friend\'s 10% follows the cart)', () => {
+  const pct = { code: 'WELCOME10-ABC234', type: 'percentage' as const, value: 10, discount: 2.5, couponId: 'c1' }
+
+  it('a percentage coupon is a share of the cart as it is now, not as it was when applied', () => {
+    expect(couponDiscountFor(pct, 25)).toBe(2.5)
+    expect(couponDiscountFor(pct, 50)).toBe(5)
+    expect(couponDiscountFor(pct, 16.99)).toBe(1.7)
+    expect(couponDiscountFor(pct, 0)).toBe(0)
+  })
+
+  it('respects a cap, and fixed coupons keep their validated amount', () => {
+    expect(couponDiscountFor({ ...pct, maxDiscount: 3 }, 50)).toBe(3)
+    expect(couponDiscountFor({ ...pct, type: 'fixed', value: 5, discount: 5 }, 50)).toBe(5)
   })
 })

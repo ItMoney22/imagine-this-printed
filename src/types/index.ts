@@ -1540,6 +1540,8 @@ export interface AppliedCoupon {
   discountAmount?: number;
   description?: string;
   freeShipping?: boolean;
+  /** Cap on a percentage coupon, in dollars (discount_codes.max_discount_amount). */
+  maxDiscount?: number | null;
 }
 
 // Gift Card Types

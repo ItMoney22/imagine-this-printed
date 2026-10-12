@@ -78,6 +78,8 @@ import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normaliz
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
+import { COUPON_OWNER_ERRORS, couponNeedsOwnerCheck, couponNeedsPaidOrderCount, couponOwnerRefusal } from '../shared/coupon-owner.js'
+import { EVER_PAID_STATUSES } from './order-refunds.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -256,6 +258,9 @@ export interface PricingDiscountCodeRow {
   min_order_amount: number | null
   max_discount_amount: number | null
   per_user_limit: number | null
+  /** owner_user_id / first_order_only bind a code to one account
+   *  (backend/shared/coupon-owner.ts) — e.g. a referral welcome code. */
+  metadata?: Record<string, unknown> | null
 }
 
 export interface PricingDependencies {
@@ -283,6 +288,13 @@ export interface PricingDependencies {
   fetchMetalProductIds?: (ids: string[]) => Promise<Set<string>>
   fetchDiscountCode: (code: string) => Promise<PricingDiscountCodeRow | null>
   countCouponUsageForUser: (discountCodeId: string, userId: string) => Promise<number>
+  /**
+   * How many of this user's orders were ever paid (EVER_PAID_STATUSES).
+   * Only asked for a first-order-only coupon; null = could not read, and the
+   * coupon is then refused. Optional so injected-deps callers keep compiling;
+   * absent = unknown = refused.
+   */
+  countEverPaidOrdersForUser?: (userId: string) => Promise<number | null>
   /** Returns the user's real ITC wallet balance (units), 0 if none. */
   fetchWalletItcBalance: (userId: string) => Promise<number>
   /**
@@ -891,6 +903,16 @@ const defaultDependencies: PricingDependencies = {
     return count
   },
 
+  async countEverPaidOrdersForUser(userId: string) {
+    const { count, error } = await supabase
+      .from('orders')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .in('payment_status', Array.from(EVER_PAID_STATUSES))
+    if (error || count == null) return null
+    return count
+  },
+
   async fetchWalletItcBalance(userId: string) {
     const { data, error } = await supabase.from('user_wallets').select('itc_balance').eq('user_id', userId).single()
     if (error || !data) return 0
@@ -995,14 +1017,29 @@ export async function calculateOrderPricing(
   const code = (input.couponCode || '').trim().toUpperCase()
   if (code) {
     const row = await deps.fetchDiscountCode(code)
-    let usageCount = 0
-    if (row && input.userId) {
-      usageCount = await deps.countCouponUsageForUser(row.id, input.userId)
+    // A code bound to one account (the referral welcome code) is judged
+    // against the server-trusted user id, never the client's word.
+    let ownerRefusal: string | undefined
+    if (row && couponNeedsOwnerCheck(row.metadata)) {
+      let paidOrders: number | null = 0
+      if (input.userId && couponNeedsPaidOrderCount(row.metadata)) {
+        paidOrders = deps.countEverPaidOrdersForUser ? await deps.countEverPaidOrdersForUser(input.userId) : null
+      }
+      const refusal = couponOwnerRefusal(row.metadata, input.userId, paidOrders)
+      if (refusal) ownerRefusal = COUPON_OWNER_ERRORS[refusal]
     }
-    const result = computeDiscountFromCoupon(row, subtotalCents, usageCount)
-    couponDiscountCents = result.discountCents
-    freeShipping = result.freeShipping
-    couponError = result.error
+    if (ownerRefusal) {
+      couponError = ownerRefusal
+    } else {
+      let usageCount = 0
+      if (row && input.userId) {
+        usageCount = await deps.countCouponUsageForUser(row.id, input.userId)
+      }
+      const result = computeDiscountFromCoupon(row, subtotalCents, usageCount)
+      couponDiscountCents = result.discountCents
+      freeShipping = result.freeShipping
+      couponError = result.error
+    }
   }
 
   // Wholesale tier discount — resolved from the server-trusted account

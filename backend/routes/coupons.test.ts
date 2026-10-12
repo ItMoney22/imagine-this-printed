@@ -19,7 +19,7 @@ const { validateCouponForOrder, recordCouponUsage } = await import('./coupons.js
  * increments it actually exercises the max_uses guard end-to-end — exactly
  * like two requests hitting real Postgres would.
  */
-function makeFakeCouponDb(initialCoupon: Record<string, any>) {
+function makeFakeCouponDb(initialCoupon: Record<string, any>, orders: Array<Record<string, any>> = []) {
   const coupon: Record<string, any> = { ...initialCoupon }
   const usageRows: Array<Record<string, any>> = []
 
@@ -69,6 +69,26 @@ function makeFakeCouponDb(initialCoupon: Record<string, any>) {
           then: (resolve: (v: { count: number; error: null }) => void) => {
             const count = usageRows.filter(row => filters.every(([col, val]) => row[col] === val)).length
             resolve({ count, error: null })
+          }
+        }
+        return builder
+      }
+      if (table === 'orders') {
+        const filters: Array<(row: Record<string, any>) => boolean> = []
+        const builder: any = {
+          select() {
+            return builder
+          },
+          eq(col: string, val: any) {
+            filters.push(row => row[col] === val)
+            return builder
+          },
+          in(col: string, vals: any[]) {
+            filters.push(row => vals.includes(row[col]))
+            return builder
+          },
+          then: (resolve: (v: { count: number; error: null }) => void) => {
+            resolve({ count: orders.filter(row => filters.every(f => f(row))).length, error: null })
           }
         }
         return builder
@@ -158,5 +178,51 @@ describe('coupon single-use enforcement (Watchtower task 402932ab)', () => {
     const afterItemsRemoved = await validateCouponForOrder({ code: 'BIGCART', orderTotal: 30 }, db as any)
     expect(afterItemsRemoved.valid).toBe(false)
     expect(afterItemsRemoved.error).toMatch(/Minimum order amount/)
+  })
+})
+
+describe('referral welcome code: one account, first order only (task 4cebbf83)', () => {
+  const welcome = {
+    id: 'coupon-w',
+    code: 'WELCOME10-ABC234',
+    is_active: true,
+    type: 'percentage',
+    value: 10,
+    max_uses: 1,
+    current_uses: 0,
+    min_order_amount: 0,
+    max_discount_amount: null,
+    per_user_limit: 1,
+    expires_at: null,
+    metadata: { source: 'referral_welcome', owner_user_id: 'friend-1', first_order_only: true }
+  }
+
+  it('gives the friend 10% off before their first paid order', async () => {
+    const db = makeFakeCouponDb(welcome, [{ user_id: 'friend-1', payment_status: 'pending' }])
+    const result = await validateCouponForOrder({ code: 'welcome10-abc234', userId: 'friend-1', orderTotal: 25 }, db as any)
+    expect(result.valid).toBe(true)
+    expect(result.discountAmount).toBe(2.5)
+  })
+
+  it('refuses anyone else, and a guest', async () => {
+    const db = makeFakeCouponDb(welcome)
+    const stranger = await validateCouponForOrder({ code: 'WELCOME10-ABC234', userId: 'someone-else', orderTotal: 25 }, db as any)
+    expect(stranger).toMatchObject({ valid: false, error: 'This code belongs to another account' })
+    const guest = await validateCouponForOrder({ code: 'WELCOME10-ABC234', orderTotal: 25 }, db as any)
+    expect(guest).toMatchObject({ valid: false, error: 'Sign in to use this code' })
+  })
+
+  it('refuses the friend once they have a paid order (refunded counts as paid once)', async () => {
+    for (const status of ['paid', 'refunded']) {
+      const db = makeFakeCouponDb(welcome, [{ user_id: 'friend-1', payment_status: status }])
+      const result = await validateCouponForOrder({ code: 'WELCOME10-ABC234', userId: 'friend-1', orderTotal: 25 }, db as any)
+      expect(result).toMatchObject({ valid: false, error: 'This code is for a first order only' })
+    }
+  })
+
+  it('leaves ordinary codes alone (no metadata, no owner check)', async () => {
+    const db = makeFakeCouponDb({ ...welcome, code: 'ETSYBAG', metadata: { source: 'etsy_bag_insert' }, max_uses: null, per_user_limit: null })
+    const result = await validateCouponForOrder({ code: 'ETSYBAG', orderTotal: 20 }, db as any)
+    expect(result.valid).toBe(true)
   })
 })

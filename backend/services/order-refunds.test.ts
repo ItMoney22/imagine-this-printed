@@ -519,6 +519,41 @@ describe('reverseReferralBonus', () => {
     expect(result).toMatchObject({ ok: true, skipped: false })
     expect(db._store.user_wallets[0].itc_balance).toBe(150)
   })
+
+  describe('bonus rows that name their order (task 4cebbf83: paid on the first $15+ order)', () => {
+    // The friend's first paid order (OTHER_ORDER_ID) was too small; ORDER_ID,
+    // a later one, earned the 500 ITC.
+    const orders = [
+      { id: OTHER_ORDER_ID, user_id: USER_ID, created_at: '2025-12-01T00:00:00Z', payment_status: 'paid' },
+      buyerOrder
+    ]
+    const earnedBy = (orderId: string) => ({ ...bonusTx, referrer_reward_itc: 500, related_order_id: orderId })
+
+    it('reverses when the order that earned it is refunded, even though it was not the first paid order', async () => {
+      const db = makeDb({
+        orders,
+        referral_transactions: [earnedBy(ORDER_ID)],
+        user_wallets: [{ user_id: REFERRER_ID, itc_balance: '700' }],
+        itc_transactions: []
+      })
+      const result = await reverseReferralBonus(ORDER_ID, undefined, db)
+      expect(result).toMatchObject({ ok: true, skipped: false })
+      expect(db._store.user_wallets[0].itc_balance).toBe(200)
+      expect(db._store.referral_transactions[0].status).toBe('reversed')
+    })
+
+    it('leaves it alone when a different order is refunded, even the first paid one', async () => {
+      const db = makeDb({
+        orders,
+        referral_transactions: [earnedBy(ORDER_ID)],
+        user_wallets: [{ user_id: REFERRER_ID, itc_balance: '700' }],
+        itc_transactions: []
+      })
+      const result = await reverseReferralBonus(OTHER_ORDER_ID, undefined, db)
+      expect(result).toMatchObject({ ok: true, skipped: true, reason: 'the referral bonus was earned by a different order' })
+      expect(db._store.user_wallets[0].itc_balance).toBe('700')
+    })
+  })
 })
 
 describe('reverseCouponUsage', () => {

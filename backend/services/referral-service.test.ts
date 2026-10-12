@@ -68,7 +68,8 @@ const {
   processReferralSignup,
   processReferralFirstPurchase,
   createReferralCode,
-  getReferralStats
+  getReferralStats,
+  usableWelcomeCode
 } = await import('./referral-service.js')
 
 const DAY = 24 * 60 * 60 * 1000
@@ -118,6 +119,11 @@ describe('processReferralSignup', () => {
     ])
   })
 
+  it("hands back the friend's welcome code minted with the referral row", async () => {
+    db.rpc.process_referral_reward = { success: true, transaction_id: 'tx-1', referrer_id: 'referrer-1', welcome_code: 'WELCOME10-ABC234' }
+    expect(await processReferralSignup('REFAB12CD', 'friend-1', '')).toMatchObject({ success: true, welcomeCode: 'WELCOME10-ABC234' })
+  })
+
   it('passes a repeat of the same link through as a no-op', async () => {
     db.rpc.process_referral_reward = { success: true, already: true, transaction_id: 'tx-1' }
     expect(await processReferralSignup('REFAB12CD', 'friend-1', '')).toMatchObject({ success: true, already: true })
@@ -150,9 +156,9 @@ describe('processReferralSignup', () => {
 
 describe('processReferralFirstPurchase', () => {
   it('pays through award_referral_first_order with the order id', async () => {
-    db.rpc.award_referral_first_order = { success: true, bonus_itc: '50', referrer_id: 'referrer-1', transaction_id: 'tx-9' }
+    db.rpc.award_referral_first_order = { success: true, bonus_itc: '500', referrer_id: 'referrer-1', transaction_id: 'tx-9' }
     const result = await processReferralFirstPurchase('friend-1', 42, 'order-1')
-    expect(result).toEqual({ success: true, bonusITC: 50, referrerId: 'referrer-1', transactionId: 'tx-9' })
+    expect(result).toEqual({ success: true, bonusITC: 500, referrerId: 'referrer-1', transactionId: 'tx-9' })
     expect(db.rpcCalls).toEqual([{ fn: 'award_referral_first_order', args: { p_referee_id: 'friend-1', p_order_id: 'order-1' } }])
   })
 
@@ -204,5 +210,36 @@ describe('getReferralStats', () => {
       activeCode: 'REFAB12CD',
       referralCode: db.activeCode
     })
+  })
+})
+
+describe('usableWelcomeCode', () => {
+  const NOW = Date.parse('2026-10-07T21:00:00Z')
+  const row = {
+    code: 'WELCOME10-ABC234',
+    value: '10',
+    is_active: true,
+    // timestamp without time zone, UTC wall time, as supabase-js returns it
+    expires_at: '2026-11-06T21:00:00.123',
+    max_uses: 1,
+    current_uses: 0,
+    metadata: { source: 'referral_welcome', owner_user_id: 'friend-1', first_order_only: true }
+  }
+
+  it('offers an unused, unexpired code to its owner before their first paid order', () => {
+    expect(usableWelcomeCode(row, 'friend-1', 0, NOW)).toEqual({
+      code: 'WELCOME10-ABC234',
+      percent: 10,
+      expiresAt: '2026-11-06T21:00:00.123Z'
+    })
+  })
+
+  it('offers nothing once used, expired, switched off, paid for, or to someone else', () => {
+    expect(usableWelcomeCode({ ...row, current_uses: 1 }, 'friend-1', 0, NOW)).toBeNull()
+    expect(usableWelcomeCode(row, 'friend-1', 0, Date.parse('2026-11-06T21:00:01Z'))).toBeNull()
+    expect(usableWelcomeCode({ ...row, is_active: false }, 'friend-1', 0, NOW)).toBeNull()
+    expect(usableWelcomeCode(row, 'friend-1', 1, NOW)).toBeNull()
+    expect(usableWelcomeCode(row, 'someone-else', 0, NOW)).toBeNull()
+    expect(usableWelcomeCode(null, 'friend-1', 0, NOW)).toBeNull()
   })
 })
