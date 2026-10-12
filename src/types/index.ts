@@ -38,6 +38,16 @@ export interface Product {
   is_featured?: boolean
   is_user_generated?: boolean
   created_by_user_id?: string
+  /**
+   * products.maker_agent_id — the Watchtower agent who MADE this product
+   * (e.g. 'amelia-chan'). Undefined/null means house goods.
+   *
+   * Not the same thing as vendor_id or created_by_user_id, which are Supabase
+   * auth users. This one names a fleet agent and decides whose Watchtower
+   * ledger a sale credits: checkout stamps it into the Stripe charge as
+   * `agent_id`. See backend/shared/maker-attribution.ts.
+   */
+  maker_agent_id?: string | null
   sizes?: string[]
   colors?: string[]
   // T-shirt print placements this product is offered with (front/back/pocket).
