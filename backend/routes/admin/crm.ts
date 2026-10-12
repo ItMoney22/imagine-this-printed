@@ -7,7 +7,7 @@
 // it shows WRONG MONEY for the customers it does show.
 //
 // So the aggregation moved into Postgres (supabase/migrations/
-// 20260922170000_crm_customer_aggregates.sql) and this router is the only way
+// 20261013120100_crm_customer_aggregates.sql) and this router is the only way
 // the browser reaches it. Every endpoint here is bounded: a page size, a hard
 // cap, and a total count so the UI can say where the rest are.
 //
