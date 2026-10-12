@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import {
   checkSeo,
+  checkCapability,
   checkPricing,
   checkMockupQuality,
   checkPrintBackground,
@@ -432,5 +433,118 @@ describe('laplacianStats', () => {
     // emits grey+alpha, and reading that as one channel scores a crisp
     // transparent PNG as blurry.
     expect(laplacianStats(new Uint8Array(10), 32, 32)).toEqual({ variance: 0, meanAbs: 0 })
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// CAPABILITY — the gate's answer to "can ITP actually make this?"
+// (Watchtower 72adcc9c). The QA gate used to have no opinion about production,
+// which is how 18 live products came to claim embroidery and 23 to claim polo.
+// ---------------------------------------------------------------------------
+
+/** A listing that passes every OTHER SEO rule, so a failure here is the
+ *  vocabulary check and nothing else. */
+function cleanCopy(over: Partial<{ title: string; description: string; tags: string[] }> = {}) {
+  return {
+    channel: 'etsy' as Channel,
+    title: 'Retro Sunset Mountain Emblem Graphic Tee for Hikers',
+    description:
+      'A bold retro sunset emblem for anyone who would rather be on a trail.\n\n' +
+      'The design is printed with a DTF transfer and heat-pressed onto a soft cotton tee, so the ' +
+      'colours stay put wash after wash. Made to order in Georgia and shipped in two to four days. ' +
+      'Sizes run S through 3XL with youth sizes on the same listing, and the whole thing is machine ' +
+      'washable inside out on cold. A easy gift for the hiker, camper or national park fan in your life.',
+    tags: [
+      'retro sunset tee', 'mountain graphic tee', 'hiking gift shirt', 'camping tee', 'national park tee',
+      'trail lover gift', 'outdoors graphic tee', 'retro mountain shirt', 'hiker gift idea', 'nature lover tee',
+      'adventure tshirt', 'sunset graphic tee', 'wilderness shirt'
+    ],
+    ...over
+  }
+}
+
+describe('checkSeo — banned production claims block the listing', () => {
+  it('passes honest DTF copy', () => {
+    const v = checkSeo(cleanCopy())
+    expect(v.findings.filter(f => f.severity === 'block')).toEqual([])
+    expect(v.ok).toBe(true)
+  })
+
+  it('BLOCKS every banned decoration term the acceptance criteria name', () => {
+    const cases: Array<[string, RegExp]> = [
+      ['embroidered', /embroider/i],
+      ['stitched', /stitch/i],
+      ['screen printed', /screen print/i],
+      ['vinyl', /vinyl/i],
+      ['engraved', /engrav/i],
+      ['knit', /knit/i],
+      ['woven', /woven/i],
+    ]
+    for (const [word, re] of cases) {
+      const v = checkSeo(cleanCopy({ description: `This design is ${word} onto the garment.\n\n` + cleanCopy().description }))
+      const blocks = v.findings.filter(f => f.severity === 'block')
+      expect(v.ok, `"${word}" must block`).toBe(false)
+      expect(blocks.some(f => re.test(f.issue)), `"${word}" must be named in the finding`).toBe(true)
+    }
+  })
+
+  it('blocks a polo claim in the title even when the product row is a tshirt', () => {
+    const v = checkSeo(cleanCopy({ title: 'Retro Sunset Mountain Emblem Polo for Hikers' }))
+    expect(v.ok).toBe(false)
+    expect(v.findings.some(f => f.severity === 'block' && /polo/i.test(f.issue))).toBe(true)
+  })
+
+  it('blocks a banned word hiding in a tag', () => {
+    const tags = cleanCopy().tags.slice(0, 12).concat('embroidered tee')
+    const v = checkSeo(cleanCopy({ tags }))
+    expect(v.ok).toBe(false)
+    expect(v.findings.some(f => f.severity === 'block' && (f.evidence as any)?.field === 'tags')).toBe(true)
+  })
+
+  it('tells the writer what to say INSTEAD, not just that it failed', () => {
+    const v = checkSeo(cleanCopy({ description: 'Beautifully embroidered crest.\n\n' + cleanCopy().description }))
+    const block = v.findings.find(f => f.severity === 'block' && /embroider/i.test(f.issue))!
+    expect(block.fix).toMatch(/DTF/i)
+  })
+
+  it('records the claims it found in `measured`, so a dry run can count them', () => {
+    const v = checkSeo(cleanCopy({ description: 'Embroidered and screen printed.\n\n' + cleanCopy().description }))
+    expect(v.measured!.banned_claims).toEqual(expect.arrayContaining(['embroidery', 'screen printing']))
+    expect(checkSeo(cleanCopy()).measured!.banned_claims).toEqual([])
+  })
+})
+
+describe('checkCapability — product lines on hold', () => {
+  const ORIGINAL = process.env.ITP_METAL_ART_HOLD
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.ITP_METAL_ART_HOLD
+    else process.env.ITP_METAL_ART_HOLD = ORIGINAL
+  })
+
+  it('blocks a metal-art listing while the standing hold is active', () => {
+    delete process.env.ITP_METAL_ART_HOLD
+    const v = checkCapability({ category: 'metal-art' })
+    expect(v.ok).toBe(false)
+    expect(v.findings[0].severity).toBe('block')
+    expect(v.findings[0].issue).toMatch(/c11af937/)
+    expect(v.findings[0].fix).toMatch(/ITP_METAL_ART_HOLD/)
+  })
+
+  it('passes metal art once the hold is lifted', () => {
+    process.env.ITP_METAL_ART_HOLD = 'false'
+    expect(checkCapability({ category: 'metal-art' }).ok).toBe(true)
+  })
+
+  it('passes apparel', () => {
+    expect(checkCapability({ category: 't-shirts' }).ok).toBe(true)
+    expect(checkCapability({ category: 'hoodies' }).ok).toBe(true)
+  })
+
+  it('does NOT block a category it has never heard of', () => {
+    // '3d-prints' is a real live lane the capability module does not model.
+    // Failing it on ignorance would take a working line off the shelf.
+    expect(checkCapability({ category: '3d-prints' }).ok).toBe(true)
+    expect(checkCapability({ category: null }).ok).toBe(true)
   })
 })

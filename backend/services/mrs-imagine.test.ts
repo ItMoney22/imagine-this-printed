@@ -4,7 +4,7 @@
 // 'tshirt', not just drop the request). `parseBriefsResponse` is split out of
 // `writeBriefs` specifically so this is testable without an OpenAI/OpenRouter
 // call — see the doc comment on it in mrs-imagine.ts.
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 
 // mrs-imagine.ts pulls in a long chain of services (design-qa-gate,
 // etsy-model-shots, etc.) that all import the real Supabase client, which
@@ -59,10 +59,12 @@ describe('parseBriefsResponse — garment coercion (no polo, ever)', () => {
       garments: [garmentBrief({ key: 'a' }), garmentBrief({ key: 'b' }), garmentBrief({ key: 'c', prompt: 'too short' })],
       metal: [{ key: 'wall-art', buyer: 'cabin owners', prompt: LONG_PROMPT, priceUsd: 45, trendBasis: 'x' }],
     }
+    // Metal art is on a standing hold (c11af937), so the metal brief is dropped
+    // here even though the caller asked for one — see the hold suite below.
+    // With the hold lifted this returns a+b+wall-art.
     const out = parseBriefsResponse(parsed, { garments: 2, metal: 1 })
-    // 'c' never survives the slice(0, counts.garments) at 2, so only a+b+metal remain.
-    expect(out.map((b) => b.key)).toEqual(['a', 'b', 'wall-art'])
-    expect(out.filter((b) => b.kind === 'metal')).toHaveLength(1)
+    // 'c' never survives the slice(0, counts.garments) at 2.
+    expect(out.map((b) => b.key)).toEqual(['a', 'b'])
   })
 
   it('clamps hoodie price into the hoodie band and tee price into the tee band', () => {
@@ -194,5 +196,52 @@ describe('isAlreadyCutOut', () => {
   it('says NO on unreadable bytes rather than throwing', async () => {
     // Fails toward running the keyer — never toward printing a background.
     expect(await isAlreadyCutOut(Buffer.from('not an image'))).toBe(false)
+  })
+})
+
+
+// ---------------------------------------------------------------------------
+// The standing metal-art hold (Watchtower c11af937, wired in 72adcc9c).
+// `startMrsImagineBatch` already forces the metal count to zero, but a model
+// handed a prompt that mentions metal at all volunteers metal briefs nobody
+// asked for — so the pure parser is the last line, and it is the one that can
+// be tested without a network call.
+// ---------------------------------------------------------------------------
+describe('parseBriefsResponse — the metal art hold', () => {
+  const ORIGINAL = process.env.ITP_METAL_ART_HOLD
+  const metalBrief = { key: 'wall-art', buyer: 'cabin owners', prompt: LONG_PROMPT, priceUsd: 45, trendBasis: 'x' }
+
+  afterEach(() => {
+    if (ORIGINAL === undefined) delete process.env.ITP_METAL_ART_HOLD
+    else process.env.ITP_METAL_ART_HOLD = ORIGINAL
+  })
+
+  it('drops every metal brief while the hold stands, even when one was requested', () => {
+    delete process.env.ITP_METAL_ART_HOLD
+    const out = parseBriefsResponse({ garments: [garmentBrief()], metal: [metalBrief] }, { garments: 1, metal: 5 })
+    expect(out.filter((b) => b.kind === 'metal')).toHaveLength(0)
+    expect(out.filter((b) => b.kind === 'garment')).toHaveLength(1)
+  })
+
+  it('drops unsolicited metal briefs even when the count asked for zero', () => {
+    delete process.env.ITP_METAL_ART_HOLD
+    const out = parseBriefsResponse({ garments: [garmentBrief()], metal: [metalBrief] }, { garments: 1, metal: 0 })
+    expect(out.every((b) => b.kind === 'garment')).toBe(true)
+  })
+
+  it('lets metal through again the moment the hold is lifted', () => {
+    process.env.ITP_METAL_ART_HOLD = 'false'
+    const out = parseBriefsResponse({ garments: [garmentBrief()], metal: [metalBrief] }, { garments: 1, metal: 1 })
+    expect(out.filter((b) => b.kind === 'metal')).toHaveLength(1)
+    expect(out.map((b) => b.key)).toContain('wall-art')
+  })
+
+  it('never leaves garments behind when it drops metal', () => {
+    delete process.env.ITP_METAL_ART_HOLD
+    const out = parseBriefsResponse(
+      { garments: [garmentBrief({ key: 'a' }), garmentBrief({ key: 'b' })], metal: [metalBrief, metalBrief] },
+      { garments: 2, metal: 2 }
+    )
+    expect(out.map((b) => b.key)).toEqual(['a', 'b'])
   })
 })
