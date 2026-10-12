@@ -566,12 +566,40 @@ export function getGalleryImages(product: Pick<Product, 'images' | 'metadata'>):
   const push = (u?: string | null) => {
     if (u && typeof u === 'string' && !out.includes(u) && !deliverables.has(u)) out.push(u)
   }
+  // A garment shot (ghost mannequin, flat lay, hanger, composite, on-model)
+  // leads even when a watermarked art `display` exists: a catalog tile that
+  // opens on bare art, or art on a painted checkerboard, reads as broken
+  // (task 732f8a71, live walk 10/7). Rows with no garment shot are unchanged.
+  const shots = (product?.images || []).filter(isGarmentShotUrl).sort((a, b) => garmentShotRank(a) - garmentShotRank(b))
+  shots.forEach(push)
   push(assets.display)                  // watermarked hero (preferred)
   ;(assets.mockups || []).forEach(push)
   push(product?.metadata?.mockup_url)   // legacy single mockup
   push(assets.clean)                    // un-watermarked clean (only if no display)
   ;(product?.images || []).forEach(push)
   return out
+}
+
+// Folder names the garment-shot pipeline writes under (step-flow shots, blank
+// composites, Etsy on-model shots). Raw art lives under /original/,
+// /ai-generated/, design-library/, mrs-imagine/<id>/ or a bare products/<id>.png.
+const GARMENT_SHOT_RANK: Array<[RegExp, number]> = [
+  [/\/ghost_mannequin\//i, 0],
+  [/\/flat_lay\//i, 1],
+  [/\/hanger\//i, 2],
+  [/\/composite\//i, 3],
+  [/\/mr_imagine\//i, 4],
+  [/etsy_shot_/i, 5],
+]
+
+function garmentShotRank(url: string): number {
+  const hit = GARMENT_SHOT_RANK.find(([re]) => re.test(url))
+  return hit ? hit[1] : 99
+}
+
+/** True for a url the shot pipeline made of the garment itself (not the bare art, not a details card). */
+export function isGarmentShotUrl(url: unknown): url is string {
+  return typeof url === 'string' && garmentShotRank(url) < 99
 }
 
 // Digital download bundle (gated behind a paid digital purchase): clean design
