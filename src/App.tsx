@@ -142,7 +142,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
       </main>
       {!isFullScreen && <MrImagineChatWidget />}
       <MrImagineCartNotification />
-      <FloatingCart />
+      {/* Only where no shop sidebar/top bar shows the cart: beside the sidebar its pill sat on the
+          product page's Add to cart at 1440 and its drawer covered the page after a quick-add (45434545). */}
+      {(isFullScreen || siteMenuHidden) && <FloatingCart />}
       <WatchtowerTaskButton />
       <ToastContainer />
       {isFullScreen && <CookieConsent />}

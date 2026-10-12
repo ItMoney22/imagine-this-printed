@@ -17,6 +17,7 @@ import {
   getProductAssets,
   hasDigitalDeliverables,
   getGalleryImages,
+  isGarmentShotUrl,
   getDeliverables,
   unitBasePrice,
   startingPrice,
@@ -593,5 +594,40 @@ describe('printLocationLabel', () => {
     expect(_pll('sleeve_image')).toBe('Sleeve')
     expect(_pll(undefined)).toBe('')
     expect(_pll('')).toBe('')
+  })
+})
+
+describe('gallery images — a garment shot leads, never bare art (task 732f8a71)', () => {
+  const base = 'https://storage.googleapis.com/b/'
+  const raw = `${base}gnome/original/gnome-gpt.png`
+  const ghost = `${base}gnome/ghost_mannequin/gnome-ghost_mannequin-1.png`
+  const hanger = `${base}gnome/hanger/gnome-hanger-1.png`
+  const flat = `${base}gnome/flat_lay/gnome-flat_lay-1.png`
+  const onModel = `${base}u/mockups/etsy_shot_abc_step-model-x_1.png`
+  const details = `${base}system/mockups/abc-details-1.png`
+
+  it('moves the ghost mannequin ahead of the raw original', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, hanger, ghost, details, onModel] }))[0]).toBe(ghost)
+  })
+
+  it('ranks ghost mannequin, flat lay, hanger, then on-model; art and details trail', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, onModel, hanger, details, flat, ghost] }))).toEqual([
+      ghost, flat, hanger, onModel, raw, details,
+    ])
+  })
+
+  it('beats a watermarked display hero when a garment shot exists', () => {
+    const display = 'https://cdn/display.png'
+    expect(getGalleryImages(p({ metadata: { assets: { display } }, images: [raw, ghost] }))).toEqual([ghost, display, raw])
+  })
+
+  it('leaves a row with no garment shot in its stored order', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, details] }))).toEqual([raw, details])
+  })
+
+  it('does not treat a details card or bare art as a garment shot', () => {
+    expect(isGarmentShotUrl(details)).toBe(false)
+    expect(isGarmentShotUrl(raw)).toBe(false)
+    expect(isGarmentShotUrl(ghost)).toBe(true)
   })
 })

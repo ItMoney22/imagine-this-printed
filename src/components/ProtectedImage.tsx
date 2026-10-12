@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 interface ProtectedImageProps {
   src: string
@@ -17,6 +17,8 @@ interface ProtectedImageProps {
  * don't" sign, not access control. For real protection we'd need
  * server-side watermarking or signed-URL gating with short TTL.
  */
+const PRELOAD_MARGIN = '1200px 0px'
+
 const ProtectedImage: React.FC<ProtectedImageProps> = ({
   src,
   alt,
@@ -39,11 +41,28 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
   // became the positioning context for absolutely-positioned images, collapsing
   // them to 0×0 (blank product cards). Right-click/drag are still blocked on the
   // image itself; per this component's contract that's "polite friction" only.
+  // Preload just before scroll-in: the src is attached once the tile is within
+  // PRELOAD_MARGIN of the viewport, so a fast phone scroll never lands on an
+  // empty tile waiting for native lazy-load to start. No IntersectionObserver
+  // (old browser, jsdom) -> attach at once. Eager callers skip the observer.
+  const ref = useRef<HTMLImageElement>(null)
+  const [near, setNear] = useState(loading === 'eager' || typeof IntersectionObserver === 'undefined')
+  useEffect(() => {
+    if (near || !ref.current) return
+    const io = new IntersectionObserver(
+      (entries) => { if (entries.some((en) => en.isIntersecting)) { setNear(true); io.disconnect() } },
+      { rootMargin: PRELOAD_MARGIN }
+    )
+    io.observe(ref.current)
+    return () => io.disconnect()
+  }, [near])
+
   return (
     <img
-      src={src}
+      ref={ref}
+      src={near ? src : undefined}
       alt={alt}
-      loading={loading}
+      loading={near ? 'eager' : loading}
       decoding={decoding}
       className={className}
       onContextMenu={handleContextMenu}

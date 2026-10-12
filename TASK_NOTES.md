@@ -1,5 +1,28 @@
 # TASK_NOTES
 
+## Current request (2026-10-12) — remodel pages 2-5 live walk: nothing may cover a buy button (Watchtower 45434545, zero-nine)
+
+Amelia's pages 2-5 (b9656cc9, tip 4746d25) were already on origin/main via the 10/12 ship 7314e533, so this card is
+the live walk. Live at 1440 the desktop FloatingCart trigger pill (fixed, right-3, top-1/2) sat on the right end of
+the product page "Add to cart" button and crowded the cart "Check out" and checkout coupon "Apply". On every page with
+the shop sidebar the sidebar's Cart row already carries the count, so the pill is a second cart door. Fix: render
+FloatingCart only where the shop sidebar is not showing (full-screen routes, admin pages with the site menu hidden).
+
+### File shortlist (approved scope — 2026-10-12 buy-button overlap)
+- `src/App.tsx` (AppLayout renders FloatingCart only when isFullScreen or siteMenuHidden)
+- `TASK_NOTES.md`
+- Send-back scope +2 (merged, not edited here): `src/components/MrImagineChatWidget.tsx` + `src/components/ProductCard.tsx`
+  from Amelia's db1d26c (task 41fe4abb). Nine sent the card back because the buy buttons were still covered LIVE; the
+  desktop chat pill over the catalog card was the second overlap, so both fixes ship together as one hotfix.
+
+### Work log (append-only)
+- 2026-10-12 (zero-nine): live walk of prod ad57532 at 1440 + 390 (fleet browser): pages 2-5 load, Add to cart /
+  Make my toy clicks land, cart + checkout chips say "Front print", /home/how-4-earn.webp 200. Only defect: the
+  desktop FloatingCart pill on the product Add to cart. Fixed in App.tsx; local vite walk at 1440 + 390 shows the
+  button clear, sidebar / top-bar cart counts intact, pill still on full-screen /imagination-station. npm run verify
+  165 files / 2365 pass, vite build OK. Seen, not fixed here (other owners): checkout ignores the 2-for-$25 bundle
+  the cart and server apply; desktop "Chat with us" pill over the bottom-right catalog card while scrolling.
+
 ## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
 
 The engine's ship gate (`npm run verify` inside zero-engine) went red on every ITP ship: zero-engine loads
@@ -5082,3 +5105,27 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
 
 - 2026-10-08 (zero-nine, code-here): ship branch earth/zero-nine/ship-itp-amelia-redos-admin-menu = main 79cf763 + Amelia whole-site redo (b9656cc9) + Imagination Station redo (1edebb4) + one-admin-menu (b036572) + fix: AdminShell sets SidebarContext.siteMenuHidden so the desktop shop sidebar steps aside on admin pages, Back to Shop pill on top. Conflicts kept Daisy creator treatment (ProductPage, YouMayAlsoLike lanes), 2XL +$2.50 on cart chip/line, Sal guest wording on Toy Factory, main support-A1 chat widget, one FREE_SHIPPING_THRESHOLD. tsc clean, vitest 165/2365, vite build ok. Walked 1440: /admin one menu, catalog, product, Walk By Faith (Design by Darrell, no off-lane row), cart 2XL line $27.50, /toys, /imagination-station. Scope: SidebarContext.tsx, Sidebar.tsx(+test), App.tsx, AdminShell.tsx, YouMayAlsoLike.tsx, shipping-calculator.ts.
 - 2026-10-12 (dane-marsh): David ruled GO (Nine's gate: take the recommendation). Created SPOOKY20 on live prod (20% off, expires 2026-11-01T03:59Z = Oct 31 11:59pm ET, row 769835fc); live /api/coupons/validate on a $50 order returns $10 off. ProductCard now shows "20% off with SPOOKY20" from the same live row via src/lib/featured-offer.ts (shared with the banner); the "2 for $25" badge stays because the cart and server do apply it (promos.ts). Etsy sale parked on the etsy.com login (Sifu). Banner/badge appear only after this branch deploys (/featured is 404 on live until then).
+- 2026-10-12 (amelia-chan, task 41fe4abb): desktop chat launcher avatar-only except top of home (or live chat); quick-add picker label truncates in compact cards. tsc 0; walked /catalog + / at 1440, /catalog picker at 390.
+
+## Current request (2026-10-12) — ITP catalog: shirt mockup leads, names match art, no blank tiles (task 732f8a71, lucas-blaze)
+
+Finding: the 23e3e853 trim already landed (live storefront = 36 rows status=active+approved: 27 shirts, 3 hoodies,
+2 dtf, 4 3d). Spartans / Grumpy Bear teacher / Epic Black Tee / Magic Hat / Abstract Mind are now `draft` (out of the shop).
+No "Puerto Rico" row exists. What is left: ~15 of the 30 live garments lead with raw art (`/original/`, design-library,
+legacy `/products/*.png`), the Grumpy Cat hoodie leads with the painted checkerboard, and phone tiles blank (Robo Rascal,
+Wizard Beast, Similar Products).
+
+Decisions: (1) reorder `products.images` so the first real mockup (ghost mannequin > flat lay > hanger > composite >
+on-model) leads; raw art stays in the gallery, last. Backup JSON of every old array written before --apply. (2) The 3 garments
+with NO mockup get one from the free blank-composite tool (no model spend). (3) Blank tiles: IntersectionObserver preload
+margin, not native lazy only.
+
+### File shortlist (approved scope — 2026-10-12 catalog lead image)
+- `backend/scripts/lead-with-mockup.mjs` (new; dry-run default), `backend/scripts/lead-with-mockup.test.mjs` if pure helper split out
+- `src/lib/storefront-row.ts` / `src/components/ProductCard.tsx` / `src/components/ProductImage*.tsx` (phone blank-tile fix, whichever owns the <img>)
+- `src/pages/ProductPage.tsx` (Similar Products tile only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (lucas-blaze): merged origin/main; walked the live data (anon read): 36 active, list above.
+- 2026-10-12 (lucas-blaze): `getGalleryImages` now leads with a garment shot (ghost mannequin > flat lay > hanger > composite > mr_imagine > on-model) even over a watermarked display hero; 5 new tests, tsc 0, vitest 2371/2371. Phone blanks: ProductCard hover now mouse-pointer only (a tap stuck isHovered and faded the primary to opacity 0), ProtectedImage attaches src 1200px before scroll-in via IntersectionObserver, Similar Products img h-full. Live DB: composite tee mockups written for Cowboy vs Alien + Majestic Roar via backend/scripts/mockup-from-art.ts (images[] now led by the mockup; old arrays = [original]); Majestic Roar description rewritten (was "photorealistic"). Ember Warrior (bb7bd4f1) left: art is a real person's photo + name.
