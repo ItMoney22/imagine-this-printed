@@ -1,5 +1,25 @@
 # TASK_NOTES
 
+## Current request (2026-10-12) — remodel pages 2-5 live walk: nothing may cover a buy button (Watchtower 45434545, zero-nine)
+
+Amelia's pages 2-5 (b9656cc9, tip 4746d25) were already on origin/main via the 10/12 ship 7314e533, so this card is
+the live walk. Live at 1440 the desktop FloatingCart trigger pill (fixed, right-3, top-1/2) sat on the right end of
+the product page "Add to cart" button and crowded the cart "Check out" and checkout coupon "Apply". On every page with
+the shop sidebar the sidebar's Cart row already carries the count, so the pill is a second cart door. Fix: render
+FloatingCart only where the shop sidebar is not showing (full-screen routes, admin pages with the site menu hidden).
+
+### File shortlist (approved scope — 2026-10-12 buy-button overlap)
+- `src/App.tsx` (AppLayout renders FloatingCart only when isFullScreen or siteMenuHidden)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (zero-nine): live walk of prod ad57532 at 1440 + 390 (fleet browser): pages 2-5 load, Add to cart /
+  Make my toy clicks land, cart + checkout chips say "Front print", /home/how-4-earn.webp 200. Only defect: the
+  desktop FloatingCart pill on the product Add to cart. Fixed in App.tsx; local vite walk at 1440 + 390 shows the
+  button clear, sidebar / top-bar cart counts intact, pill still on full-screen /imagination-station. npm run verify
+  165 files / 2365 pass, vite build OK. Seen, not fixed here (other owners): checkout ignores the 2-for-$25 bundle
+  the cart and server apply; desktop "Chat with us" pill over the bottom-right catalog card while scrolling.
+
 ## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
 
 The engine's ship gate (`npm run verify` inside zero-engine) went red on every ITP ship: zero-engine loads
