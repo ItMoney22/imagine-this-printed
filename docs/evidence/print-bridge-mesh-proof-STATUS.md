@@ -1,8 +1,10 @@
 # Print-bridge mesh-link proof — STATUS: WATCHING (task e51d15e8)
 
 The live proof needs a REAL paid order with a meshed toy (3d-print-<modelId> or a print3d catalog toy).
-None exists. Every live check 10/12-10/13 (latest 2026-10-13 17:59Z) saw the same 2 candle-holder lines,
-no glbUrl/stlUrl, no gs://. No fake order was created: Pluto prints whatever the queue holds.
+None exists. Every live check 10/12-10/13 (latest 2026-10-13 19:49Z) saw the same 2 candle-holder lines,
+no glbUrl/stlUrl, no gs://. The database agrees (19:49Z): 6 paid orders ever, newest 2026-09-12, 0 order lines
+ever with a 3d-print- id, 0 paid lines on a meshed toy. 3 meshed toys ARE buyable today (Shadow Raptor Toy Charm,
+The Wizard Beast, Robo Rascal), so the trigger is reachable; it just has not been pulled. No fake order was created: Pluto prints whatever the queue holds.
 
 ## What runs now (2026-10-13)
 - Earth scheduled task **ITP print-bridge mesh watch**, every 30 min, hidden (conhost --headless),
@@ -13,6 +15,15 @@ no glbUrl/stlUrl, no gs://. No fake order was created: Pluto prints whatever the
   (customer name/email redacted, signed URLs kept so a checker can re-fetch within 12 h), marks trigger card
   **aadb395f** ("UNBLOCK e51d15e8 ...") completed with the PASS/FAIL summary, and deletes its own task.
   Nine then re-sends e51d15e8 on this branch (prerequisite landed) to write the proof handoff.
+
+## Re-check 2026-10-13 19:49Z (send-back #4): `docs/evidence/print-bridge-mesh-recheck-2026-10-13.txt`
+- The queue scans paid orders oldest first, max 100 per call. A bare call goes blind past 100 paid orders, so the
+  script now follows the queue cursor (since=) to the end. Proven live with QUEUE_PAGE_LIMIT=1: 7 pages, same 2 lines.
+- Every live run also counts paid meshed lines straight from the database (vault service key, read-only).
+  DB says paid meshed > 0 while the queue serves 0 links = FAIL, so a bridge that drops a real order cannot
+  sit on WAITING. The join's toy-line count (2) matches the queue's 2 lines on live data.
+- Pre-flight `node scripts/preflight-print-bridge-toy-meshes.mjs`: all 6 mesh files of the 3 buyable toys,
+  signed 12 h with the backend's GCS signer, fetch HTTP 200 with md5 = GCS. Not the live proof (no order).
 
 ## Checks per link (PASS needs all)
 https; host storage.googleapis.com; path /imagine-this-printed-products/; link life within 120 s of
@@ -25,4 +36,6 @@ mesh -> PASS (both 200, md5 = GCS); a 1 h link -> FAIL on expiry; live queue at 
 
 ## Re-run by hand
     node scripts/prove-print-bridge-mesh.mjs
+    QUEUE_PAGE_LIMIT=1 node scripts/prove-print-bridge-mesh.mjs
+    node scripts/preflight-print-bridge-toy-meshes.mjs
 Stop the watch: `schtasks /Delete /TN "ITP print-bridge mesh watch" /F`
