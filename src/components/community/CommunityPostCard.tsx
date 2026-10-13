@@ -4,6 +4,7 @@ import { Heart, Rocket, Eye, User, Store, Palette, Crown, BadgeCheck } from 'luc
 import type { CommunityPost } from '../../types'
 import { communityService } from '../../utils/community-service'
 import { useAuth } from '../../context/SupabaseAuthContext'
+import { useGuestGate } from '../GuestGate'
 import { useMrImagineNotify } from '../MrImagineNotification'
 import PaidBoostModal from './PaidBoostModal'
 
@@ -19,6 +20,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({
   onBoostSuccess
 }) => {
   const { user } = useAuth()
+  const { requireAccount } = useGuestGate()
   const [isVoting, setIsVoting] = useState(false)
   const [hasVoted, setHasVoted] = useState(post.user_has_voted || false)
   const [voteCount, setVoteCount] = useState(post.free_vote_count)
@@ -29,7 +31,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({
 
   const handleVote = async () => {
     if (!user) {
-      alert('Please sign in to vote')
+      requireAccount('community-vote')
       return
     }
 
@@ -217,7 +219,7 @@ const CommunityPostCard: React.FC<CommunityPostCardProps> = ({
               {hasVoted ? 'Voted' : 'Vote'}
             </button>
             <button
-              onClick={() => setShowBoostModal(true)}
+              onClick={() => { if (requireAccount('community-boost')) setShowBoostModal(true) }}
               disabled={!user}
               className="flex-1 flex items-center justify-center gap-2 py-2 px-4 rounded-lg font-medium bg-gradient-to-r from-orange-500/20 to-yellow-500/20 text-orange-400 hover:from-orange-500/30 hover:to-yellow-500/30 transition-all disabled:opacity-50"
             >
