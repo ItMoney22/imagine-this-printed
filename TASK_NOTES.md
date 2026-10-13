@@ -5167,3 +5167,21 @@ margin, not native lazy only.
 ### Work log (append-only)
 - 2026-10-13 (dane-marsh): merged origin/main (branch base was 68 behind; production already had the WholesalePublic page). The hard-coded product has no real image in its data, so the image is removed (no placeholder); filter grid goes 4 -> 3 columns so no empty slot.
 - 2026-10-13 (dane-marsh): guard is now WholesalePortal.test.tsx (source scan + approved-account Products tab render: 2 selects, no vendor filter, no img); both fail on origin/main's file. tsc 0, vitest 169 files / 2384, vite build OK; local 390 signed-out walk OK; local wholesale chunk has none of the 4 strings. No wholesale account exists on live (0 applications, 0 wholesale-role users).
+
+## Current request (2026-10-13) — ITP: one ITP-owned broken-image fallback + stock-host source guard (task 227293bd, mia-potts)
+
+Decision: an ITP-owned image asset (`public/catalog/product-image-fallback.svg`: the bulb mark on --bg-warm, 1 KB SVG,
+crisp at every size), not a token tile with the product name. All four call sites already print the product name next
+to the image, and every one swaps `src` in `onError` (ProductCard inside ProtectedImage + the hover crossfade), so an
+asset is a drop-in with no new state per call site.
+
+### File shortlist (approved scope — 2026-10-13 image fallback)
+- new `src/lib/product-image-fallback.ts` (PRODUCT_IMAGE_FALLBACK + showProductImageFallback) + `src/lib/product-image-fallback.test.tsx` (src-wide stock-host guard)
+- new `public/catalog/product-image-fallback.svg`
+- `src/components/ProductCard.tsx`, `src/pages/Cart.tsx`, `src/pages/ProductPage.tsx`, `src/components/FloatingCart.tsx` (fallback only)
+- `src/pages/RecommendationsDashboard.tsx` (unrouted mock page; its 3 stock images only, so src greps clean)
+- merged dane-marsh's unshipped wholesale branch (2eed761 + 741ce36, SHIP a2d54df7) for the last WholesalePortal stock photo
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-13 (mia-potts): merged origin/main (68 behind). Reproduced on a local dev server whose Supabase replies point every image at an unresolvable host: catalog, product page, cart and mini cart all showed the stranger's stock tee. After: all four show the ITP tile at 1400 and 390. Guard red with a probe file holding the old URL, green without. tsc -b 0, vitest 170 files / 2390, vite build OK, built dist has no stock host. Evidence: E:/memory/watchtower/projects/imagine-this-printed/2026-10-13-227293bd-fallback/.

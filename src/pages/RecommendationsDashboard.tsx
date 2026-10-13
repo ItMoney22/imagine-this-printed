@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useNavigate } from 'react-router-dom'
 import ProductRecommendations from '../components/ProductRecommendations'
+import { PRODUCT_IMAGE_FALLBACK } from '../lib/product-image-fallback'
 
 const RecommendationsDashboard: React.FC = () => {
   const { user } = useAuth()
@@ -121,19 +122,19 @@ const RecommendationsDashboard: React.FC = () => {
                   id: '1',
                   name: 'Custom T-Shirt',
                   price: 25.99,
-                  image: 'https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=400&h=400&fit=crop'
+                  image: PRODUCT_IMAGE_FALLBACK
                 },
                 {
                   id: '2',
                   name: 'DTF Transfer',
                   price: 8.99,
-                  image: 'https://images.unsplash.com/photo-1503341338985-95ad5e163e51?w=400&h=400&fit=crop'
+                  image: PRODUCT_IMAGE_FALLBACK
                 },
                 {
                   id: '3',
                   name: 'Custom Hoodie',
                   price: 45.99,
-                  image: 'https://images.unsplash.com/photo-1556821840-3a63f95609a7?w=400&h=400&fit=crop'
+                  image: PRODUCT_IMAGE_FALLBACK
                 }
               ].map((product) => (
                 <div
