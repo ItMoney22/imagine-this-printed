@@ -517,7 +517,7 @@ const WholesaleProducts: React.FC<{ account: RealWholesaleAccount }> = ({ accoun
         { tier: 'gold', price: 16.24, minimumQuantity: 48 },
         { tier: 'platinum', price: 14.99, minimumQuantity: 96 }
       ],
-      images: ['https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?w=600&h=600&fit=crop'],
+      images: [],
       category: 'shirts',
       inStock: true,
       minimumOrderQuantity: 12,
@@ -561,18 +561,13 @@ const WholesaleProducts: React.FC<{ account: RealWholesaleAccount }> = ({ accoun
       {/* Filters */}
       <div className="bg-card rounded-lg shadow p-6">
         <h3 className="text-lg font-medium text-text mb-4">Filter Products</h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <select className="form-select">
             <option>All Categories</option>
             <option>T-Shirts</option>
             <option>Hoodies</option>
             <option>DTF Transfers</option>
             <option>Tumblers</option>
-          </select>
-          <select className="form-select">
-            <option>All Vendors</option>
-            <option>Premium Apparel Co</option>
-            <option>Quality Prints Ltd</option>
           </select>
           <select className="form-select">
             <option>Sort by Price</option>
@@ -591,11 +586,13 @@ const WholesaleProducts: React.FC<{ account: RealWholesaleAccount }> = ({ accoun
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {products.map((product) => (
           <div key={product.id} className="bg-card rounded-lg shadow overflow-hidden">
-            <img
-              src={product.images[0]}
-              alt={product.name}
-              className="w-full h-48 object-cover"
-            />
+            {product.images[0] && (
+              <img
+                src={product.images[0]}
+                alt={product.name}
+                className="w-full h-48 object-cover"
+              />
+            )}
             <div className="p-6">
               <h3 className="text-lg font-medium text-text mb-2">{product.name}</h3>
               <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>

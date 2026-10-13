@@ -5156,3 +5156,14 @@ margin, not native lazy only.
 - 2026-10-12 (lucas-blaze): merged origin/main; walked the live data (anon read): 36 active, list above.
 - 2026-10-12 (lucas-blaze): `getGalleryImages` now leads with a garment shot (ghost mannequin > flat lay > hanger > composite > mr_imagine > on-model) even over a watermarked display hero; 5 new tests, tsc 0, vitest 2371/2371. Phone blanks: ProductCard hover now mouse-pointer only (a tap stuck isHovered and faded the primary to opacity 0), ProtectedImage attaches src 1200px before scroll-in via IntersectionObserver, Similar Products img h-full. Live DB: composite tee mockups written for Cowboy vs Alien + Majestic Roar via backend/scripts/mockup-from-art.ts (images[] now led by the mockup; old arrays = [original]); Majestic Roar description rewritten (was "photorealistic"). Ember Warrior (bb7bd4f1) left: art is a real person's photo + name.
 - 2026-10-13 (iahhm, task 36222110): re-ran importer dry-run against live Etsy: 0 reviews. Merged origin/main (only TASK_NOTES conflicted, kept both sides). Pipeline still dormant by design.
+
+## Current request (2026-10-13) — ITP wholesale portal: drop invented vendor filter + stock photo (task 67755f9a, dane-marsh)
+
+### File shortlist (approved scope — 2026-10-13 wholesale invented data)
+- `src/pages/WholesalePortal.tsx` (vendor filter <select> + the hard-coded product's images.unsplash.com photo only)
+- `src/pages/WholesalePortal.test.tsx` (new: source guard + approved-account render of the Products tab)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-13 (dane-marsh): merged origin/main (branch base was 68 behind; production already had the WholesalePublic page). The hard-coded product has no real image in its data, so the image is removed (no placeholder); filter grid goes 4 -> 3 columns so no empty slot.
+- 2026-10-13 (dane-marsh): guard is now WholesalePortal.test.tsx (source scan + approved-account Products tab render: 2 selects, no vendor filter, no img); both fail on origin/main's file. tsc 0, vitest 169 files / 2384, vite build OK; local 390 signed-out walk OK; local wholesale chunk has none of the 4 strings. No wholesale account exists on live (0 applications, 0 wholesale-role users).
