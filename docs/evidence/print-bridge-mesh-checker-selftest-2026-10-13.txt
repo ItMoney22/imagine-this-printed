@@ -1,0 +1,57 @@
+# Checker self-test, 2026-10-13T17:59:08Z. NOT the live proof: no order involved, queue body is a local fixture.
+# Links are V2 signed exactly like backend signObjectInBucket, on a real object in the private bucket
+# (3d-models/1c197777-16b4-4438-a726-16cb9cef09c6/model.glb + .stl). Command: QUEUE_FILE=<fixture> node scripts/prove-print-bridge-mesh.mjs
+
+## good fixture: 12 h links (expect PASS)
+queue HTTP 200
+orders 1 lines 1
+gs:// anywhere: false
+mesh links found: 2
+fixture-order fixture-line glbUrl {
+  scheme: true,
+  host: true,
+  bucket: true,
+  lifeSec: 43200,
+  expiryOk: true,
+  http: 200,
+  bytes: 1813532,
+  md5MatchesGcs: true
+}
+fixture-order fixture-line stlUrl {
+  scheme: true,
+  host: true,
+  bucket: true,
+  lifeSec: 43200,
+  expiryOk: true,
+  http: 200,
+  bytes: 765084,
+  md5MatchesGcs: true
+}
+RESULT: PASS
+exit 0
+
+## bad fixture: 1 h link (expect FAIL on expiry)
+queue HTTP 200
+orders 1 lines 1
+gs:// anywhere: false
+mesh links found: 1
+fixture-bad short-ttl glbUrl {
+  scheme: true,
+  host: true,
+  bucket: true,
+  lifeSec: 3599,
+  expiryOk: false,
+  http: 200,
+  bytes: 1813532,
+  md5MatchesGcs: true
+}
+RESULT: FAIL
+exit 1
+
+## live queue, same moment (expect WAITING)
+queue HTTP 200
+orders 2 lines 2
+gs:// anywhere: false
+mesh links found: 0
+RESULT: WAITING (no meshed paid line yet)
+exit 0

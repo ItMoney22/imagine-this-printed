@@ -1,21 +1,28 @@
-# Print-bridge mesh-link proof — STATUS: WAITING (task e51d15e8)
+# Print-bridge mesh-link proof — STATUS: WATCHING (task e51d15e8)
 
-Re-checked 2026-10-12 (third run, after Nine's send-back). Live GET /api/print-bridge/queue
-(vault itp.PRINT_BRIDGE_TOKEN): HTTP 200, 2 lines, `gs:// anywhere: false`, 0 mesh links.
-Both lines are the old custom-toy Gothic Ghost Face Candle Holder with no glbUrl/stlUrl.
-Snapshot: docs/evidence/print-bridge-queue-2026-10-12.json (customer fields redacted, no token).
+The live proof needs a REAL paid order with a meshed toy (3d-print-<modelId> or a print3d catalog toy).
+None exists. Every live check 10/12-10/13 (latest 2026-10-13 17:59Z) saw the same 2 candle-holder lines,
+no glbUrl/stlUrl, no gs://. No fake order was created: Pluto prints whatever the queue holds.
 
-Trigger not fired: no paid order with a meshed toy (3d-print-<modelId> or print3d catalog toy) exists.
-No fake order was created (Pluto would print it). The task cannot pass until a customer buys one.
+## What runs now (2026-10-13)
+- Earth scheduled task **ITP print-bridge mesh watch**, every 30 min, hidden (conhost --headless),
+  launcher `E:\memory\watchtower\scripts\itp-print-bridge-mesh-watch.cmd`, runs
+  `node scripts/prove-print-bridge-mesh.mjs --watch` (read-only GET, vault itp.PRINT_BRIDGE_TOKEN).
+- WAITING runs append one line to `E:/memory/watchtower/projects/imagine-this-printed/print-bridge-mesh-watch/watch.log`.
+- The first run that sees a meshed paid line fetches every glbUrl/stlUrl, writes `evidence-<stamp>.json` there
+  (customer name/email redacted, signed URLs kept so a checker can re-fetch within 12 h), marks trigger card
+  **aadb395f** ("UNBLOCK e51d15e8 ...") completed with the PASS/FAIL summary, and deletes its own task.
+  Nine then re-sends e51d15e8 on this branch (prerequisite landed) to write the proof handoff.
 
-Re-run (prints WAITING / PASS / FAIL, per-link scheme, host, bucket, expiry, HTTP status):
+## Checks per link (PASS needs all)
+https; host storage.googleapis.com; path /imagine-this-printed-products/; link life within 120 s of
+PRINT_FILE_LINK_TTL_MINUTES (720 min; the bridge signs V2 links on every queue read); full GET returns
+exactly HTTP 200 (bytes + md5 recorded, md5 compared with GCS x-goog-hash).
+
+## Checker proven on real bucket links
+`docs/evidence/print-bridge-mesh-checker-selftest-2026-10-13.txt`: 12 h V2 links on a real private-bucket
+mesh -> PASS (both 200, md5 = GCS); a 1 h link -> FAIL on expiry; live queue at the same moment -> WAITING.
+
+## Re-run by hand
     node scripts/prove-print-bridge-mesh.mjs
-PASS = every glbUrl/stlUrl is https storage.googleapis.com/imagine-this-printed-products,
-expiry == PRINT_FILE_LINK_TTL_MINUTES (720 min), and fetch returns 200.
-
-## Re-run 2026-10-13 (fourth run, after second send-back)
-`node scripts/prove-print-bridge-mesh.mjs` -> queue HTTP 200, orders 2, lines 2, gs:// anywhere: false,
-mesh links found: 0, RESULT: WAITING. Same two old candle-holder lines. No fake order created.
-DECISION (open question): PARK. Task is a wait-for-customer trigger; criteria 1-3 cannot be met until a
-real paid meshed toy order exists. Needs a re-run of the script above when one lands (watch card to be
-dispatched only then, per fleet rule: watch cards wait for deploy). Ship 375a0177 is on origin/main.
+Stop the watch: `schtasks /Delete /TN "ITP print-bridge mesh watch" /F`
