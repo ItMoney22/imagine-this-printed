@@ -12,3 +12,10 @@ Re-run (prints WAITING / PASS / FAIL, per-link scheme, host, bucket, expiry, HTT
     node scripts/prove-print-bridge-mesh.mjs
 PASS = every glbUrl/stlUrl is https storage.googleapis.com/imagine-this-printed-products,
 expiry == PRINT_FILE_LINK_TTL_MINUTES (720 min), and fetch returns 200.
+
+## Re-run 2026-10-13 (fourth run, after second send-back)
+`node scripts/prove-print-bridge-mesh.mjs` -> queue HTTP 200, orders 2, lines 2, gs:// anywhere: false,
+mesh links found: 0, RESULT: WAITING. Same two old candle-holder lines. No fake order created.
+DECISION (open question): PARK. Task is a wait-for-customer trigger; criteria 1-3 cannot be met until a
+real paid meshed toy order exists. Needs a re-run of the script above when one lands (watch card to be
+dispatched only then, per fleet rule: watch cards wait for deploy). Ship 375a0177 is on origin/main.
