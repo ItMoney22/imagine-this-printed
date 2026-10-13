@@ -5159,3 +5159,13 @@ second one; only make the Etsy listing options PNG / DTF / tee.
   untouched). Market research: 'polos' seed removed. EtsyStep + AdminEtsyPanel: T-shirt / DTF print / Digital PNG, all
   eligible ticked by default. Verified: root tsc 0, backend tsc only the 6 pre-existing rate-limits TS2742 (junction),
   vitest 145 files / 2219 passed, vite build OK, eslint 0 errors, fleet-browser walk 390 + 1400 (harness, deleted).
+- 2026-10-13 (zero-nine, merge card b5f5bb8f): gates re-run on e0ec32e (= origin/main 9af48d8 + c7c31aa, fast-forward):
+  tsc -b 0, vitest 167 files / 2400 passed, vite build OK, no supabase/ change. NOT pushed to main: ITP already shipped
+  9af48d8 (SPOOKY20) at 02:17 local on 10/13 and the engine allows one non-hotfix ship a day; nothing is broken live
+  (Etsy shop has 0 embroidery listings), so this is not a hotfix. Folded into superset ship 4646cb1f instead. merge-tree
+  vs its branches: TASK_NOTES only vs 35cc532b, 8b0676b, eac8f19, 9320fdf, a9abbfb; clean vs 051355f; CODE clash vs 512d735
+  in backend/shared/etsy-tiers.ts (+ test), both sides pure additions (import + describe block). Resolver
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-13-b5f5bb8f-etsy-options-merge/resolve-etsy-tiers-keep-both.cjs
+  keeps both; trial e0ec32e + 512d735: tsc -b 0, vitest 171 files / 2458 passed, backend tsc only the 6 known TS2742.
+  Origin/main itself now conflicts with d50f833 (backend/routes/coupons.ts) and 227c329 (backend/utils/email.ts) since
+  SPOOKY20 landed; not caused by this branch.
