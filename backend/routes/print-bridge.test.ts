@@ -6,6 +6,11 @@ import { describe, it, expect, vi } from 'vitest'
 process.env.SUPABASE_URL ||= 'https://test-project.supabase.co'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 
+// Each test cold-imports print-bridge.ts (express + supabase-js behind it).
+// Under the full parallel suite that first import ran past vitest's 5 s
+// default and failed the ship gate twice on 2026-10-13 while passing alone.
+vi.setConfig({ testTimeout: 30_000 })
+
 // ---------------------------------------------------------------------------
 // Watchtower task 5b49d774 — notifyWorkers() was matching catalog 3D print
 // items with `.startsWith('catalog-toy')`, but catalog items carry their raw

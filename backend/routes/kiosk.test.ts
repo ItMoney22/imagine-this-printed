@@ -6,6 +6,11 @@ import { describe, it, expect, vi } from 'vitest'
 process.env.SUPABASE_URL ||= 'https://test-project.supabase.co'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 
+// Each test cold-imports kiosk.ts (express + supabase-js behind it). Under the
+// full parallel suite that first import ran past vitest's 5 s default and
+// failed the ship gate twice on 2026-10-13 while passing alone.
+vi.setConfig({ testTimeout: 30_000 })
+
 /**
  * Watchtower ITP Closeout campaign, 2026-07-28 (task 83eb5c5b) —
  * acceptance criterion: "Attempting to access a kiosk session with only a
