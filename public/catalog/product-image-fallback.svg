@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600">
+  <defs>
+    <linearGradient id="itp-bulb" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#9333EA"/>
+      <stop offset="1" stop-color="#EC4899"/>
+    </linearGradient>
+  </defs>
+  <rect width="600" height="600" fill="#F8F6FF"/>
+  <g fill="none" stroke="url(#itp-bulb)" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" opacity="0.55">
+    <path d="M300 170 A100 100 0 0 1 360 350 C348 360 342 372 342 386 V400 H258 V386 C258 372 252 360 240 350 A100 100 0 0 1 300 170 Z"/>
+    <path d="M280 386 V332 L266 298 M320 386 V332 L334 298 M266 298 L300 324 L334 298"/>
+    <path d="M262 424 H338 M274 448 H326"/>
+  </g>
+</svg>

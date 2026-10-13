@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase'
 import SocialBadge from './SocialBadge'
 import ProtectedImage from './ProtectedImage'
 import { useCart } from '../context/CartContext'
+import { PRODUCT_IMAGE_FALLBACK, showProductImageFallback } from '../lib/product-image-fallback'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
@@ -195,9 +196,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   // Display set is role-aware (getGalleryImages): contextual mockups first,
   // then clean art â€” NEVER the halftone / DTF deliverables (a raw halftone
   // looks bad as a grid thumbnail). Crossfade to the 2nd display image on hover.
-  const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
   const galleryImgs = getGalleryImages(product)
-  const imgs = galleryImgs.length > 0 ? galleryImgs : [FALLBACK]
+  const imgs = galleryImgs.length > 0 ? galleryImgs : [PRODUCT_IMAGE_FALLBACK]
   const primaryImage = imgs[0]
   const hoverImage = imgs.length > 1 ? (imgs[1] || imgs[2] || null) : null
 
@@ -217,9 +217,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             src={primaryImage}
             alt={product.name}
             className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover:scale-105 ${hoverImage ? (isHovered ? 'opacity-0' : 'opacity-100') : ''}`}
-            onError={(e) => {
-              (e.target as HTMLImageElement).src = FALLBACK
-            }}
+            onError={showProductImageFallback}
           />
           {/* Hover image â€” flat lay (images[1]) or Mr. Imagine (images[2]); lazy-loaded */}
           {hoverImage && (
@@ -228,9 +226,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               alt={`${product.name} alternate view`}
               loading="lazy"
               className={`absolute inset-0 w-full h-full object-cover transition-all duration-500 group-hover:scale-105 ${isHovered ? 'opacity-100' : 'opacity-0'}`}
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = FALLBACK
-              }}
+              onError={showProductImageFallback}
             />
           )}
         </Link>

@@ -23,6 +23,7 @@ import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/Te
 import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
+import { PRODUCT_IMAGE_FALLBACK, showProductImageFallback } from '../lib/product-image-fallback'
 import { blankPricingOf, blankUnitPriceDollars, blankFromPriceDollars } from '../../backend/shared/blank-pricing'
 import { blankTierById, compareToLabel, BLANK_LABEL_NOTE } from '../../backend/shared/blank-line'
 import { isCreatorProductMeta, creatorNameOf, creatorGarmentColor } from '../../backend/shared/creator-product'
@@ -421,7 +422,7 @@ const ProductPage: React.FC = () => {
   }
 
   // Gallery = artwork/photos + the contextual mockup (metadata.mockup_url),
-  // which was previously never shown. Falls back to the unsplash placeholder.
+  // which was previously never shown. Falls back to ITP's own no-photo tile.
   const baseGallery = getGalleryImages(product)
   // The pocket shot may not be in products.images[] (it is appended to the
   // gallery contract, and older published rows predate it), so surface it here
@@ -628,14 +629,12 @@ const ProductPage: React.FC = () => {
               <ProtectedImage
                 src={galleryImages.length > 0
                   ? galleryImages[selectedImage]
-                  : 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
+                  : PRODUCT_IMAGE_FALLBACK}
                 alt={product.altText || product.name}
                 // object-contain — mockups have varying aspect ratios and
                 // "cover" cropped the top off taller designs.
                 className="w-full aspect-square object-contain"
-                onError={(e) => {
-                  (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
-                }}
+                onError={showProductImageFallback}
               />
             )}
           </div>
@@ -663,9 +662,7 @@ const ProductPage: React.FC = () => {
                     src={image}
                     alt={`${product.altText || product.name} ${index + 1}`}
                     className="w-full h-full object-contain"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
-                    }}
+                    onError={showProductImageFallback}
                   />
                 </button>
               ))}

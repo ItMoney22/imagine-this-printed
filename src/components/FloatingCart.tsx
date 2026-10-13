@@ -19,6 +19,7 @@ import { ShoppingCart, X, ArrowRight, Trash2, Plus, Minus } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { getColorName } from '../utils/color-presets'
 import { unitBasePrice } from '../lib/product-kind'
+import { PRODUCT_IMAGE_FALLBACK, showProductImageFallback } from '../lib/product-image-fallback'
 
 const AUTO_HIDE_MS = 8000
 
@@ -129,7 +130,7 @@ const FloatingCart: React.FC = () => {
                 item.designData?.mockupUrl ||
                 item.customDesign ||
                 item.product.images?.[0] ||
-                'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=200&h=200&fit=crop'
+                PRODUCT_IMAGE_FALLBACK
               return (
                 <div
                   key={item.id}
@@ -139,10 +140,7 @@ const FloatingCart: React.FC = () => {
                     src={img}
                     alt={item.product.name}
                     className="w-12 h-12 rounded-md object-cover shrink-0 border border-white/10"
-                    onError={(e) => {
-                      ;(e.target as HTMLImageElement).src =
-                        'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=200&h=200&fit=crop'
-                    }}
+                    onError={showProductImageFallback}
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-xs font-semibold text-text truncate">

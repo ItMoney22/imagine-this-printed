@@ -8,9 +8,8 @@ import { SHOP_PLACE } from '../config/business-info'
 import { getColorName } from '../utils/color-presets'
 import { addonsUnitTotal, lineBasePrice, printLocationLabel, sizePriceDelta, formatPriceDelta } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
+import { PRODUCT_IMAGE_FALLBACK, showProductImageFallback } from '../lib/product-image-fallback'
 import type { CartItem } from '../types'
-
-const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
 
 /** 2XL and up adds $2.50 a shirt (the same rail the summary and checkout charge), so the line says so
  *  instead of showing the base price under a total that is $2.50 higher. */
@@ -96,12 +95,10 @@ const Cart: React.FC = () => {
                 <li key={item.id} className="bg-card rounded-2xl border border-border shadow-soft p-3 sm:p-4 flex gap-3 sm:gap-5">
                   <Link to={`/product/${item.product.slug || item.product.id}`} className="shrink-0">
                     <img
-                      src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || FALLBACK}
+                      src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || PRODUCT_IMAGE_FALLBACK}
                       alt={item.product.name}
                       className="w-24 h-24 sm:w-32 sm:h-32 object-contain rounded-xl bg-bg"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = FALLBACK
-                      }}
+                      onError={showProductImageFallback}
                     />
                   </Link>
 
