@@ -31,6 +31,7 @@ import {
   taxonomyIdForCategory,
   tierCopy
 } from '../shared/etsy-tiers.js'
+import { applyRequiredAttributes, craftKindFor } from './etsy-required-attributes.js'
 
 const ETSY_API = 'https://api.etsy.com/v3'
 const ETSY_CONNECT_URL = 'https://www.etsy.com/oauth/connect'
@@ -73,6 +74,9 @@ export interface EtsyPublishResult {
   state?: string
   etsyUrl?: string
   uploadedImages: number
+  /** Etsy-required attributes (Craft type) written onto the draft, and any
+   *  still blank that a person has to set in Shop Manager. */
+  attributes?: { filled: string[]; unfilled: string[] }
   error?: string
 }
 
@@ -843,6 +847,23 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
       }
     }
 
+    // Etsy-required attributes — Craft type on the DTF (6617) and PNG (6844)
+    // nodes, which Etsy will not let a draft go live without and whose value
+    // list fits nothing ITP makes (Christina 2026-08-22). Filled here so nobody
+    // has to pick; see etsy-required-attributes.ts for the picks. Best-effort
+    // like variations: a failed write leaves the draft for a person to finish.
+    try {
+      const attrs = await applyRequiredAttributes(
+        (path, o) => etsyFetch(path, { ...o, token }),
+        shopId, listingId, taxonomyId, craftKindFor(tierCfg.listingType), { fresh: true }
+      )
+      result.attributes = { filled: attrs.filled, unfilled: attrs.unfilled }
+      if (attrs.filled.length) console.log(`[etsy] ${productId} [${tier}] required attributes set: ${attrs.writes.map(w => `${w.name}=${w.values.join('/')}`).join(', ')}`)
+      if (attrs.unfilled.length) console.warn(`[etsy] ${productId} [${tier}] Etsy requires ${attrs.unfilled.join(', ')} on taxonomy ${taxonomyId} — still blank on draft ${listingId}`)
+    } catch (attrErr: any) {
+      console.warn(`[etsy] ${productId} [${tier}] required attributes failed (draft kept without them): ${attrErr.message}`)
+    }
+
     // Optional activation — explicit opt-in only; costs $0.20 and goes live.
     let finalState = 'draft'
     const wantPublish = opts.publish ?? (process.env.ETSY_AUTO_PUBLISH === 'true')
@@ -902,6 +923,9 @@ export interface EtsyUpdateOptions {
   quantity?: number
   /** Dollars. Overrides the pack/tier/product price for this update only. */
   priceOverride?: number
+  /** Fill Etsy-required attributes (Craft type) that are still blank. Never
+   *  overwrites a value already on the listing. Default true. */
+  attributes?: boolean
   /** Compute everything and report it WITHOUT writing to Etsy. */
   dryRun?: boolean
 }
@@ -921,6 +945,9 @@ export interface EtsyUpdateResult {
   /** The per-size prices this update resolves to, for the caller to eyeball. */
   prices?: Record<string, number>
   basePrice?: number
+  /** Required attributes this update would write (planned), did write
+   *  (filled), and could not fill (unfilled). */
+  attributes?: { planned: string[]; filled: string[]; unfilled: string[] }
   dryRun?: boolean
   error?: string
 }
@@ -964,7 +991,7 @@ export async function updateEtsyListing(
       throw new Error(`Product ${productId} has no ${tier} Etsy listing to update — publish it first`)
     }
 
-    const { token } = await getAccessToken()
+    const { token, shopId } = await getAccessToken()
 
     // Read the CURRENT listing before touching it. A ledger row is not proof
     // the listing still exists — Shop-Manager deletes leave stale rows behind,
@@ -1059,6 +1086,24 @@ export async function updateEtsyListing(
         await etsyFetch(`/application/listings/${ledger.listing_id}`, { method: 'PATCH', token, form })
         result.updated.copy = true
         console.log(`[etsy] ${productId} [${tier}] updated copy on listing ${ledger.listing_id}`)
+      }
+    }
+
+    // --- Etsy-required attributes ------------------------------------------
+    // How a draft made before the publisher filled Craft type gets it: only
+    // what is still blank is written, so a value set in Shop Manager stands.
+    if (opts.attributes !== false) {
+      try {
+        const attrs = await applyRequiredAttributes(
+          (path, o) => etsyFetch(path, { ...o, token }),
+          Number(listing.shop_id ?? shopId), ledger.listing_id, taxonomyId,
+          // Etsy reads the listing kind back as `listing_type` (create takes `type`).
+          craftKindFor(listing.listing_type ?? tierCfg.listingType), { dryRun: opts.dryRun }
+        )
+        result.attributes = { planned: attrs.writes.map(w => w.name), filled: attrs.filled, unfilled: attrs.unfilled }
+        if (attrs.filled.length) console.log(`[etsy] ${productId} [${tier}] filled ${attrs.filled.join(', ')} on listing ${ledger.listing_id}`)
+      } catch (attrErr: any) {
+        console.warn(`[etsy] ${productId} [${tier}] required attributes failed on listing ${ledger.listing_id}: ${attrErr.message}`)
       }
     }
 

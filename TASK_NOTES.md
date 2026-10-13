@@ -5129,3 +5129,21 @@ margin, not native lazy only.
 ### Work log (append-only)
 - 2026-10-12 (lucas-blaze): merged origin/main; walked the live data (anon read): 36 active, list above.
 - 2026-10-12 (lucas-blaze): `getGalleryImages` now leads with a garment shot (ghost mannequin > flat lay > hanger > composite > mr_imagine > on-model) even over a watermarked display hero; 5 new tests, tsc 0, vitest 2371/2371. Phone blanks: ProductCard hover now mouse-pointer only (a tap stuck isHovered and faded the primary to opacity 0), ProtectedImage attaches src 1200px before scroll-in via IntersectionObserver, Similar Products img h-full. Live DB: composite tee mockups written for Cowboy vs Alien + Majestic Roar via backend/scripts/mockup-from-art.ts (images[] now led by the mockup; old arrays = [original]); Majestic Roar description rewritten (was "photorealistic"). Ember Warrior (bb7bd4f1) left: art is a real person's photo + name.
+
+## Current request (2026-10-13) — Etsy craft type for ITP products (task 1e178492, marcus-wolfe)
+
+Christina 8/22: "the created products require a 'craft type' as a mandatory field ... none of them fit what we do".
+Craft type is ETSY's attribute (property 47626759760), required on 6617 Image Transfers (DTF tier) and 6844 Clip Art
+& Image Files (PNG tier); Etsy owns the value list, so it can be neither skipped nor extended. Fix = the publisher
+fills it with the closest real values so nobody has to pick. No ITP form or schema has a craft type field.
+
+### File shortlist (approved scope — 2026-10-13 craft type)
+- `backend/services/etsy-required-attributes.ts` (+ `.test.ts`) — new: planner + writer, no Supabase import
+- `backend/services/etsy.ts` — publish + update call it; `backend/services/etsy-update.test.ts`
+- `backend/scripts/etsy-fill-required-attributes.ts` — new: backfill blank required attributes on existing listings
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-13 (marcus-wolfe): Craft type now written on every new DTF (Sewing + Party & gifting) and PNG (Card making &
+  stationery, Scrapbooking, Collage) draft; update path fills it only when blank. Backfilled the 6 live drafts
+  (4 DTF, 2 PNG) and re-read each from Etsy. tsc -b 0; vitest 146 files / 2215 pass.
