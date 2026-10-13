@@ -1,5 +1,24 @@
 # TASK_NOTES
 
+## Current request (2026-10-13) — ITP shipping labels: real origin phone from env (task 710472ca, dane-marsh)
+
+Labels and rate quotes sent Shippo the fake origin phone (770) 000-0000. The real number is (401) 323-9983
+(ITP Stripe business_profile.support_phone, live on the policy pages via VITE_BUSINESS_PHONE since task a49772dd).
+Decision: the backend reads `BUSINESS_PHONE` (Render API + worker, staged on Fly), same value and name as the
+storefront's VITE_BUSINESS_PHONE. src/config/ship-from.ts is imported nowhere (labels are bought server-side in
+backend/routes/orders.ts), so the frontend needs no new var; its phone now falls back to VITE_BUSINESS_PHONE.
+
+### File shortlist (approved scope — 2026-10-13 ship-from phone)
+- `backend/routes/shipping.ts` (WAREHOUSE_ADDRESS_FROM.phone), new `backend/routes/shipping.ship-from.test.ts`
+- `src/config/ship-from.ts`, `docs/ENV_VARIABLES.md`, `backend/.env.example`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-13 (dane-marsh): shipping.ts origin phone now reads BUSINESS_PHONE (no placeholder, warns when unset); ship-from.ts
+  falls back to VITE_BUSINESS_PHONE; new shipping.ship-from.test.ts (4 tests, red on old code, green now). Live Shippo
+  /shipments (free) through both the rates route and the label route stored origin phone 4013239983, label purchase
+  intercepted. BUSINESS_PHONE='(401) 323-9983' set on Render API + worker (no deploy fired), staged on both Fly apps.
+
 ## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
 David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):

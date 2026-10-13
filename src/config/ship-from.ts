@@ -1,5 +1,6 @@
 import type { ShippingAddress } from '../types'
 import { WAREHOUSE_ADDRESS } from '../utils/shipping-calculator'
+import { BUSINESS_PHONE } from './business-info'
 
 /**
  * Ship-from (origin) address used when purchasing carrier labels.
@@ -35,14 +36,6 @@ const readEnv = (key: ShipFromEnvKey): string | undefined => {
   return trimmed.length > 0 ? trimmed : undefined
 }
 
-/**
- * Placeholder phone carried over from the backend rate quoter
- * (`backend/routes/shipping.ts`). Some carrier services reject a label whose
- * origin phone is obviously fake, so this is treated as "not configured" and
- * warned about rather than shipped silently.
- */
-export const SHIP_FROM_PLACEHOLDER_PHONE = '(770) 000-0000'
-
 export const SHIP_FROM_ADDRESS: ShippingAddress = {
   name: readEnv('VITE_SHIP_FROM_NAME') ?? 'Imagine This Printed',
   company: readEnv('VITE_SHIP_FROM_COMPANY') ?? 'Imagine This Printed LLC',
@@ -52,15 +45,18 @@ export const SHIP_FROM_ADDRESS: ShippingAddress = {
   state: readEnv('VITE_SHIP_FROM_STATE') ?? WAREHOUSE_ADDRESS.state,
   zip: readEnv('VITE_SHIP_FROM_ZIP') ?? WAREHOUSE_ADDRESS.zip,
   country: readEnv('VITE_SHIP_FROM_COUNTRY') ?? 'US',
-  phone: readEnv('VITE_SHIP_FROM_PHONE') ?? SHIP_FROM_PLACEHOLDER_PHONE,
+  // Same number the policy pages print (VITE_BUSINESS_PHONE) and the backend
+  // puts on labels (BUSINESS_PHONE). Never a made-up placeholder: some carrier
+  // services reject a label whose origin phone is obviously fake.
+  phone: readEnv('VITE_SHIP_FROM_PHONE') ?? BUSINESS_PHONE,
   email: readEnv('VITE_SHIP_FROM_EMAIL') ?? 'shipping@imaginethisprinted.com'
 }
 
 /** True when at least one field came from the environment rather than a default. */
 export const isShipFromOverridden = SHIP_FROM_ENV_KEYS.some(key => readEnv(key) !== undefined)
 
-/** True when the origin phone is still the placeholder — carriers may reject it. */
-export const isShipFromPhonePlaceholder = SHIP_FROM_ADDRESS.phone === SHIP_FROM_PLACEHOLDER_PHONE
+/** True when no origin phone is configured — carriers may reject the label. */
+export const isShipFromPhoneMissing = !SHIP_FROM_ADDRESS.phone
 
 /** Single-line rendering of the origin, for display in admin UI. */
 export const formatShipFrom = (address: ShippingAddress = SHIP_FROM_ADDRESS): string =>
@@ -73,10 +69,9 @@ export const formatShipFrom = (address: ShippingAddress = SHIP_FROM_ADDRESS): st
     .filter(Boolean)
     .join(', ')
 
-if (import.meta.env.DEV && isShipFromPhonePlaceholder) {
+if (import.meta.env.DEV && isShipFromPhoneMissing) {
   console.warn(
-    '[ship-from] Origin phone is still the placeholder ' +
-      `"${SHIP_FROM_PLACEHOLDER_PHONE}". Set VITE_SHIP_FROM_PHONE to the real ` +
-      'warehouse number — some carrier services reject labels with a bogus origin phone.'
+    '[ship-from] No origin phone configured. Set VITE_BUSINESS_PHONE (or ' +
+      'VITE_SHIP_FROM_PHONE) to the real number — some carrier services reject labels without one.'
   )
 }

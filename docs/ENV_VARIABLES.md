@@ -174,13 +174,13 @@ quoted from cannot drift apart. Set these to relocate the warehouse without a co
 | `VITE_SHIP_FROM_STATE` | State code | `GA` | No |
 | `VITE_SHIP_FROM_ZIP` | Postal code | `30153` | No |
 | `VITE_SHIP_FROM_COUNTRY` | ISO country code | `US` | No |
-| `VITE_SHIP_FROM_PHONE` | Origin phone | `(770) 555-0134` | No |
+| `VITE_SHIP_FROM_PHONE` | Origin phone (falls back to `VITE_BUSINESS_PHONE`) | `(401) 323-9983` | No |
 | `VITE_SHIP_FROM_EMAIL` | Origin email | `shipping@imaginethisprinted.com` | No |
 
-**Phone caveat:** the default is still the placeholder `(770) 000-0000` carried over from
-the backend rate quoter. Some carrier services reject a label whose origin phone is
-obviously fake — set `VITE_SHIP_FROM_PHONE` to the real warehouse number before buying live
-labels. A dev-mode console warning fires while the placeholder is in use.
+**Phone:** there is no placeholder. The origin phone is `VITE_SHIP_FROM_PHONE`, else
+`VITE_BUSINESS_PHONE` (the support number the policy pages print, set on Vercel). Labels are
+bought server-side, so the phone that actually reaches Shippo is the backend's `BUSINESS_PHONE`
+(see Shipping - Shippo below). A dev-mode console warning fires when no phone is set.
 
 ---
 
@@ -364,6 +364,7 @@ necessarily fail to send, but lands in spam far more often.
 |----------|-------------|---------|----------|
 | `SHIPPO_API_TOKEN` | Shippo API token (⚠️ KEEP SECRET) | `shippo_live_...` or `shippo_test_...` | No |
 | `GOOGLE_MAPS_API_KEY` | Distance Matrix key for local-delivery tiers (⚠️ KEEP SECRET) | `AIza...` | No |
+| `BUSINESS_PHONE` | Origin phone on every Shippo rate quote and label (`WAREHOUSE_ADDRESS_FROM` in `backend/routes/shipping.ts`). Same number as the storefront's `VITE_BUSINESS_PHONE`. Set on the API **and** the worker. | `(401) 323-9983` | Yes for live labels |
 
 **Where to find the Shippo token:**
 

@@ -22,6 +22,15 @@ const DELIVERY_TIERS = [
 // parcel weight is computed from the cart instead of being hardcoded to 1 lb.
 const SHIPPING_MARKUP = 0.05
 
+// Origin phone printed on every label: BUSINESS_PHONE on the API + worker, the
+// same number the storefront shows as VITE_BUSINESS_PHONE. Never a placeholder:
+// carriers can reject an obviously fake origin phone (task 710472ca).
+const SHIP_FROM_PHONE = (process.env.BUSINESS_PHONE || '').trim()
+
+if (!SHIP_FROM_PHONE) {
+  console.warn('[shipping] BUSINESS_PHONE is not set: labels and rate quotes go out with no origin phone')
+}
+
 // Warehouse ship-from used when quoting carrier rates AND when buying labels
 // (backend/routes/orders.ts imports it) so a quote and its label always leave
 // from the same address.
@@ -32,7 +41,7 @@ export const WAREHOUSE_ADDRESS_FROM = {
   state: 'GA',
   zip: '30153',
   country: 'US',
-  phone: '(770) 000-0000',
+  phone: SHIP_FROM_PHONE,
   email: 'shipping@imaginethisprinted.com'
 }
 
