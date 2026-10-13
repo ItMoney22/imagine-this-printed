@@ -5161,8 +5161,9 @@ margin, not native lazy only.
 
 ### File shortlist (approved scope — 2026-10-13 wholesale invented data)
 - `src/pages/WholesalePortal.tsx` (vendor filter <select> + the hard-coded product's images.unsplash.com photo only)
-- `src/pages/WholesalePortal.test.ts` (new: source guard, no hard-coded vendor names or stock photo hosts)
+- `src/pages/WholesalePortal.test.tsx` (new: source guard + approved-account render of the Products tab)
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
 - 2026-10-13 (dane-marsh): merged origin/main (branch base was 68 behind; production already had the WholesalePublic page). The hard-coded product has no real image in its data, so the image is removed (no placeholder); filter grid goes 4 -> 3 columns so no empty slot.
+- 2026-10-13 (dane-marsh): guard is now WholesalePortal.test.tsx (source scan + approved-account Products tab render: 2 selects, no vendor filter, no img); both fail on origin/main's file. tsc 0, vitest 169 files / 2384, vite build OK; local 390 signed-out walk OK; local wholesale chunk has none of the 4 strings. No wholesale account exists on live (0 applications, 0 wholesale-role users).
