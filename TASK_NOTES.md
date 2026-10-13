@@ -5147,3 +5147,4 @@ fills it with the closest real values so nobody has to pick. No ITP form or sche
 - 2026-10-13 (marcus-wolfe): Craft type now written on every new DTF (Sewing + Party & gifting) and PNG (Card making &
   stationery, Scrapbooking, Collage) draft; update path fills it only when blank. Backfilled the 6 live drafts
   (4 DTF, 2 PNG) and re-read each from Etsy. tsc -b 0; vitest 146 files / 2215 pass.
+- 2026-10-13 resubmit: full gates on merged tip eabbc5a: tsc -b exit 0, vitest 168 files / 2396 passed; ship still held by one-a-day (9af48d8 at 06:18Z), fire 10/14 after 04:00Z.
