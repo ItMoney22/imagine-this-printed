@@ -855,11 +855,13 @@ router.post('/create-payment-intent', requireAuth, async (req: Request, res: Res
       return res.status(400).json({ error: 'Only USD currency is supported' })
     }
 
-    // Get user email from user_profiles
+    // Get user email from user_profiles. Keyed on id (the auth user id):
+    // user_id is NULL on most live rows, so .eq('user_id') failed every ITC
+    // purchase except the admin's (task bdfa6939, proven live 2026-10-07).
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('email')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single()
 
     if (profileError || !profile) {

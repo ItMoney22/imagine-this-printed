@@ -1,4 +1,5 @@
 import React from 'react'
+import SeasonalOfferBanner from '../components/SeasonalOfferBanner'
 import { HomeHero, TrustStrip } from '../components/home/HomeHero'
 import { CategoryDoors } from '../components/home/CategoryDoors'
 import { SeasonalPicks, PopularGrid } from '../components/home/HomeShelves'
@@ -22,6 +23,7 @@ const Home: React.FC = () => {
   const shop = useHomeShop()
   return (
     <div className="home-root bg-bg">
+      <SeasonalOfferBanner />
       <HomeHero />
       <TrustStrip />
       <CategoryDoors counts={shop.counts} loading={shop.loading} />

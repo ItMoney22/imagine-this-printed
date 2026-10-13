@@ -222,7 +222,7 @@ export async function applyPaidCheckoutOrder(
       // actually awards ITC the first time (checks for an existing
       // 'purchase'-type referral_transactions row for this user first).
       if (rewardsUserId) {
-        const referralResult = await processReferralFirstPurchase(rewardsUserId, orderTotalUsd)
+        const referralResult = await processReferralFirstPurchase(rewardsUserId, orderTotalUsd, orderId)
         if (referralResult.success) {
           log?.info({ orderId, referrerId: referralResult.referrerId, bonus: referralResult.bonusITC }, '[rewards] Referral first-purchase bonus awarded')
         }

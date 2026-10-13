@@ -1,6 +1,41 @@
 import { supabase } from '../lib/supabase'
 import { applyStorefrontVisibility } from '../lib/product-visibility'
+import { recommendationLane, fitsRecommendationLane, type RecLane, type RecCandidate } from '../../backend/shared/creator-product'
 import type { Product, User, CartItem } from '../types'
+
+// Card fields + the few the lane check reads (creator stamp, faith words),
+// pulled as JSON paths so a row never drags its whole metadata blob along.
+const REC_SELECT =
+  'id, name, description, price, images, category, is_active, is_featured, status, search_keywords, meta_title, created_by_user_id, rec_source:metadata->>source, rec_creator_id:metadata->>creator_id, rec_tags:metadata->etsy_pack->tags'
+
+/** The page's own product (camelCase SEO fields) in the shape the lane check reads. */
+export function anchorCandidateOf(product: Product): RecCandidate {
+  const p = product as any
+  return {
+    id: p?.id,
+    name: p?.name,
+    search_keywords: p?.searchKeywords ?? p?.search_keywords,
+    meta_title: p?.metaTitle ?? p?.meta_title,
+    created_by_user_id: p?.created_by_user_id,
+    metadata: p?.metadata
+  }
+}
+
+/** A slim recommendation row in the shape the shared lane check reads. */
+export function recCandidateOf(row: any): RecCandidate {
+  return {
+    id: row?.id,
+    name: row?.name,
+    search_keywords: row?.search_keywords,
+    meta_title: row?.meta_title,
+    created_by_user_id: row?.created_by_user_id,
+    metadata: {
+      source: row?.rec_source,
+      creator_id: row?.rec_creator_id,
+      etsy_pack: { tags: row?.rec_tags }
+    }
+  }
+}
 
 export interface RecommendationScore {
   productId: string
@@ -59,10 +94,19 @@ export class ProductRecommender {
   //      this pass; it isn't co-purchase data, but "trending because
   //      featured" is a reasonable Home-page default with no purchase to
   //      anchor off of.
+  //
+  // Every row also stays in the anchor's lane (backend/shared/creator-product.ts,
+  // David 2026-10-07): a creator's product page shows only that creator's
+  // work, a faith product only other faith products, and every other row —
+  // home, cart, a generic product page — carries no creator and no faith
+  // products. It put "Man I Love Frogs" beside Darrell's "Walk By Faith".
   async getRecommendations(context: RecommendationContext): Promise<Product[]> {
     const { limit = 6, excludeIds = [] } = context
+    const lane = recommendationLane(context.currentProduct ? anchorCandidateOf(context.currentProduct) : null)
 
     try {
+      if (lane.kind === 'creator') return await this.getCreatorRecommendations(lane.creatorId, excludeIds, limit)
+
       const anchorProductIds = Array.from(
         new Set(
           [
@@ -73,11 +117,11 @@ export class ProductRecommender {
       )
 
       if (anchorProductIds.length > 0) {
-        const copurchased = await this.getCopurchaseRecommendations(anchorProductIds, excludeIds, limit)
+        const copurchased = await this.getCopurchaseRecommendations(anchorProductIds, excludeIds, limit, lane)
         if (copurchased.length > 0) return copurchased
       }
 
-      return await this.getFallbackRecommendations(context, excludeIds, limit)
+      return await this.getFallbackRecommendations(context, excludeIds, limit, lane)
     } catch (error) {
       console.error('Error fetching recommendations:', error)
       return []
@@ -96,7 +140,8 @@ export class ProductRecommender {
   private async getCopurchaseRecommendations(
     anchorProductIds: string[],
     excludeIds: string[],
-    limit: number
+    limit: number,
+    lane: RecLane
   ): Promise<Product[]> {
     const { data: pairs, error: pairError } = await supabase
       .from('product_copurchase')
@@ -123,7 +168,7 @@ export class ProductRecommender {
     const { data: products, error: productsError } = await applyStorefrontVisibility(
       supabase
         .from('products')
-        .select('id, name, description, price, images, category, is_active, is_featured, status')
+        .select(REC_SELECT)
         .in('id', rankedIds)
     )
 
@@ -133,8 +178,34 @@ export class ProductRecommender {
     // Preserve frequency-ranked order — `.in()` doesn't guarantee row order.
     return rankedIds
       .map(id => byId.get(id))
-      .filter(Boolean)
+      .filter((p: any) => p && fitsRecommendationLane(lane, recCandidateOf(p)))
       .map((p: any) => this.mapRow(p))
+  }
+
+  // A creator's product page: only that creator's other live work, newest
+  // first. None (Darrell has one live shirt today) = an empty row, which the
+  // widget hides, rather than generic catalog filler beside his design.
+  private async getCreatorRecommendations(
+    creatorId: string,
+    excludeIds: string[],
+    limit: number
+  ): Promise<Product[]> {
+    if (!creatorId) return []
+    const lane: RecLane = { kind: 'creator', creatorId }
+    const { data, error } = await applyStorefrontVisibility(
+      supabase
+        .from('products')
+        .select(REC_SELECT)
+        .eq('created_by_user_id', creatorId)
+    )
+      .order('created_at', { ascending: false })
+      .limit(limit + excludeIds.length + 5)
+
+    if (error || !data) return []
+    return (data as any[])
+      .filter(p => !excludeIds.includes(p.id) && fitsRecommendationLane(lane, recCandidateOf(p)))
+      .slice(0, limit)
+      .map(p => this.mapRow(p))
   }
 
   // Context-aware banding fallback (no anchor product, or the anchor has no
@@ -143,21 +214,24 @@ export class ProductRecommender {
   private async getFallbackRecommendations(
     context: RecommendationContext,
     excludeIds: string[],
-    limit: number
+    limit: number,
+    lane: RecLane
   ): Promise<Product[]> {
     // Same gate the catalog uses. Filtering on `is_active` alone pulled from
     // every unfinished draft design in the table (2,538 rows vs 118 live ones),
     // which is how raw un-priced artwork ended up in "Recommended for You".
+    // A faith row draws from the whole live catalog: faith listings are a
+    // handful, so a small random window would usually hold none of them.
     const { data, error } = await applyStorefrontVisibility(
       supabase
         .from('products')
-        .select('id, name, description, price, images, category, is_active, is_featured, status')
-    ).limit(limit * 3 + excludeIds.length + 5)
+        .select(REC_SELECT)
+    ).limit(lane.kind === 'faith' ? 200 : limit * 3 + excludeIds.length + 5)
 
     if (error || !data) return []
 
     const products: Product[] = data
-      .filter((p: any) => !excludeIds.includes(p.id))
+      .filter((p: any) => !excludeIds.includes(p.id) && fitsRecommendationLane(lane, recCandidateOf(p)))
       .map((p: any) => this.mapRow(p))
 
     const contextCategories = new Set<string>(
