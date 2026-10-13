@@ -46,6 +46,7 @@ Decisions (noted for the handoff):
 ### Work log (append-only)
 - 2026-10-07 (dane-marsh): scope added; no real business phone exists in repo (only placeholder), so phone reads from VITE_BUSINESS_PHONE and is never invented.
 - 2026-10-12 (dane-marsh): task a49772dd executed recommended Option C (leave phone off policy pages). Confirmed no real ITP phone exists in repo/memory/records; verified VITE_BUSINESS_PHONE remains unset on Vercel; live site renders uniform legal contact block (Imagine This Printed LLC + 640 Goodyear Ave, Rockmart GA 30153 + wecare@imaginethisprinted.com) across all four policy pages without placeholder or broken phone markup.
+- 2026-10-13 (dane-marsh): task a49772dd, David picked option A (print a customer-facing phone), superseding the Option C entry above. Number: (401) 323-9983, from ITP's own live Stripe account business_profile.support_phone (+14013239983; same account lists Imagine This Printed LLC, 640 Goodyear Ave Rockmart GA 30153, wecare@imaginethisprinted.com). Set VITE_BUSINESS_PHONE on Vercel production + preview, redeployed the live main build (9af48d8f) as dpl_ArAjbuvPAAzoKjVAo8PWFCHyCJzR, aliased to www. Fleet-browser walk at 390 + 1400: /shipping /returns /privacy /terms all read "Imagine This Printed LLC 640 Goodyear Ave, Rockmart, GA 30153 (401) 323-9983". No code change.
 
 ## Current request (2026-10-07) — ITP catalog structure (task 66d0f303, rico-fernandez)
 
