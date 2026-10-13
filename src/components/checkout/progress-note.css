@@ -1,0 +1,9 @@
+/* A themed waiting bar (David 2026-09-02: no spinners). The fill slides while the step runs. */
+@keyframes progress-note-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(260%); }
+}
+.progress-note-fill { animation: progress-note-slide 1.4s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .progress-note-fill { animation: none; transform: none; width: 100%; opacity: 0.5; }
+}

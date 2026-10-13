@@ -207,6 +207,45 @@ export async function getSignedUrl(
 }
 
 /**
+ * Saves a buffer into a named bucket (not the public default) and returns only
+ * its object path, never a URL. For files that must stay private — creator
+ * print files (services/print-files.ts) — where the caller signs a short-lived
+ * link with signObjectInBucket at the moment someone authorised needs it.
+ */
+export async function uploadBufferToBucket(
+  targetBucket: string,
+  buffer: Buffer,
+  destinationPath: string,
+  contentType: string = 'image/png'
+): Promise<string> {
+  await storage.bucket(targetBucket).file(destinationPath).save(buffer, {
+    contentType,
+    resumable: false,
+  })
+  return destinationPath
+}
+
+/**
+ * Short-lived read link for an object in a named bucket. `downloadName` makes
+ * the browser save the file under that name instead of opening it.
+ */
+export async function signObjectInBucket(
+  targetBucket: string,
+  path: string,
+  expiresInMinutes: number = 60,
+  downloadName?: string
+): Promise<string> {
+  const [url] = await storage.bucket(targetBucket).file(path).getSignedUrl({
+    action: 'read',
+    expires: Date.now() + expiresInMinutes * 60 * 1000,
+    ...(downloadName
+      ? { responseDisposition: `attachment; filename="${downloadName.replace(/["\\\r\n]/g, '')}"` }
+      : {}),
+  })
+  return url
+}
+
+/**
  * Checks if the GCS bucket exists and is accessible
  */
 export async function checkBucketAccess(): Promise<boolean> {
