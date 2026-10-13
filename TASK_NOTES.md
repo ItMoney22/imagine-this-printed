@@ -4772,3 +4772,33 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-13) — Etsy: no embroidery, every design offered as Digital PNG / DTF print / T-shirt (task 9b420def, mason-blaze)
+
+Christina 2026-08-22: "etsy listings are not right. It's including embroided items. We do not do embroidery. the listing
+should be for a digital png file, dtf print as a physical item, and a tshirt option." Board correction 2026-09-22: the
+banned-decoration vocabulary filter is Dr. Dill's 4ebf57e (rides Ada's batch a9abbfb / ship 4646cb1f) — do NOT write a
+second one; only make the Etsy listing options PNG / DTF / tee.
+
+### File shortlist (approved scope — 2026-10-13 Etsy options)
+- `backend/shared/etsy-tiers.ts` (+ test): tier labels in Christina's words, HTV out of the PNG template, not-offered garment refusal
+- `backend/services/etsy.ts` (+ `etsy-variations.test.ts`): publisher refuses a not-offered garment; new drafts offer stocked colours only
+- `backend/routes/admin/etsy.ts`: queue route refuses a not-offered garment up front
+- `backend/services/etsy-market-research.ts`: drop the unused `polos` research seed ("embroidered polo")
+- `src/components/studio/EtsyStep.tsx` (+ test), `src/components/AdminEtsyPanel.tsx`: all three options ticked by default, labels
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-13 (mason-blaze): audit. Live Etsy shop 67055923 (read-only API): 21 draft/active listings, 0 embroidery/polo
+  words, kinds = 15 tee / 4 DTF / 2 PNG. All 13 polo product rows (metadata.product_type 'polo', category 'shirts') are
+  archived/rejected and every one of their 18 Etsy listings is 'removed'. Only 2 of 13 live designs carry all three
+  options (Step Flow defaulted to the tee alone). Two old live tees offer colours outside the capability list
+  (Walk By Faith: Burgundy; Du Bist Gut Genug: Pink, Purple). Decision: generator/schema level only, no batch migration —
+  no live record carries embroidery.
+- 2026-10-13 (mason-blaze): built. etsy-tiers: labels 'DTF print' / 'Digital PNG file' (Christina's notification
+  suffix), "HTV" out of the PNG template (banned by 4ebf57e's list, and QA never grades tier templates), new
+  etsyListingRefusal() reads metadata.product_type / step_flow.garment against NOT_OFFERED (queue route 400 + publisher
+  ledger error). Publisher: stockedVariationColors() keeps only colours the garment comes in on NEW drafts (update path
+  untouched). Market research: 'polos' seed removed. EtsyStep + AdminEtsyPanel: T-shirt / DTF print / Digital PNG, all
+  eligible ticked by default. Verified: root tsc 0, backend tsc only the 6 pre-existing rate-limits TS2742 (junction),
+  vitest 145 files / 2219 passed, vite build OK, eslint 0 errors, fleet-browser walk 390 + 1400 (harness, deleted).

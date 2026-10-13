@@ -17,7 +17,7 @@ process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 process.env.ETSY_KEYSTRING ||= 'test-keystring'
 process.env.ETSY_SHARED_SECRET ||= 'test-secret'
 
-const { apparelVariationSizes, applyListingVariations } = await import('./etsy.js')
+const { apparelVariationSizes, applyListingVariations, stockedVariationColors } = await import('./etsy.js')
 
 /** The rows keyed by label, for readable assertions. */
 const priceMap = (metadata: any, base: number): Record<string, number | undefined> =>
@@ -273,5 +273,37 @@ describe('applyListingVariations — regressions on a normal garment taxonomy', 
       'token', 4544388862, 999999,
       { colors: [], sizes: [{ label: 'One size', price: 10 }], basePrice: 10 }
     )).rejects.toThrow('taxonomy 999999 exposes no variation properties')
+  })
+})
+
+// A new draft offers only the colours a garment is actually stocked in. The
+// 2026-10-13 live audit found Walk By Faith's pack offering Burgundy, which no
+// ITP blank comes in (catalog-capability COLORS) — a buyer could order a shirt
+// the shop cannot make (task 9b420def).
+describe('stockedVariationColors — the colour dropdown on a new draft', () => {
+  it('drops a colour no ITP garment comes in and keeps the rest in order', () => {
+    expect(stockedVariationColors(['Burgundy', 'Black'], { product_type: 'tshirt' }))
+      .toEqual({ colors: ['Black'], dropped: ['Burgundy'] })
+  })
+
+  it("keeps the pack's own spelling rather than renaming a live option", () => {
+    expect(stockedVariationColors(['Heather-Grey', 'White'], { product_type: 'tshirt' }).colors)
+      .toEqual(['Heather-Grey', 'White'])
+  })
+
+  it('collapses two spellings of one colour to the first', () => {
+    expect(stockedVariationColors(['Gray', 'Heather Grey', 'Black'], {}).colors).toEqual(['Gray', 'Black'])
+  })
+
+  it('reads the garment: royal blue is a tee colour, not a hoodie colour', () => {
+    expect(stockedVariationColors(['Royal Blue', 'Black'], { product_type: 'tshirt' }).colors).toEqual(['Royal Blue', 'Black'])
+    expect(stockedVariationColors(['Royal Blue', 'Black'], { product_type: 'hoodie' }))
+      .toEqual({ colors: ['Black'], dropped: ['Royal Blue'] })
+  })
+
+  it('treats a missing or malformed colour list as no colour axis', () => {
+    expect(stockedVariationColors(undefined, {})).toEqual({ colors: [], dropped: [] })
+    expect(stockedVariationColors('Black', {})).toEqual({ colors: [], dropped: [] })
+    expect(stockedVariationColors([null, '', 7, 'Black'], {})).toEqual({ colors: ['Black'], dropped: [] })
   })
 })

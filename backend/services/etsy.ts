@@ -18,6 +18,8 @@ import { MAX_TAGS, MAX_TITLE_LEN, toEtsyTag, toEtsyTags, toEtsyTitle } from './e
 import { METAL_ART_SIZES } from '../shared/metal-art.js'
 import {
   normalizeGarment,
+  normalizeColor,
+  isColorOfferedOn,
   sizesForGarment,
   isYouthSize,
   isPlusSize,
@@ -27,6 +29,7 @@ import {
 import {
   type EtsyTier,
   TRANSFER_SHEET_SIZES,
+  etsyListingRefusal,
   etsyTierConfig,
   taxonomyIdForCategory,
   tierCopy
@@ -384,6 +387,30 @@ const apparelSizesFor = (metadata: any): string[] =>
   sizesForGarment(normalizeGarment(metadata?.product_type) ?? 'tshirt').map(etsySizeLabel)
 
 /**
+ * The colour dropdown for a NEW apparel draft: the pack's colours, minus any
+ * the garment is not stocked in (catalog-capability COLORS). A buyer can only
+ * pick a shirt we can make. The live audit on 2026-10-13 found Walk By Faith's
+ * pack offering Burgundy, which no ITP garment comes in. The pack's own
+ * spelling is kept ('Heather-Grey' stays as written) so this filters and never
+ * renames; dupes that normalise to one colour collapse to the first.
+ */
+export function stockedVariationColors(packColors: unknown, metadata: any): { colors: string[]; dropped: string[] } {
+  const garment = normalizeGarment(metadata?.product_type) ?? 'tshirt'
+  const colors: string[] = []
+  const dropped: string[] = []
+  const seen = new Set<string>()
+  for (const raw of Array.isArray(packColors) ? packColors : []) {
+    if (typeof raw !== 'string' || !raw.trim()) continue
+    const id = normalizeColor(raw)
+    if (!id || !isColorOfferedOn(garment, id)) { dropped.push(raw); continue }
+    if (seen.has(id)) continue
+    seen.add(id)
+    colors.push(raw)
+  }
+  return { colors, dropped }
+}
+
+/**
  * Apparel variation rows, priced per size off the SAME rails the storefront
  * uses (backend/shared/catalog-capability.ts):
  *   - S-XL      → the listing price,
@@ -645,6 +672,12 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
   }
 
   try {
+    // A garment ITP does not make (polo, tank, embroidery) never reaches Etsy
+    // in ANY tier. Checked before the token so a refused product spends no
+    // Etsy call; the reason lands on the ledger row for the admin to read.
+    const refusal = etsyListingRefusal(product)
+    if (refusal) throw new Error(refusal)
+
     const { token, shopId } = await getAccessToken()
     if (!shopId) throw new Error('Connected Etsy account has no shop — create the ITP Etsy store first')
 
@@ -824,9 +857,11 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
       try {
         const isMetal = tier === 'primary' && METAL_CATEGORIES.has(category)
         const isTransfer = tier === 'transfer'
-        const colors: string[] = (isMetal || isTransfer) ? [] : (Array.isArray(pack?.colors)
-          ? pack.colors.filter((c: unknown): c is string => typeof c === 'string' && !!c)
-          : [])
+        const stocked = (isMetal || isTransfer) ? { colors: [], dropped: [] } : stockedVariationColors(pack?.colors, product.metadata)
+        if (stocked.dropped.length) {
+          console.warn(`[etsy] ${productId} [${tier}] colour option(s) not stocked, left off the listing: ${stocked.dropped.join(', ')}`)
+        }
+        const colors: string[] = stocked.colors
         const sizes = isTransfer
           ? TRANSFER_SHEET_SIZES.map(s => ({ label: s.label, price: s.price }))
           : isMetal ? METAL_SIZES : apparelVariationSizes(product.metadata, price)

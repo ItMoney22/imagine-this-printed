@@ -92,11 +92,16 @@ type EtsyTier = 'primary' | 'transfer' | 'download'
 
 // Mirrors backend/shared/etsy-tiers.ts. Prices are ANCHORS — the standing 40%
 // shop sale is what the buyer actually pays, which is why both are shown.
+// Labels are Christina's words (2026-08-22): "a digital png file, dtf print as
+// a physical item, and a tshirt option".
 const TIER_META: Record<EtsyTier, { label: string; blurb: string; shown: string }> = {
-  primary: { label: 'Shirt', blurb: 'The tee itself, sizes S–3XL', shown: '$25 → $15' },
-  transfer: { label: 'Transfer', blurb: 'Printed DTF film you mail — buyer presses it', shown: 'from $12 → $7.20' },
-  download: { label: 'Download', blurb: 'The design file, delivered instantly by Etsy', shown: '$5 → $3' }
+  primary: { label: 'T-shirt', blurb: 'The printed tee itself, sizes S–3XL', shown: '$25 → $15' },
+  transfer: { label: 'DTF print', blurb: 'The printed DTF transfer, mailed — buyer presses it', shown: 'from $12 → $7.20' },
+  download: { label: 'Digital PNG', blurb: 'The PNG file, delivered instantly by Etsy', shown: '$5 → $3' }
 }
+
+/** The queue answers with tier ids; the panel names the option. */
+const tierName = (t: string) => TIER_META[t as EtsyTier]?.label ?? t
 
 const TIER_ORDER: EtsyTier[] = ['primary', 'transfer', 'download']
 
@@ -518,7 +523,7 @@ export default function AdminEtsyPanel() {
       // silently dropping it would read as "posted" when it wasn't.
       const skipped: Array<{ tier: string; reason: string }> = res.data?.skipped ?? []
       if (skipped.length) {
-        setError(`Queued ${(res.data?.queued ?? []).join(', ') || 'nothing'} — skipped ${skipped.map(s => `${s.tier} (${s.reason})`).join(', ')}`)
+        setError(`Queued ${(res.data?.queued ?? []).map(tierName).join(', ') || 'nothing'} — skipped ${skipped.map(s => `${tierName(s.tier)} (${s.reason})`).join(', ')}`)
       }
       setCandidates(prev => prev.filter(c => c.id !== id))
       if (expanded === id) setExpanded(null)

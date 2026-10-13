@@ -62,7 +62,10 @@ export interface MarketSignal {
   fetchedAt: string
 }
 
-export type ResearchCategory = 'shirts' | 'hoodies' | 'polos' | 'metal-art'
+// No 'polos': ITP does not make polos, and its seed list ("embroidered polo")
+// was feeding embroidery vocabulary into the research a brief is built from
+// (Christina 2026-08-22, task 9b420def).
+export type ResearchCategory = 'shirts' | 'hoodies' | 'metal-art'
 
 // Seed queries name the SHOPPER's search, not our catalog language. Kept broad
 // on purpose — the aggregation (tags/phrases/heat) is what localizes the trend;
@@ -77,7 +80,6 @@ const SEED_QUERIES: Record<ResearchCategory, string[]> = {
     'teacher shirt',
   ],
   hoodies: ['graphic hoodie', 'aesthetic hoodie', 'funny hoodie gift', 'trendy hoodie'],
-  polos: ['funny polo shirt', 'dad polo shirt', 'golf polo gift', 'embroidered polo'],
   'metal-art': ['metal wall art', 'metal sign home decor', 'man cave metal sign', 'garden metal art'],
 }
 

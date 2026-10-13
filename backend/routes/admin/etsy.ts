@@ -23,7 +23,7 @@ import { photographableAudiences } from '../../shared/catalog-capability.js'
 import { runCopyrightGate } from '../../services/etsy-copyright-gate.js'
 import { checkGate } from '../../services/design-qa-gate.js'
 import { supabase } from '../../lib/supabase.js'
-import { type EtsyTier, isEtsyTier, tiersForCategory } from '../../shared/etsy-tiers.js'
+import { type EtsyTier, etsyListingRefusal, isEtsyTier, tiersForCategory } from '../../shared/etsy-tiers.js'
 
 const router = Router()
 
@@ -61,10 +61,16 @@ router.post('/queue/:productId', async (req: Request, res: Response) => {
 
     const { data: product } = await supabase
       .from('products')
-      .select('category')
+      .select('category, metadata')
       .eq('id', productId)
       .maybeSingle()
     if (!product) return res.status(404).json({ error: 'Product not found' })
+
+    // A polo / tank / embroidered item is refused here, in every tier, before
+    // a QA review is spent on it (Christina 2026-08-22). The publisher refuses
+    // it again, so the worker path is covered too.
+    const refusal = etsyListingRefusal(product)
+    if (refusal) return res.status(400).json({ error: refusal })
 
     // Presentation QA gate (Watchtower 9ec9444a) — refuse at the QUEUE, not at
     // the worker, so the admin finds out here instead of watching the row go

@@ -43,7 +43,8 @@ const gate422 = (code: string, error: string) =>
 
 const renderStep = (onStartAnother?: () => void) =>
   render(<EtsyStep state={state} dispatch={vi.fn()} refresh={vi.fn()} onStartAnother={onStartAnother} />)
-const clickQueue = () => fireEvent.click(screen.getByRole('button', { name: /Queue draft/i }))
+// "Queue 3 drafts" by default on a shirt (all three options ticked), "Queue draft" with one.
+const clickQueue = () => fireEvent.click(screen.getByRole('button', { name: /Queue (\d+ )?drafts?/i }))
 
 /** A repair report. Defaults to "she tried and could not help", which is the
  *  state that must still hand David a readable panel. */
@@ -89,7 +90,7 @@ describe('EtsyStep — the design QA gate', () => {
     expect(designQa.submit).toHaveBeenCalledWith(PRODUCT_ID, 'etsy')
     // Refused once, reviewed, queued for real on the retry.
     expect(vi.mocked(etsy.queue).mock.calls).toHaveLength(2)
-    expect(screen.getByText(/Draft queued: primary\./)).toBeTruthy()
+    expect(screen.getByText(/Draft queued: T-shirt\./)).toBeTruthy()
   })
 
   it('shows what to fix — in the reviewer’s own words — once Mrs. Imagine cannot fix it', async () => {
@@ -432,7 +433,7 @@ describe('EtsyStep — the way on to the next product', () => {
     renderStep(startAnother)
     clickQueue()
 
-    await waitFor(() => expect(screen.getByText(/Draft queued: primary/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Draft queued: T-shirt/)).toBeTruthy())
     fireEvent.click(screen.getByRole('button', { name: /Make another/i }))
     expect(startAnother).toHaveBeenCalledTimes(1)
   })
@@ -443,7 +444,47 @@ describe('EtsyStep — the way on to the next product', () => {
     renderStep()
     clickQueue()
 
-    await waitFor(() => expect(screen.getByText(/Draft queued: primary/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(/Draft queued: T-shirt/)).toBeTruthy())
     expect(screen.queryByRole('button', { name: /Make another/i })).toBeNull()
+  })
+})
+
+// Christina 2026-08-22: "the listing should be for a digital png file, dtf print
+// as a physical item, and a tshirt option." The step used to start with the tee
+// alone ticked, so 11 of 13 live designs went to Etsy as a tee and nothing else.
+describe('EtsyStep — a design is offered as all three options', () => {
+  it('ticks the T-shirt, the DTF print and the digital PNG by default and queues all three', async () => {
+    vi.mocked(etsy.queue).mockResolvedValue({ queued: ['primary', 'transfer', 'download'], skipped: [] })
+
+    renderStep()
+    for (const label of ['T-shirt', 'DTF print', 'Digital PNG']) expect(screen.getByText(label)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Queue 3 drafts/i }))
+
+    await waitFor(() => expect(screen.getByText(/Drafts queued: T-shirt, DTF print, Digital PNG\./)).toBeTruthy())
+    expect(vi.mocked(etsy.queue)).toHaveBeenCalledWith(PRODUCT_ID, ['primary', 'transfer', 'download'])
+  })
+
+  it('lets David untick an option before queueing', async () => {
+    vi.mocked(etsy.queue).mockResolvedValue({ queued: ['primary', 'download'], skipped: [] })
+
+    renderStep()
+    fireEvent.click(screen.getByText('DTF print'))
+    fireEvent.click(screen.getByRole('button', { name: /Queue 2 drafts/i }))
+
+    await waitFor(() => expect(screen.getByText(/Drafts queued: T-shirt, Digital PNG\./)).toBeTruthy())
+    expect(vi.mocked(etsy.queue)).toHaveBeenCalledWith(PRODUCT_ID, ['primary', 'download'])
+  })
+
+  it('offers metal art as the metal print alone — no transfer or file of a wall panel', async () => {
+    vi.mocked(etsy.queue).mockResolvedValue({ queued: ['primary'], skipped: [] })
+    const metal = { ...state, product: { id: PRODUCT_ID, category: 'metal-art' } as StepFlowState['product'] }
+
+    render(<EtsyStep state={metal} dispatch={vi.fn()} refresh={vi.fn()} />)
+    expect(screen.queryByText('DTF print')).toBeNull()
+    expect(screen.queryByText('Digital PNG')).toBeNull()
+    clickQueue()
+
+    await waitFor(() => expect(screen.getByText(/Draft queued: Metal print\./)).toBeTruthy())
+    expect(vi.mocked(etsy.queue)).toHaveBeenCalledWith(PRODUCT_ID, ['primary'])
   })
 })

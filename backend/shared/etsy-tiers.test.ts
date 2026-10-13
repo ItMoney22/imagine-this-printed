@@ -4,6 +4,7 @@ import {
   DOWNLOAD_PRICE,
   TRANSFER_BASE_PRICE,
   TRANSFER_SHEET_SIZES,
+  etsyListingRefusal,
   etsyTierConfig,
   isEtsyTier,
   taxonomyIdForCategory,
@@ -265,5 +266,83 @@ describe('taxonomyIdForCategory', () => {
       expect(Number.isInteger(id), `${slug} must be an integer id`).toBe(true)
       expect(id, `${slug} must be > 0`).toBeGreaterThan(0)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Christina 2026-08-22: "etsy listings are not right. It's including embroided
+// items. We do not do embroidery. the listing should be for a digital png file,
+// dtf print as a physical item, and a tshirt option." (task 9b420def)
+// ---------------------------------------------------------------------------
+describe('the three Etsy options: Digital PNG file, DTF print, T-shirt', () => {
+  it('sells a shirt design as exactly a tee, a DTF print and a PNG file', () => {
+    for (const cat of ['shirts', 't-shirts']) {
+      const shape = tiersForCategory(cat).map(t => {
+        const cfg = etsyTierConfig(t)
+        return { label: cfg.label, type: cfg.listingType, taxonomy: cfg.taxonomyId ?? taxonomyIdForCategory(cat) }
+      })
+      expect(shape).toEqual([
+        { label: 'Product listing', type: 'physical', taxonomy: 482 }, // Clothing > ... > T-shirts
+        { label: 'DTF print', type: 'physical', taxonomy: 6617 }, // Image Transfers — the film, mailed
+        { label: 'Digital PNG file', type: 'download', taxonomy: 6844 } // Clip Art & Image Files
+      ])
+    }
+  })
+
+  it('offers no fourth kind of listing', () => {
+    expect([...ETSY_TIERS]).toEqual(['primary', 'transfer', 'download'])
+  })
+
+  // A claim the shop cannot make, written by the TEMPLATE rather than the
+  // composed pack, would never be graded: presentation QA reads the pack.
+  const CANNOT_MAKE = /embroider\w*|\bstitch(?:ed|ing|es)?\b|\bscreen[-\s]?print\w*|\bvinyl\b|\bhtv\b|\bpolos?\b|\btank[-\s]?tops?\b/i
+  const plainPack = { title: 'Gnome Abduction', description: '', tags: [] as string[] }
+
+  it.each(['transfer', 'download'] as const)('keeps the %s template free of processes ITP does not run', tier => {
+    const out = tierCopy(tier, plainPack, LIMITS)
+    expect(`${out.title}\n${out.description}\n${out.tags.join(', ')}`).not.toMatch(CANNOT_MAKE)
+  })
+
+  it('says PNG on the download and DTF on the transfer, so each listing names what ships', () => {
+    const png = tierCopy('download', plainPack, LIMITS)
+    expect(png.title).toMatch(/\bPNG\b/)
+    expect(png.description).toMatch(/300 DPI PNG/)
+    const dtf = tierCopy('transfer', plainPack, LIMITS)
+    expect(dtf.title).toMatch(/\bDTF Transfer\b/)
+    expect(dtf.description).toMatch(/no garment is included/)
+  })
+})
+
+describe('etsyListingRefusal — garments ITP does not make never reach Etsy', () => {
+  // The real rows: 13 products filed under category 'shirts' with
+  // metadata.product_type 'polo', every one posted in all three tiers.
+  it.each([
+    [{ product_type: 'polo' }, /polo/],
+    [{ product_type: 'Polo Shirt' }, /polo/],
+    [{ product_type: 'tank' }, /tank/],
+    [{ product_type: 'embroidery' }, /embroidery/],
+    [{ step_flow: { garment: 'embroidered-cap' } }, /embroidery/],
+    [{ garment: 'sublimation-garment' }, /sublimation-garment/]
+  ])('refuses %j', (metadata, said) => {
+    const reason = etsyListingRefusal({ metadata })
+    expect(reason).toMatch(said)
+    expect(reason).toMatch(/T-shirt, a DTF print or a digital PNG file/)
+  })
+
+  it.each([
+    [{ product_type: 'tshirt' }],
+    [{ product_type: 'hoodie', step_flow: { garment: 'hoodie' } }],
+    [{ product_type: 'youth-tshirt' }],
+    [{ product_type: 'metal-art' }],
+    [{}],
+    // metadata.garment is a variant-pricing OBJECT on live rows, not a name.
+    [{ product_type: 'tshirt', garment: { variant_pricing: { styles: { standard: 'G500' } } } }]
+  ])('lets %j through', metadata => {
+    expect(etsyListingRefusal({ metadata })).toBeNull()
+  })
+
+  it('treats a product with no metadata as listable', () => {
+    expect(etsyListingRefusal({})).toBeNull()
+    expect(etsyListingRefusal(null)).toBeNull()
   })
 })

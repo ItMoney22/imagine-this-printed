@@ -24,7 +24,7 @@
 import React, { useRef, useState } from 'react'
 import { AlertTriangle, Check, ExternalLink, Send, ShieldCheck, Sparkles } from 'lucide-react'
 import { designQa, etsy, stepFlow, type EtsyTier, type QaAutofix, type QaReview } from '../../lib/api'
-import { tiersForCategory } from '../../../backend/shared/etsy-tiers'
+import { isEtsyTier, tiersForCategory } from '../../../backend/shared/etsy-tiers'
 import { METAL_ART_PRICES, STUDIO_SIZE_KEYS } from '../../../backend/shared/metal-art'
 import type { ShotKey, StepFlowAction, StepFlowState } from './stepFlowReducer'
 import { InlineError, SecondaryButton, StartAnotherButton, StepCard, WarnPanel, WARN_HEADING, WARN_TEXT } from './shared'
@@ -79,10 +79,12 @@ const priceShown = (anchor: number) => `$${anchor} → $${Math.round(anchor * (1
 
 // Mirrors AdminEtsyPanel.tsx's TIER_META — no shared frontend type module for
 // this yet, so it's a deliberate small second copy rather than new coupling.
+// Labels are Christina's words (2026-08-22): "a digital png file, dtf print as
+// a physical item, and a tshirt option".
 const GARMENT_TIER_META: Record<EtsyTier, { label: string; blurb: string; shown: string }> = {
-  primary: { label: 'Shirt', blurb: 'The tee/hoodie itself, sizes S–3XL', shown: priceShown(TEE_ANCHOR) },
-  transfer: { label: 'Transfer', blurb: 'Printed DTF film you mail — buyer presses it', shown: 'from $12 → $7.20' },
-  download: { label: 'Download', blurb: 'The design file, delivered instantly by Etsy', shown: '$5 → $3' },
+  primary: { label: 'T-shirt', blurb: 'The printed tee itself, sizes S–3XL', shown: priceShown(TEE_ANCHOR) },
+  transfer: { label: 'DTF print', blurb: 'The printed DTF transfer, mailed — buyer presses it', shown: 'from $12 → $7.20' },
+  download: { label: 'Digital PNG', blurb: 'The PNG file, delivered instantly by Etsy', shown: '$5 → $3' },
 }
 // Metal art only ever has the primary tier (backend/shared/etsy-tiers.ts
 // tiersForCategory) — David 2026-09-02: "it came up as shirt transfer and
@@ -135,9 +137,15 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh, onStartAn
     isMetal && t === 'primary'
       ? METAL_PRIMARY_META
       : t === 'primary' && isHoodie
-        ? { ...GARMENT_TIER_META.primary, label: 'Hoodie', shown: priceShown(HOODIE_ANCHOR) }
+        ? { ...GARMENT_TIER_META.primary, label: 'Hoodie', blurb: 'The printed hoodie itself, sizes S–3XL', shown: priceShown(HOODIE_ANCHOR) }
         : GARMENT_TIER_META[t]
-  const [tiers, setTiers] = useState<EtsyTier[]>(['primary'])
+  /** The queue answers with tier ids; David reads the option's name. */
+  const tierName = (t: string) => (isEtsyTier(t) ? tierMeta(t).label : t)
+  // Every option the category allows starts ticked (Christina 2026-08-22: a
+  // design sells as the PNG, the DTF print and the shirt) — the same default
+  // AdminEtsyPanel uses. David unticks what he doesn't want; null = untouched.
+  const [pickedTiers, setPickedTiers] = useState<EtsyTier[] | null>(null)
+  const tiers: EtsyTier[] = pickedTiers ?? tierOrder
   const [skipped, setSkipped] = useState(false)
   const [phase, setPhase] = useState<'idle' | 'composing' | 'reviewing' | 'queueing' | 'fixing' | 'reshooting'>('idle')
   const [result, setResult] = useState<QueueResult | null>(null)
@@ -164,7 +172,10 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh, onStartAn
   const busy = phase !== 'idle'
 
   const toggleTier = (tier: EtsyTier) =>
-    setTiers((prev) => (prev.includes(tier) ? prev.filter((t) => t !== tier) : [...prev, tier]))
+    setPickedTiers((prev) => {
+      const current = prev ?? tierOrder
+      return current.includes(tier) ? current.filter((t) => t !== tier) : [...current, tier]
+    })
 
   /** One attempt at the queue call. Returns the gate refusal instead of
    *  throwing it, so the caller can decide whether it is clearable. */
@@ -446,11 +457,11 @@ const EtsyStep: React.FC<EtsyStepProps> = ({ state, dispatch, refresh, onStartAn
             <Check className="w-4 h-4" /> Queued
           </div>
           <p className="text-xs text-text">
-            {result.queued.length > 0 ? `Draft${result.queued.length > 1 ? 's' : ''} queued: ${result.queued.join(', ')}.` : 'Nothing new was queued.'}
+            {result.queued.length > 0 ? `Draft${result.queued.length > 1 ? 's' : ''} queued: ${result.queued.map(tierName).join(', ')}.` : 'Nothing new was queued.'}
           </p>
           {result.skipped.length > 0 && (
             <p className="text-xs text-muted mt-1">
-              Skipped: {result.skipped.map((s) => `${s.tier} (${s.reason})`).join(', ')}
+              Skipped: {result.skipped.map((s) => `${tierName(s.tier)} (${s.reason})`).join(', ')}
             </p>
           )}
           {/* What Mrs. Imagine changed on the way through. Worth carrying onto

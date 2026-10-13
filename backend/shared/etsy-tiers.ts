@@ -1,6 +1,8 @@
 // ---------------------------------------------------------------------------
 // Etsy selling tiers — David 2026-07-31: "so its a 3 tier shirt or transfer or
-// download".
+// download". Christina 2026-08-22, after polos went out embroidered: "the
+// listing should be for a digital png file, dtf print as a physical item, and
+// a tshirt option." Those three, and nothing else, are what a design sells as.
 //
 // One ITP design can be sold on Etsy three ways. Etsy sets BOTH `type`
 // (physical vs download) and `taxonomy_id` at the LISTING level, so these can
@@ -31,6 +33,8 @@
 //         Transfers > Clip Art & Image Files
 // ---------------------------------------------------------------------------
 
+import { NOT_OFFERED } from './catalog-capability.js'
+
 export const ETSY_TIERS = ['primary', 'transfer', 'download'] as const
 export type EtsyTier = typeof ETSY_TIERS[number]
 
@@ -49,6 +53,34 @@ export function tiersForCategory(category: string | null): EtsyTier[] {
   return TRANSFERABLE_CATEGORIES.has(c)
     ? ['primary', 'transfer', 'download']
     : ['primary']
+}
+
+// --- Garments Etsy may never be handed --------------------------------------
+// The polos that went out on 2026-08 were filed under category 'shirts' with
+// metadata.product_type 'polo'. Everything above keys on the category, so all
+// three tiers were offered for a garment ITP cannot make, with copy that sold
+// it embroidered. The boundary itself is catalog-capability's NOT_OFFERED; this
+// only makes the Etsy queue and publisher read the garment, not just the shelf
+// it was filed on. (The copy half — the word "embroidered" in a title — is the
+// banned-vocabulary filter's job in presentation QA, not this function's.)
+function garmentClaims(metadata: any): string[] {
+  return [metadata?.product_type, metadata?.step_flow?.garment, metadata?.garment]
+    .filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+}
+
+/** Why this product may not be listed on Etsy at all, or null when it may. */
+export function etsyListingRefusal(product: { metadata?: unknown } | null | undefined): string | null {
+  for (const raw of garmentClaims((product as any)?.metadata)) {
+    const v = raw.toLowerCase().trim()
+    // 'embroidered' is the word the listings actually used; NOT_OFFERED names
+    // the process, so match the stem as well as the exact entries.
+    const hit = (NOT_OFFERED as readonly string[]).find(t => v.includes(t)) ?? (v.includes('embroider') ? 'embroidery' : null)
+    if (hit) {
+      return `This product is a ${raw}, and Imagine This Printed does not make ${hit} items. ` +
+        'Etsy listings are a T-shirt, a DTF print or a digital PNG file only.'
+    }
+  }
+  return null
 }
 
 // --- Category -> taxonomy (primary tier only) -------------------------------
@@ -74,7 +106,7 @@ export function tiersForCategory(category: string | null): EtsyTier[] {
 // The STL file is a DIFFERENT node — 12380 Craft Supplies & Tools > Patterns &
 // How To > Craft Machine Files > 3D Printer Files — deliberately NOT wired
 // here: the download tier's source resolver still returns a 300dpi PNG and its
-// copy sells "sublimation / HTV", so 3d-prints stays primary-only until that
+// copy sells "DTF / sublimation", so 3d-prints stays primary-only until that
 // tier learns about meshes.
 //
 // 2026-09-11 — the same failure, second outbreak. `3d-prints` was given a
@@ -178,7 +210,7 @@ export function etsyTierConfig(tier: EtsyTier): EtsyTierConfig {
     case 'transfer':
       return {
         tier,
-        label: 'Physical transfer',
+        label: 'DTF print',
         listingType: 'physical',
         taxonomyId: Number(process.env.ETSY_TRANSFER_TAXONOMY_ID || 6617),
         price: TRANSFER_BASE_PRICE,
@@ -187,7 +219,7 @@ export function etsyTierConfig(tier: EtsyTier): EtsyTierConfig {
     case 'download':
       return {
         tier,
-        label: 'Digital download',
+        label: 'Digital PNG file',
         listingType: 'download',
         taxonomyId: Number(process.env.ETSY_DOWNLOAD_TAXONOMY_ID || 6844),
         price: DOWNLOAD_PRICE,
@@ -278,7 +310,9 @@ export function tierCopy(
     `Instant digital download of the ${core} design. Print it yourself, as many times as you like.`,
     '',
     'WHAT YOU GET',
-    'One high-resolution 300 DPI PNG with a transparent background, ready for DTF, sublimation, HTV, or print-and-cut.',
+    // No "HTV": ITP does not cut vinyl, and the shop's banned-claims list
+    // (catalog-capability BANNED_DECORATION_TERMS, 4ebf57e) refuses the word.
+    'One high-resolution 300 DPI PNG with a transparent background, ready for DTF printing, sublimation, or print-and-cut.',
     'Delivered by Etsy the moment your payment clears — nothing is shipped.',
     '',
     'LICENSE — PERSONAL USE ONLY',
