@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
+import { FEATURED_OFFER_CODE, describeFeaturedOffer } from '../shared/seasonal-offer.js'
 
 dotenv.config()
 
@@ -191,6 +192,24 @@ export async function findCouponIdByCode(code: string, db: CouponDb = supabase):
         .single()
     return data?.id || null
 }
+
+// GET /api/coupons/featured - the one live seasonal offer, or { offer: null }.
+// Read off the same discount_codes row the checkout validates, so the banner
+// can never advertise a deal the cart would refuse.
+router.get('/featured', async (_req: Request, res: Response) => {
+    try {
+        const { data } = await supabase
+            .from('discount_codes')
+            .select('code,type,value,is_active,expires_at,max_uses,current_uses,min_order_amount')
+            .eq('code', FEATURED_OFFER_CODE)
+            .maybeSingle()
+        res.set('Cache-Control', 'public, max-age=60')
+        res.json({ offer: describeFeaturedOffer(data) })
+    } catch (error: any) {
+        console.error('Error reading featured offer:', error)
+        res.json({ offer: null })
+    }
+})
 
 // GET /api/coupons/validate - Validate a coupon code
 router.get('/validate', async (req: Request, res: Response) => {

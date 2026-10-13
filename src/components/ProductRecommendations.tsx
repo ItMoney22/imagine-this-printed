@@ -164,7 +164,7 @@ const ProductRecommendations: React.FC<ProductRecommendationsProps> = memo(({
                 decoding="async"
                 width={400}
                 height={400}
-                className="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-200"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
               />
               <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <div className="bg-white rounded-full p-1 shadow-md">
