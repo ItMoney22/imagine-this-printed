@@ -14,9 +14,15 @@ Real Etsy reviews + buyer photos on home and matching product pages, zero invent
 - `backend/scripts/import-etsy-reviews.mjs` (new)
 - `src/pages/Home.tsx`, `src/pages/ProductPage.tsx` (one mount each)
 - `TASK_NOTES.md`
+- Send-back 3 scope +5 (2026-10-13): the live `/vendor/storefront/:vendorId` route rendered a hardcoded fake vendor
+  with "4.8 stars, 127 Reviews" (fleet-browser shot at 390) - invented reviews on the live site, the exact thing this
+  card forbids. `src/App.tsx` (drop that route + lazy import), delete the unrouted mock pages
+  `src/pages/VendorStorefront.tsx`, `src/pages/VendorDirectory.tsx`, `src/pages/VendorStorefrontManager.tsx` (fake
+  vendors, ratings, review counts, 555 phones), `backend/routes/seo.ts` (comment that pointed at the deleted file).
 
 ### Work log (append-only)
 - 2026-10-07 (iahhm): built dormant real-only reviews: data file (empty), importer (verbatim Etsy text, photos opt-in via --with-photos), HomeSocialProof + ProductSocialProof (render null when empty), provenance guard test. Dry run against live Etsy: 0 reviews. tsc/eslint clean, 6 tests pass.
+- 2026-10-13 (iahhm, send-back 3): re-checked live: both ITP Etsy shops (67055923, older 46974694) have 0 reviews; site `reviews` table 0 rows. Found + removed the live fake vendor page (/vendor/storefront/:id, "4.8 stars, 127 Reviews") and its 2 unrouted mock siblings; guard now scans all of src for hard-coded ratings/review counts/testimonials (fails on the old page, passes now); etsyListingId nullable for a permissioned site-order quote. tsc -b 0, vitest 168 files / 2382 pass, vite build OK; 390 walk shots in docs/ship-proof-social-proof-2026-10-13/.
 
 ## Current request (2026-10-12) — remodel pages 2-5 live walk: nothing may cover a buy button (Watchtower 45434545, zero-nine)
 

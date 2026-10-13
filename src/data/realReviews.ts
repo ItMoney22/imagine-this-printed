@@ -4,9 +4,10 @@
 // write a sample/placeholder, never paraphrase. src/lib/real-reviews.test.ts
 // fails the build if an entry lacks provenance or looks like filler.
 //
-// As of 2026-10-07 the shop has 0 sales and the Etsy reviews endpoint returns
-// 0 results, so this list is empty on purpose. The home and product sections
-// render nothing until a real review lands here.
+// As of 2026-10-13 both ITP Etsy shops (67055923 and the older 46974694) have
+// 0 reviews and the site's own reviews table is empty, so this list is empty on
+// purpose. The home and product sections render nothing until a real review
+// lands here.
 
 export type ReviewSource = 'etsy' | 'permissioned'
 
@@ -20,8 +21,8 @@ export interface RealReview {
   /** Etsy review id, or the ticket/message id holding the buyer's permission. */
   sourceRef: string
   source: ReviewSource
-  /** Etsy listing the review belongs to; ties it to a product page. */
-  etsyListingId: number
+  /** Etsy listing the review belongs to; null for a permissioned quote from a site order. */
+  etsyListingId: number | null
   /** ITP product id for that listing (etsy_listings.product_id), null when unmatched. */
   productId: string | null
   rating: 1 | 2 | 3 | 4 | 5

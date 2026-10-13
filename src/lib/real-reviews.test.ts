@@ -16,7 +16,9 @@ describe('REAL_REVIEWS provenance guard', () => {
       expect(['etsy', 'permissioned']).toContain(r.source)
       expect(Number.isInteger(r.rating) && r.rating >= 1 && r.rating <= 5).toBe(true)
       expect(Number.isNaN(Date.parse(r.reviewedAt)), 'reviewedAt').toBe(false)
-      expect(r.etsyListingId).toBeGreaterThan(0)
+      // An Etsy review ties to its listing; a permissioned site-order quote ties to the product it bought.
+      if (r.source === 'etsy') expect(r.etsyListingId).toBeGreaterThan(0)
+      else expect(r.productId, `productId on ${r.sourceRef}`).toBeTruthy()
       expect(r.quote.trim().length).toBeGreaterThan(0)
       expect(FILLER.test(r.quote), `filler text in ${r.sourceRef}`).toBe(false)
       expect(FILLER.test(r.buyerName), `filler name in ${r.sourceRef}`).toBe(false)
@@ -30,6 +32,38 @@ describe('REAL_REVIEWS provenance guard', () => {
         expect(p.permission.trim(), `photo permission in ${r.sourceRef}`).not.toBe('')
       }
     }
+  })
+})
+
+// Guard: no star rating, review count or testimonial is hard-coded anywhere in the
+// customer UI. The live /vendor/storefront page showed a fake vendor with "4.8 stars,
+// 127 Reviews" until 2026-10-13; this fails the build if anything like it comes back.
+// Real reviews come only from src/data/realReviews.ts.
+const SOURCES = import.meta.glob(['../**/*.{ts,tsx}', '!../**/*.test.{ts,tsx}', '!../data/realReviews.ts'], {
+  query: '?raw',
+  import: 'default',
+  eager: true,
+}) as Record<string, string>
+const FAKE_PROOF = [
+  /\breviewCount\s*:\s*[1-9]/,
+  /\b(rating|averageRating|ratingValue)\s*:\s*[1-9](\.\d+)?\b/,
+  /★{2,}/,
+  /\b\d[\d,]*\+?\s+(five-star |5-star )?reviews\b/i,
+  /\btestimonials?\s*[:=]\s*\[/i,
+]
+
+describe('no hard-coded social proof in src', () => {
+  it('scans the customer UI source', () => {
+    expect(Object.keys(SOURCES).length).toBeGreaterThan(100)
+  })
+  it('finds no invented rating, review count or testimonial', () => {
+    const hits: string[] = []
+    for (const [file, text] of Object.entries(SOURCES)) {
+      text.split(/\r?\n/).forEach((line, i) => {
+        if (FAKE_PROOF.some((re) => re.test(line))) hits.push(`${file}:${i + 1}: ${line.trim()}`)
+      })
+    }
+    expect(hits, 'hard-coded social proof; real reviews belong in src/data/realReviews.ts').toEqual([])
   })
 })
 

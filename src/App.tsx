@@ -74,7 +74,6 @@ const AdminControlPanel = lazy(() => import('./pages/AdminControlPanel'))
 const AdminEmailTemplates = lazy(() => import('./pages/AdminEmailTemplates'))
 const AdminPanel = lazy(() => import('./pages/AdminPanel'))
 const WholesalePortal = lazy(() => import('./pages/WholesalePortal'))
-const VendorStorefront = lazy(() => import('./pages/VendorStorefront'))
 const ManagerDashboard = lazy(() => import('./pages/ManagerDashboard'))
 const AdminCostOverride = lazy(() => import('./pages/AdminCostOverride'))
 const KioskManagement = lazy(() => import('./pages/KioskManagement'))
@@ -260,7 +259,6 @@ function App() {
                   <Route path="/vendor/dashboard" element={<VendorDashboard />} />
                   <Route path="/vendor/messages" element={<VendorMessages />} />
                   <Route path="/vendor/payouts" element={<VendorPayouts />} />
-                  <Route path="/vendor/storefront/:vendorId" element={<VendorStorefront />} />
 
                   {/* Founder Routes */}
                   <Route path="/founder/dashboard" element={<FoundersDashboard />} />
