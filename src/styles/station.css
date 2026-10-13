@@ -1,0 +1,101 @@
+/* Imagination Station redo (approval c591c12d, David 2026-10-07): motion + the welcome scene.
+   Entrances use `translate` so hover `transform`s are never pinned by a filled keyframe. */
+
+@keyframes st-rise {
+  from { opacity: 0; translate: 0 14px; }
+  to { opacity: 1; translate: 0 0; }
+}
+@keyframes st-float {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -10px; }
+}
+@keyframes st-drift {
+  from { transform: scale(1.04) translateX(0); }
+  to { transform: scale(1.1) translateX(-1.5%); }
+}
+@keyframes st-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(155 48 255 / 0.45); }
+  50% { box-shadow: 0 0 0 7px rgb(155 48 255 / 0); }
+}
+@keyframes st-sweep {
+  from { translate: -120% 0; }
+  to { translate: 220% 0; }
+}
+
+.st-rise { animation: st-rise 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.st-float { animation: st-float 4.5s ease-in-out infinite; }
+.st-pulse { animation: st-pulse 2.2s ease-out infinite; }
+
+/* The welcome scene is a light picture in both modes, so its words stay dark on purpose. */
+.st-hero { background: #efe9fb; color: #1d1530; }
+.st-hero-art { animation: st-drift 18s ease-in-out infinite alternate; }
+.st-hero-fade {
+  background:
+    linear-gradient(90deg, #efe9fb 0%, rgb(239 233 251 / 0.94) 34%, rgb(239 233 251 / 0.35) 58%, rgb(239 233 251 / 0) 72%),
+    linear-gradient(0deg, rgb(239 233 251 / 0.85) 0%, rgb(239 233 251 / 0) 28%);
+}
+.st-hero-word {
+  background: linear-gradient(90deg, #9b30ff, #e0218a);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+@media (max-width: 639px) {
+  .st-hero-fade { background: linear-gradient(180deg, rgb(239 233 251 / 0.82), rgb(239 233 251 / 0.94)); }
+}
+.st-mr { transform: scaleX(-1); filter: drop-shadow(0 18px 24px rgb(76 29 149 / 0.28)); }
+
+/* Tool rows: a light sweep crosses on hover, the after-thumb lifts. */
+.st-tool { position: relative; overflow: hidden; }
+.st-tool::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.55), transparent);
+  translate: -120% 0;
+  pointer-events: none;
+}
+.st-tool:not(:disabled):hover::after { animation: st-sweep 0.8s ease-out; }
+.st-tool .st-after { transition: transform 0.25s ease; }
+.st-tool:not(:disabled):hover .st-after { transform: scale(1.12) rotate(-2deg); }
+
+.st-idea { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+.st-idea:hover { transform: translateY(-4px); box-shadow: 0 14px 30px -12px rgb(155 48 255 / 0.45); }
+
+.st-drop[data-over="true"] { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+  .st-rise, .st-float, .st-pulse, .st-hero-art { animation: none !important; }
+  .st-tool:hover::after { animation: none !important; }
+  .st-tool .st-after, .st-idea { transition: none !important; }
+}
+
+/* Token colours with an opacity (bg-primary/10, border-text/10) compile to nothing on this site, because the
+   tokens are plain var() colours. The station's own tints are mixed here instead, so they follow light + dark. */
+.st-divider { border-color: color-mix(in srgb, var(--text) 10%, transparent); }
+.st-ring { box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent); }
+.st-ring-primary { box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent); }
+.st-step-done { background: color-mix(in srgb, var(--primary) 80%, transparent); color: #fff; }
+.st-step-idle { background: color-mix(in srgb, var(--text) 10%, transparent); }
+.st-line { background: color-mix(in srgb, var(--text) 18%, transparent); }
+.st-line-done { background: color-mix(in srgb, var(--primary) 70%, transparent); }
+.st-row { border: 1px solid transparent; background: var(--bg); }
+.st-row:not(:disabled):hover { background: color-mix(in srgb, var(--primary) 6%, var(--bg)); border-color: color-mix(in srgb, var(--primary) 32%, transparent); }
+.st-row-hi { border: 1px solid rgb(217 70 239 / 0.35); background: linear-gradient(90deg, rgb(217 70 239 / 0.1), rgb(124 58 237 / 0.1)); }
+.st-row-hi:not(:disabled):hover { border-color: rgb(217 70 239 / 0.6); }
+.st-chip { color: var(--primary); border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.st-chip-free { color: #047857; border: 1px solid rgb(16 185 129 / 0.4); background: rgb(16 185 129 / 0.1); }
+.dark .st-chip-free { color: #6ee7b7; }
+.st-soft { color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+.st-soft:hover { background: color-mix(in srgb, var(--primary) 18%, transparent); }
+.st-pill { color: var(--primary); border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.st-pill:hover { background: color-mix(in srgb, var(--primary) 12%, transparent); }
+.st-link:hover { color: var(--primary); background: color-mix(in srgb, var(--primary) 6%, transparent); }
+.st-busy { background: color-mix(in srgb, var(--card) 70%, transparent); }
+.st-input { border: 1px solid color-mix(in srgb, var(--text) 15%, transparent); }
+.st-toggle { border: 1px solid color-mix(in srgb, var(--text) 15%, transparent); }
+.st-toggle:hover { border-color: color-mix(in srgb, var(--primary) 40%, transparent); }
+.st-drop { border: 2px dashed color-mix(in srgb, var(--primary) 32%, transparent); }
+.st-drop:hover { border-color: color-mix(in srgb, var(--primary) 60%, transparent); }
+.st-idea { box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent); }

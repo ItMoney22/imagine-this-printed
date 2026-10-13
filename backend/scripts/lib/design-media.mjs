@@ -168,14 +168,23 @@ export function findSourceFiles(dirPath, designId, { includePsd = false } = {}) 
 export const sourceGcsPath = (collectionSlug, designId, ext) =>
   `design-sources/${collectionSlug}/${designId}.${ext}`
 
+// The editable originals are David's masters, so they live in the PRIVATE
+// bucket (public access prevention enforced), not next to the public PNGs, and
+// get no public address (task 1417e863: they were readable by plain path and
+// through /api/media/). Anything that needs one signs a short-lived link.
+export const SOURCES_BUCKET_NAME = process.env.PRINT_FILES_BUCKET || 'imagine-this-printed-products'
+
 /**
- * Upload the originals and return the metadata.source_files shape:
- *   { ai: { url, gcs_path, bytes, content_type, uploaded_at }, ... }
+ * Upload the originals to the private bucket and return the
+ * metadata.source_files shape:
+ *   { ai: { bucket, gcs_path, bytes, content_type, uploaded_at }, ... }
  *
  * Resumable by design: an object already in the bucket at the same byte size is
- * left alone, so a 4 GB sweep can be interrupted and restarted freely.
+ * left alone, so a 4 GB sweep can be interrupted and restarted freely. `bucket`
+ * is the caller's (public) bucket; only its client is used.
  */
-export async function uploadSources(bucket, { dirPath, designId, collectionSlug, includePsd = false, maxBytes = 0, dryRun = false }) {
+export async function uploadSources(publicBucket, { dirPath, designId, collectionSlug, includePsd = false, maxBytes = 0, dryRun = false }) {
+  const bucket = publicBucket.storage.bucket(SOURCES_BUCKET_NAME)
   const results = {}
   const skipped = []
 
@@ -189,7 +198,7 @@ export async function uploadSources(bucket, { dirPath, designId, collectionSlug,
 
     if (dryRun) {
       results[src.ext] = {
-        url: stableMediaUrl(dest),
+        bucket: SOURCES_BUCKET_NAME,
         gcs_path: dest,
         bytes: src.bytes,
         content_type: contentType,
@@ -216,13 +225,12 @@ export async function uploadSources(bucket, { dirPath, designId, collectionSlug,
       await bucket.upload(src.localPath, {
         destination: dest,
         contentType,
-        resumable: src.bytes > 8 * 1024 * 1024,
-        metadata: { cacheControl: 'public, max-age=31536000, immutable' }
+        resumable: src.bytes > 8 * 1024 * 1024
       })
     }
 
     results[src.ext] = {
-      url: stableMediaUrl(dest),
+      bucket: SOURCES_BUCKET_NAME,
       gcs_path: dest,
       bytes: src.bytes,
       content_type: contentType,
