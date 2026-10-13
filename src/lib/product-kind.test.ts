@@ -17,6 +17,7 @@ import {
   getProductAssets,
   hasDigitalDeliverables,
   getGalleryImages,
+  isGarmentShotUrl,
   getDeliverables,
   unitBasePrice,
   startingPrice,
@@ -30,7 +31,8 @@ import {
   sizePriceDelta,
   formatPriceDelta,
   placementChoicesFor,
-  defaultPrintLocation
+  defaultPrintLocation,
+  offersDigitalDownload
 } from './product-kind'
 import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 import type { Product } from '../types'
@@ -538,5 +540,94 @@ describe('sizePriceDelta — size buttons carry the whole amount', () => {
   it('blanks and metal price per size outright, so they carry no delta', () => {
     expect(sizePriceDelta(classicBlank, '2XL')).toBe(0)
     expect(sizePriceDelta(p({ category: 'metal-art' }), '4x6')).toBe(0)
+  })
+})
+
+// Darrell McCutchen's "Walk By Faith" (e387149e) as it sits live: a Merch
+// Studio row whose print file doubles as clean + DTF, a watermarked bare-art
+// display, and three maroon garment photos (David 2026-10-07 phone walk).
+describe("creator apparel (Merch Studio) — sold as the creator's shirt", () => {
+  const assets = {
+    clean: 'https://cdn/front.png',
+    dtf: 'https://cdn/front.png',
+    display: 'https://cdn/watermarked-display.png',
+    mockups: ['https://cdn/mockup-1.png', 'https://cdn/mockup-2.png', 'https://cdn/mockup-3.png']
+  }
+  const walkByFaith = p({
+    category: 'shirts',
+    images: assets.mockups,
+    colors: ['maroon'],
+    metadata: { source: 'merch-studio', assets, mockup_url: 'https://cdn/mockup-1.png', print_files: { front: 'https://cdn/front.png' } }
+  })
+
+  it('leads with the maroon garment photos and never shows the bare art or the print file', () => {
+    expect(getGalleryImages(walkByFaith)).toEqual(assets.mockups)
+  })
+
+  it('offers no digital download even though the print file exists', () => {
+    expect(hasDigitalDeliverables(walkByFaith)).toBe(true)
+    expect(offersDigitalDownload(walkByFaith)).toBe(false)
+  })
+
+  it('has no upload and no Imagination Sheet, but keeps the tee pickers', () => {
+    const o = listingOptionSets(walkByFaith)
+    expect(o).toMatchObject({ kind: 'tee', upload: false, gangSheet: false, colors: true, tryOn: true })
+    expect(colorChoicesFor(walkByFaith)).toEqual(['maroon'])
+  })
+
+  it('leaves a non-creator design alone', () => {
+    const house = p({ category: 'shirts', images: [], metadata: { assets, creator_id: 'someone' } })
+    expect(getGalleryImages(house)[0]).toBe(assets.display)
+    expect(offersDigitalDownload(house)).toBe(true)
+    expect(listingOptionSets(house).gangSheet).toBe(true)
+  })
+})
+
+import { printLocationLabel as _pll } from './product-kind'
+describe('printLocationLabel', () => {
+  it('maps placement codes to shopper words', () => {
+    expect(_pll('front_image')).toBe('Front')
+    expect(_pll('back_image')).toBe('Back')
+    expect(_pll('pocket')).toBe('Pocket')
+  })
+  it('never shows a raw code and tolerates missing values', () => {
+    expect(_pll('sleeve_image')).toBe('Sleeve')
+    expect(_pll(undefined)).toBe('')
+    expect(_pll('')).toBe('')
+  })
+})
+
+describe('gallery images — a garment shot leads, never bare art (task 732f8a71)', () => {
+  const base = 'https://storage.googleapis.com/b/'
+  const raw = `${base}gnome/original/gnome-gpt.png`
+  const ghost = `${base}gnome/ghost_mannequin/gnome-ghost_mannequin-1.png`
+  const hanger = `${base}gnome/hanger/gnome-hanger-1.png`
+  const flat = `${base}gnome/flat_lay/gnome-flat_lay-1.png`
+  const onModel = `${base}u/mockups/etsy_shot_abc_step-model-x_1.png`
+  const details = `${base}system/mockups/abc-details-1.png`
+
+  it('moves the ghost mannequin ahead of the raw original', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, hanger, ghost, details, onModel] }))[0]).toBe(ghost)
+  })
+
+  it('ranks ghost mannequin, flat lay, hanger, then on-model; art and details trail', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, onModel, hanger, details, flat, ghost] }))).toEqual([
+      ghost, flat, hanger, onModel, raw, details,
+    ])
+  })
+
+  it('beats a watermarked display hero when a garment shot exists', () => {
+    const display = 'https://cdn/display.png'
+    expect(getGalleryImages(p({ metadata: { assets: { display } }, images: [raw, ghost] }))).toEqual([ghost, display, raw])
+  })
+
+  it('leaves a row with no garment shot in its stored order', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, details] }))).toEqual([raw, details])
+  })
+
+  it('does not treat a details card or bare art as a garment shot', () => {
+    expect(isGarmentShotUrl(details)).toBe(false)
+    expect(isGarmentShotUrl(raw)).toBe(false)
+    expect(isGarmentShotUrl(ghost)).toBe(true)
   })
 })

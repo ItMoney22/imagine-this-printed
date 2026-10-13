@@ -160,7 +160,11 @@ export async function convertGlbToStl(glbUrl: string, options: ConversionOptions
     const targetHeightMm = options.targetHeightMm
 
     if (yUpToZUp) {
-      const yToZ = new THREE.Matrix4().makeRotationX(-Math.PI / 2)
+      // +PI/2 about X sends glTF's up (+Y) to +Z and its front (+Z) to -Y, the
+      // front of the plate. It was -PI/2 until 2026-10-07, which sent up to -Z:
+      // every STL came out upside down (a Mini-Me's base on top, its head on the
+      // plate), and centerAndGround then grounded the head.
+      const yToZ = new THREE.Matrix4().makeRotationX(Math.PI / 2)
       finalMesh.geometry.applyMatrix4(yToZ)
     }
 

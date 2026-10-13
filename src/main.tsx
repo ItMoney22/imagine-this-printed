@@ -7,11 +7,14 @@ import { attachAuthDebug } from './lib/authDebug'
 import { ThemeProvider } from './components/ThemeProvider'
 import { forceRefreshSession, hardResetAuth } from './utils/forceRefreshSession'
 import { captureLandingUtms } from './utils/utm'
+import { captureReferralFromUrl } from './utils/referral-capture'
 import { initAnalytics } from './utils/analytics'
 
 // Capture ?utm_* BEFORE React mounts and the router rewrites the URL — social
-// links carry attribution only on the very first url of a visit.
+// links carry attribution only on the very first url of a visit. A friend's
+// ?ref= code is the same: kept until the visitor's account first signs in.
 captureLandingUtms()
+captureReferralFromUrl()
 initAnalytics()
 
 // Attach auth debugging hooks

@@ -182,12 +182,12 @@ export const emailApi = {
     apiFetch('/api/email/assistant', { method: 'POST', body: JSON.stringify(body) }),
 };
 
-/** Speak text in Mr. Imagine's voice (MiniMax TTS via the platform voice route).
- *  Returns a playable audio URL. Dynamic emotion is chosen by the model. */
+/** Speak text in Mr. Imagine's voice (Gemini 3.8 Flash TTS via the platform voice route).
+ *  Returns a playable audio URL. */
 export async function synthesizeMrImagineVoice(text: string): Promise<string> {
   const data = await apiFetch('/api/ai/voice/synthesize', {
     method: 'POST',
-    body: JSON.stringify({ text, emotion: 'auto' }),
+    body: JSON.stringify({ text }),
   });
   if (!data?.audioUrl) throw new Error('Voice synthesis returned no audio');
   return data.audioUrl as string;
