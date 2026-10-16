@@ -14,6 +14,7 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { extractPathFromSignedUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { assertOffered, COLORS, GARMENTS, photographableAudiences, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
+import { describeDesignForProduct } from '../../services/ai-product.js'
 // The listing copywriter and the casting catalog both live behind the ADMIN
 // Etsy router (routes/admin/etsy.ts, which is requireRole(['admin','manager'])
 // wholesale). The customer lane needs both and must never be handed that
@@ -240,16 +241,51 @@ const UPLOAD_DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+
 const UPLOAD_MAX_BYTES = 30 * 1024 * 1024
 
 /** "spartans-warrior_FINAL.png" -> "Spartans Warrior Final". A working name
- *  only: the Listing step writes the real title before anything publishes. */
+ *  only, replaced by describeUpload() once the design has been looked at.
+ *  Machine names come back empty: David's Folgers upload was
+ *  "1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77.png", and that string went straight
+ *  onto the product details card as the shirt's title. */
 export function nameFromFilename(filename: unknown): string {
   if (typeof filename !== 'string') return ''
-  return filename
-    .replace(/\.[a-z0-9]+$/i, '')
+  const stem = filename.replace(/\.[a-z0-9]+$/i, '').trim()
+  const machineMade =
+    /^[0-9a-f-]{12,}$/i.test(stem) || // uuids, hashes
+    !/[a-z]{2}/i.test(stem) || // no word in it at all
+    /^(img|image|dsc|pxl|photo|screenshot|screen shot|download|untitled|file|chatgpt image)[\s_\-]*[\d\s_\-.,:apm]*$/i.test(stem)
+  if (machineMade) return ''
+  return stem
     .replace(/[_\-.]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 80)
     .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+/**
+ * Look at an uploaded design and give the product a real name and
+ * description. Without it an upload reaches the Listing step as a filename
+ * and an empty description, and the listing writer (composeEtsyPack) works
+ * from text only, so it has nothing to write from. Runs after the response:
+ * the builder is already on the Design step, and this lands long before
+ * Mockups needs the name for the details card. Writes only name and
+ * description, never metadata, so it cannot race adopt's metadata writes.
+ */
+async function describeUpload(productId: string, artwork: Buffer, hint: string, log?: Request['log']): Promise<void> {
+  try {
+    // Shown on mid grey, never as the raw PNG: a vision model lays a clear
+    // background on white, and white artwork disappears into it. The Folgers
+    // tee's white lettering read as outlines only and came back "Lupine's".
+    const preview = await sharp(artwork)
+      .flatten({ background: '#808080' })
+      .resize(1024, 1024, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: 85 })
+      .toBuffer()
+    const copy = await describeDesignForProduct(`data:image/jpeg;base64,${preview.toString('base64')}`, hint || undefined)
+    await supabase.from('products').update({ name: copy.title, description: copy.description }).eq('id', productId)
+    log?.info({ productId, title: copy.title }, '[step-flow] named uploaded design')
+  } catch (err: any) {
+    log?.warn({ productId, err: err?.message }, '[step-flow] could not name uploaded design')
+  }
 }
 
 router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
@@ -276,9 +312,9 @@ router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Reques
     }
     if (!dims.width || !dims.height) return res.status(400).json({ error: 'That file could not be read as an image' })
 
-    const productName =
-      (typeof name === 'string' && name.trim().slice(0, 120)) || nameFromFilename(filename) || 'Uploaded design'
-    const baseSlug = slugify(productName) || 'uploaded-design'
+    const typedName = typeof name === 'string' ? name.trim().slice(0, 120) : ''
+    const productName = typedName || nameFromFilename(filename) || 'Custom Design'
+    const baseSlug = slugify(productName) || 'custom-design'
     const { data: taken } = await supabase.from('products').select('slug').like('slug', `${baseSlug}%`)
     const slug = generateUniqueSlug(baseSlug, (taken || []).map((p: any) => p.slug).filter(Boolean))
 
@@ -370,6 +406,8 @@ router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Reques
 
     req.log?.info({ productId: product.id, width: dims.width, height: dims.height, kind }, '[step-flow] design uploaded')
     res.json({ productId: product.id })
+    // A name David typed stands; otherwise the design names itself.
+    if (!typedName) void describeUpload(product.id, buffer, nameFromFilename(filename), req.log)
   } catch (err: any) {
     req.log?.error({ err: err?.message }, '[step-flow] upload error')
     res.status(500).json({ error: err?.message || 'Failed to upload the design' })
