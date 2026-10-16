@@ -18,6 +18,7 @@ import {
   storePrintFile,
 } from '../services/print-files.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
+import { plusSizeUpchargeCents, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
 
 // Headless checkout API for external storefronts (earth019.com). A trusted
 // storefront server POSTs a mixed cart; ITP resolves catalog prices server-side,
@@ -34,12 +35,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2025-02-24.acacia'
 })
 
-// Plus-size upcharge — mirrors src/context/CartContext.tsx so external storefronts
-// price ITP catalog items EXACTLY like the ITP store does.
-const PLUS_SIZES = ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL']
-const PLUS_SIZE_UPCHARGE = 2.50
-const isPlusSize = (size?: string): boolean =>
-  !!size && PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
+// Plus-size upcharge — the SAME rule the ITP store charges
+// (shared/catalog-capability.ts), so external storefronts price ITP catalog
+// items exactly like the ITP store does. This used to be a private copy of
+// the flat $2.50, which would have undercharged a 4XL (+$3.25, 2026-10-16).
 
 const DEFAULT_SUCCESS_URL = process.env.STOREFRONT_SUCCESS_URL || 'https://earth019.com/checkout/success'
 const DEFAULT_CANCEL_URL = process.env.STOREFRONT_CANCEL_URL || 'https://earth019.com/cart'
@@ -168,7 +167,9 @@ router.get('/catalog', requireStorefrontSecret, async (req: Request, res: Respon
 
   return res.json({
     products,
-    plusSizeUpchargeCents: Math.round(PLUS_SIZE_UPCHARGE * 100),
+    plusSizeUpchargeCents: PLUS_SIZE_UPCHARGE_CENTS,
+    // Per size, for clients that label each size button. 4XL costs more.
+    sizeUpchargeCents: { '2XL': plusSizeUpchargeCents('2XL'), '3XL': plusSizeUpchargeCents('3XL'), '4XL': plusSizeUpchargeCents('4XL') },
     ...(creatorUserId ? { vendor: req.storefront?.vendor } : {})
   })
 })
@@ -241,7 +242,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         }
 
         const base = Number(product.price) || 0
-        const unitAmount = Math.round((base + (isPlusSize(size) ? PLUS_SIZE_UPCHARGE : 0)) * 100)
+        const unitAmount = Math.round(base * 100) + plusSizeUpchargeCents(size)
         if (unitAmount < 50) {
           return res.status(400).json({ error: `Invalid price for product ${raw.productId}` })
         }

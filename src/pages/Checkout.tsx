@@ -10,7 +10,7 @@ import { apiFetch } from '../lib/api'
 import { addonsUnitTotal, lineBasePrice, printLocationLabel } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
-import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
+import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, plusSizeUpchargeDollars } from '../../backend/shared/catalog-capability'
 import { getLandingUtms } from '../utils/utm'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { getColorName } from '../utils/color-presets'
@@ -402,7 +402,7 @@ const Checkout: React.FC = () => {
     // 2XL+ price is already in the table)
     const plusSizeUpcharge = usdItems.reduce((sum, item) => {
       if (!isBlankGarmentMeta(item.product.metadata) && isPlusSize(item.selectedSize)) {
-        return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
+        return sum + (plusSizeUpchargeDollars(item.selectedSize) * item.quantity)
       }
       return sum
     }, 0)
@@ -420,7 +420,7 @@ const Checkout: React.FC = () => {
       if (isBlankGarmentMeta(item.product.metadata) || !isYouthSize(item.selectedSize)) return sum
       const otherPerUnit =
         lineBasePrice(item.product, item.selectedSize, item.selectedColor) +
-        (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
+        plusSizeUpchargeDollars(item.selectedSize) +
         garmentTierUpcharge(item.selectedTier) +
         addonsUnitTotal(item.selectedAddons)
       return sum + Math.min(YOUTH_SIZE_DISCOUNT_DOLLARS, otherPerUnit) * item.quantity

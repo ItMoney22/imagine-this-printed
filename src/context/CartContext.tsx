@@ -5,7 +5,7 @@ import { addonsUnitTotal, addonsSignature, personalizationSignature, lineBasePri
 import { garmentTierUpcharge } from '../lib/garment-tiers'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
-import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, PLUS_SIZE_UPCHARGE_DOLLARS as PLUS_SIZE_UPCHARGE } from '../../backend/shared/catalog-capability'
+import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, plusSizeUpchargeDollars } from '../../backend/shared/catalog-capability'
 
 interface CartState {
   items: CartItem[]
@@ -167,7 +167,7 @@ const calculateTotal = (items: CartItem[]): number => {
   // their size price is already in the table)
   const nonEligiblePlusSizeUpcharge = nonEligibleItems.reduce((sum, item) => {
     if (!isBlankLine(item) && isPlusSize(item.selectedSize)) {
-      return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
+      return sum + (plusSizeUpchargeDollars(item.selectedSize) * item.quantity)
     }
     return sum
   }, 0)
@@ -187,7 +187,7 @@ const calculateTotal = (items: CartItem[]): number => {
     if (isBlankLine(item) || !isYouthSize(item.selectedSize)) return sum
     const otherPerUnit =
       lineBasePrice(item.product, item.selectedSize, item.selectedColor) +
-      (isPlusSize(item.selectedSize) ? PLUS_SIZE_UPCHARGE : 0) +
+      plusSizeUpchargeDollars(item.selectedSize) +
       garmentTierUpcharge(item.selectedTier) +
       addonsUnitTotal(item.selectedAddons)
     return sum + Math.min(YOUTH_SIZE_DISCOUNT_DOLLARS, otherPerUnit) * item.quantity
@@ -215,7 +215,7 @@ const calculateTotal = (items: CartItem[]): number => {
   // Add plus size upcharge to eligible items as well (even in the bundle deal)
   const eligiblePlusSizeUpcharge = eligibleItems.reduce((sum, item) => {
     if (isPlusSize(item.selectedSize)) {
-      return sum + (PLUS_SIZE_UPCHARGE * item.quantity)
+      return sum + (plusSizeUpchargeDollars(item.selectedSize) * item.quantity)
     }
     return sum
   }, 0)

@@ -91,7 +91,7 @@ describe('canonicalCategoryOf — the id the storefront filter uses', () => {
 describe('defaultSizesFor', () => {
   it('offers print sizes for metal and garment sizes for apparel', () => {
     expect(defaultSizesFor('metal')).toEqual(STUDIO_SIZE_KEYS)
-    expect(defaultSizesFor('apparel')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+    expect(defaultSizesFor('apparel')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'])
   })
 
   // David 2026-09-06: a 3D print ships at the one size in its own photo. The
@@ -122,13 +122,13 @@ describe('sizeChoicesFor', () => {
     // (measured 2026-09-07: all 84 shirt/hoodie rows have an EMPTY sizes
     // column, so all of them landed here) — it hid the 3XL we do stock.
     expect(sizeChoicesFor(p({ category: 'shirts' })))
-      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
     expect(sizeChoicesFor(p({ category: 'metal-art' }))).toEqual(STUDIO_SIZE_KEYS)
   })
 
   it('offers youth sizes on a hoodie too', () => {
     expect(sizeChoicesFor(p({ category: 'hoodies' })))
-      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
   })
 
   it('appends youth to a legacy metadata.sizes list instead of replacing it', () => {
@@ -525,6 +525,7 @@ describe('sizePriceDelta — size buttons carry the whole amount', () => {
   it('a tee charges +$2.50 for 2XL and up and takes $3.00 off youth sizes', () => {
     expect(sizePriceDelta(leftoversTee, '2XL')).toBe(2.5)
     expect(sizePriceDelta(leftoversTee, '3XL')).toBe(2.5)
+    expect(sizePriceDelta(leftoversTee, '4XL')).toBe(3.25)
     expect(sizePriceDelta(leftoversTee, 'YXS')).toBe(-3)
     expect(sizePriceDelta(leftoversTee, 'M')).toBe(0)
     expect(formatPriceDelta(2.5)).toBe('+$2.50')
@@ -631,3 +632,22 @@ describe('gallery images — a garment shot leads, never bare art (task 732f8a71
     expect(isGarmentShotUrl(ghost)).toBe(true)
   })
 })
+
+describe('sizeChoicesFor — 4XL on listings frozen before it existed (David 2026-10-16)', () => {
+  const tee = (sizes: string[]) => p({ category: 'shirts', sizes, metadata: { product_type: 'tshirt' } })
+
+  it('puts 4XL right after 3XL on a Step Flow row frozen at S-3XL', () => {
+    expect(sizeChoicesFor(tee(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])))
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('leaves a listing that was cut short of 3XL exactly as it was', () => {
+    expect(sizeChoicesFor(tee(['S', 'M', 'L', 'XL']))).toEqual(['S', 'M', 'L', 'XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+    expect(sizeChoicesFor(tee(['M', 'L', 'XL', '2XL']))).not.toContain('4XL')
+  })
+
+  it('never doubles a 4XL a listing already has', () => {
+    expect(sizeChoicesFor(tee(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'])).filter(s => s === '4XL')).toHaveLength(1)
+  })
+})
+

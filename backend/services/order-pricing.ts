@@ -77,7 +77,7 @@ import { verifyShippingQuote, computeCartWeightLb } from './shipping-quote.js'
 import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normalizeMetalSizeKey } from '../shared/metal-art.js'
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
-import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
+import { isYouthSize, plusSizeUpchargeCents, YOUTH_SIZE_DISCOUNT_CENTS } from '../shared/catalog-capability.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -388,8 +388,9 @@ function computeExtrasCentsPerUnit(
   // (backend/shared/blank-pricing.ts) — that table already carries Jiffy's
   // real 2XL-5XL upcharges, and a blank IS its tier, so neither flat
   // upcharge applies. Mirrors src/context/CartContext.tsx calculateTotal.
-  if (!opts.blank && isPlusSize(item.selectedSize)) {
-    extraCents += PLUS_SIZE_UPCHARGE_CENTS
+  // +$2.50 for 2XL/3XL, +$3.25 for 4XL (catalog-capability.ts).
+  if (!opts.blank) {
+    extraCents += plusSizeUpchargeCents(item.selectedSize)
   }
 
   // Youth sizes come off the LISTING price. Two carve-outs, both deliberate:

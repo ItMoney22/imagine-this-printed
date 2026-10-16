@@ -16,7 +16,7 @@ import {
   isYouthSize,
   isPlusSize,
   printWidthForSize,
-  PLUS_SIZE_UPCHARGE_DOLLARS,
+  plusSizeUpchargeDollars,
   YOUTH_SIZE_DISCOUNT_DOLLARS
 } from '../../backend/shared/catalog-capability'
 import {
@@ -322,9 +322,18 @@ export function sizeChoicesFor(
     // S-3XL on a youth-tee listing whose sizes column happens to be empty —
     // a photo of a child advertising sizes we'd never ship them.
     const base = stored ?? adultSizesForGarment(garment)
+    // The same rule for a band that GREW: 4XL joined on 2026-10-16 (David, a
+    // customer wanted the Folgers tee in 4XL), after ~2,400 rows had already
+    // frozen S-3XL into their column. A listing that sells 3XL gets 4XL right
+    // after it. One that stops short of 3XL was cut down on purpose (a few
+    // live ones stop at XL or 2XL) and is left exactly as it is.
+    const has = (size: string) => base.some(b => String(b).toUpperCase() === size)
+    const grows = has('3XL') && !has('4XL') && adultSizesForGarment(garment).includes('4XL')
+    const at = grows ? base.findIndex(b => String(b).toUpperCase() === '3XL') + 1 : base.length
+    const withGrown = grows ? [...base.slice(0, at), '4XL', ...base.slice(at)] : base
     const youth = youthSizesForGarment(garment)
-    const missing = youth.filter(y => !base.some(b => String(b).toUpperCase() === y))
-    return [...base, ...missing]
+    const missing = youth.filter(y => !has(y))
+    return [...withGrown, ...missing]
   }
 
   return stored ?? defaultSizesFor(kind)
@@ -456,14 +465,14 @@ export function defaultSizeFor(product: Pick<Product, 'category' | 'metadata' | 
 /**
  * Dollars this size adds to (or takes off) the listing price, for the size
  * button label. The same two rails the server charges
- * (backend/services/order-pricing.ts): +$2.50 for 2XL and up, -$3.00 for a
+ * (backend/services/order-pricing.ts): +$2.50 for 2XL/3XL, +$3.25 for 4XL, -$3.00 for a
  * youth size, printed tees and hoodies only. Blanks and metal price each size
  * outright and show that price instead, so they carry no delta.
  */
 export function sizePriceDelta(product: Pick<Product, 'category' | 'metadata'>, size: string): number {
   const kind = listingKindOf(product)
   if (kind !== 'tee' && kind !== 'hoodie') return 0
-  if (isPlusSize(size)) return PLUS_SIZE_UPCHARGE_DOLLARS
+  if (isPlusSize(size)) return plusSizeUpchargeDollars(size)
   if (isYouthSize(size)) return -YOUTH_SIZE_DISCOUNT_DOLLARS
   return 0
 }

@@ -80,7 +80,7 @@ const priceShown = (anchor: number) => `$${anchor} → $${Math.round(anchor * (1
 // Mirrors AdminEtsyPanel.tsx's TIER_META — no shared frontend type module for
 // this yet, so it's a deliberate small second copy rather than new coupling.
 const GARMENT_TIER_META: Record<EtsyTier, { label: string; blurb: string; shown: string }> = {
-  primary: { label: 'Shirt', blurb: 'The tee/hoodie itself, sizes S–3XL', shown: priceShown(TEE_ANCHOR) },
+  primary: { label: 'Shirt', blurb: 'The tee/hoodie itself, sizes S–4XL', shown: priceShown(TEE_ANCHOR) },
   transfer: { label: 'Transfer', blurb: 'Printed DTF film you mail — buyer presses it', shown: 'from $12 → $7.20' },
   download: { label: 'Download', blurb: 'The design file, delivered instantly by Etsy', shown: '$5 → $3' },
 }

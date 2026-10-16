@@ -196,6 +196,12 @@ describe('computeLineItemCents', () => {
     expect(cents).toBe(2000 + 250)
   })
 
+  it('charges a 4XL $3.25, not the flat $2.50 (David 2026-10-16)', () => {
+    const map = new Map([[PRODUCT_A, 20]])
+    expect(computeLineItemCents({ productId: PRODUCT_A, quantity: 2, selectedSize: '4XL' }, map).cents).toBe((2000 + 325) * 2)
+    expect(computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: '3XL' }, map).cents).toBe(2000 + 250)
+  })
+
   describe('youth-size discount (David 2026-09-07 — shirts and hoodies sell youth on the same listing)', () => {
     it('takes $3 off a youth size', () => {
       const map = new Map([[PRODUCT_A, 20]])

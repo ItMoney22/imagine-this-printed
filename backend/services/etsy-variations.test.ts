@@ -29,7 +29,7 @@ describe('apparelVariationSizes — Etsy size axis pricing', () => {
 
   it('offers the adult band and the youth band, youth spelled out', () => {
     expect(apparelVariationSizes(TEE, 25).map(v => v.label)).toEqual([
-      'S', 'M', 'L', 'XL', '2XL', '3XL',
+      'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL',
       'Youth XS', 'Youth S', 'Youth M', 'Youth L', 'Youth XL'
     ])
   })
@@ -43,6 +43,11 @@ describe('apparelVariationSizes — Etsy size axis pricing', () => {
     const p = priceMap(TEE, 25)
     expect(p['2XL']).toBe(27.5)
     expect(p['3XL']).toBe(27.5)
+  })
+
+  it('adds $3.25 to 4XL (David 2026-10-16)', () => {
+    expect(priceMap(TEE, 25)['4XL']).toBe(28.25)
+    expect(priceMap(HOODIE, 25)['4XL']).toBe(28.25)
   })
 
   it('takes $3 off every youth size', () => {

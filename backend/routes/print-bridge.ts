@@ -520,7 +520,7 @@ router.post('/design-draft', requireBridgeAuth, async (req: Request, res: Respon
         category: 'shirts',
         status: 'draft',
         print_locations: ['front_image'],
-        sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+        sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'],
         colors: ['Black', 'White'],
         is_user_generated: false,
         metadata: {
