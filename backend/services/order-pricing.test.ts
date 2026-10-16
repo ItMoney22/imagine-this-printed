@@ -731,6 +731,54 @@ describe('evaluateCheckoutAmount', () => {
 })
 
 describe('calculateOrderPricing (end-to-end, injected deps)', () => {
+  describe('SPOOKY20 takes 20% off Halloween designs only (David 2026-10-16)', () => {
+    const SPOOKY20: PricingDiscountCodeRow = {
+      id: 'coupon-spooky', code: 'SPOOKY20', type: 'percentage', value: 20, is_active: true,
+      expires_at: null, max_uses: null, current_uses: null, min_order_amount: null,
+      max_discount_amount: null, per_user_limit: null
+    }
+    // PRODUCT_A is the Halloween design, PRODUCT_B the Folgers racing tee.
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 25], [PRODUCT_B, 25]]),
+      fetchDiscountCode: async code => (code === 'SPOOKY20' ? SPOOKY20 : null),
+      fetchOfferThemedIds: async (ids, theme) => new Set(theme === 'halloween' ? ids.filter(id => id === PRODUCT_A) : [])
+    })
+    const price = (items: any[]) =>
+      calculateOrderPricing({ items, shipping: { type: 'pickup', clientAmountCents: 0 }, couponCode: 'SPOOKY20', userId: null }, deps)
+
+    it('a mixed cart only gets 20% off the Halloween line', async () => {
+      const r = await price([{ productId: PRODUCT_A, quantity: 1 }, { productId: PRODUCT_B, quantity: 1 }])
+      expect(r.productSubtotalCents).toBe(5000)
+      expect(r.couponDiscountCents).toBe(500)
+      expect(r.couponError).toBeUndefined()
+    })
+
+    it('a cart with no Halloween design gets nothing, and says why', async () => {
+      const r = await price([{ productId: PRODUCT_B, quantity: 1, selectedSize: '4XL' }])
+      expect(r.couponDiscountCents).toBe(0)
+      expect(r.couponError).toMatch(/Halloween designs/)
+    })
+
+    it('splits a 2-for-$25 bundle evenly per unit', async () => {
+      const bundle = { metadata: { isThreeForTwentyFive: true } }
+      const r = await price([{ productId: PRODUCT_A, quantity: 1, ...bundle }, { productId: PRODUCT_B, quantity: 1, ...bundle }])
+      expect(r.productSubtotalCents).toBe(2500)
+      expect(r.couponDiscountCents).toBe(250) // 20% of the Halloween tee's $12.50 half
+    })
+
+    it('a plain code still covers the whole order', async () => {
+      const plain = makeFakeDeps({
+        fetchProductPrices: async () => new Map([[PRODUCT_A, 25], [PRODUCT_B, 25]]),
+        fetchDiscountCode: async () => ({ ...SPOOKY20, code: 'SAVE20' })
+      })
+      const r = await calculateOrderPricing(
+        { items: [{ productId: PRODUCT_A, quantity: 1 }, { productId: PRODUCT_B, quantity: 1 }], shipping: { type: 'pickup', clientAmountCents: 0 }, couponCode: 'SAVE20', userId: null },
+        plain
+      )
+      expect(r.couponDiscountCents).toBe(1000)
+    })
+  })
+
   it('prices a legitimate cart correctly end-to-end', async () => {
     const deps = makeFakeDeps({
       fetchProductPrices: async () =>

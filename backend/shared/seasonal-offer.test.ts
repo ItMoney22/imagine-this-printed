@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { describeFeaturedOffer, type FeaturedOfferRow } from './seasonal-offer'
+import { describeFeaturedOffer, matchesOfferTheme, offerThemeOf, type FeaturedOfferRow } from './seasonal-offer'
 
 const now = new Date('2026-10-15T12:00:00Z')
 const row = (over: Partial<FeaturedOfferRow> = {}): FeaturedOfferRow => ({
@@ -17,7 +17,7 @@ const row = (over: Partial<FeaturedOfferRow> = {}): FeaturedOfferRow => ({
 describe('describeFeaturedOffer', () => {
   it('describes a live percentage offer', () => {
     expect(describeFeaturedOffer(row(), now)).toEqual({
-      code: 'SPOOKY20', percentOff: 20, endsAt: '2026-11-01T03:59:00Z', minOrderAmount: null
+      code: 'SPOOKY20', percentOff: 20, endsAt: '2026-11-01T03:59:00Z', minOrderAmount: null, theme: 'halloween'
     })
   })
   it('advertises nothing once the end date passes', () => {
@@ -31,3 +31,33 @@ describe('describeFeaturedOffer', () => {
     expect(describeFeaturedOffer(null, now)).toBeNull()
   })
 })
+
+describe('SPOOKY20 is for Halloween designs only (David 2026-10-16)', () => {
+  it('knows which codes are themed', () => {
+    expect(offerThemeOf({ code: 'SPOOKY20' })).toBe('halloween')
+    expect(offerThemeOf({ code: 'spooky20' })).toBe('halloween')
+    expect(offerThemeOf({ code: 'THANKS10' })).toBeNull()
+    expect(offerThemeOf({ code: 'ANY', metadata: { theme: 'Christmas' } })).toBe('christmas')
+  })
+
+  it('takes nothing off the Folgers racing tee', () => {
+    expect(matchesOfferTheme({ name: 'Folgers Coffee Racing Legend T-Shirt', description: 'A red No. 25 stock car.' }, 'halloween')).toBe(false)
+  })
+
+  it('does not count an alien tee just for being spooky-adjacent', () => {
+    expect(matchesOfferTheme({ name: 'Cosmic Encounter: Boy Meets Alien', description: 'A glowing UFO.' }, 'halloween')).toBe(false)
+  })
+
+  it('counts a Halloween collection, name, description, search keywords or listing tags', () => {
+    expect(matchesOfferTheme({ name: 'Bad Witch Vibes', metadata: { collection: 'Halloween Vol3' } }, 'halloween')).toBe(true)
+    expect(matchesOfferTheme({ name: 'Too Cute To Spook Ghost T-Shirt | Halloween Unisex Tee' }, 'halloween')).toBe(true)
+    expect(matchesOfferTheme({ name: 'Moon', description: 'Perfect for Halloween night.' }, 'halloween')).toBe(true)
+    expect(matchesOfferTheme({ name: 'Candle', search_keywords: ['gothic', 'halloween decor'] }, 'halloween')).toBe(true)
+    expect(matchesOfferTheme({ name: 'Owl', metadata: { etsy_pack: { tags: ['halloween owl'] } } }, 'halloween')).toBe(true)
+  })
+
+  it('an unthemed code covers everything', () => {
+    expect(matchesOfferTheme({ name: 'Folgers' }, null)).toBe(true)
+  })
+})
+

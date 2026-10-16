@@ -12,11 +12,17 @@ export default function SeasonalOfferBanner() {
   const offer = useFeaturedOffer()
   if (!offer) return null
   const min = offer.minOrderAmount ? ` on orders of $${offer.minOrderAmount} or more` : ''
+  // A themed code only covers those designs, so the banner says which.
+  const theme = offer.theme ? offer.theme.charAt(0).toUpperCase() + offer.theme.slice(1) : null
   return (
     <div className="bg-primary text-bg" role="region" aria-label="Seasonal offer">
       <div className="mx-auto max-w-6xl px-4 py-2 text-center text-sm font-semibold">
-        {offer.percentOff}% off{min} with code {offer.code} at checkout. Ends {offerEndLabel(offer.endsAt)}.{' '}
-        <Link to="/products" className="underline">Shop now</Link>
+        {offer.percentOff}% off{theme ? ` ${theme} designs` : ''}{min} with code {offer.code} at checkout. Ends {offerEndLabel(offer.endsAt)}.{' '}
+        {/* /catalog, not /products: that path is a 404, which is where this link
+            sent every shopper from 10/13 to 10/16. */}
+        <Link to={theme ? `/catalog?q=${encodeURIComponent(offer.theme!)}` : '/catalog'} className="underline">
+          {theme ? `Shop ${theme}` : 'Shop now'}
+        </Link>
       </div>
     </div>
   )

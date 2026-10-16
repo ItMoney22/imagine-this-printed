@@ -396,15 +396,25 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const applyCoupon = useCallback(async (code: string, userId?: string): Promise<{ success: boolean; error?: string }> => {
     setCouponLoading(true)
     try {
-      const params = new URLSearchParams({
-        code: code.toUpperCase(),
-        orderTotal: state.total.toString()
+      // The server prices THIS cart with the code (POST /quote), so a code
+      // limited to some designs — SPOOKY20 is Halloween designs only — shows
+      // exactly what the payment step will charge. /validate, which only
+      // sees a total, is the fallback while an older API is still deployed.
+      let response = await fetch(`${API_BASE}/api/coupons/quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code.toUpperCase(), items: state.items, userId: userId || null })
       })
-      if (userId) {
-        params.append('userId', userId)
+      if (response.status === 404) {
+        const params = new URLSearchParams({
+          code: code.toUpperCase(),
+          orderTotal: state.total.toString()
+        })
+        if (userId) {
+          params.append('userId', userId)
+        }
+        response = await fetch(`${API_BASE}/api/coupons/validate?${params}`)
       }
-
-      const response = await fetch(`${API_BASE}/api/coupons/validate?${params}`)
       const data = await response.json()
 
       if (!data.valid) {
@@ -426,7 +436,7 @@ export const CartProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setCouponLoading(false)
       return { success: false, error: error.message || 'Failed to validate coupon' }
     }
-  }, [state.total])
+  }, [state.total, state.items])
 
   const removeCoupon = useCallback(() => {
     setAppliedCoupon(null)

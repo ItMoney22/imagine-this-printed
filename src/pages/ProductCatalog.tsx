@@ -142,7 +142,8 @@ const ProductCatalog: React.FC = () => {
           // table, and selecting it made this whole query 400, which the catch
           // below turned into an empty catalog while the sidebar counts (which
           // select only `id`) kept reporting the real totals.
-          'id, name, description, price, images, category, is_active, created_at, updated_at, metadata, sizes, colors, is_featured',
+          // search_keywords: the seasonal badge reads it (shared/seasonal-offer.ts).
+          'id, name, description, price, images, category, is_active, created_at, updated_at, metadata, sizes, colors, is_featured, search_keywords',
           { count: 'exact' }
         )
         .eq('status', 'active')
