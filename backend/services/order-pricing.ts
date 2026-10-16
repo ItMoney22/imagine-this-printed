@@ -65,10 +65,11 @@
 //      $25") now has server-side pricing at all — before this, a
 //      bundle-eligible cart was charged full price at checkout regardless of
 //      what the cart/storefront advertised (Watchtower row 54405e88).
-//      Eligibility and the bundle math both come from backend/shared/promos.ts,
-//      the same module src/context/CartContext.tsx uses, so client and server
-//      total agree. See PricingCartItem.isThreeForTwentyFive and
-//      computeSubtotalCents below.
+//      The bundle math comes from backend/shared/promos.ts, the same module
+//      src/context/CartContext.tsx uses, so client and server total agree.
+//      ELIGIBILITY comes only from the products row (deps.fetchBundleEligibleIds,
+//      task b81a65f5) — the browser's copy of the flag is ignored, because a
+//      forged flag once bought 2 hoodies for $25. See computeSubtotalCents.
 
 import { supabase } from '../lib/supabase.js'
 import Stripe from 'stripe'
@@ -209,18 +210,6 @@ export interface PricingCartItem {
   // (GAP 1 closed — see fetchCustomItemPrices); kept for any future custom
   // line-item type that hasn't been ported yet.
   clientUnitPriceDollars?: number | null
-  /**
-   * Mirrors Product.isThreeForTwentyFive (top-level flag, distinct from
-   * metadata.isThreeForTwentyFive on `metadata` below) — ADDED for GAP 4 so
-   * this engine can decide bundle ("2 for $25") eligibility the same way
-   * src/context/CartContext.tsx does: isThreeForTwentyFive ||
-   * metadata?.isThreeForTwentyFive (see backend/shared/promos.ts
-   * isBundleEligible). The caller (backend/routes/stripe.ts) must send this
-   * from item.product.isThreeForTwentyFive — without it, a product whose
-   * eligibility lives only in the top-level flag (not mirrored into
-   * metadata) silently prices as non-eligible.
-   */
-  isThreeForTwentyFive?: boolean | null
   /** Parcel weight in lb — mirrors src/utils/shipping-calculator.ts's per-item
    *  weight, used only to verify a signed carrier shipping quote (GAP 2). */
   weight?: number | null
@@ -252,13 +241,10 @@ export function pricingItemsFromCart(items: unknown): PricingCartItem[] {
     // carries 3d-print color_mode/include_paint_kit OPTIONS — never a
     // trusted dollar amount. See order-pricing.ts GAP 1 / GAP 2.
     weight: item?.product?.weight != null ? Number(item.product.weight) : null,
-    metadata: item?.product?.metadata ?? null,
-    // "2 for $25" bundle eligibility (GAP 4) — mirrors the top-level flag
-    // src/context/CartContext.tsx reads off product.isThreeForTwentyFive.
-    // metadata (above) already carries metadata.isThreeForTwentyFive, but
-    // that alone isn't the full eligibility rule the cart uses — see
-    // backend/shared/promos.ts isBundleEligible.
-    isThreeForTwentyFive: item?.product?.isThreeForTwentyFive ?? null
+    metadata: item?.product?.metadata ?? null
+    // "2 for $25" eligibility is deliberately NOT forwarded: the pricing
+    // engine reads it from the products row (fetchBundleEligibleIds), since
+    // anything in this body, including product.metadata, is forgeable.
   }))
 }
 
@@ -305,6 +291,15 @@ export interface PricingDependencies {
    * and the flat plus-size + garment-tier upcharges are skipped for it.
    */
   fetchBlankPricing: (ids: string[]) => Promise<Map<string, BlankPricing>>
+  /**
+   * Returns the subset of catalog ids whose products ROW is flagged for the
+   * "2 for $25" deal (products.metadata.isThreeForTwentyFive). Eligibility is
+   * decided ONLY from this DB read — the cart's copy of the flag is exactly as
+   * forgeable as its price (a 2-hoodie cart with the flag set in the body once
+   * got a live $25 PaymentIntent). Optional so injected-deps callers/tests keep
+   * compiling; absent = nothing is bundle-eligible (fails safe to full price).
+   */
+  fetchBundleEligibleIds?: (ids: string[]) => Promise<Set<string>>
   /**
    * Returns the subset of catalog ids that are METAL PRINTS (category /
    * metadata template, judged by backend/shared/metal-art.ts
@@ -576,6 +571,7 @@ export function computeSubtotalCents(
   customItemPriceMap: Map<string, number> = new Map(),
   blankPricingMap: Map<string, BlankPricing> = new Map(),
   metalProductIds: Set<string> = new Set(),
+  bundleEligibleIds: Set<string> = new Set(),
   /** Lines whose product is in this set make up `themedCents`, the part of
    *  the subtotal a theme-limited coupon (SPOOKY20) may take money off. */
   themedIds: Set<string> = new Set()
@@ -600,14 +596,11 @@ export function computeSubtotalCents(
 
   for (const item of items) {
     const itemId = String(item.productId ?? '')
-    // A blank garment is never bundle-eligible, whatever the cart's copy of
-    // metadata claims — its price is its DB size/colour table, full stop.
-    const eligible =
-      !blankPricingMap.has(itemId) &&
-      isBundleEligible({
-        isThreeForTwentyFive: item.isThreeForTwentyFive,
-        metadata: item.metadata
-      })
+    // Eligibility comes from the products ROW (bundleEligibleIds, a DB read) —
+    // never from item.isThreeForTwentyFive / item.metadata, which the browser
+    // sends and can forge. A blank garment is never bundle-eligible either: its
+    // price is its DB size/colour table, full stop.
+    const eligible = !blankPricingMap.has(itemId) && bundleEligibleIds.has(itemId)
 
     if (!eligible) {
       const result = computeLineItemCents(item, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
@@ -932,6 +925,21 @@ const defaultDependencies: PricingDependencies = {
     return metal
   },
 
+  async fetchBundleEligibleIds(ids: string[]) {
+    const eligible = new Set<string>()
+    if (ids.length === 0) return eligible
+    const { data, error } = await supabase.from('products').select('id, metadata').in('id', ids)
+    if (error) {
+      throw new Error(`Failed to load bundle eligibility: ${error.message}`)
+    }
+    for (const row of data || []) {
+      // Blank garments are excluded again in computeSubtotalCents; creator rows
+      // carry no bundle flag in their metadata, so the row alone decides.
+      if (row?.id != null && isBundleEligible({ metadata: row.metadata })) eligible.add(String(row.id))
+    }
+    return eligible
+  },
+
   async fetchDiscountCode(code: string) {
     const { data, error } = await supabase
       .from('discount_codes')
@@ -1050,6 +1058,8 @@ export async function calculateOrderPricing(
   const blankPricingMap = catalogIds.length > 0 ? await deps.fetchBlankPricing(catalogIds) : new Map<string, BlankPricing>()
   const metalProductIds =
     catalogIds.length > 0 && deps.fetchMetalProductIds ? await deps.fetchMetalProductIds(catalogIds) : new Set<string>()
+  const bundleEligibleIds =
+    catalogIds.length > 0 && deps.fetchBundleEligibleIds ? await deps.fetchBundleEligibleIds(catalogIds) : new Set<string>()
 
   const customItems = input.items.filter(i => {
     const id = String(i.productId ?? '')
@@ -1057,7 +1067,14 @@ export async function calculateOrderPricing(
   })
   const customItemPriceMap = customItems.length > 0 ? await deps.fetchCustomItemPrices(customItems) : new Map<string, number>()
 
-  const subtotalResult = computeSubtotalCents(input.items, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds)
+  const subtotalResult = computeSubtotalCents(
+    input.items,
+    productPriceMap,
+    customItemPriceMap,
+    blankPricingMap,
+    metalProductIds,
+    bundleEligibleIds
+  )
   errors.push(...subtotalResult.errors)
   warnings.push(...subtotalResult.warnings)
   const subtotalCents = subtotalResult.subtotalCents
@@ -1083,7 +1100,7 @@ export async function calculateOrderPricing(
       const themedIds =
         catalogIds.length > 0 && deps.fetchOfferThemedIds ? await deps.fetchOfferThemedIds(catalogIds, theme) : new Set<string>()
       discountBaseCents = computeSubtotalCents(
-        input.items, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds, themedIds
+        input.items, productPriceMap, customItemPriceMap, blankPricingMap, metalProductIds, bundleEligibleIds, themedIds
       ).themedCents
       if (discountBaseCents <= 0) themeError = `${row.code} is for ${theme.charAt(0).toUpperCase()}${theme.slice(1)} designs, and nothing in this cart is one`
     }
