@@ -11,8 +11,9 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
-import { extractPathFromSignedUrl } from '../../services/google-cloud-storage.js'
-import { assertOffered, COLORS, photographableAudiences, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
+import { extractPathFromSignedUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
+import { assertOffered, COLORS, GARMENTS, photographableAudiences, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
+import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
 // The listing copywriter and the casting catalog both live behind the ADMIN
 // Etsy router (routes/admin/etsy.ts, which is requireRole(['admin','manager'])
 // wholesale). The customer lane needs both and must never be handed that
@@ -214,6 +215,164 @@ router.post('/step/inspiration', requireAuth, requireStudioAccess, rateLimitAI(1
     if (err instanceof InspirationValidationError) return res.status(400).json({ error: err.message })
     req.log?.error({ err: err?.message }, '[step-flow] inspiration error')
     res.status(500).json({ error: err?.message || 'Failed to analyze inspiration image' })
+  }
+})
+
+// POST /step/upload — { image, kind, name? } -> { productId }.
+//
+// "i need to be able to just upload a design in create a product also or go
+// into step flow i have a design i need to make a product but no easy way to
+// do it" (David 2026-10-16). The flow could already take in a finished design
+// (/:id/step/adopt, built for the design library), but only one that was
+// already sitting on a product row. This makes that row from an uploaded file:
+// a draft whose images[0] is the artwork, nothing generated. The caller then
+// runs /:id/step/adopt on it, so an upload gets the same print-resolution
+// check, upscale, background cut and approval stamp as a library design, and
+// the builder opens on Garment & Color.
+//
+// Staff only. This router is also mounted on the customer lane, and a
+// customer uploading their own artwork straight into a listing is a review
+// and IP question nobody has decided.
+const UPLOAD_DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/
+// Print-ready PNGs are big (4500x5400 runs well past 10MB), so this is looser
+// than the 8MB inspiration cap. Still under the 50MB JSON body limit after
+// base64's 4/3 inflation.
+const UPLOAD_MAX_BYTES = 30 * 1024 * 1024
+
+/** "spartans-warrior_FINAL.png" -> "Spartans Warrior Final". A working name
+ *  only: the Listing step writes the real title before anything publishes. */
+export function nameFromFilename(filename: unknown): string {
+  if (typeof filename !== 'string') return ''
+  return filename
+    .replace(/\.[a-z0-9]+$/i, '')
+    .replace(/[_\-.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80)
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
+router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (laneOf(req) !== 'admin') return res.status(403).json({ error: 'Uploading finished artwork is staff-only' })
+
+    const { image, kind, name, filename } = req.body || {}
+    const isMetal = kind === 'metal'
+    const garment = GARMENTS.find((g) => g.id === kind)
+    if (!isMetal && !garment) return res.status(400).json({ error: 'kind must be tshirt, hoodie, youth-tshirt or metal' })
+
+    const match = typeof image === 'string' ? image.trim().match(UPLOAD_DATA_URL_RE) : null
+    if (!match) return res.status(400).json({ error: 'Upload a PNG, JPG or WEBP image' })
+    const contentType = match[1]
+    if (Math.floor((match[2].length * 3) / 4) > UPLOAD_MAX_BYTES) {
+      return res.status(400).json({ error: 'That file is over 30MB' })
+    }
+    const buffer = Buffer.from(match[2], 'base64')
+    let dims: sharp.Metadata
+    try {
+      dims = await sharp(buffer).metadata()
+    } catch {
+      return res.status(400).json({ error: 'That file could not be read as an image' })
+    }
+    if (!dims.width || !dims.height) return res.status(400).json({ error: 'That file could not be read as an image' })
+
+    const productName =
+      (typeof name === 'string' && name.trim().slice(0, 120)) || nameFromFilename(filename) || 'Uploaded design'
+    const baseSlug = slugify(productName) || 'uploaded-design'
+    const { data: taken } = await supabase.from('products').select('slug').like('slug', `${baseSlug}%`)
+    const slug = generateUniqueSlug(baseSlug, (taken || []).map((p: any) => p.slug).filter(Boolean))
+
+    const extension = contentType === 'image/jpeg' ? 'jpg' : contentType.replace('image/', '')
+    const { publicUrl, path } = await uploadImageFromBuffer(
+      buffer,
+      `graphics/${slug}/original/${slug}-upload-${Date.now()}.${extension}`,
+      contentType
+    )
+
+    const categorySlug = isMetal ? 'metal-art' : garment!.category
+    let { data: category } = await supabase.from('product_categories').select('id').eq('slug', categorySlug).maybeSingle()
+    if (!category) {
+      const names: Record<string, string> = { 'metal-art': 'Metal Art', 't-shirts': 'T Shirts', hoodies: 'Hoodies' }
+      const { data: created } = await supabase
+        .from('product_categories')
+        .upsert({ slug: categorySlug, name: names[categorySlug] || categorySlug }, { onConflict: 'slug' })
+        .select('id')
+        .single()
+      category = created
+    }
+
+    const now = new Date().toISOString()
+    const { data: product, error: insertError } = await supabase
+      .from('products')
+      .insert({
+        category_id: category?.id ?? null,
+        name: productName,
+        slug,
+        description: '',
+        // Set for real by the Listing step (garments) or the Sizes step
+        // (metal) before publish. Nothing shows a draft's price to a buyer.
+        price: 0,
+        status: 'draft',
+        is_active: false,
+        images: [publicUrl],
+        category: categorySlug,
+        print_locations: isMetal ? [] : ['front_image'],
+        metadata: {
+          // Read by adopt as the source asset's `adopted_from`. Not
+          // 'design-library', so the row lists under Products, not Designs.
+          import_source: 'upload',
+          uploaded_by: actorId(req),
+          uploaded_at: now,
+          original_filename: typeof filename === 'string' ? filename.slice(0, 200) : null,
+          gcs_path: path,
+          // Measured here so adopt's print-resolution gate reads it straight
+          // off the row instead of downloading the file again.
+          image: {
+            width_px: dims.width,
+            height_px: dims.height,
+            has_alpha: !!dims.hasAlpha,
+            measured_by: 'step-flow-upload',
+            measured_at: now,
+          },
+          product_type: isMetal ? 'metal-art' : garment!.id,
+          print_placement: isMetal ? 'not-applicable' : 'front-center',
+          ...(isMetal ? { metal_size: '8x10' } : { print_size_inches: 11 }),
+          // The Step Flow decides metal vs garment from brief.productKind
+          // (isMetalStepFlow), so a metal upload carries a brief that says
+          // so. Garments carry none: Garment & Color reads
+          // metadata.product_type, same as a library design.
+          step_flow: {
+            version: 1,
+            idea: productName,
+            brief: isMetal
+              ? {
+                  designPrompt: '',
+                  background: 'white',
+                  title: productName,
+                  styleTags: [],
+                  garmentHint: 'tshirt',
+                  rationale: 'Uploaded artwork',
+                  productKind: 'metal',
+                }
+              : null,
+            inspiration: null,
+            shots: {},
+            approvals: {},
+          },
+        },
+      })
+      .select('id')
+      .single()
+    if (insertError || !product) {
+      req.log?.error({ err: insertError?.message }, '[step-flow] upload insert error')
+      return res.status(500).json({ error: insertError?.message || 'Failed to save the design' })
+    }
+
+    req.log?.info({ productId: product.id, width: dims.width, height: dims.height, kind }, '[step-flow] design uploaded')
+    res.json({ productId: product.id })
+  } catch (err: any) {
+    req.log?.error({ err: err?.message }, '[step-flow] upload error')
+    res.status(500).json({ error: err?.message || 'Failed to upload the design' })
   }
 })
 
