@@ -5164,3 +5164,28 @@ margin, not native lazy only.
 ### File shortlist (approved scope)
 - `backend/services/order-pricing.ts` (+ test), `backend/routes/stripe.ts`, `src/pages/Checkout.tsx`, `src/context/CartContext.test.tsx` (parity test)
 - 2026-10-12 (daisy-carter): Checkout usdTotal now pools BUNDLE_DEAL; server reads eligibility from products.metadata (fetchBundleEligibleIds), ignores body flag. vitest backend+Cart green, tsc 0.
+
+## Current request (2026-10-18) — ITP share: short /p/ link that opens the product and unfurls with the main mockup (task ebf7dec0, zero-saturn)
+
+David 10/16: "the share button sucks" (long UUID+utm link reads as a scam, it opened "product not found", previews must show the
+MAIN product photo). Root cause of "not found" found live: the Folgers tee 9c3b3d19's SLUG is "1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77"
+(the upload's file name); the share used slug||id, and both ProductPage and bot-meta read any UUID-shaped key as an id only.
+
+### File shortlist (approved scope — 2026-10-18 share link)
+- new `api/_seo/share-link.mjs` (+ `.d.mts`, + test): short code, share url, published check, key resolution, share image pick
+- `api/_seo/bot-meta.mjs` (+ test): /p/ path, id-then-slug, replacement lookup, dead link -> catalog card, og:image = share card, price in og:title
+- `api/_seo/structured-data.mjs`: optional og title / image size / price tags in buildMetaTags
+- new `api/share-card.mjs`: 1200x630 JPEG of the page's main photo (sharp, already a root dependency)
+- `vercel.json` (bot rewrite for /p/:path*), `src/App.tsx` (/p/:code route)
+- `src/pages/ProductPage.tsx` (resolve /p/ codes + UUID-shaped slugs, dead link -> replacement or catalog, Share only when published)
+- `src/components/SocialShareButtons.tsx` (short link, no utm params), new `src/lib/product-link.ts` (+ test)
+- `src/utils/utm.ts` (+ test): a /p/ landing records the share attribution checkout already reads
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-18 (zero-saturn): Share now hands out imaginethisprinted.com/p/<3 name words>-<id8> (no utm params; a /p/ landing
+  records source share / campaign product_share for checkout). /p/ + /product/ keys resolve short id -> id -> slug ->
+  metadata.replaces, so the Folgers link (UUID-shaped slug) opens; a dead link lands on /catalog with a notice and unfurls
+  as the shop card. og:image = /api/share-card (1200x630 JPEG of the page's first gallery photo, ~50 KB), og:title carries
+  the price. Share hidden unless status active + approved. tsc 0, vitest 2456/2456, vite build OK, fleet-browser walk
+  logged out at 1400 + 390 on a local prod build.

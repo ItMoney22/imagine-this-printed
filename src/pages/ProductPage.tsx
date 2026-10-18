@@ -5,6 +5,8 @@ import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { useToast } from '../hooks/useToast'
 import { supabase } from '../lib/supabase'
+import { findProductByKey } from '../lib/product-link'
+import { isPublishedProduct } from '../../api/_seo/share-link.mjs'
 import { productRecommender } from '../utils/product-recommender'
 import ProtectedImage from '../components/ProtectedImage'
 import VirtualTryOn from '../components/VirtualTryOn'
@@ -49,17 +51,24 @@ const SHELF_LABELS: Record<string, string> = {
 }
 
 const ProductPage: React.FC = () => {
-  const { id } = useParams<{ id: string }>()
+  // /product/:id (uuid or slug) or the /p/:code short link Share hands out.
+  const { id: routeId, code: shortCode } = useParams<{ id?: string; code?: string }>()
+  const id = routeId ?? shortCode
   const navigate = useNavigate()
   const { addToCart } = useCart()
   const { user } = useAuth()
   const toast = useToast()
+  // The loader runs on [id] only: toast's identity changes whenever a toast shows.
+  const toastRef = useRef(toast)
+  toastRef.current = toast
   const [quantity, setQuantity] = useState(1)
   const [selectedImage, setSelectedImage] = useState(0)
   // Spin hero video (metadata.hero_video_url) plays as the landing media when
   // present; thumbnails switch to stills, the play tile switches back.
   const [videoActive, setVideoActive] = useState(true)
   const [product, setProduct] = useState<Product | null>(null)
+  // Share is offered only for a published product (anyone the link is sent to can open it).
+  const [published, setPublished] = useState(false)
   const [sourceImageUrl, setSourceImageUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [selectedSize, setSelectedSize] = useState<string>('')
@@ -98,13 +107,21 @@ const ProductPage: React.FC = () => {
       try {
         setLoading(true)
 
-        // The :id param accepts a UUID or an SEO slug (/product/my-cool-tee)
-        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
-        const productResult = isUuid
-          ? await supabase.from('products').select('*').eq('id', id).single()
-          : await supabase.from('products').select('*').eq('slug', id).single()
-
-        if (productResult.error) throw productResult.error
+        // A UUID, an SEO slug (/product/my-cool-tee, some of which are
+        // UUID-shaped) or a /p/ short code. A link to a product that is gone
+        // never dead-ends (David 2026-10-16): it lands on the product that
+        // replaced it, else on the catalog.
+        const found = await findProductByKey(id, { short: !!shortCode })
+        if (!found) {
+          toastRef.current.info("That item isn't in the shop anymore", "Here's everything that is.", 7000)
+          navigate('/catalog', { replace: true })
+          return
+        }
+        if (found.replaced) {
+          navigate(`/product/${found.row.slug || found.row.id}`, { replace: true })
+          return
+        }
+        const productResult = { data: found.row }
 
         const assetsResult = productResult.data
           ? await supabase.from('product_assets').select('url, kind, asset_role').eq('product_id', productResult.data.id).in('kind', ['source', 'nobg', 'mockup'])
@@ -146,6 +163,7 @@ const ProductPage: React.FC = () => {
             digital_price: data.digital_price || 0
           }
           setProduct(mappedProduct)
+          setPublished(isPublishedProduct(data))
           // Open on everything a machine can answer, so Add to Cart works
           // without a pick: a metal print's smallest panel and a transfer's
           // adult size (a real, buyable price), a one-size listing's size,
@@ -181,7 +199,7 @@ const ProductPage: React.FC = () => {
     }
 
     loadProduct()
-  }, [id])
+  }, [id, shortCode, navigate])
 
   // Client-side SEO: title, description, keywords, and canonical for the loaded
   // design. Merch Studio products carry dedicated meta_title / meta_description /
@@ -677,16 +695,19 @@ const ProductPage: React.FC = () => {
         <div>
           <div className="flex items-start justify-between gap-4 mb-2">
             <h1 className="font-display text-3xl sm:text-4xl text-text leading-tight">{product.name}</h1>
-            {/* Quick share. Prefers the SEO slug so the shared link matches the
-                canonical URL rather than exposing a UUID. */}
-            <div className="shrink-0 pt-1">
-              <SocialShareButtons
-                productId={product.slug || product.id}
-                productName={product.name}
-                productImage={galleryImages[0]}
-                menuPlacement="bottom-right"
-              />
-            </div>
+            {/* Quick share: a short /p/ link, only for a published product (a
+                draft would open as "not in the shop" for whoever gets it). */}
+            {published && (
+              <div className="shrink-0 pt-1">
+                <SocialShareButtons
+                  productId={product.id}
+                  productName={product.name}
+                  productImage={galleryImages[0]}
+                  published
+                  menuPlacement="bottom-right"
+                />
+              </div>
+            )}
           </div>
           {creatorName && (
             <p className="text-sm text-muted mb-2">

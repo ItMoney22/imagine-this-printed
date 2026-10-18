@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from 'vitest'
-import { parseUtmParams, isExpired, captureLandingUtms, getLandingUtms, clearLandingUtms, referralFromDocument } from './utm'
+import { parseUtmParams, isExpired, captureLandingUtms, getLandingUtms, clearLandingUtms, referralFromDocument, shareLinkAttribution } from './utm'
 
 const setUrl = (search: string) => {
   window.history.replaceState({}, '', `/product/galaxy-cat-tee${search}`)
@@ -109,5 +109,40 @@ describe('referralFromDocument', () => {
     expect(referralFromDocument('', 'imaginethisprinted.com', now)).toBeNull()
     expect(referralFromDocument('not a url', 'imaginethisprinted.com', now)).toBeNull()
     expect(referralFromDocument('https://www.imaginethisprinted.com/cart', 'imaginethisprinted.com', now)).toBeNull()
+  })
+})
+
+describe('shareLinkAttribution (task ebf7dec0)', () => {
+  const now = new Date('2026-10-18T12:00:00Z')
+
+  it('turns a /p/ landing into the share campaign the old utm tags carried', () => {
+    expect(shareLinkAttribution('/p/folgers-coffee-racing-9c3b3d19', '', 'www.imaginethisprinted.com', now)).toEqual({
+      utm_source: 'share',
+      utm_medium: 'direct',
+      utm_campaign: 'product_share',
+      utm_content: 'folgers-coffee-racing-9c3b3d19',
+      referrer: undefined,
+      landed_at: now.toISOString()
+    })
+  })
+
+  it('names the site the link was tapped on', () => {
+    const a = shareLinkAttribution('/p/tee-9c3b3d19', 'https://l.facebook.com/l.php?u=x', 'www.imaginethisprinted.com', now)
+    expect(a?.utm_medium).toBe('l.facebook.com')
+    expect(a?.referrer).toBe('https://l.facebook.com/l.php?u=x')
+  })
+
+  it('ignores every other path', () => {
+    expect(shareLinkAttribution('/product/tee', '', 'imaginethisprinted.com', now)).toBeNull()
+    expect(shareLinkAttribution('/p/', '', 'imaginethisprinted.com', now)).toBeNull()
+    expect(shareLinkAttribution('/pricing', '', 'imaginethisprinted.com', now)).toBeNull()
+  })
+
+  it('is captured at boot and wins over an older stored campaign (last touch)', () => {
+    window.history.replaceState({}, '', '/catalog?utm_source=tiktok&utm_medium=social&utm_campaign=outbox-1')
+    captureLandingUtms()
+    window.history.replaceState({}, '', '/p/folgers-coffee-racing-9c3b3d19')
+    captureLandingUtms()
+    expect(getLandingUtms()).toMatchObject({ utm_source: 'share', utm_campaign: 'product_share', utm_content: 'folgers-coffee-racing-9c3b3d19' })
   })
 })

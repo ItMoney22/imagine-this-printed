@@ -190,6 +190,8 @@ function App() {
                       David 2026-09-02. Buying goes through the normal cart. */}
                   <Route path="/blanks" element={<BlankShirts />} />
                   <Route path="/product/:id" element={<ProductPage />} />
+                  {/* PUBLIC — the short link Share hands out (imaginethisprinted.com/p/<words>-<id8>). */}
+                  <Route path="/p/:code" element={<ProductPage />} />
                   {/* Redirect old design routes to Imagination Station */}
                   <Route path="/create-design" element={<Navigate to="/imagination-station" replace />} />
                   <Route path="/designer" element={<Navigate to="/imagination-station" replace />} />
