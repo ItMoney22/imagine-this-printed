@@ -22,10 +22,10 @@
 // TRANSPARENCY IS RESTORED BY HAND. The upscaler returns opaque WebP: the
 // crest's transparent surround came back white. Re-cutting it with rembg would
 // be a second lossy pass over soft edges, so instead the ORIGINAL alpha channel
-// is resampled to the new geometry and composited back with `dest-in`. The
-// upscaler never changes the aspect ratio (0.8003 in, 0.8003 out), so the mask
-// lands exactly where it came from — verified: original alpha mean 196.9,
-// restored 197.7.
+// is resampled to the new geometry and written back in (restoreTransparency).
+// The upscaler never changes the aspect ratio (0.8003 in, 0.8003 out), so the
+// mask lands exactly where it came from. (The first version of that restore
+// silently did nothing until 2026-10-16 — see restoreTransparency.)
 // ---------------------------------------------------------------------------
 import sharp from 'sharp'
 import { runReplicate } from '../image-flow/providers/replicate.js'
@@ -120,21 +120,71 @@ export async function upscaleToPng(url: string, sourceBuf?: Buffer): Promise<Ups
   // Put the original's transparency back. Skipped when the source was opaque —
   // there is nothing to restore, and forcing an alpha channel onto flat art
   // just makes the file bigger.
-  let outPipeline = sharp(upscaledBuf)
-  if (originalMeta.hasAlpha) {
-    const mask = await sharp(originalBuf)
-      .ensureAlpha()
-      .extractChannel('alpha')
-      .resize(upscaledMeta.width, upscaledMeta.height, { kernel: 'lanczos3', fit: 'fill' })
-      .toColourspace('b-w')
-      .png()
-      .toBuffer()
-    outPipeline = sharp(upscaledBuf)
-      .ensureAlpha()
-      .composite([{ input: mask, blend: 'dest-in' }])
-  }
-  const buffer = await outPipeline.png({ compressionLevel: 9 }).toBuffer()
+  const buffer = originalMeta.hasAlpha
+    ? await restoreTransparency(originalBuf, upscaledBuf)
+    : await sharp(upscaledBuf).png({ compressionLevel: 9 }).toBuffer()
   return { buffer, width: upscaledMeta.width, height: upscaledMeta.height }
+}
+
+/**
+ * The upscaled colours with the ORIGINAL's alpha channel, resampled to the new
+ * size, as a PNG.
+ *
+ * THIS USED TO BE A NO-OP, and it cost David the Folgers tee (2026-10-16). It
+ * composited a greyscale mask with `dest-in`, which reads the overlay's ALPHA,
+ * and a greyscale mask has none, so every pixel stayed opaque. Chaining
+ * removeAlpha().joinChannel() does not work either: sharp runs its operations
+ * in a fixed internal order, not call order, and the join is thrown away. Every
+ * transparent upload therefore left the upscaler flattened onto white, the
+ * background cut then keyed that white field, and its enclosed-pocket rule took
+ * the white fill out of the lettering with it, so every mockup printed the
+ * shirt colour through the letters. The pixels are assembled by hand here so
+ * there is no pipeline order left to get wrong.
+ *
+ * The upscaler also blends soft edges into the colour it flattened onto, which
+ * on a dark shirt prints as a pale halo. That matte colour is measured where
+ * the original was fully clear, and divided back out of every partly clear
+ * pixel (C = (P - (1 - a) * M) / a), so edges keep their own colour.
+ */
+export async function restoreTransparency(originalBuf: Buffer, upscaledBuf: Buffer): Promise<Buffer> {
+  const rgb = await sharp(upscaledBuf).removeAlpha().raw().toBuffer({ resolveWithObject: true })
+  const { width: W, height: H } = rgb.info
+  const alpha = await sharp(originalBuf)
+    .ensureAlpha()
+    .extractChannel(3)
+    .resize(W, H, { kernel: 'lanczos3', fit: 'fill' })
+    .raw()
+    .toBuffer()
+  const n = W * H
+  if (alpha.length !== n || rgb.data.length !== n * 3) throw new Error('could not line the transparency up with the upscaled image')
+
+  // The colour the upscaler filled the clear areas with.
+  const matte = [0, 0, 0]
+  let clear = 0
+  for (let p = 0; p < n; p += 7) {
+    if (alpha[p] !== 0) continue
+    matte[0] += rgb.data[p * 3]; matte[1] += rgb.data[p * 3 + 1]; matte[2] += rgb.data[p * 3 + 2]
+    clear++
+  }
+  const M = clear ? matte.map((s) => s / clear) : null
+
+  const out = Buffer.alloc(n * 4)
+  for (let p = 0; p < n; p++) {
+    const a = alpha[p]
+    for (let c = 0; c < 3; c++) {
+      let v = rgb.data[p * 3 + c]
+      if (a === 0) v = 0
+      // Below ~10% opacity the division amplifies noise into specks, and the
+      // pixel barely shows either way.
+      else if (M && a < 255 && a >= 24) {
+        const f = a / 255
+        v = Math.max(0, Math.min(255, Math.round((v - (1 - f) * M[c]) / f)))
+      }
+      out[p * 4 + c] = v
+    }
+    out[p * 4 + 3] = a
+  }
+  return sharp(out, { raw: { width: W, height: H, channels: 4 } }).png({ compressionLevel: 9 }).toBuffer()
 }
 
 /**

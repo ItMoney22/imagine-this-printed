@@ -20,9 +20,8 @@ import {
   normalizeGarment,
   sizesForGarment,
   isYouthSize,
-  isPlusSize,
-  YOUTH_SIZE_DISCOUNT_DOLLARS,
-  PLUS_SIZE_UPCHARGE_DOLLARS
+  plusSizeUpchargeDollars,
+  YOUTH_SIZE_DISCOUNT_DOLLARS
 } from '../shared/catalog-capability.js'
 import {
   type EtsyTier,
@@ -387,7 +386,7 @@ const apparelSizesFor = (metadata: any): string[] =>
  * Apparel variation rows, priced per size off the SAME rails the storefront
  * uses (backend/shared/catalog-capability.ts):
  *   - S-XL      → the listing price,
- *   - 2XL and up → +$2.50, because a plus-size blank genuinely costs more,
+ *   - 2XL/3XL    → +$2.50, 4XL → +$3.25, because a plus-size blank genuinely costs more,
  *   - youth      → -$3.00, matching the discount the website gives.
  *
  * Before 2026-09-07 every adult size on Etsy sold at one flat price, so a 3XL
@@ -403,7 +402,7 @@ export const apparelVariationSizes = (metadata: any, basePrice: number): Variati
   apparelSizesFor(metadata).map(label => {
     const delta = isYouthSize(label)
       ? -YOUTH_SIZE_DISCOUNT_DOLLARS
-      : isPlusSize(label) ? PLUS_SIZE_UPCHARGE_DOLLARS : 0
+      : plusSizeUpchargeDollars(label)
     return { label, price: Math.max(1, Number((basePrice + delta).toFixed(2))) }
   })
 
@@ -811,7 +810,7 @@ export async function publishProductToEtsy(productId: string, opts: EtsyPublishO
 
     // Variations — buyers pick from dropdowns. Apparel: Size S-3XL plus the
     // youth band (YXS-YXL, listed as "Youth XS"…) × pack colors, priced per
-    // size: 2XL+ is +$2.50, youth is -$3.00. Metal art: 4x6/8x10 per-size.
+    // size: 2XL/3XL +$2.50, 4XL +$3.25, youth -$3.00. Metal art: 4x6/8x10 per-size.
     // Transfer tier: sheet size with per-size pricing, no color axis (the film
     // is the film — garment color is the buyer's own shirt). Downloads have no
     // axis at all: one file, one price.

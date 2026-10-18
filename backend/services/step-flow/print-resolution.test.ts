@@ -8,7 +8,8 @@ import { describe, it, expect, vi } from 'vitest'
 // how many times, and what happens when the model fails — without a network
 // call or a $0.006 charge per assertion.
 // ---------------------------------------------------------------------------
-import { ensurePrintResolution, type ArtworkMeasurement, type UpscaledArtwork } from './print-resolution.js'
+import sharp from 'sharp'
+import { ensurePrintResolution, restoreTransparency, type ArtworkMeasurement, type UpscaledArtwork } from './print-resolution.js'
 
 const REQUIRED = 1200
 
@@ -181,5 +182,61 @@ describe('ensurePrintResolution', () => {
 
     expect(out.size).toBe(1)
     expect(upscale).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('restoreTransparency', () => {
+  // A 40x40 design on a clear field: a white-filled square with a black rim
+  // (the Folgers lettering, in miniature) and a half-clear red edge column.
+  async function design(): Promise<Buffer> {
+    const px = Buffer.alloc(40 * 40 * 4)
+    for (let y = 0; y < 40; y++) {
+      for (let x = 0; x < 40; x++) {
+        const i = (y * 40 + x) * 4
+        if (x >= 10 && x < 30 && y >= 10 && y < 30) {
+          const rim = x < 12 || x > 27 || y < 12 || y > 27
+          px.fill(rim ? 0 : 255, i, i + 3)
+          px[i + 3] = 255
+        } else if (x === 31 && y >= 10 && y < 30) {
+          px[i] = 255; px[i + 1] = 0; px[i + 2] = 0; px[i + 3] = 128
+        }
+      }
+    }
+    return sharp(px, { raw: { width: 40, height: 40, channels: 4 } }).png().toBuffer()
+  }
+
+  // What the upscaler hands back: everything flattened onto white, at 2x.
+  const upscaled = async (src: Buffer) =>
+    sharp(src).flatten({ background: '#ffffff' }).resize(80, 80, { kernel: 'nearest' }).png().toBuffer()
+
+  async function pixel(buf: Buffer, x: number, y: number) {
+    const { data, info } = await sharp(buf).ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    const i = (y * info.width + x) * 4
+    return { r: data[i], g: data[i + 1], b: data[i + 2], a: data[i + 3], w: info.width }
+  }
+
+  it('gives the clear field back instead of shipping it as white', async () => {
+    const src = await design()
+    const out = await restoreTransparency(src, await upscaled(src))
+    expect((await pixel(out, 2, 2)).a).toBe(0)
+    expect((await pixel(out, 2, 2)).w).toBe(80)
+  })
+
+  it('keeps white artwork white and solid, which the old restore and the cut lost', async () => {
+    const src = await design()
+    const out = await restoreTransparency(src, await upscaled(src))
+    expect(await pixel(out, 40, 40)).toMatchObject({ r: 255, g: 255, b: 255, a: 255 })
+    expect(await pixel(out, 21, 21)).toMatchObject({ r: 0, g: 0, b: 0, a: 255 })
+  })
+
+  it('takes the white the upscaler blended into a soft edge back out', async () => {
+    const src = await design()
+    const out = await restoreTransparency(src, await upscaled(src))
+    const edge = await pixel(out, 63, 40)
+    expect(edge.a).toBeGreaterThan(100)
+    expect(edge.a).toBeLessThan(160)
+    // Flattened onto white it was pink (255,127,127); unmatted it is red again.
+    expect(edge.r).toBeGreaterThan(240)
+    expect(edge.g).toBeLessThan(20)
   })
 })

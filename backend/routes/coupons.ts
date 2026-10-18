@@ -1,6 +1,8 @@
 import { Router, Request, Response } from 'express'
 import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
+import { FEATURED_OFFER_CODE, describeFeaturedOffer } from '../shared/seasonal-offer.js'
+import { calculateOrderPricing, pricingItemsFromCart } from '../services/order-pricing.js'
 
 dotenv.config()
 
@@ -192,6 +194,24 @@ export async function findCouponIdByCode(code: string, db: CouponDb = supabase):
     return data?.id || null
 }
 
+// GET /api/coupons/featured - the one live seasonal offer, or { offer: null }.
+// Read off the same discount_codes row the checkout validates, so the banner
+// can never advertise a deal the cart would refuse.
+router.get('/featured', async (_req: Request, res: Response) => {
+    try {
+        const { data } = await supabase
+            .from('discount_codes')
+            .select('code,type,value,is_active,expires_at,max_uses,current_uses,min_order_amount,metadata')
+            .eq('code', FEATURED_OFFER_CODE)
+            .maybeSingle()
+        res.set('Cache-Control', 'public, max-age=60')
+        res.json({ offer: describeFeaturedOffer(data) })
+    } catch (error: any) {
+        console.error('Error reading featured offer:', error)
+        res.json({ offer: null })
+    }
+})
+
 // GET /api/coupons/validate - Validate a coupon code
 router.get('/validate', async (req: Request, res: Response) => {
     try {
@@ -222,6 +242,47 @@ router.get('/validate', async (req: Request, res: Response) => {
         })
     } catch (error: any) {
         console.error('Error validating coupon:', error)
+        res.status(500).json({ valid: false, error: 'Error validating coupon' })
+    }
+})
+
+// POST /api/coupons/quote - { code, items, userId? } -> the same shape as /validate.
+//
+// Prices the actual cart with the code, through the same engine the payment
+// step charges with (services/order-pricing.ts). /validate only sees an order
+// total, so it cannot know that SPOOKY20 takes 20% off Halloween designs and
+// nothing else (David 2026-10-16), and the cart would show a discount the
+// payment step then refuses.
+router.post('/quote', async (req: Request, res: Response) => {
+    try {
+        const { code, items, userId } = req.body || {}
+        if (!code || typeof code !== 'string') {
+            return res.status(400).json({ valid: false, error: 'Coupon code is required' })
+        }
+        const user = typeof userId === 'string' && userId ? userId : null
+        const pricing = await calculateOrderPricing({
+            items: pricingItemsFromCart(items),
+            // Pickup is the one shipping type with no quote token to verify;
+            // shipping plays no part in what a coupon takes off.
+            shipping: { type: 'pickup', clientAmountCents: 0 },
+            couponCode: code,
+            userId: user
+        })
+        if (pricing.couponError) return res.json({ valid: false, error: pricing.couponError })
+
+        const result = await validateCouponForOrder({ code, userId: user, orderTotal: pricing.productSubtotalCents / 100 })
+        if (!result.valid) return res.json({ valid: false, error: result.error })
+
+        const discount = pricing.couponDiscountCents / 100
+        res.json({
+            valid: true,
+            coupon: result.coupon,
+            discount,
+            discountAmount: discount,
+            freeShipping: result.freeShipping
+        })
+    } catch (error: any) {
+        console.error('Error quoting coupon:', error)
         res.status(500).json({ valid: false, error: 'Error validating coupon' })
     }
 })

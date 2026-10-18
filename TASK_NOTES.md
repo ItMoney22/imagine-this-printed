@@ -31,6 +31,112 @@ Decisions:
 - 2026-10-18 (mason-blaze): generator into tools/qr-stand: logo printed in, "use a shorter link" guard, mandatory
   zxing scan-back, face band at 6.2 mm, 2.1-CLI-safe project. 11/11 unittest incl. a real Bambu CLI slice:
   loads T0 then T1 at z 6.2, 0 support lines, 2 filaments, 50.8 g / 1 h 43 m (paint version was 6 loads, 52 g).
+## Current request (2026-10-07) - ITP real social proof (task 36222110, iahhm)
+
+Real Etsy reviews + buyer photos on home and matching product pages, zero invented content.
+
+### Finding (2026-10-07, live API calls)
+- Etsy `GET /shops/67055923/reviews` with the app key returns 200, `count: 0`. Shop record: `transaction_sold_count: 0`, `num_favorers: 0`. There are no Etsy reviews or sales to import.
+- `product_reviews` (first-party verified-buyer reviews, backend/routes/reviews.ts) is NOT applied to prod (`42P01 relation does not exist`), and the storefront never called it. Prod has 3 paid orders.
+- So today neither source has a real review. Nothing is displayed; the pipeline is built so a real one appears with one command.
+
+### File shortlist (approved scope - 2026-10-07 social proof)
+- `src/data/realReviews.ts`, `src/lib/real-reviews.ts` + `.test.ts`, `src/components/reviews/RealReviews.tsx` (new)
+- `backend/scripts/import-etsy-reviews.mjs` (new)
+- `src/pages/Home.tsx`, `src/pages/ProductPage.tsx` (one mount each)
+- `TASK_NOTES.md`
+- Send-back 3 scope +5 (2026-10-13): the live `/vendor/storefront/:vendorId` route rendered a hardcoded fake vendor
+  with "4.8 stars, 127 Reviews" (fleet-browser shot at 390) - invented reviews on the live site, the exact thing this
+  card forbids. `src/App.tsx` (drop that route + lazy import), delete the unrouted mock pages
+  `src/pages/VendorStorefront.tsx`, `src/pages/VendorDirectory.tsx`, `src/pages/VendorStorefrontManager.tsx` (fake
+  vendors, ratings, review counts, 555 phones), `backend/routes/seo.ts` (comment that pointed at the deleted file).
+- Send-back 4 scope +1 (2026-10-13): `docs/ship-proof-social-proof-2026-10-13/README.md` (proof index Nine can check line by line).
+
+### Work log (append-only)
+- 2026-10-07 (iahhm): built dormant real-only reviews: data file (empty), importer (verbatim Etsy text, photos opt-in via --with-photos), HomeSocialProof + ProductSocialProof (render null when empty), provenance guard test. Dry run against live Etsy: 0 reviews. tsc/eslint clean, 6 tests pass.
+- 2026-10-13 (iahhm, send-back 3): re-checked live: both ITP Etsy shops (67055923, older 46974694) have 0 reviews; site `reviews` table 0 rows. Found + removed the live fake vendor page (/vendor/storefront/:id, "4.8 stars, 127 Reviews") and its 2 unrouted mock siblings; guard now scans all of src for hard-coded ratings/review counts/testimonials (fails on the old page, passes now); etsyListingId nullable for a permissioned site-order quote. tsc -b 0, vitest 168 files / 2382 pass, vite build OK; 390 walk shots in docs/ship-proof-social-proof-2026-10-13/.
+- 2026-10-13 (iahhm, send-back 4): David ruled C on APPROVE 7f73abaf at 19:17Z ("Close the reviews card for now"): no buyer emails sent. Re-checked 19:47Z: Etsy 67055923 0 reviews/0 sold, 46974694 0 reviews/3 sold, site reviews 0 rows. Guard re-proved (8/8 now; restoring the old fake page fails it on rating 4.8 / reviewCount 127). Wrote docs/ship-proof-social-proof-2026-10-13/README.md as the proof index. Merge-tree clean vs origin/main 9af48d8 + local main 1f5916b. Ship stays with Nine (17330514).
+
+## Current request (2026-10-12) — remodel pages 2-5 live walk: nothing may cover a buy button (Watchtower 45434545, zero-nine)
+
+Amelia's pages 2-5 (b9656cc9, tip 4746d25) were already on origin/main via the 10/12 ship 7314e533, so this card is
+the live walk. Live at 1440 the desktop FloatingCart trigger pill (fixed, right-3, top-1/2) sat on the right end of
+the product page "Add to cart" button and crowded the cart "Check out" and checkout coupon "Apply". On every page with
+the shop sidebar the sidebar's Cart row already carries the count, so the pill is a second cart door. Fix: render
+FloatingCart only where the shop sidebar is not showing (full-screen routes, admin pages with the site menu hidden).
+
+### File shortlist (approved scope — 2026-10-12 buy-button overlap)
+- `src/App.tsx` (AppLayout renders FloatingCart only when isFullScreen or siteMenuHidden)
+- `TASK_NOTES.md`
+- Send-back scope +2 (merged, not edited here): `src/components/MrImagineChatWidget.tsx` + `src/components/ProductCard.tsx`
+  from Amelia's db1d26c (task 41fe4abb). Nine sent the card back because the buy buttons were still covered LIVE; the
+  desktop chat pill over the catalog card was the second overlap, so both fixes ship together as one hotfix.
+
+### Work log (append-only)
+- 2026-10-12 (zero-nine): live walk of prod ad57532 at 1440 + 390 (fleet browser): pages 2-5 load, Add to cart /
+  Make my toy clicks land, cart + checkout chips say "Front print", /home/how-4-earn.webp 200. Only defect: the
+  desktop FloatingCart pill on the product Add to cart. Fixed in App.tsx; local vite walk at 1440 + 390 shows the
+  button clear, sidebar / top-bar cart counts intact, pill still on full-screen /imagination-station. npm run verify
+  165 files / 2365 pass, vite build OK. Seen, not fixed here (other owners): checkout ignores the 2-for-$25 bundle
+  the cart and server apply; desktop "Chat with us" pill over the bottom-right catalog card while scrolling.
+
+## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
+
+The engine's ship gate (`npm run verify` inside zero-engine) went red on every ITP ship: zero-engine loads
+david-trinidad-com/.env.local at boot, so the test run inherits a real OPENAI_API_KEY and etsy-copy-repair's
+"no model" tests made a paid gpt call and timed out (jobs ship-muyoexo1, ship-muyoj1jo).
+
+### File shortlist (approved scope — 2026-10-07 ship gate)
+- `vitest.hermetic-env.ts` (new: deletes real provider/outbound keys before any test file loads)
+- `vitest.hermetic-env.test.ts` (new), `vitest.config.ts` (setupFiles only), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-nine): batch = 01dd112c 9aec3fd (referrals + credit pause + 7030e9e private 3D files). Repro with
+  DTC env loaded: etsy-copy-repair 3 failed. After the setup file, with DTC env loaded: 3 files / 27 pass and full
+  `npm run verify` 159 files / 2327 pass; plain shell 159 / 2327.
+
+## Current request (2026-10-07) — Imagination Station redo (David, VS Code code-here; mock approval c591c12d, amelia-chan)
+
+David: "do this page sucks on the imagination station ... make sure that it has all the latest and greatest
+tools ... going back to the home page sucks." Mock approved round 1. Built to it: Back to Shop + site links in
+the station header, a Make / Polish / Place on sheet / Add to cart strip, tools grouped Make / Polish / Sheet with
+before/after pictures + price chips (Add Words, Magic Edit, Paint and Replace, Print Cleanup, Restyle and
+Variations now one click each), a welcome scene (idea box, Surprise me, drop zone, Ideas to try), the sheet open
+beside the studio on wide screens, and "Polish this piece" on a selected sheet piece (ITPEnhanceModal was never
+reachable).
+
+### File shortlist (approved scope)
+- src/pages/ImaginationStation.tsx, src/components/imagination/MrImagineModal.tsx (initialPrompt)
+- src/components/imagination/station/* (new), src/styles/station.css (new), public/station/* (new art)
+
+### Work log (append-only)
+- 2026-10-07 (amelia-chan): branch earth/amelia-chan/itp-imagination-station-redo = local main + Sal's guest
+  access (8c67fe67) merged, then the redo. Art: Flux 2 Pro x19 ($1.11, metered) + the real Mr. Imagine cutout.
+  NOT offered: "4x" sharpen (the backend charges upscale_4x but runs the same crisp upscale as 2x). Found:
+  token colours with an opacity (bg-primary/10, border-text/10) compile to nothing site-wide; the station's new
+  tints live in station.css with color-mix instead. tsc clean, vitest 146 files / 2184 pass, vite build ok,
+  guest walk 1440/1280/390 light + dark.
+
+## Previous request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
+
+## Current request (2026-10-07) — Mini-Me first real sample (task e0c81e3c, dr-dill)
+
+Run one Mini-Me end to end (photo -> concept -> Tripo -> STL -> slice -> A1) at 100 mm, NFC at the pause.
+Running it found the GLB -> STL step turns every model UPSIDE DOWN: `makeRotationX(-PI/2)` sends glTF's
++Y (up) to -Z, so the round base lands on top and the head on the plate. Proven on the sample: the raw
+GLB has its 39 mm disc at min Y; the STL had it at z 94.7-100. Fixing it is in scope because the sample
+cannot print without it.
+
+### File shortlist (approved scope — 2026-10-07 Mini-Me sample)
+- `backend/services/glb-to-stl.ts` (+ new `glb-to-stl.test.ts`): rotate +PI/2 so up stays up
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): scope added; sample run (subject/concept/Tripo) lives in
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-e0c81e3c-mini-me-sample/.
+- 2026-10-07 (dr-dill): glb-to-stl rotates +PI/2; new glb-to-stl.test.ts goes red on the old -PI/2. Re-converted
+  the sample GLB: base on the plate, 100.0 mm. Sliced with the runner's presets + NFC pocket + pause:
+  max_z 100.04, 19.38 g, 2h20m est. vitest 143 files / 2161 pass, app tsc 0, backend tsc 6 known TS2742.
 
 ## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
@@ -66,6 +172,130 @@ Decisions (noted for the handoff):
   (logo, search, chat, cart count), no chat bubble/cart pill under lg, solid cookie bar, no In Stock badge.
   Reviews row left out: the Etsy shop has 0 reviews (API, 10/7). tsc 0, vitest 2139/2139, vite build OK,
   fleet-browser walk at 1440 + 390.
+## Current request (2026-10-07) — guests use the toy maker + read info pages (task 8c67fe67, sal-moretti)
+
+Zero Nine's logged-out walk: Imagination Station, home "Start Creating Free" and toys "Make my toy!" all
+land on "Sign in to your account"; Community, Referral Program (/referrals = a bare yellow "Please sign
+in" box), /metal-art and /wholesale all need an account. Fix: a guest opens and tries the tools; an
+account is asked for only at the step that saves or charges (and that ask says why, with a sign-up
+button); the info pages read logged out; dashboards stay behind sign-in; Turnstile stays on sign-up.
+
+### File shortlist (approved scope — 2026-10-07 guest access)
+- `src/App.tsx` (routes only: unwrap /imagination-station, /toy-creator, /metal-art, /community, /wholesale)
+- `src/lib/guest-gate.ts` + `.test.ts` (new: one module for every "why we need an account" line)
+- `src/components/GuestGate.tsx` + `.test.tsx` (new: provider + the explained account modal)
+- `src/pages/ImaginationStation.tsx` (guest sheet in memory; server actions ask for an account)
+- `src/pages/ToyCreator.tsx` (guest builds; "Mix" asks; picks kept across sign-up), `src/pages/ToyLand.tsx` (copy)
+- `src/pages/MetalArtStudio.tsx` (guest sees studio; generate/upload ask)
+- `src/pages/Community.tsx`, `src/components/community/CommunityPostCard.tsx` (vote/submit ask)
+- `src/pages/Referrals.tsx`, `src/pages/WholesalePortal.tsx` (public content + explained dashboard gate)
+- `src/pages/Login.tsx`, `src/pages/Signup.tsx` (reason line + sign-up button on any remaining wall)
+- `src/pages/Home.tsx` ("Start Creating Free" target only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (sal-moretti): scoped. Facts read live: referral RPC pays 500 pts + 5 ITC (referrer) /
+  250 pts + 2.5 ITC (friend) at sign-up and 50 ITC on the friend's first order, but 0 referral codes
+  and 0 referrals exist and nothing on the site ever applies ?ref (follow-up card). New wallets start at
+  0 ITC; Imagination "generate" gives 2 free tries; toy "Mix" needs 20 ITC and ignores its 1 free try
+  (follow-up card).
+- 2026-10-07 (sal-moretti): built. Scope add: `src/lib/referral-program.ts` (the reward numbers, one
+  module for the public page + dashboard, which said 10 ITC / 50 pts and was wrong). One shared account
+  card (GuestGate) on every save/spend step; guest studio sheet lives in memory, uploads stay local,
+  prices + new-account free tries read from the public price table; toy picks survive sign-up; public
+  Referral + Wholesale pages; Login/Signup say why. Also fixed while there: mojibake dashes on
+  /metal-art (now public), and the studio rail no longer names the engine ("Flare Lab" / "9 GPT Image
+  2.5 tools" -> Imagination Lab / 9 Imagination tools). tsc 0 errors, vitest 134 files / 2085 pass,
+  vite build OK, fleet-browser walk logged out at 390px + desktop on :5197 passed.
+
+## Current request (2026-10-07) — paid 3D files out of the public bucket (Watchtower 1417e863, daisy-carter)
+
+model.stl / model.glb (35 objects, 17 toy models, all David's account) answered 200 to anyone by plain path in
+imagine-this-printed-main; rows carried 1-year links (user_3d_models x17, 3 live toy products' public
+metadata.print3d, ai_jobs.output x17); GET /api/3d-models/:id and /list handed the owner the STL without a license;
+and any signed-in user could PATCH their own user_3d_models row (purchased_licenses, print_price_usd).
+design-sources/ (6,999 editable masters, 25.7 GB, sequential names) was public by path AND via /api/media/.
+
+Built on zero-pluto's unshipped b312de9c branch (merged in: print-files.ts + signObjectInBucket).
+File shortlist (approved scope): backend/services/model-files.ts (+test, new), google-cloud-storage.ts
+(signObjectInBucket download name), print-files.ts (printModelFilePath), routes/3d-models.ts (+ new route test),
+routes/print-bridge.ts, routes/storefront.ts (+ print-files test), routes/media.ts, worker/ai-jobs-worker.ts,
+scripts/{reconvert-3d-stl.ts, inline-3d-dragon.ts, lib/design-media.mjs, move-3d-model-files-private.mjs,
+move-design-sources-private.mjs}, supabase/migrations/20261007210000_user_3d_models_server_writes_only.sql + ledger.
+
+Decisions: rows store gs://<private bucket>/<path> refs in the existing *_url fields; links signed per request
+(60 min download/preview/AR, 12 h print bridge = PRINT_FILE_LINK_TTL_MINUTES); a model row can only sign its own
+3d-models/<id>/model.<fmt>. users/ NOT moved (live product imagery + stored links point there; names unguessable
+since listing went off) -> follow-up card for the private subsets (inbound email attachments, customer uploads).
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): code + tests (model-files 7, route tests 8 of which 6 fail on old code, storefront
+  3D 2); vitest 149 files / 2231 passed; backend tsc only the 6 known rate-limits.ts TS2742.
+- 2026-10-07 (daisy-carter): LIVE. 35 meshes copied (35/35 md5) + 37 rows -> gs:// refs + public originals
+  deleted -> all 35 plain URLs 404, 18 concept.png 200. Migration 20261007210000 applied (shopper INSERT/PATCH
+  201/200 before -> 403 after). 6,999 design sources (25.67 GB) moved, 6,999/6,999 md5, public 404. Real routers on
+  live data: entitled download 200 + md5 = original, unentitled 402, bridge 4/4 links fetch md5 = original.
+
+## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
+
+David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):
+home, product page, catalog, cart + checkout, toys, Imagination Station, About + policies, account pages.
+Each page: screenshot -> mockup -> David's "go" -> build -> walk (390px + desktop) -> next page.
+
+Decisions (noted for the handoff):
+- ITP is light-only by design (ThemeProvider pins light, DESIGN.md "Light mode is the default"); the
+  "dark" leg of each walk = the page under an OS dark preference must not flip half-dark.
+- Card mapping: home = dda57173 (home claims), d94aa3e2 (home blanks block), 66d0f303 (home carousel +
+  nav pinks), 5e10e099 (phone header + overlays, sitewide), 7fa5c8c5 (offer slot, terms need David),
+  36222110 (reviews slot, real Etsy reviews only). Product page = b2784c8d, 63520e95, 732f8a71 (product
+  side), 389defc8. Catalog = 66d0f303, 732f8a71. Toys = 389defc8 toy items, dda57173 toy claims.
+  Imagination Station = 8c67fe67. About + policies = 5c713452. Account pages = shopper pages only (no admin).
+
+### File shortlist (approved scope — page 1, home; widened per page as each mock is approved)
+- `src/pages/Home.tsx`, `src/components/Hero.tsx`, `src/components/home/*` (new home sections)
+- `src/components/ProductCard.tsx` (In Stock badge + extra buttons), `src/components/BlankTeesSection.tsx`
+- `src/components/Navbar.tsx` / header + `src/components/CookieConsent.tsx` + `src/components/MrImagineChatWidget.tsx` (phone overlays, 5e10e099)
+- `src/components/Footer.tsx` (LLC + Rockmart line), `src/index.css` (home keyframes), `public/home/*` (generated art)
+- `src/components/MobileTopBar.tsx` (new) + `src/App.tsx` (layout swap only) + `src/components/Sidebar.tsx` (drop floating menu button, promoted-link style), `src/components/FloatingCart.tsx` (pill lg+ only)
+- `src/pages/ProductCatalog.tsx` (shared row mapper + ?q= from the header search), `src/lib/shop-facts.ts`, `src/lib/storefront-row.ts` (new)
+- `public/icons/itp-bulb.png` (cut from itp-logo-v3)
+- page 2 (product page, approval 394b217c): `src/pages/ProductPage.tsx`, `src/components/product/*` (new: SizeGuide, YouMayAlsoLike), `src/lib/size-charts.ts` + test, `src/lib/plain-text.ts` + test, `src/utils/shipping-calculator.ts` (export FREE_SHIPPING_THRESHOLD), `src/config/business-info.ts` (SHOP_PLACE, ETSY_SHOP_URL)
+- page 3 (catalog, approval c71ae9d0): `src/pages/ProductCatalog.tsx`, `src/pages/catalog.css` (new), `public/catalog/hero.webp`
+- page 4 (cart + checkout, approval 0c21434e): `src/pages/Cart.tsx`, `src/pages/Checkout.tsx` (presentation only, payment logic untouched), `src/components/checkout/*` (new ProgressNote), `src/components/product/YouMayAlsoLike.tsx` (excludeIds/title)
+- page 5 (toys, approval 2a9ae61e): `src/pages/ToyLand.tsx`, `src/pages/toyland.css` (new), `public/toys/*`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (amelia-chan): live home shot at 1440 + 390 (evidence in E:/memory/watchtower/projects/
+  imagine-this-printed/2026-10-07-b9656cc9-shots/), home mockup sent to David's pop-up + email. Waiting on his go.
+- 2026-10-07 (amelia-chan): David approved round 1 at 19:56Z (approval 7eb9469c). Merged origin/main (branch was 14
+  behind live). Built the home to the mock: hero (real lion tee + Wizard Beast scene), trust strip, category doors,
+  Halloween picks (live, ends 11/1), popular grid, toy band, how it gets made, design band; phone header bar
+  (logo, search, chat, cart count), no chat bubble/cart pill under lg, solid cookie bar, no In Stock badge.
+  Reviews row left out: the Etsy shop has 0 reviews (API, 10/7). tsc 0, vitest 2139/2139, vite build OK,
+  fleet-browser walk at 1440 + 390.
+- 2026-10-07 (amelia-chan): page 2 product page approved round 1 at 20:46Z (approval 394b217c). Built: breadcrumb, sticky
+  gallery, serif name + price + made-in line, options right under the price (size chips with their delta, Size guide
+  from maker spec sheets, colour, 2x2 quality cards), quantity + ONE Add to cart, Or buy it now + Imagination Sheet as
+  small links, three true facts, plain description with Read more (markdown stripped), Details / Shipping / Returns
+  collapsibles, You may also like (4 whole cards). Removed: giant gradient sheet button, separate Buy Now button, Earn
+  ITC box, blank Similar Products tiles. Walked tee, hoodie, 3D, blank, DTF at 1440 and tee at 390. vitest 2147/2147.
+- 2026-10-07 (amelia-chan): page 3 catalog approved round 1 at 20:58Z (approval c71ae9d0). Built: warm banner with the real
+  lion tee art (Shop everything), search, live count, shelf pills with counts (scroll sideways on a phone), sort, whole
+  compact cards in a 2/3/4 grid, round pagination, skeleton tiles. The mock's Shop Now / Explore buttons were left
+  out (on the catalog itself they go nowhere). Old sidebar, stat box and list view gone. Walked 1440 + 390, search ?q=.
+  Found + filed 7af6d41d: the $40 Midnight Misfits hoodie carries the 2-for-$25 flag (sells at $25).
+- 2026-10-07 (amelia-chan): merged iahhm c0deea6 (placement words, task 7b51795e: completed but unmerged) so the cart/checkout
+  rebuild sits on it. Page 4 approved round 1 at 21:10Z (approval 0c21434e). Cart: line cards with plain-word chips (L,
+  Black, Front print, quality), stepper, Remove; summary with free-shipping bar and ONE Check out; Add one more (4 whole
+  cards). Checkout: light top bar, primary step line, numbered form cards, inputs at 16px on phones, progress notes with
+  stage text + seconds instead of spinners and the yellow payment box, folded summary row on phones, three quiet facts.
+  Payment logic untouched. Walked 1440 + 390.
+- 2026-10-07 (amelia-chan): page 5 toys approved round 1 at 21:41Z (approval 2a9ae61e). Light shop page with a deep teal
+  hero window (art rendered from the real Wizard Beast, Robo Rascal, Shadow Raptor), illustrated steps, magnet hands +
+  paint kit with prices from TOY_ADDONS, figurines only (no candle holder), grown-ups facts, closing band with the live
+  cheapest-toy price ($15.99, not the old $5.99). Printed this week sticker and emoji chips gone. Walked 1440 + 390.
+  Replicate credit fell under $5 while rendering (burst 1, 6/min).
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
@@ -176,6 +406,83 @@ picker offers only real roles; Toy Lab, Team Templates, Email, Orders in the nav
 
 ## Current request (2026-09-24) — Team Studio + Flare Lab inside Imagination Station
 
+## Current request (2026-10-07) — creator print files out of public products.metadata (Watchtower b312de9c, zero-pluto)
+
+Reproduced with the public anon key: GET /rest/v1/products?id=eq.e387149e...&select=metadata->assets->>dtf
+returned a 1-year signed URL (expires 2027-07-12) to Darrell's print-ready front.png; assets.clean and
+print_files.front held the same. Worse: imagine-this-printed-main grants allUsers objectViewer, so the
+plain path (next to the public mockups) and an anonymous bucket listing handed it out too.
+
+Mechanism: service-role-only TABLE product_print_files (bucket + object paths, never URLs; RLS on, no
+policies, grants revoked) + the PRIVATE bucket imagine-this-printed-products (public access prevention
+enforced; the API's service account is already admin on it). Public row keeps only
+metadata.print_file_placements. Links are signed at read time (12 h for the press floor). Built on
+Daisy's c25fa1e (isCreatorProductMeta) so both ship together (28f1a972).
+
+### File shortlist (approved scope — 2026-10-07 print files)
+- `supabase/migrations/20261007200000_product_print_files.sql` (applied to prod 2026-10-07, ledger row in)
+- `backend/services/print-files.ts` + `.test.ts` (new), `backend/services/google-cloud-storage.ts` (2 private-bucket helpers)
+- `backend/routes/storefront.ts` (publish + checkout) + `backend/routes/storefront.print-files.test.ts` (new)
+- `backend/routes/admin/user-product-approvals.ts` (direct-print gate, no public watermark of creator art)
+- `backend/services/product-files.ts` + `.test.ts` (press floor signs the private file / order-line refs)
+- `backend/shared/creator-product.ts` + `.test.ts` (printFilePlacementsOf), `src/components/AdminCreatorProductsTab.tsx` (mirror gate)
+- `backend/scripts/move-creator-print-files-private.mjs` (one-off move, run on prod 2026-10-07)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (zero-pluto): code + tests (route test runs the real router; 7/8 fail on the old code). Table applied
+  to prod; 3 merch-studio rows moved (copy md5-verified, public originals deleted: soft-delete 7 days), anon
+  queries now null, 0/2,605 products carry a creator print path. Real-DB proof: local publish of a throwaway
+  product + Walk By Faith checkout (Stripe refused on purpose) wrote print_file_refs; the floor code signed
+  the private copy, HTTP 200, 1,625,476 bytes; all proof rows/objects deleted.
+- 2026-10-07 (zero-pluto): Walk By Faith's assets.display was a 3072x4096 copy of the full design with one small
+  corner watermark (made from the print file at approval), public and shown first on the live page. Stripped from
+  the row + object deleted (script now covers display); approval no longer makes one for creator products (test
+  added: 2/3 fail on the old route). Live page re-walked at 390: leads with the maroon garment photo.
+  Main bucket imagine-this-printed-main: allUsers objectViewer (read + LIST) swapped for legacyObjectReader (read
+  only). Anonymous listing now 401/403; 58/58 live product images still load. Old policy saved in
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-07-b312de9c-main-bucket-iam-before.json.
+
+## Current request (2026-10-07) — creator products get creator treatment + 2XL +$2.50 (Watchtower d6822874)
+
+David's phone walk of Darrell McCutchen's "Walk By Faith" (e387149e) on ITP: no digital
+download or design tools on creator products, lead with the maroon photo, lock the blank to
+maroon and say so (the order must carry the colour), credit Darrell, keep creator and faith
+products out of the generic recommendation rows. His own site must show the 2XL +$2.50 on the
+button and in the cart (that site lives in the Darrell V2 repo, worked in its own worktree).
+
+Creator product = metadata.source 'merch-studio' (the storefront publish lane: a creator's own
+merch line). NOT metadata.creator_id alone: user designs, Imagination Station and Step Flow
+admin rows all write creator_id too.
+
+### File shortlist (approved scope — 2026-10-07 creator products)
+- `backend/shared/creator-product.ts` + `.test.ts` (new: creator/faith predicates, rec lanes)
+- `src/lib/product-kind.ts` + `.test.ts` (option sets, gallery order, digital offer)
+- `src/pages/ProductPage.tsx` (credit, colour copy, digital gate, rec title)
+- `src/components/ProductRecommendations.tsx`, `src/utils/product-recommender.ts` (+ test)
+- `backend/routes/user-products.ts` (refuse digital buy/download on creator products)
+- `backend/routes/admin/user-product-approvals.ts` (no auto digital on creator products)
+- `backend/routes/storefront.ts` (order colour default, creator_name at publish)
+- `backend/shared/promos.ts` + `.test.ts` (added: the house "2 for $25" flag sat on Darrell's
+  $24.99 shirt, selling two for $25 — a creator product is never bundle-eligible)
+- `src/pages/Cart.tsx` (added: the cart line showed $24.99 under a $27.49 total for a 2XL)
+- `src/utils/product-recommender.test.ts` (new)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (daisy-carter): backend/shared/creator-product.ts is the one creator/faith rule.
+  Creator products: no upload/gang sheet/digital download (page + API + approval), gallery =
+  garment photos only, "Design by <metadata.creator_name>", colour sentence + swatch from
+  placement.color, never in the house "2 for $25" bundle. Recommendation rows stay in the
+  anchor's lane (creator -> that creator only, faith -> faith only, else neither); cache keyed
+  by product. Storefront checkout defaults a one-colour product's colour; publish records
+  creator_name. Live row e387149e patched (maroon only, physical, digital_price 0,
+  creator_name, bundle off; revert manifest in E:/memory/.../2026-10-07-d6822874-walk-by-faith-patch.json).
+  Darrell's site 2XL +$2.50 is in the Darrell V2 repo (branch earth/daisy-carter/darrell-2xl-surcharge-d6822874).
+  vitest 140 files / 2156 green, tsc app clean, backend clean except pre-existing rate-limits.ts,
+  vite build green; walked at 390px + desktop on local vite against live data.
+
+## Previous request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
 ## Current request (2026-10-07) — product page option sets by product kind (Watchtower b2784c8d)
 
 David's 10/7 live phone walk: the $5 "Patriotic Heartbeat DTF" transfer shows shirt sizes,
@@ -4764,6 +5071,20 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
 ### Work log 2026-09-23 — team-plate lettering swapped to gpt-image-2.5-flare + crisp upscale (task 65d98dd9, jimmy-phix)
 - Per-order name/number is now a flare EDIT of the original back art (prompt schema in `backend/services/team-plate/lettering-prompt.ts`), cached as `<key>-base.png` (the preview) and upscaled by `recraft-crisp-upscale` (`upscaleToPng`, split out of `step-flow/print-resolution.ts`) into `<key>-press.png` at the template canvas. Paths: `users/team-plates/flare-v1/`. Vector engine quarantined in `team-plate/legacy-vector/`. Checkout waits 20s for the press file, else writes the deterministic gcsPath + `print_file_status: 'rendering'` and settles it in the background. Customer panel previews on a button press (paid call) with a staged progress bar. Result: 152/152 tests; live smoke `backend/scripts/team-plate-smoke.ts` on the real BEAR 9 art passed every check twice (RODRIGUEZ 27, LI 5 — spelled right, art held, 3600x4498 press).
 - 2026-09-23 (Lucas Blaze, task 2a83afec): built backend/lib/jev.ts + jev-triage.ts; wired support intake, admin queue sort (urgent-first, escalate raise-only), mailbox ?triage=1 + reply-gated Mr. Imagine digest, Etsy buyer_message_flag. Eval on 67 real tickets + 135 real emails: category 5%->100%, labels 62%->92%, 14/14 reply-needed kept, digest 141->15-17. 33 new tests pass; full suite 1930/1933 (3 pre-existing etsy-copy-repair failures, fixed on unmerged 6a32a2a).
+
+## Current request (2026-10-07, task 7fa5c8c5) — ITP October offer
+Replaces the stale 09-24 request above for this branch (rationale: this dispatch is a different task).
+Terms awaiting David: APPROVE card fc2d2f1a (recommended: 20% off the whole order, code SPOOKY20, ends Oct 31).
+
+### File shortlist (approved scope — 2026-10-07 October offer)
+- `backend/shared/seasonal-offer.ts` + `.test.ts` (new: featured-offer rule read off the discount_codes row)
+- `backend/routes/coupons.ts` (GET /featured)
+- `src/components/SeasonalOfferBanner.tsx` (new) + `src/pages/Home.tsx` (mount)
+- `src/components/ProductCard.tsx` (badge matches live offer) — held until David approves
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dane-marsh): Findings — 2-for-$25 already applies in cart + server for ~8 active flagged products, but is permanent, has no end date, and Etsy cannot mirror a bundle. Coupon system (discount_codes) already enforces expires_at server-side and stores the code on orders.discount_codes, so a % code needs no pricing math. It is sitewide only (no product scoping). Approval card fc2d2f1a filed.
 - 2026-10-07 (mason-blaze): BUILT the approved redo. AdminShell (grouped sidebar: Run the shop / Make / Money / People)
   wraps every admin route; AdminDashboard tab strip gone, hero + three art panels (Ops Monitor, Mrs. Imagine, Etsy)
   lead the overview, fake System Health + Quick Actions removed; vendors/models/tryon tabs removed; itc-pricing +
@@ -4772,6 +5093,7 @@ Files touched here: `supabase/migrations/MIGRATION_LEDGER.md`,
   /admin/ai/products/create now open the Step Flow builder. Walked on 5287 at 1440 and 390 wide: no page errors.
   Art is cropped from the approved mock (no page-art.ts on this checkout): swap for Flux finals when it lands.
   Local walk could not load live panel data (localhost -> prod API), so panel contents were not seen populated.
+- 2026-10-07 (dane-marsh): merged main into branch (only TASK_NOTES.md conflicted; kept both sides). Offer stays dormant until David approves card fc2d2f1a.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
 
 
@@ -4803,6 +5125,75 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
+
+## Current request (2026-10-07) — ITP referrals: capture ?ref, apply once at first sign-in, honest rewards (task bdfa6939, dr-dill)
+
+Live read: referral_codes 0 / referral_transactions 0 / referred_by 0. Nothing called the apply route, the
+dashboard invented its code in the browser (never saved), the apply route looked profiles up by the NULL
+user_id column, and process_referral_reward was EXECUTE-able by anon. Built on Sal's unshipped 8c67fe67
+branch (merged in) because /referrals + src/lib/referral-program.ts live there.
+
+### File shortlist (approved scope — 2026-10-07 referrals)
+- `supabase/migrations/20261007210000_referral_attribution.sql` (APPLIED LIVE + tracked 2026-10-07)
+- `backend/services/referral-service.ts` (+ new test), `backend/routes/wallet.ts` (/referral/apply only)
+- `backend/services/order-refunds.ts` (export EVER_PAID_STATUSES), `backend/services/order-payment.ts` +
+  `backend/routes/orders.ts` (pass the order id to the first-order bonus)
+- new `src/utils/referral-capture.ts` (+ test), new `src/components/ReferralApplier.tsx` (+ test),
+  `src/main.tsx` (capture call), `src/App.tsx` (mount the applier)
+- `src/utils/referral-system.ts` (+ new test), `src/lib/referral-program.ts`, `src/pages/Referrals.tsx`
+- `src/pages/PrivacyPolicy.tsx` + `src/components/CookieConsent.tsx` (they claimed a 90-day referral cookie that never existed)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-07 (dr-dill): migration live (anon EXECUTE revoked, sign-up records the link at 0 reward,
+  award_referral_first_order pays 50 ITC atomically, one signup row per referee + one active code per user).
+  Site captures ?ref on any route, applies once after sign-in, clears it. Live test on two throwaway
+  accounts (qa+referral-*-bdfa6939@imaginethisprinted.com): code REFR9449Q -> friend joined -> referred_by
+  set, signup row, repeat = no-op, first-order bonus 50 ITC paid once.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
 - 2026-10-18 (mason-blaze): backend: backend/shared/qr-stand.ts (price + link/caption/logo rules), line type priced server-side, checkout gate + order-line qr_stand metadata, qr_stand_builds table + builder/admin routes, paid hook queues builds + posts reseller sale (signed with the storefront key). vitest: shared 15, reseller 8, pricing +2, builds 3, checkout line 3 all pass; backend tsc only the 6 known TS2742.
 - 2026-10-18 (mason-blaze): order page /business/qr-stand (approved mock), Business Products nav, live preview (same layout as gen.py, decodes), cart line shows link/words/logo, admin stand editor on Orders (banner + edit + rebuild + send to print), tools/qr-stand/builder.mjs. Local E2E on live DB with a throwaway order: server priced 2 x 17.95, line holds checked fields + verified reseller, builder ready+scans in ~10 s, admin rebuild to a new link decodes, print hand-off to a stub queue picked the idle printer. Only the newest build may print (found in the walk).
+- 2026-10-07 (dr-dill): scope +1 file with rationale: `backend/routes/stripe.ts` create-payment-intent read
+  user_profiles by the NULL user_id column, same root cause as the referral route; proven live (non-admin
+  account -> 500 "Failed to fetch user profile" on api.imaginethisprinted.com). Re-keyed on id.
+- 2026-10-07 (dr-dill): scope +1 file: `supabase/migrations/20261007213000_revoke_anon_secdef_money_functions.sql`
+  (APPLIED LIVE + tracked). Sweep of SECURITY DEFINER functions anon could EXECUTE found award_order_rewards
+  (writes points + ITC), record/reverse_blank_sale (stock) and next_design_qa_submission_no; all callers are
+  the service-role API/worker. Revoked; anon now 401 permission denied, service role still 200.
+- 2026-10-07 (iahhm, task 7b51795e): moved PRINT_LOCATION_LABELS + printLocationLabel() to src/lib/product-kind.ts; ProductCard/ProductPage import it; Cart + Checkout render the shopper word. Walked at 390px: before cart read front_image, after cart and checkout read 'Print location: Front'. Scope added: Cart.tsx, Checkout.tsx, ProductCard.tsx, ProductPage.tsx, product-kind.ts(+test).
+
+- 2026-10-08 (zero-nine, code-here): ship branch earth/zero-nine/ship-itp-amelia-redos-admin-menu = main 79cf763 + Amelia whole-site redo (b9656cc9) + Imagination Station redo (1edebb4) + one-admin-menu (b036572) + fix: AdminShell sets SidebarContext.siteMenuHidden so the desktop shop sidebar steps aside on admin pages, Back to Shop pill on top. Conflicts kept Daisy creator treatment (ProductPage, YouMayAlsoLike lanes), 2XL +$2.50 on cart chip/line, Sal guest wording on Toy Factory, main support-A1 chat widget, one FREE_SHIPPING_THRESHOLD. tsc clean, vitest 165/2365, vite build ok. Walked 1440: /admin one menu, catalog, product, Walk By Faith (Design by Darrell, no off-lane row), cart 2XL line $27.50, /toys, /imagination-station. Scope: SidebarContext.tsx, Sidebar.tsx(+test), App.tsx, AdminShell.tsx, YouMayAlsoLike.tsx, shipping-calculator.ts.
+- 2026-10-12 (dane-marsh): David ruled GO (Nine's gate: take the recommendation). Created SPOOKY20 on live prod (20% off, expires 2026-11-01T03:59Z = Oct 31 11:59pm ET, row 769835fc); live /api/coupons/validate on a $50 order returns $10 off. ProductCard now shows "20% off with SPOOKY20" from the same live row via src/lib/featured-offer.ts (shared with the banner); the "2 for $25" badge stays because the cart and server do apply it (promos.ts). Etsy sale parked on the etsy.com login (Sifu). Banner/badge appear only after this branch deploys (/featured is 404 on live until then).
+- 2026-10-12 (amelia-chan, task 41fe4abb): desktop chat launcher avatar-only except top of home (or live chat); quick-add picker label truncates in compact cards. tsc 0; walked /catalog + / at 1440, /catalog picker at 390.
+
+## Current request (2026-10-12) — ITP catalog: shirt mockup leads, names match art, no blank tiles (task 732f8a71, lucas-blaze)
+
+Finding: the 23e3e853 trim already landed (live storefront = 36 rows status=active+approved: 27 shirts, 3 hoodies,
+2 dtf, 4 3d). Spartans / Grumpy Bear teacher / Epic Black Tee / Magic Hat / Abstract Mind are now `draft` (out of the shop).
+No "Puerto Rico" row exists. What is left: ~15 of the 30 live garments lead with raw art (`/original/`, design-library,
+legacy `/products/*.png`), the Grumpy Cat hoodie leads with the painted checkerboard, and phone tiles blank (Robo Rascal,
+Wizard Beast, Similar Products).
+
+Decisions: (1) reorder `products.images` so the first real mockup (ghost mannequin > flat lay > hanger > composite >
+on-model) leads; raw art stays in the gallery, last. Backup JSON of every old array written before --apply. (2) The 3 garments
+with NO mockup get one from the free blank-composite tool (no model spend). (3) Blank tiles: IntersectionObserver preload
+margin, not native lazy only.
+
+### File shortlist (approved scope — 2026-10-12 catalog lead image)
+- `backend/scripts/lead-with-mockup.mjs` (new; dry-run default), `backend/scripts/lead-with-mockup.test.mjs` if pure helper split out
+- `src/lib/storefront-row.ts` / `src/components/ProductCard.tsx` / `src/components/ProductImage*.tsx` (phone blank-tile fix, whichever owns the <img>)
+- `src/pages/ProductPage.tsx` (Similar Products tile only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (lucas-blaze): merged origin/main; walked the live data (anon read): 36 active, list above.
+- 2026-10-12 (lucas-blaze): `getGalleryImages` now leads with a garment shot (ghost mannequin > flat lay > hanger > composite > mr_imagine > on-model) even over a watermarked display hero; 5 new tests, tsc 0, vitest 2371/2371. Phone blanks: ProductCard hover now mouse-pointer only (a tap stuck isHovered and faded the primary to opacity 0), ProtectedImage attaches src 1200px before scroll-in via IntersectionObserver, Similar Products img h-full. Live DB: composite tee mockups written for Cowboy vs Alien + Majestic Roar via backend/scripts/mockup-from-art.ts (images[] now led by the mockup; old arrays = [original]); Majestic Roar description rewritten (was "photorealistic"). Ember Warrior (bb7bd4f1) left: art is a real person's photo + name.
+- 2026-10-13 (iahhm, task 36222110): re-ran importer dry-run against live Etsy: 0 reviews. Merged origin/main (only TASK_NOTES conflicted, kept both sides). Pipeline still dormant by design.
+- 2026-10-12 (dane-marsh, send-back 2): confirmed 88ef308 not on origin/main and live /api/coupons/featured still 404, so no deployable proof yet. Filed SHIP card d730de77 for Nine (production is Nine's call). Etsy sale still parked on etsy.com login (Sifu 293ecea8); fleet browser has no saved Etsy flow. No code change this pass.
+- 2026-10-13 (dane-marsh, send-back 3): SPOOKY20 banner + badge + code are LIVE (Nine shipped 88ef308 as main 9af48d8). Scope +5 files, rationale: deliverable 4 says no badge may claim a deal checkout won't honor, and the "2 for $25" badge still can't pay on live (origin/main Checkout.tsx has no bundle math: cart $25, checkout $50, server 400s). Daisy's fix cbf3336 (task b81a65f5) was marked completed but sat on a local-only branch and never shipped, so it is merged here: `backend/services/order-pricing.ts`(+test), `backend/routes/stripe.ts`, `src/pages/Checkout.tsx`, `src/context/CartContext.test.tsx`. Added one SPOOKY20 test in order-pricing.test.ts (2 bundle tees = $25, 20% = $5 until 2026-11-01T03:59Z, rejected after).
+- 2026-10-13 (dane-marsh): live banner read "Ends November 1" (Nine's 390 shot): expires_at is timestamp-without-tz, PostgREST sends "2026-11-01T03:59:00" with no offset and the browser parsed it as local time. describeFeaturedOffer now pins a zone-less value to UTC and sends endsAt as a Z ISO string, so the banner says October 31; test added (TZ=America/New_York green). Etsy sale CREATED via fleet browser: shop-wide 20%, Oct 13-31 2026, name SPOOKY20; listing 4571989354 shows $22.00 -> $17.60. The fleet browser had no native-select step; added one in a david-trinidad-com worktree (earth/dane-marsh/fleet-browser-select-step) and ran it without the CLI sweep.
+
+## Current request (2026-10-12) — ITP checkout 2-for-$25 + forged bundle flag (task b81a65f5, daisy-carter)
+### File shortlist (approved scope)
+- `backend/services/order-pricing.ts` (+ test), `backend/routes/stripe.ts`, `src/pages/Checkout.tsx`, `src/context/CartContext.test.tsx` (parity test)
+- 2026-10-12 (daisy-carter): Checkout usdTotal now pools BUNDLE_DEAL; server reads eligibility from products.metadata (fetchBundleEligibleIds), ignores body flag. vitest backend+Cart green, tsc 0.

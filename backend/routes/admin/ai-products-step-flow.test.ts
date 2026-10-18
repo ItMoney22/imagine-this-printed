@@ -204,7 +204,11 @@ vi.mock('../../services/step-flow/print-resolution.js', () => ({
   ensurePrintResolution: vi.fn(async () => new Map()),
 }))
 
-const stepFlowRouter = (await import('./ai-products-step-flow.js')).default
+// The upload route names a design by looking at it; never a real vision call here.
+vi.mock('../../services/ai-product.js', () => ({ describeDesignForProduct: vi.fn() }))
+
+const stepFlowModule = await import('./ai-products-step-flow.js')
+const stepFlowRouter = stepFlowModule.default
 
 /** Pulls the actual async handler off a registered route, skipping its auth/role-check middleware. */
 function getRouteHandler(method: string, path: string): (req: any, res: any) => Promise<any> {
@@ -1053,5 +1057,21 @@ describe('the customer lane', () => {
     const res = makeRes()
     await handler({ params: {}, query: {}, studioLane: 'customer', user: { id: 'u9', sub: 'u9' }, log: undefined }, res)
     expect(res.body.builds.map((b: any) => b.id)).toEqual(['mine'])
+  })
+})
+
+describe('nameFromFilename', () => {
+  const { nameFromFilename } = stepFlowModule
+
+  it('turns a real filename into a working name', () => {
+    expect(nameFromFilename('spartans-warrior_FINAL.png')).toBe('Spartans Warrior FINAL')
+  })
+
+  it('gives machine-made names back empty so they never reach a details card', () => {
+    // David's Folgers upload, 2026-10-16.
+    expect(nameFromFilename('1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77.png')).toBe('')
+    expect(nameFromFilename('IMG_4821.JPG')).toBe('')
+    expect(nameFromFilename('Screenshot 2026-10-16 091512.png')).toBe('')
+    expect(nameFromFilename('004.png')).toBe('')
   })
 })

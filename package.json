@@ -14,7 +14,8 @@
     "test": "vitest run",
     "test:e2e": "vitest run --config e2e/vitest.config.ts",
     "test:watch": "vitest",
-    "verify": "node scripts/verify/critical-paths.js",
+    "verify": "npm run typecheck && vitest run",
+    "verify:browser": "node scripts/verify/critical-paths.js",
     "verify:home": "node scripts/verify/critical-paths.js home",
     "verify:products": "node scripts/verify/critical-paths.js products",
     "verify:auth": "node scripts/verify/critical-paths.js auth"

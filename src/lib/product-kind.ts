@@ -16,7 +16,7 @@ import {
   isYouthSize,
   isPlusSize,
   printWidthForSize,
-  PLUS_SIZE_UPCHARGE_DOLLARS,
+  plusSizeUpchargeDollars,
   YOUTH_SIZE_DISCOUNT_DOLLARS
 } from '../../backend/shared/catalog-capability'
 import {
@@ -27,6 +27,7 @@ import {
   normalizeMetalSizeKey,
   type MetalArtSizeKey
 } from '../../backend/shared/metal-art'
+import { isCreatorProductMeta } from '../../backend/shared/creator-product'
 
 export type ProductKind = 'metal' | '3d' | 'apparel'
 
@@ -321,9 +322,18 @@ export function sizeChoicesFor(
     // S-3XL on a youth-tee listing whose sizes column happens to be empty —
     // a photo of a child advertising sizes we'd never ship them.
     const base = stored ?? adultSizesForGarment(garment)
+    // The same rule for a band that GREW: 4XL joined on 2026-10-16 (David, a
+    // customer wanted the Folgers tee in 4XL), after ~2,400 rows had already
+    // frozen S-3XL into their column. A listing that sells 3XL gets 4XL right
+    // after it. One that stops short of 3XL was cut down on purpose (a few
+    // live ones stop at XL or 2XL) and is left exactly as it is.
+    const has = (size: string) => base.some(b => String(b).toUpperCase() === size)
+    const grows = has('3XL') && !has('4XL') && adultSizesForGarment(garment).includes('4XL')
+    const at = grows ? base.findIndex(b => String(b).toUpperCase() === '3XL') + 1 : base.length
+    const withGrown = grows ? [...base.slice(0, at), '4XL', ...base.slice(at)] : base
     const youth = youthSizesForGarment(garment)
-    const missing = youth.filter(y => !base.some(b => String(b).toUpperCase() === y))
-    return [...base, ...missing]
+    const missing = youth.filter(y => !has(y))
+    return [...withGrown, ...missing]
   }
 
   return stored ?? defaultSizesFor(kind)
@@ -383,14 +393,19 @@ export interface ListingOptionSets {
 
 export function listingOptionSets(product: Pick<Product, 'category' | 'metadata'>): ListingOptionSets {
   const kind = listingKindOf(product)
-  const upload = isBlankProduct(product) || isCustomTemplate(product)
+  // A creator's own apparel (backend/shared/creator-product.ts) is sold as
+  // their shirt: no design tools, no putting their art on a gang sheet
+  // (David 2026-10-07, Darrell's "Walk By Faith").
+  const creator = isCreatorProductMeta(product?.metadata)
+  const upload = !creator && (isBlankProduct(product) || isCustomTemplate(product))
+  const gangSheet = !creator
   switch (kind) {
     case 'dtf-transfer':
-      return { kind, blankPicker: null, colors: false, placement: false, upload, gangSheet: true, tryOn: false }
+      return { kind, blankPicker: null, colors: false, placement: false, upload, gangSheet, tryOn: false }
     case 'hoodie':
-      return { kind, blankPicker: 'hoodie', colors: true, placement: true, upload, gangSheet: true, tryOn: true }
+      return { kind, blankPicker: 'hoodie', colors: true, placement: true, upload, gangSheet, tryOn: true }
     case 'tee':
-      return { kind, blankPicker: 'tee', colors: true, placement: true, upload, gangSheet: true, tryOn: true }
+      return { kind, blankPicker: 'tee', colors: true, placement: true, upload, gangSheet, tryOn: true }
     case 'blank':
       // A blank IS its tier and has nothing printed, so no quality picker,
       // no placement and no artwork for a gang sheet.
@@ -450,14 +465,14 @@ export function defaultSizeFor(product: Pick<Product, 'category' | 'metadata' | 
 /**
  * Dollars this size adds to (or takes off) the listing price, for the size
  * button label. The same two rails the server charges
- * (backend/services/order-pricing.ts): +$2.50 for 2XL and up, -$3.00 for a
+ * (backend/services/order-pricing.ts): +$2.50 for 2XL/3XL, +$3.25 for 4XL, -$3.00 for a
  * youth size, printed tees and hoodies only. Blanks and metal price each size
  * outright and show that price instead, so they carry no delta.
  */
 export function sizePriceDelta(product: Pick<Product, 'category' | 'metadata'>, size: string): number {
   const kind = listingKindOf(product)
   if (kind !== 'tee' && kind !== 'hoodie') return 0
-  if (isPlusSize(size)) return PLUS_SIZE_UPCHARGE_DOLLARS
+  if (isPlusSize(size)) return plusSizeUpchargeDollars(size)
   if (isYouthSize(size)) return -YOUTH_SIZE_DISCOUNT_DOLLARS
   return 0
 }
@@ -524,12 +539,33 @@ export function hasDigitalDeliverables(product: Pick<Product, 'metadata'>): bool
   return !!(a.clean || a.halftone || a.dtf)
 }
 
+/**
+ * True when the page may SELL the digital bundle. Never on a creator's own
+ * apparel: their print file doubles as the "clean" and "DTF" deliverable, so
+ * a $9.99 download undercut the shirt and handed out the art (David
+ * 2026-10-07). The API refuses the purchase too (routes/user-products.ts).
+ */
+export function offersDigitalDownload(product: Pick<Product, 'metadata'>): boolean {
+  return !isCreatorProductMeta(product?.metadata) && hasDigitalDeliverables(product)
+}
+
 // Public gallery images (hero + thumbnails): contextual mockups first (a
 // shirt-on-person / art-in-room reads far better in a grid than flat art),
 // then clean art, then any remaining raw images — but NEVER the halftone or DTF
 // deliverables. Deduped, falsy-stripped, order preserved.
 export function getGalleryImages(product: Pick<Product, 'images' | 'metadata'>): string[] {
   const assets = getProductAssets(product)
+  // A creator's own apparel leads with their garment photos and never shows
+  // the bare art: on white it lost Darrell's cream lettering entirely, and
+  // its clean/DTF files ARE the print file (David 2026-10-07).
+  if (isCreatorProductMeta(product?.metadata)) {
+    const hidden = new Set([assets.display, assets.clean, assets.dtf, assets.halftone, (assets as Record<string, unknown>).back_print].filter(Boolean) as string[])
+    const photos: string[] = []
+    for (const u of [...(assets.mockups || []), product?.metadata?.mockup_url, ...(product?.images || [])]) {
+      if (u && typeof u === 'string' && !photos.includes(u) && !hidden.has(u)) photos.push(u)
+    }
+    return photos
+  }
   // Deliverables are download-only; they must never appear in the display set,
   // even if one also sits in images[] (legacy halftone-as-images[0]). Once a
   // watermarked `display` exists, the clean original is also gated out of view.
@@ -539,12 +575,40 @@ export function getGalleryImages(product: Pick<Product, 'images' | 'metadata'>):
   const push = (u?: string | null) => {
     if (u && typeof u === 'string' && !out.includes(u) && !deliverables.has(u)) out.push(u)
   }
+  // A garment shot (ghost mannequin, flat lay, hanger, composite, on-model)
+  // leads even when a watermarked art `display` exists: a catalog tile that
+  // opens on bare art, or art on a painted checkerboard, reads as broken
+  // (task 732f8a71, live walk 10/7). Rows with no garment shot are unchanged.
+  const shots = (product?.images || []).filter(isGarmentShotUrl).sort((a, b) => garmentShotRank(a) - garmentShotRank(b))
+  shots.forEach(push)
   push(assets.display)                  // watermarked hero (preferred)
   ;(assets.mockups || []).forEach(push)
   push(product?.metadata?.mockup_url)   // legacy single mockup
   push(assets.clean)                    // un-watermarked clean (only if no display)
   ;(product?.images || []).forEach(push)
   return out
+}
+
+// Folder names the garment-shot pipeline writes under (step-flow shots, blank
+// composites, Etsy on-model shots). Raw art lives under /original/,
+// /ai-generated/, design-library/, mrs-imagine/<id>/ or a bare products/<id>.png.
+const GARMENT_SHOT_RANK: Array<[RegExp, number]> = [
+  [/\/ghost_mannequin\//i, 0],
+  [/\/flat_lay\//i, 1],
+  [/\/hanger\//i, 2],
+  [/\/composite\//i, 3],
+  [/\/mr_imagine\//i, 4],
+  [/etsy_shot_/i, 5],
+]
+
+function garmentShotRank(url: string): number {
+  const hit = GARMENT_SHOT_RANK.find(([re]) => re.test(url))
+  return hit ? hit[1] : 99
+}
+
+/** True for a url the shot pipeline made of the garment itself (not the bare art, not a details card). */
+export function isGarmentShotUrl(url: unknown): url is string {
+  return typeof url === 'string' && garmentShotRank(url) < 99
 }
 
 // Digital download bundle (gated behind a paid digital purchase): clean design
@@ -556,4 +620,20 @@ export function getDeliverables(product: Pick<Product, 'metadata'>): { kind: 'de
   if (a.halftone) out.push({ kind: 'halftone', label: 'Halftone version (PNG)', url: a.halftone })
   if (a.dtf) out.push({ kind: 'dtf', label: 'DTF print-ready (PNG)', url: a.dtf })
   return out
+}
+
+// Shopper-facing words for products.print_locations / cart printLocation values.
+export const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
+  front_image: 'Front',
+  back_image: 'Back',
+  pocket: 'Pocket'
+}
+
+// Label for a placement value. Unknown values never show raw: "sleeve_image" reads "Sleeve".
+export function printLocationLabel(loc: string | null | undefined): string {
+  if (!loc) return ''
+  const known = PRINT_LOCATION_LABELS[loc as TshirtPrintLocation]
+  if (known) return known
+  const words = loc.replace(/_image$/i, '').replace(/[_-]+/g, ' ').trim()
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : ''
 }

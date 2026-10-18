@@ -153,6 +153,26 @@ export function isPlusSize(size?: string | null): boolean {
   return PLUS_SIZES.some(ps => size.toUpperCase().includes(ps))
 }
 
+/**
+ * 4XL costs more than 2XL/3XL (David 2026-10-16: "add 4xl and its a $3.25
+ * upcharge", for a customer who wanted the Folgers tee in 4XL). 2XL and 3XL
+ * stay on the flat rail above.
+ */
+export const FOUR_XL_UPCHARGE_CENTS = 325
+const FOUR_XL_TOKENS = ['4XL', '4X', 'XXXXL']
+
+/** What this size adds to the listing price, in cents. 0 for S-XL, youth and
+ *  anything that is not an apparel size (see isPlusSize). */
+export function plusSizeUpchargeCents(size?: string | null): number {
+  if (!isPlusSize(size)) return 0
+  const s = String(size).toUpperCase()
+  return FOUR_XL_TOKENS.some((t) => s.includes(t)) ? FOUR_XL_UPCHARGE_CENTS : PLUS_SIZE_UPCHARGE_CENTS
+}
+
+export function plusSizeUpchargeDollars(size?: string | null): number {
+  return plusSizeUpchargeCents(size) / 100
+}
+
 export const COLORS: Record<ColorId, CapabilityColor> = {
   black: { id: 'black', label: 'Black', hex: '#000000', luma: 0.02 },
   white: { id: 'white', label: 'White', hex: '#FFFFFF', luma: 0.98 },
@@ -174,7 +194,8 @@ export const GARMENTS: CapabilityGarment[] = [
     colors: ['black', 'white', 'navy', 'heather-grey', 'red', 'forest-green', 'royal-blue'],
     printWidthInches: 11,
     audience: 'adult',
-    sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    // 4XL added 2026-10-16 (David). Gildan 5000 runs to 5XL.
+    sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'],
     youth: {
       sizes: [...YOUTH_SIZES],
       blank: 'Gildan 5000B Heavy Cotton Youth',
@@ -191,7 +212,8 @@ export const GARMENTS: CapabilityGarment[] = [
     colors: ['black', 'white', 'navy', 'heather-grey', 'red', 'forest-green'],
     printWidthInches: 10,
     audience: 'adult',
-    sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'],
+    // 4XL added 2026-10-16 (David). Gildan 18500 runs to 5XL.
+    sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'],
     youth: {
       sizes: [...YOUTH_SIZES],
       blank: 'Gildan 18500B Heavy Blend Youth',
@@ -243,7 +265,7 @@ export function colorsForGarment(id: GarmentId): CapabilityColor[] {
 
 /** A garment's own size band, WITHOUT the youth cut. Unknown garment → the adult tee range. */
 export function adultSizesForGarment(id: string | null | undefined): string[] {
-  return [...(getGarment(id)?.sizes ?? ['S', 'M', 'L', 'XL', '2XL', '3XL'])]
+  return [...(getGarment(id)?.sizes ?? ['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'])]
 }
 
 /**
