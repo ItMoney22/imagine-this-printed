@@ -32,6 +32,8 @@ import {
   refundedCentsFromMetadata
 } from '../services/order-refunds.js'
 import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
+import { QR_STAND, QR_FIELD, isQrStandLineId, readQrStandFields } from '../shared/qr-stand.js'
+import { verifyResellerRef } from '../services/qr-stand-reseller.js'
 
 const router = Router()
 
@@ -192,6 +194,8 @@ async function resolveMinDpiByPrintType(printTypes: string[]): Promise<Record<st
 // order-pricing.ts from the DB row, so a forged cart copy of the table can
 // only mislabel its own receipt, never underpay.
 function lineUnitPriceDollars(item: any): number {
+  // The QR stand's price is the server's constant, never the cart's copy.
+  if (isQrStandLineId(item?.product?.id)) return QR_STAND.priceCents / 100
   const base = Number(item?.product?.price) || 0
   if (!isBlankGarmentMeta(item?.product?.metadata)) return base
   const fromTable = blankUnitPriceDollars(blankPricingOf(item.product.metadata), item?.selectedSize, item?.selectedColor)
@@ -201,7 +205,7 @@ function lineUnitPriceDollars(item: any): number {
 // Durable cart snapshot stored on orders.metadata.items — what MyOrders and
 // the print bridge read for items that have no products row (custom items).
 function snapshotCartItems(items: any[] | undefined | null) {
-  return (items || []).map((i: any) => ({
+  return (items || []).map((i: any, index: number) => ({
     id: i.product?.id ?? null,
     name: i.product?.name ?? null,
     price: lineUnitPriceDollars(i),
@@ -225,8 +229,28 @@ function snapshotCartItems(items: any[] | undefined | null) {
     // worker email always said "matte grey" (Watchtower 2026-08-19 wave).
     color_mode: i.product?.metadata?.color_mode ?? i.product?.metadata?.print3d?.color_mode ?? null,
     include_paint_kit: i.product?.metadata?.include_paint_kit === true || null,
-    model_id: i.product?.metadata?.model_id ?? null
+    model_id: i.product?.metadata?.model_id ?? null,
+    qr_stand: isQrStandLineId(i.product?.id) ? qrStandLineMeta(i, index) : null
   }))
+}
+
+/**
+ * The QR counter stand's line, as the SERVER read it (task deebfdca): link and
+ * caption re-checked with the same rules the page used, the logo kept only as a
+ * path under our own upload prefix, and a reseller ref kept only if its
+ * signature checks out. Checkout has already refused a line whose fields fail
+ * (see the gate in /checkout-payment-intent), so this only shapes what passed.
+ */
+function qrStandLineMeta(item: any, lineIndex: number) {
+  const { fields } = readQrStandFields(item?.personalization)
+  const ref = verifyResellerRef(fields.ref)
+  return {
+    line_index: lineIndex,
+    link: fields.link,
+    caption: fields.caption,
+    logo_path: fields.logoPath,
+    reseller: ref ? { vendor: ref.vendor, client_ref: ref.clientRef } : null
+  }
 }
 
 // Re-sync order_items rows to the current cart (replace, not append — drafts
@@ -379,10 +403,11 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
     const addonUnit = addonsUnitTotal(item)
     const hasAddons = Array.isArray(item.selectedAddons) && item.selectedAddons.length > 0
     const unitPrice = lineUnitPriceDollars(item)
+    const stand = isQrStandLineId(rawId) ? qrStandLineMeta(item, itemIndex) : null
     return {
       order_id: orderId,
       product_id: rawId && UUID_RE.test(rawId) ? rawId : null,
-      product_name: item.product?.name || 'Unknown Product',
+      product_name: stand ? QR_STAND.name : item.product?.name || 'Unknown Product',
       quantity: qty,
       unit_price: unitPrice,
       // Line subtotal includes per-unit add-ons so it reconciles with the
@@ -409,7 +434,11 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
         // Personalized team shirt. These are the SERVER's values and the
         // SERVER's file — print_file_path is the durable GCS path, because a
         // signed URL expires long before an order stops mattering.
-        personalization: personalized.get(itemIndex)?.values ?? null,
+        personalization: stand
+          ? { [QR_FIELD.link]: stand.link, [QR_FIELD.caption]: stand.caption }
+          : personalized.get(itemIndex)?.values ?? null,
+        // The QR counter stand's checked fields; the print file is built from these.
+        qr_stand: stand,
         print_file_path: personalized.get(itemIndex)?.path ?? null,
         print_file_error: personalized.get(itemIndex)?.error ?? null,
         print_file_status: personalized.get(itemIndex)?.status ?? null,
@@ -479,6 +508,16 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           violations: dpiViolations.map(v => ({ item: v.itemIndex, layer: v.layerName, dpi: v.dpi, minDPI: v.minDPI, printType: v.printType }))
         })
       }
+    }
+
+    // QR counter stand (task deebfdca): the link, caption and logo are checked
+    // here with the page's own rules, so a stand that cannot be built (a link
+    // over QR version 6, a caption the stand cannot letter) never reaches a
+    // paid order.
+    for (const item of items || []) {
+      if (!isQrStandLineId(item?.product?.id)) continue
+      const { problem } = readQrStandFields(item?.personalization)
+      if (problem) return res.status(400).json({ error: problem, message: problem })
     }
 
     // -----------------------------------------------------------------------

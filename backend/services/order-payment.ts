@@ -28,6 +28,7 @@ import { sendOrderConfirmationEmail as sendOrderEmail, sendNewOrderTeamEmail } f
 import { decrementBlanksForOrder } from './blank-inventory.js'
 import { accrueCreatorMarginsForOrder } from './creator-margins.js'
 import { sendMerchOrderEvent } from './merch-webhook.js'
+import { onQrStandOrderPaid } from './qr-stand-builds.js'
 import { processOrderCompletion } from './order-reward-service.js'
 import { processReferralFirstPurchase } from './referral-service.js'
 import { findCouponIdByCode, recordCouponUsage } from '../routes/coupons.js'
@@ -281,6 +282,21 @@ export async function applyPaidCheckoutOrder(
   // belt-and-suspenders guard — a delivery failure must never break checkout.
   await sendMerchOrderEvent({ orderId, type: 'order.paid', log }).catch((err) => {
     log?.error({ err, orderId }, '[merch-webhook] emission threw unexpectedly')
+  })
+
+  // QR counter stands: queue each stand's print file for the builder on Earth,
+  // and tell a reseller site (Darrell's) about a stand sold through it so its
+  // own revenue share records the 10%. Fail-soft inside, like everything here.
+  await onQrStandOrderPaid(
+    {
+      id: orderId,
+      order_number: order?.order_number ?? orderNumber ?? null,
+      subtotal: Number(order?.subtotal) || 0,
+      discount_amount: Number(order?.discount_amount) || 0
+    },
+    log
+  ).catch((err) => {
+    log?.error({ err, orderId }, '[qr-stand] paid-order hook threw unexpectedly')
   })
 
   log?.info({
