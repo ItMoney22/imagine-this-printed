@@ -78,6 +78,7 @@ import { METAL_ART_PRICES_CENTS, METAL_ADDONS_CENTS, isMetalProductRow, normaliz
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../shared/promos.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPricing } from '../shared/blank-pricing.js'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_CENTS, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
+import { QR_STAND, isQrStandLineId } from '../shared/qr-stand.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -442,6 +443,13 @@ export function computeLineItemCents(
   if (!id || quantity <= 0) {
     errors.push(`Invalid cart item (productId=${item.productId ?? 'null'}, quantity=${item.quantity})`)
     return { cents: 0, errors, warnings }
+  }
+
+  // Custom QR counter stand: one price, from backend/shared/qr-stand.ts, and no
+  // extras of any kind. A size, tier or add-on on this line can only be a
+  // tampered cart (the youth size alone would take money OFF), so none apply.
+  if (isQrStandLineId(id)) {
+    return { cents: QR_STAND.priceCents * quantity, errors, warnings }
   }
 
   let unitCents: number | null = null

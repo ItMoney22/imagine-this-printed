@@ -1270,3 +1270,23 @@ describe('calculateOrderPricing — fetchMetalProductIds wires size pricing end-
     expect(result.productSubtotalCents).toBe(2500)
   })
 })
+
+describe('computeLineItemCents — custom QR counter stand', () => {
+  it('charges the stand\'s own price per unit, never the cart\'s copy', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: 'qr-stand-1700000000', quantity: 2, clientUnitPriceDollars: 0.01 },
+      new Map()
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(2 * 1795)
+  })
+
+  it('ignores sizes, tiers and add-ons a tampered cart puts on the line', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: 'qr-stand', quantity: 1, selectedSize: 'YS', selectedTier: 'premium', selectedAddonIds: ['nope'] },
+      new Map()
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(1795)
+  })
+})
