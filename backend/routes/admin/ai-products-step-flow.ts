@@ -14,6 +14,7 @@ import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { extractPathFromSignedUrl, uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
 import { assertOffered, COLORS, GARMENTS, photographableAudiences, sizesForGarment, type ColorId, type GarmentId } from '../../shared/catalog-capability.js'
 import { slugify, generateUniqueSlug } from '../../utils/slugify.js'
+import { nameFromFilename, fileSlugBase, findReslug, type ReslugPlan } from '../../services/step-flow/product-slug.js'
 import { describeDesignForProduct } from '../../services/ai-product.js'
 // The listing copywriter and the casting catalog both live behind the ADMIN
 // Etsy router (routes/admin/etsy.ts, which is requireRole(['admin','manager'])
@@ -240,26 +241,9 @@ const UPLOAD_DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+
 // base64's 4/3 inflation.
 const UPLOAD_MAX_BYTES = 30 * 1024 * 1024
 
-/** "spartans-warrior_FINAL.png" -> "Spartans Warrior Final". A working name
- *  only, replaced by describeUpload() once the design has been looked at.
- *  Machine names come back empty: David's Folgers upload was
- *  "1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77.png", and that string went straight
- *  onto the product details card as the shirt's title. */
-export function nameFromFilename(filename: unknown): string {
-  if (typeof filename !== 'string') return ''
-  const stem = filename.replace(/\.[a-z0-9]+$/i, '').trim()
-  const machineMade =
-    /^[0-9a-f-]{12,}$/i.test(stem) || // uuids, hashes
-    !/[a-z]{2}/i.test(stem) || // no word in it at all
-    /^(img|image|dsc|pxl|photo|screenshot|screen shot|download|untitled|file|chatgpt image)[\s_\-]*[\d\s_\-.,:apm]*$/i.test(stem)
-  if (machineMade) return ''
-  return stem
-    .replace(/[_\-.]+/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 80)
-    .replace(/\b\w/g, (c) => c.toUpperCase())
-}
+// nameFromFilename moved to services/step-flow/product-slug.ts (the upload's
+// slug and the Listing step's re-slug must agree on it); re-exported here.
+export { nameFromFilename }
 
 /**
  * Look at an uploaded design and give the product a real name and
@@ -314,7 +298,10 @@ router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Reques
 
     const typedName = typeof name === 'string' ? name.trim().slice(0, 120) : ''
     const productName = typedName || nameFromFilename(filename) || 'Custom Design'
-    const baseSlug = slugify(productName) || 'custom-design'
+    // A slug from the file name is a placeholder: the Listing step swaps it
+    // for one made from the product's real name (product-slug.ts).
+    const slugSource = slugify(typedName) ? 'typed' : 'filename'
+    const baseSlug = slugSource === 'typed' ? slugify(typedName) : fileSlugBase(filename)
     const { data: taken } = await supabase.from('products').select('slug').like('slug', `${baseSlug}%`)
     const slug = generateUniqueSlug(baseSlug, (taken || []).map((p: any) => p.slug).filter(Boolean))
 
@@ -360,6 +347,7 @@ router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Reques
           uploaded_by: actorId(req),
           uploaded_at: now,
           original_filename: typeof filename === 'string' ? filename.slice(0, 200) : null,
+          slug_source: slugSource,
           gcs_path: path,
           // Measured here so adopt's print-resolution gate reads it straight
           // off the row instead of downloading the file again.
@@ -1696,7 +1684,30 @@ router.post('/:id/step/publish', requireAuth, requireStudioAccess, async (req: R
       if (hexes.length > 0) updates.colors = hexes
     }
 
-    const { data: updated, error: updateError } = await supabase.from('products').update(updates).eq('id', id).select().single()
+    // A slug that came from the upload's file name (the Folgers tee sold at
+    // /product/1d2b8a23-...) follows the final name; the old one goes into
+    // metadata.replaces so links already handed out still land.
+    let reslug: ReslugPlan | null = null
+    try {
+      reslug = await findReslug(supabase, product, updates.name ?? product.name)
+    } catch (err: any) {
+      req.log?.warn?.({ productId: id, err: err?.message }, '[step-flow] publish: kept the old slug')
+    }
+    const metadataBeforeSlug = updates.metadata
+    if (reslug) {
+      updates.slug = reslug.slug
+      updates.metadata = { ...updates.metadata, replaces: reslug.replaces, slug_source: 'name' }
+    }
+
+    let { data: updated, error: updateError } = await supabase.from('products').update(updates).eq('id', id).select().single()
+    if (updateError && reslug && updateError.code === '23505') {
+      // Another product took the new slug between the check and this write
+      // (products_slug_key). Publish under the old slug rather than fail.
+      req.log?.warn?.({ productId: id, slug: reslug.slug }, '[step-flow] publish: new slug taken, kept the old one')
+      delete updates.slug
+      updates.metadata = metadataBeforeSlug
+      ;({ data: updated, error: updateError } = await supabase.from('products').update(updates).eq('id', id).select().single())
+    }
     if (updateError) return res.status(500).json({ error: updateError.message })
 
     if (Array.isArray(tags) && tags.length > 0) {

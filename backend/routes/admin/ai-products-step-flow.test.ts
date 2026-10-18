@@ -30,10 +30,13 @@ process.env.OPENAI_API_KEY ||= 'test-openai-key'
 type Row = Record<string, any>
 let db: Record<string, Row[]> = { products: [], ai_jobs: [], product_assets: [] }
 let idCounter = 0
+// Lets a test make one UPDATE fail the way Postgres would (e.g. a unique-index 23505).
+let updateFault: ((table: string, payload: any) => { code: string; message: string } | null) | null = null
 
 function resetDb() {
   db = { products: [], ai_jobs: [], product_assets: [] }
   idCounter = 0
+  updateFault = null
 }
 
 type Predicate = (row: Row) => boolean
@@ -71,6 +74,8 @@ function makeQuery(table: string) {
       return { data: created.length === 1 ? created[0] : created, error: null }
     }
     if (mode === 'update') {
+      const fault = updateFault?.(table, payload)
+      if (fault) return { data: null, error: fault }
       db[table] = rows.map((r) => (matches(r, filters) ? { ...r, ...payload } : r))
       return { data: db[table].filter((r) => matches(r, filters)), error: null }
     }
@@ -114,6 +119,12 @@ function makeQuery(table: string) {
       filters.push((row) => resolvePath(row, k) !== v)
       return chain
     },
+    like: (k: string, pattern: string) => {
+      // Slug patterns only ([a-z0-9-] plus %), so % is the one wildcard that matters.
+      const re = new RegExp(`^${pattern.split('%').map((part) => part.replace(/[^a-z0-9-]/gi, '.')).join('.*')}$`)
+      filters.push((row) => re.test(String(resolvePath(row, k) ?? '')))
+      return chain
+    },
     in: (k: string, vals: any[]) => {
       filters.push((row) => vals.includes(resolvePath(row, k)))
       return chain
@@ -136,7 +147,8 @@ function makeQuery(table: string) {
       return chain
     },
     single: async () => {
-      const { data } = exec()
+      const { data, error } = exec()
+      if (error) return { data: null, error }
       const row = Array.isArray(data) ? data[0] : data
       return { data: row ?? null, error: row ? null : { message: `${table}: not found` } }
     },
@@ -206,6 +218,12 @@ vi.mock('../../services/step-flow/print-resolution.js', () => ({
 
 // The upload route names a design by looking at it; never a real vision call here.
 vi.mock('../../services/ai-product.js', () => ({ describeDesignForProduct: vi.fn() }))
+
+// /step/upload stores the artwork in GCS; never a real bucket write here.
+vi.mock('../../services/google-cloud-storage.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../services/google-cloud-storage.js')>()),
+  uploadImageFromBuffer: vi.fn(async (_buffer: Buffer, path: string) => ({ publicUrl: `https://storage.test/${path}`, path })),
+}))
 
 const stepFlowModule = await import('./ai-products-step-flow.js')
 const stepFlowRouter = stepFlowModule.default
@@ -1073,5 +1091,150 @@ describe('nameFromFilename', () => {
     expect(nameFromFilename('IMG_4821.JPG')).toBe('')
     expect(nameFromFilename('Screenshot 2026-10-16 091512.png')).toBe('')
     expect(nameFromFilename('004.png')).toBe('')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The Listing step re-slugs a product whose slug came from its upload's file
+// name (task 62822de3). The live Folgers tee sold at
+// /product/1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77 — its upload's file name —
+// because /step/upload slugged the unnamed draft from the file and publish
+// renamed it without touching the slug. The old slug must go into
+// metadata.replaces, the key api/_seo/share-link.mjs lookupPlan falls back to,
+// so a link already sent still opens the product.
+// ---------------------------------------------------------------------------
+describe('POST /:id/step/publish — re-slugs a product named from its file (task 62822de3)', () => {
+  const FOLGERS_ID = '9c3b3d19-72b1-4fbb-9a0c-148e2a486298'
+  const FOLGERS_UUID = '1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77'
+  const FOLGERS_TITLE = 'Folgers Coffee Racing Legend T-Shirt | Vintage Stock Car Tee'
+
+  /** Walks the same lookup plan the product page and the bot renderer walk (id -> slug -> live metadata.replaces). */
+  async function openLink(key: string): Promise<{ row: Row; via: string } | null> {
+    const { lookupPlan } = await import('../../../api/_seo/share-link.mjs')
+    for (const step of lookupPlan(key)) {
+      const row = db.products.find((r) =>
+        step.kind === 'id' ? r.id === step.id
+        : step.kind === 'slug' ? r.slug === step.slug
+        : step.kind === 'replaces' ? r.status === 'active' && (r.metadata?.replaces ?? []).includes(step.value)
+        : false
+      )
+      if (row) return { row, via: step.kind }
+    }
+    return null
+  }
+
+  async function upload(body: Record<string, any>): Promise<string> {
+    const sharp = (await import('sharp')).default
+    const png = await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer()
+    db.product_categories = [{ id: 'cat-tees', slug: 't-shirts' }]
+    const res = makeRes()
+    await getRouteHandler('post', '/step/upload')(
+      { body: { image: `data:image/png;base64,${png.toString('base64')}`, kind: 'tshirt', ...body }, user: { id: 'u1', sub: 'u1' }, log: undefined },
+      res
+    )
+    expect(res.statusCode).toBe(200)
+    return res.body.productId
+  }
+
+  /** Approved mockup + watermark so publish has a gallery to build. */
+  function makePublishable(id: string): void {
+    const p = db.products.find((r) => r.id === id)!
+    p.metadata.step_flow = {
+      version: 1, idea: p.name, brief: null, garment: 'tshirt', colors: { primary: 'black', extras: [] },
+      shots: { product: { approved: true, status: 'done', assetId: `${id}-m`, url: `${id}-ghost.png` } },
+      approvals: { design: 'x', garments: 'x', mockups: 'x' },
+    }
+    db.product_assets.push(
+      { id: `${id}-m`, product_id: id, kind: 'mockup', asset_role: 'mockup_ghost_mannequin', url: `${id}-ghost.png`, created_at: '2026-01-01' },
+      { id: `${id}-w`, product_id: id, kind: 'design_preview', asset_role: 'design_watermarked', url: `${id}-wm.png`, created_at: '2026-01-01' },
+    )
+  }
+
+  async function publish(id: string, title: string) {
+    const res = makeRes()
+    await getRouteHandler('post', '/:id/step/publish')(
+      { params: { id }, body: { title, description: 'd', tags: [], price: 25 }, user: { id: 'u1', sub: 'u1' }, log: undefined },
+      res
+    )
+    expect(res.statusCode).toBe(200)
+    return res.body.product
+  }
+
+  /** The live Folgers row as it sits today: slugged before the upload stamp existed. */
+  function seedFolgers(): void {
+    db.products.push({
+      id: FOLGERS_ID,
+      name: 'Folgers Coffee Racing Legend T-Shirt',
+      slug: FOLGERS_UUID,
+      status: 'draft',
+      category: 't-shirts',
+      metadata: { import_source: 'upload', original_filename: `${FOLGERS_UUID}.png` },
+    })
+    makePublishable(FOLGERS_ID)
+  }
+
+  it('an unnamed upload gets a file-name slug, and the Listing name replaces it while the old link still opens', async () => {
+    const id = await upload({ filename: 'spartans-warrior_FINAL.png' })
+    const draft = db.products.find((r) => r.id === id)!
+    expect(draft.slug).toBe('spartans-warrior-final')
+    expect(draft.metadata.slug_source).toBe('filename')
+
+    makePublishable(id)
+    const product = await publish(id, 'Spartan Warrior Helmet Tee | Greek Mythology Shirt')
+
+    expect(product.slug).toBe('spartan-warrior-helmet-tee')
+    expect(product.metadata.replaces).toEqual(['spartans-warrior-final'])
+    expect(product.metadata.slug_source).toBe('name')
+    expect(await openLink('spartans-warrior-final')).toMatchObject({ row: { id, slug: 'spartan-warrior-helmet-tee' }, via: 'replaces' })
+    expect(await openLink('spartan-warrior-helmet-tee')).toMatchObject({ row: { id }, via: 'slug' })
+  })
+
+  it('re-slugs a uuid-shaped slug (the Folgers tee) and keeps the uuid link landing', async () => {
+    seedFolgers()
+    const product = await publish(FOLGERS_ID, FOLGERS_TITLE)
+
+    expect(product.slug).toBe('folgers-coffee-racing-legend-t-shirt')
+    expect(product.metadata.replaces).toEqual([FOLGERS_UUID])
+    // The uuid misses as an id and as a slug, then lands through replaces.
+    expect(await openLink(FOLGERS_UUID)).toMatchObject({ row: { slug: 'folgers-coffee-racing-legend-t-shirt' }, via: 'replaces' })
+    expect(await openLink(FOLGERS_ID)).toMatchObject({ via: 'id' })
+  })
+
+  it('takes the next free slug when the name is already in use', async () => {
+    db.products.push({ id: 'other', slug: 'folgers-coffee-racing-legend-t-shirt', status: 'active', metadata: {} })
+    seedFolgers()
+    const product = await publish(FOLGERS_ID, FOLGERS_TITLE)
+    expect(product.slug).toBe('folgers-coffee-racing-legend-t-shirt-1')
+  })
+
+  it('leaves a slug made from a typed name alone', async () => {
+    const id = await upload({ name: 'Greek Helmet', filename: 'helmet_v3.png' })
+    expect(db.products.find((r) => r.id === id)!.metadata.slug_source).toBe('typed')
+    makePublishable(id)
+    const product = await publish(id, 'Spartan Warrior Helmet Tee | Greek Mythology Shirt')
+    expect(product.slug).toBe('greek-helmet')
+    expect(product.metadata.replaces).toBeUndefined()
+  })
+
+  it('leaves a proper name slug alone, and does not re-slug again on a second publish', async () => {
+    db.products.push({ id: 'lib', name: 'Golden Gate', slug: 'golden-gate', status: 'active', category: 't-shirts', metadata: { import_source: 'design-library' } })
+    makePublishable('lib')
+    expect((await publish('lib', 'Golden Gate Bridge Tee')).slug).toBe('golden-gate')
+
+    seedFolgers()
+    await publish(FOLGERS_ID, FOLGERS_TITLE)
+    const again = await publish(FOLGERS_ID, 'Folgers Racing Tee')
+    expect(again.slug).toBe('folgers-coffee-racing-legend-t-shirt')
+    expect(again.metadata.replaces).toEqual([FOLGERS_UUID])
+  })
+
+  it('still publishes, under the old slug, when another product takes the new one mid-write', async () => {
+    seedFolgers()
+    updateFault = (table, payload) =>
+      table === 'products' && payload.slug ? { code: '23505', message: 'duplicate key value violates unique constraint "products_slug_key"' } : null
+    const product = await publish(FOLGERS_ID, FOLGERS_TITLE)
+    expect(product.status).toBe('active')
+    expect(product.slug).toBe(FOLGERS_UUID)
+    expect(product.metadata.replaces).toBeUndefined()
   })
 })

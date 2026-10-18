@@ -5189,3 +5189,23 @@ MAIN product photo). Root cause of "not found" found live: the Folgers tee 9c3b3
   as the shop card. og:image = /api/share-card (1200x630 JPEG of the page's first gallery photo, ~50 KB), og:title carries
   the price. Share hidden unless status active + approved. tsc 0, vitest 2456/2456, vite build OK, fleet-browser walk
   logged out at 1400 + 390 on a local prod build.
+
+## Current request (2026-10-18) — ITP: re-slug products named at the Listing step, keep old links landing (task 62822de3, chase-valenti)
+
+Follow-up of ebf7dec0. /step/upload slugs an unnamed draft from its file name (the Folgers tee 9c3b3d19 got
+"1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77"); the Listing step (POST /:id/step/publish) renames it but never re-slugged it.
+Built on top of ebf7dec0's branch (b062d1f): its lookup plan (id -> slug -> metadata.replaces) is what makes the old slug land.
+
+### File shortlist (approved scope — 2026-10-18 re-slug)
+- new `backend/services/step-flow/product-slug.ts` (+ test): file-name slug rule, slug from the final name, replaces mirror
+  (nameFromFilename moved here from the route so upload and re-slug share one rule; the route re-exports it)
+- `backend/routes/admin/ai-products-step-flow.ts` (+ test): upload stamps metadata.slug_source; publish re-slugs
+- new `backend/scripts/reslug-product.ts`: the one-off live fix through the same rule
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-18 (chase-valenti): publish now re-slugs a product whose slug came from its file name (uuid-shaped, stamped
+  slug_source 'filename', or an unstamped upload whose slug is its file-name slug) from the final name (" | " tail
+  dropped), and adds the old slug to metadata.replaces. Live one-off applied to 9c3b3d19: slug
+  folgers-coffee-racing-legend-t-shirt, replaces [1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77]. vitest 2477/2477, vite build OK,
+  live page walked logged out at 1400 + 390, old uuid link walked on a local build of this branch (redirects to the new slug).
