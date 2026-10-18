@@ -4772,3 +4772,16 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-18) — QR stand: admin edit + Darrell-backend mocks (task fe38ef61, amelia-chan)
+
+Mockup-only card (no app code): mock #3 ITP admin opens a QR stand order, changes link/words/logo, rebuilds the print
+file, sends to print; mock #4 Darrell's backend lists the stand for his clients and shows his 10% in his earnings.
+
+### File shortlist (approved scope — 2026-10-18 QR stand mocks)
+- `TASK_NOTES.md` only (mocks + shots live in E:/memory/watchtower/projects/imagine-this-printed/2026-10-18-fe38ef61-qr-stand-mocks/)
+
+### Work log (append-only)
+- 2026-10-18 (amelia-chan): both mocks made with david-trinidad-com scripts/creative/page-mockup.ts --kind site --send;
+  David APPROVED both 15:42Z (page_mockup_approvals b722532e = ITP admin edit, 01f40ada = Darrell products + earnings).
+  Build is card deebfdca (mason-blaze). Admin editor fields = the customer's own three (link, words chip, logo).
