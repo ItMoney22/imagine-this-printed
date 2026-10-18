@@ -1,5 +1,37 @@
 # TASK_NOTES
 
+## Current request (2026-10-18) — ITP custom QR counter stand (task deebfdca, mason-blaze)
+
+David 10/17: a business orders a QR counter stand on ITP with its own link, caption and logo ($25 struck, $17.95),
+the ITP admin can change the link/caption/logo, rebuild the print file and send it to the A1s, and the same
+product is orderable from client sites we build (Darrell's first) through the same ITP order, with his 10%
+in his own earnings. Approved mocks: card fe38ef61 (order page, listing photos, admin edit, Darrell backend).
+
+Decisions:
+- Logo is PRINTED IN (one-colour black silhouette, raised like the code), not a sticker. No logo = blank square.
+- No products row: the stand is a priced line type (`qr-stand`, like `metal-art-custom-*`), price in ONE module
+  (backend/shared/qr-stand.ts), so it goes live exactly when the code ships and never leaks into the catalog early.
+- Link rule = UTF-8 bytes <= 58 (QR v6 at level H in byte mode), same in the page, the server and gen.py.
+- Face colour = a filament change at 6.2 mm (custom_gcode_per_layer.xml), not triangle paint (sliced proof).
+- The Python runs on Earth (tools/qr-stand), claims builds from the backend over the print-bridge token.
+
+### File shortlist (approved scope — 2026-10-18 QR stand)
+- `tools/qr-stand/*` (new: gen.py from E:/memory/watchtower/knowledge/itp-qr-stand + logo, wrapper/, tests, builder)
+- `backend/shared/qr-stand.ts` (+ test, new), `backend/routes/qr-stand.ts` (+ test, new), `backend/index.ts` (mount)
+- `backend/services/order-pricing.ts` (+ test), `backend/routes/stripe.ts` (line metadata + snapshot),
+  `backend/services/order-payment.ts` (queue builds + reseller share on paid), `backend/services/qr-stand-*.ts` (new)
+- `supabase/migrations/20261018*_qr_stand_builds.sql` (new)
+- `src/pages/QrStandOrder.tsx` (new), `src/components/qr-stand/*` (new), `src/lib/qr-stand/*` (new),
+  `src/App.tsx` (route), `src/components/Sidebar.tsx` (Business Products), `src/pages/OrderManagement.tsx` (QR panel),
+  `src/pages/Cart.tsx` / `src/pages/Checkout.tsx` (line display only, if needed), `public/business/*` (listing photos)
+- `package.json` / `package-lock.json` (`qrcode` for the live preview)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-18 (mason-blaze): generator into tools/qr-stand: logo printed in, "use a shorter link" guard, mandatory
+  zxing scan-back, face band at 6.2 mm, 2.1-CLI-safe project. 11/11 unittest incl. a real Bambu CLI slice:
+  loads T0 then T1 at z 6.2, 0 support lines, 2 filaments, 50.8 g / 1 h 43 m (paint version was 6 loads, 52 g).
+
 ## Current request (2026-10-07) — ITP whole-site remodel, page by page (task b9656cc9, amelia-chan)
 
 David 10/7: "our whole site should go through a remodel, send Amelia to make it better." Order (money first):
