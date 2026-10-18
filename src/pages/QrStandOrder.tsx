@@ -74,11 +74,12 @@ export default function QrStandOrder() {
   const [added, setAdded] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  // A client site we built (Darrell's shop) links here with a signed ref. It
+  // A client site we built (Darrell's shop) links here with a signed ?via=. It
   // rides on the cart line so his own site can book his share; the buyer is
-  // never shown it. Kept for the visit so a reload does not drop it.
+  // never shown it. Kept for the visit so a reload does not drop it. (Not ?ref=:
+  // that is a friend's referral code, src/utils/referral-capture.ts.)
   const [ref] = useState<string | null>(() => {
-    const fromUrl = params.get('ref')
+    const fromUrl = params.get('via')
     try {
       if (fromUrl) sessionStorage.setItem(REF_KEY, fromUrl)
       return fromUrl || sessionStorage.getItem(REF_KEY)

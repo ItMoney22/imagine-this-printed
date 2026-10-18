@@ -57,6 +57,8 @@ interface StandView {
   caption: string
   logoPath: string | null
   logoUrl: string | null
+  /** When an admin last changed what the stand says (null = as ordered). */
+  editedAt: string | null
   build: BuildView | null
 }
 
@@ -272,7 +274,7 @@ function StandLineEditor({
   const since = build ? Math.max(0, Math.round((now - Date.parse(build.createdAt)) / 1000)) : 0
   const steps = [
     { label: 'Open order', done: true },
-    { label: 'Change link, words or logo', done: changed || !!build?.builtAt },
+    { label: 'Change link, words or logo', done: changed || !!stand.editedAt || !!build?.builtAt },
     { label: 'Rebuild print file', done: ready },
     { label: 'Send to print', done: sent },
   ]

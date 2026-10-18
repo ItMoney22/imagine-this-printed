@@ -5197,3 +5197,4 @@ margin, not native lazy only.
 ### File shortlist (approved scope)
 - `backend/services/order-pricing.ts` (+ test), `backend/routes/stripe.ts`, `src/pages/Checkout.tsx`, `src/context/CartContext.test.tsx` (parity test)
 - 2026-10-12 (daisy-carter): Checkout usdTotal now pools BUNDLE_DEAL; server reads eligibility from products.metadata (fetchBundleEligibleIds), ignores body flag. vitest backend+Cart green, tsc 0.
+- 2026-10-18 (mason-blaze): Darrell side (Darrell V2 branch earth/mason-blaze/darrell-qr-stand-reseller), DTC runner branch earth/mason-blaze/qr-stand-project-print. Full cross-site E2E on local servers + live DBs with throwaway rows (all deleted): sale event booked Darrell 10% = $3.59 of $35.90 (source product_sale), his Billing card shows it. Reseller param renamed ?via= (ITP ?ref= is a friend referral code). Builder stops on 404 until shipped; Earth scheduled task 'ITP QR stand builder' every 10 min.

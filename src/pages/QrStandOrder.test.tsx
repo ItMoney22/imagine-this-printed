@@ -62,7 +62,7 @@ describe('QR stand order page', () => {
   })
 
   it('carries a reseller site\'s ref on the line without showing it', () => {
-    renderAt('/business/qr-stand?ref=abc.def')
+    renderAt('/business/qr-stand?via=abc.def')
     fireEvent.change(linkBox(), { target: { value: 'x.co/a' } })
     fireEvent.click(screen.getByRole('button', { name: /Add to cart/ }))
     expect(addToCart.mock.calls[0][10].qr_ref).toBe('abc.def')

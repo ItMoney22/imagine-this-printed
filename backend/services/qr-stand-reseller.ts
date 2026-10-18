@@ -10,7 +10,7 @@
  * Two hops, both signed with the vendor's STOREFRONT_CREATOR_KEYS key, the
  * secret ITP and that site already share for the storefront API:
  *
- *   1. REF — the site's shop links to ITP's order page with ?ref=<payload>.<sig>,
+ *   1. REF — the site's shop links to ITP's order page with ?via=<payload>.<sig>,
  *      payload = base64url JSON { s: vendor, c: client user id on that site | "",
  *      t: unix seconds }, sig = base64url HMAC-SHA256(key, payload). The order
  *      page carries it on the cart line; checkout verifies it here and stores

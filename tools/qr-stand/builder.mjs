@@ -62,7 +62,7 @@ async function itp(pathname, init = {}) {
     signal: AbortSignal.timeout(60000),
   })
   const body = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(`${pathname}: HTTP ${res.status} ${body.error || ''}`.trim())
+  if (!res.ok) throw Object.assign(new Error(`${pathname}: HTTP ${res.status} ${body.error || ''}`.trim()), { status: res.status })
   return body
 }
 
@@ -222,7 +222,20 @@ async function main() {
     const until = Date.now() + minutes * 60000
     log(`watching ${cfg.itp} for ${minutes} min (printing ${cfg.print ? 'on' : 'off'})`)
     while (Date.now() < until) {
-      await drain().catch((e) => log(`cycle failed: ${e.message}`))
+      const stop = await drain().then(
+        () => false,
+        (e) => {
+          // A shop without the builder lane (not shipped there yet) answers 404:
+          // say so once and wait for the next scheduled run, not every 5 s.
+          if (e.status === 404) {
+            log(`${cfg.itp} has no QR stand builder lane yet; trying again next run`)
+            return true
+          }
+          log(`cycle failed: ${e.message}`)
+          return false
+        }
+      )
+      if (stop) return
       await new Promise((r) => setTimeout(r, 5000))
     }
     return
