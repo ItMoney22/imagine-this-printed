@@ -1141,6 +1141,17 @@ export function createStepFlowApi(base: string, subjectsPath = `${base}/step/sho
     ): Promise<{ ok: boolean; productId: string; assetId: string; alreadyAdopted: boolean; rembgJob: StepFlowJob | null }> =>
       stepFlowRequest(`${base}/${productId}/step/adopt`, { method: 'POST' }),
 
+    /** POST <lane>/step/upload — a finished design file (base64 data URL)
+     *  becomes a draft product holding it, nothing generated. Follow with
+     *  `adopt` to bring it into the flow. Staff lane only (403 elsewhere). */
+    upload: (body: {
+      image: string
+      kind: StepFlowGarmentId | 'metal'
+      name?: string
+      filename?: string
+    }): Promise<{ productId: string }> =>
+      stepFlowRequest(`${base}/step/upload`, { method: 'POST', body: JSON.stringify(body) }),
+
     /** Measures the nobg (falls back to source) asset and ranks ITP colors by contrast to the artwork. */
     colorAdvice: (productId: string): Promise<{ advice: ColorAdvice[]; artwork: ArtworkStats }> =>
       stepFlowRequest(`${base}/${productId}/step/color-advice`, {

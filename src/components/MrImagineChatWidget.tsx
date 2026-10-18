@@ -6,7 +6,7 @@
 // for, how long it has been, and that they can leave: a guest adds an email so the reply still reaches them.
 // Phones: no floating launcher (it covered buttons, task 5e10e099); the phone header's chat button opens the panel under it.
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation } from 'react-router-dom'
 import { ArrowRight, Check, Mail, MessageCircle, Send, UserRound, X } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -63,6 +63,16 @@ const timeLabel = (d: Date) => d.toLocaleTimeString([], { hour: 'numeric', minut
 export function MrImagineChatWidget() {
     const { user } = useAuth()
     const [isOpen, setIsOpen] = useState(false)
+    // Desktop: the full "Chat with us" pill sits over catalog/product buy controls (task 41fe4abb), so only the
+    // top of the home page gets the label; everywhere else the closed launcher is the round avatar.
+    const { pathname } = useLocation()
+    const [nearTop, setNearTop] = useState(true)
+    useEffect(() => {
+        const onScroll = () => setNearTop(window.scrollY < 120)
+        onScroll()
+        window.addEventListener('scroll', onScroll, { passive: true })
+        return () => window.removeEventListener('scroll', onScroll)
+    }, [])
     // The phone header's chat button opens the panel through this event.
     useEffect(() => {
         const open = () => { setUnreadCount(0); setIsOpen(true) }
@@ -334,12 +344,13 @@ export function MrImagineChatWidget() {
     const headerSub = stage === 'connected' ? 'Imagine This Printed, Rockmart GA'
         : stage === 'waiting' || stage === 'connecting' ? `${PERSON} is on her way`
         : 'Shop chat'
+    const showLabel = !!live || (pathname === '/' && nearTop)
     const showChips = stage === 'none' && messages.filter((m) => m.role === 'user').length < 2
 
     return (
         // Phones: the launcher lives in the header band (never over page content); the open panel drops
         // in below the header. sm+: classic bottom-right corner.
-        <div className={`sp-root fixed z-50 flex-col items-end pointer-events-none sm:inset-auto sm:bottom-6 sm:right-6 ${isOpen ? 'flex inset-x-3 top-[72px]' : 'max-lg:hidden flex'}`}>
+        <div className={`sp-root fixed z-50 flex-col items-end pointer-events-none sm:inset-auto sm:bottom-4 sm:right-4 ${isOpen ? 'flex inset-x-3 top-[72px]' : 'max-lg:hidden flex'}`}>
             <AnimatePresence>
                 {isOpen && (
                     <motion.div
@@ -541,12 +552,13 @@ export function MrImagineChatWidget() {
                     whileTap={{ scale: 0.96 }}
                     onClick={() => { setUnreadCount(0); setIsOpen(true) }}
                     aria-label={unreadCount ? `Shop chat, ${unreadCount} new` : 'Open shop chat'}
-                    className="sp-launcher pointer-events-auto relative flex items-center gap-2 rounded-full bg-card border-2 border-card sm:pr-3.5"
+                    title="Chat with us"
+                    className={`sp-launcher pointer-events-auto relative flex items-center gap-2 rounded-full bg-card border-2 border-card ${showLabel ? 'sm:pr-3.5' : ''}`}
                 >
                     <span className="w-10 h-10 sm:w-12 sm:h-12 rounded-full overflow-hidden bg-card shrink-0 block">
                         <img src="/mr-imagine/mr-imagine-head-happy.png" alt="" className="w-full h-full object-cover" />
                     </span>
-                    <span className="hidden sm:inline-flex items-center gap-1.5 text-sm font-semibold text-text">
+                    <span className={`${showLabel ? 'hidden sm:inline-flex' : 'hidden'} items-center gap-1.5 text-sm font-semibold text-text`}>
                         <MessageCircle className="w-4 h-4 text-primary" /> {live ? `${PERSON} is on her way` : 'Chat with us'}
                     </span>
                     {unreadCount > 0 && (

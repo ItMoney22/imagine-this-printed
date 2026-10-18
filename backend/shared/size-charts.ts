@@ -26,6 +26,7 @@ export const SIZE_CHARTS: Record<GarmentId, SizeChartRow[]> = {
     { size: 'XL', widthIn: 24, lengthIn: 31 },
     { size: '2XL', widthIn: 26, lengthIn: 32 },
     { size: '3XL', widthIn: 28, lengthIn: 33 },
+    { size: '4XL', widthIn: 30, lengthIn: 34 },
     // Gildan 5000B youth tee — sold on this same adult listing.
     { size: 'YXS', widthIn: 16, lengthIn: 20.5 },
     { size: 'YS', widthIn: 17, lengthIn: 22 },
@@ -40,6 +41,7 @@ export const SIZE_CHARTS: Record<GarmentId, SizeChartRow[]> = {
     { size: 'XL', widthIn: 26, lengthIn: 30 },
     { size: '2XL', widthIn: 28, lengthIn: 31 },
     { size: '3XL', widthIn: 30, lengthIn: 32 },
+    { size: '4XL', widthIn: 32, lengthIn: 33 },
     // Gildan 18500B youth hoodie — the same listing sells it (David
     // 2026-09-07), so the chart has to carry it or the card advertises sizes
     // it doesn't measure.

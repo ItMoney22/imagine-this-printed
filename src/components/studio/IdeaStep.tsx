@@ -24,6 +24,7 @@ import { ApproveButton, InlineError, SecondaryButton, StepCard } from './shared'
 import ProgressBar from './ProgressBar'
 import InspirationPanel from './InspirationPanel'
 import LetteringStylePicker from './LetteringStylePicker'
+import UploadDesignPanel from './UploadDesignPanel'
 
 // The writing brain's brief call is fast — a few seconds of GPT chat, not an
 // image render — so a short expected time is enough to keep the bar honest.
@@ -203,7 +204,11 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
   return (
     <StepCard>
       <h2 className="text-xl font-bold text-text mb-1">What do you want to make?</h2>
-      <p className="text-sm text-muted mb-4">Type it, or speak it — one line is enough. Example: “hip-hop street monkey”.</p>
+      <p className="text-sm text-muted mb-4">
+        {lane.id === 'admin'
+          ? 'Pick what it goes on, then upload a finished design or type an idea.'
+          : 'Type it, or speak it — one line is enough. Example: “hip-hop street monkey”.'}
+      </p>
 
       <div className="flex flex-wrap gap-2 mb-4">
         {PRODUCT_KIND_CHIPS.map((chip) => (
@@ -222,6 +227,8 @@ const IdeaStep: React.FC<IdeaStepProps> = ({ state, dispatch, refresh }) => {
           </button>
         ))}
       </div>
+
+      {lane.id === 'admin' && <UploadDesignPanel kind={kindChoice} refresh={refresh} />}
 
       <InspirationPanel
         idea={idea}

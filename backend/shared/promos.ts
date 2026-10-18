@@ -10,6 +10,8 @@
 // at checkout even though the storefront advertised a discount. All four
 // now import from here.
 
+import { isCreatorProductMeta } from './creator-product.js'
+
 export const BUNDLE_DEAL = {
   /** How many eligible units make one bundle. */
   qty: 2,
@@ -51,6 +53,12 @@ export function bundleTotalCents(eligibleQty: number, unitCents: number): number
  * on the product row/metadata today. Only the deal's terms changed on
  * 2026-09-02, not the flag name, so no data migration was needed to ship
  * the new terms.
+ *
+ * Never a creator's own apparel (backend/shared/creator-product.ts): the
+ * house bundle prices any eligible tee at $25 and a pair at $25, so a flag
+ * left on Darrell McCutchen's $24.99 "Walk By Faith" sold two of his shirts
+ * for $25 (found 2026-10-07). The creator sets his price; the house promo
+ * does not apply to it. Both the cart and the server read this rule.
  */
 export function isBundleEligible(
   product:
@@ -62,5 +70,6 @@ export function isBundleEligible(
     | undefined
 ): boolean {
   if (!product) return false
+  if (isCreatorProductMeta(product.metadata)) return false
   return !!(product.isThreeForTwentyFive || product.metadata?.isThreeForTwentyFive)
 }
