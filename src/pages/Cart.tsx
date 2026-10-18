@@ -7,6 +7,7 @@ import { getColorName } from '../utils/color-presets'
 import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { lineUnitBasePrice } from '../../backend/shared/blank-pricing'
+import { isQrStandLineId, QR_FIELD } from '../../backend/shared/qr-stand'
 
 const Cart: React.FC = () => {
   const { state, removeFromCart, updateQuantity } = useCart()
@@ -110,6 +111,13 @@ const Cart: React.FC = () => {
                     )}
                     {item.printLocation && (
                       <p className="text-sm text-muted mt-1">Print location: {item.printLocation}</p>
+                    )}
+                    {isQrStandLineId(item.product.id) && item.personalization && (
+                      <div className="text-sm text-muted mt-1 space-y-0.5">
+                        <p className="break-all">Code opens: <span className="font-medium text-text">{item.personalization[QR_FIELD.link]}</span></p>
+                        <p>Words: <span className="font-medium text-text">{item.personalization[QR_FIELD.caption]}</span></p>
+                        <p>Logo in the middle: <span className="font-medium text-text">{item.personalization[QR_FIELD.logoPath] ? 'yes' : 'none'}</span></p>
+                      </div>
                     )}
                     <p className="text-lg font-bold text-purple-600 mt-2">
                       ${lineBasePrice(item.product, item.selectedSize, item.selectedColor).toFixed(2)}

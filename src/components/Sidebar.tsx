@@ -31,6 +31,7 @@ import {
   Mail,
   Inbox,
   Blocks,
+  QrCode,
   Shirt
 } from 'lucide-react'
 
@@ -144,6 +145,14 @@ export function Sidebar() {
             label="Products"
             isCollapsed={isCollapsed}
             isActive={isActive('/catalog')}
+            onClick={closeMobile}
+          />
+          <NavItem
+            to="/business/qr-stand"
+            icon={<QrCode className="w-5 h-5" />}
+            label="Business Products"
+            isCollapsed={isCollapsed}
+            isActive={location.pathname.startsWith('/business')}
             onClick={closeMobile}
           />
           <NavItem

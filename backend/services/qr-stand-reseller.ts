@@ -76,7 +76,10 @@ export function verifyResellerRef(ref: string | null | undefined, now = Date.now
 export function saleHookUrl(vendor: string): string | null {
   try {
     const map = JSON.parse(process.env.STOREFRONT_SALE_HOOKS || '{}') as Record<string, string>
-    if (typeof map[vendor] === 'string' && map[vendor].startsWith('https://')) return map[vendor]
+    const url = map[vendor]
+    // https only, except a localhost receiver while developing (both sides local).
+    const local = process.env.NODE_ENV !== 'production' && /^http:\/\/localhost(:\d+)?\//.test(url ?? '')
+    if (typeof url === 'string' && (url.startsWith('https://') || local)) return url
   } catch {
     /* fall through to the known list */
   }

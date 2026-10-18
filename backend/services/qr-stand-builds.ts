@@ -275,6 +275,10 @@ export async function requestPrint(id: string): Promise<{ ok: true; build: Build
   const build = row as BuildRow | null
   if (!build) return { ok: false, error: 'No print file found.' }
   if (build.status !== 'ready' || build.scan_ok !== true) return { ok: false, error: 'Rebuild the print file first: only a file that scans can print.' }
+  // Only the NEWEST file for a stand may print: an older one says whatever the
+  // stand said before the last edit.
+  const newest = (await latestBuilds(build.order_id)).get(build.line_index)
+  if (newest && newest.id !== build.id) return { ok: false, error: 'That print file is out of date: send the newest one.' }
   if (build.print_status === 'requested' || build.print_status === 'sending') return { ok: true, build }
   const now = new Date().toISOString()
   const { data, error } = await supabase
