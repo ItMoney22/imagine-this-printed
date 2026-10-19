@@ -85,8 +85,9 @@
     "deploymentEnabled": {
       "**": false,
       "main": true,
-      "preview/**": true
+      "preview/**": true,
+      "ship/**": true
     }
   },
-  "ignoreCommand": "case \"$VERCEL_GIT_COMMIT_REF\" in main|preview/*) exit 1;; *) exit 0;; esac"
+  "ignoreCommand": "case \"$VERCEL_GIT_COMMIT_REF\" in main|preview/*|ship/*) exit 1;; *) exit 0;; esac"
 }
