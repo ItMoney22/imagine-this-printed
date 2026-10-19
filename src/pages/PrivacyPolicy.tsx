@@ -1,5 +1,8 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Shield, Mail, MapPin } from 'lucide-react'
+import BusinessContactBlock from '../components/BusinessContactBlock'
+import { POLICY_UPDATED } from '../config/business-info'
+import { PENDING_REFERRAL_KEY, REFERRAL_LINK_DAYS } from '../utils/referral-capture'
+import { ArrowLeft, Shield, Mail } from 'lucide-react'
 
 export default function PrivacyPolicy() {
   return (
@@ -15,7 +18,7 @@ export default function PrivacyPolicy() {
             <Shield className="w-12 h-12 text-white" />
             <div>
               <h1 className="text-4xl font-bold text-white">Privacy Policy</h1>
-              <p className="text-white/80 mt-2">Last updated: January 1, 2026</p>
+              <p className="text-white/80 mt-2">Last updated: {POLICY_UPDATED.privacy}</p>
             </div>
           </div>
         </div>
@@ -112,10 +115,9 @@ export default function PrivacyPolicy() {
               <p>
                 We use a small number of cookies and similar technologies to operate the site and to credit referrals. You can control cookies through your browser settings, though some features may not function properly without them.
               </p>
-              <p><strong className="text-text">Cookies we set:</strong></p>
+              <p><strong className="text-text">Referral links:</strong></p>
               <ul className="list-disc list-inside ml-4 space-y-2">
-                <li><strong className="text-text">itp_referral</strong> — stores a referral code so the referring user receives credit when you sign up. 90-day expiration. Only set after you accept cookies via our consent banner.</li>
-                <li><strong className="text-text">itp_referral_ts</strong> — timestamp companion to the referral cookie, used to validate the 90-day window. Only set after you accept cookies via our consent banner.</li>
+                <li><strong className="text-text">{PENDING_REFERRAL_KEY}</strong> — when you open a friend&apos;s referral link, its code is kept in this browser&apos;s <em>localStorage</em> (not a cookie) so your friend can be credited if you make an account. It is deleted the first time you sign in, or after {REFERRAL_LINK_DAYS} days. Choosing Decline on the site banner deletes it and stops new ones being kept.</li>
               </ul>
               <p>
                 Essential authentication and cart state are stored in browser <em>localStorage</em>, not cookies, and are not subject to consent because they are required for the site to function.
@@ -149,10 +151,7 @@ export default function PrivacyPolicy() {
                   wecare@imaginethisprinted.com
                 </a>
               </div>
-              <div className="flex items-center gap-3 text-muted">
-                <MapPin className="w-5 h-5 text-purple-600" />
-                <span>Imagine This Printed, United States</span>
-              </div>
+              <BusinessContactBlock />
             </div>
           </section>
 

@@ -64,7 +64,6 @@ const RecommendationsDashboard: React.FC = () => {
             limit: 8
           }}
           title="🔥 Trending This Week"
-          showReason={true}
           onProductClick={(product, _position) => {
             navigate(`/product/${product.id}`)
           }}
@@ -83,7 +82,6 @@ const RecommendationsDashboard: React.FC = () => {
           }}
           title="⭐ Just for You"
           className="border-t pt-8"
-          showReason={true}
           onProductClick={(product, _position) => {
             navigate(`/product/${product.id}`)
           }}

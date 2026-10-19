@@ -123,7 +123,7 @@ describe('updateEtsyListing', () => {
     const body = put()!.body
     const labels = body.products.map((p: any) =>
       p.property_values.find((pv: any) => pv.property_name === 'Size').values[0])
-    expect(labels).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'Youth XS', 'Youth S', 'Youth M', 'Youth L', 'Youth XL'])
+    expect(labels).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'Youth XS', 'Youth S', 'Youth M', 'Youth L', 'Youth XL'])
 
     const priced = Object.fromEntries(body.products.map((p: any) => [
       p.property_values.find((pv: any) => pv.property_name === 'Size').values[0],

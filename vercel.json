@@ -13,6 +13,17 @@
       "destination": "/api/product-meta?path=/product/:path*"
     },
     {
+      "source": "/p/:path*",
+      "has": [
+        {
+          "type": "header",
+          "key": "user-agent",
+          "value": ".*([Bb]ot|[Cc]rawler|[Ss]pider|facebookexternalhit|Slackbot|Twitterbot|WhatsApp|TelegramBot|Discordbot|LinkedInBot|Pinterest|Googlebot|bingbot|DuckDuckBot|Baiduspider|YandexBot|Applebot|GPTBot|OAI-SearchBot|ChatGPT-User|PerplexityBot|ClaudeBot|Claude-Web|Amazonbot|meta-externalagent).*"
+        }
+      ],
+      "destination": "/api/product-meta?path=/p/:path*"
+    },
+    {
       "source": "/catalog/:path*",
       "has": [
         {

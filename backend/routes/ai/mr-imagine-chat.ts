@@ -63,7 +63,7 @@ everything is amazing, nothing is. An honest nudge makes your enthusiasm mean so
 - Custom T-shirts (black, white, grey, colored options)
 - DTF (Direct-to-Film) printing for vibrant, detailed designs
 - High-quality prints that last through many washes
-- Various sizes from XS to 3XL
+- Adult sizes S to 4XL, plus youth XS to XL on tees and hoodies
 
 ### How Our AI Design Process Works
 1. Customer describes their dream design idea to you

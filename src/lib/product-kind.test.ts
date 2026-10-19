@@ -17,11 +17,22 @@ import {
   getProductAssets,
   hasDigitalDeliverables,
   getGalleryImages,
+  isGarmentShotUrl,
   getDeliverables,
   unitBasePrice,
   startingPrice,
   hasPriceRange,
-  metalSizeOptions
+  metalSizeOptions,
+  listingKindOf,
+  listingOptionSets,
+  colorChoicesFor,
+  transferSizeChoicesFor,
+  defaultSizeFor,
+  sizePriceDelta,
+  formatPriceDelta,
+  placementChoicesFor,
+  defaultPrintLocation,
+  offersDigitalDownload
 } from './product-kind'
 import { STUDIO_SIZE_KEYS } from '../../backend/shared/metal-art'
 import type { Product } from '../types'
@@ -80,7 +91,7 @@ describe('canonicalCategoryOf — the id the storefront filter uses', () => {
 describe('defaultSizesFor', () => {
   it('offers print sizes for metal and garment sizes for apparel', () => {
     expect(defaultSizesFor('metal')).toEqual(STUDIO_SIZE_KEYS)
-    expect(defaultSizesFor('apparel')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL'])
+    expect(defaultSizesFor('apparel')).toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL'])
   })
 
   // David 2026-09-06: a 3D print ships at the one size in its own photo. The
@@ -111,13 +122,13 @@ describe('sizeChoicesFor', () => {
     // (measured 2026-09-07: all 84 shirt/hoodie rows have an EMPTY sizes
     // column, so all of them landed here) — it hid the 3XL we do stock.
     expect(sizeChoicesFor(p({ category: 'shirts' })))
-      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
     expect(sizeChoicesFor(p({ category: 'metal-art' }))).toEqual(STUDIO_SIZE_KEYS)
   })
 
   it('offers youth sizes on a hoodie too', () => {
     expect(sizeChoicesFor(p({ category: 'hoodies' })))
-      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
   })
 
   it('appends youth to a legacy metadata.sizes list instead of replacing it', () => {
@@ -371,3 +382,272 @@ describe('resolveProductAddons — metal prints offer the catalog by default', (
     expect(resolveProductAddons(p({ category: 'shirts', metadata: {} }))).toEqual([])
   })
 })
+
+// ---------------------------------------------------------------------------
+// Option sets by listing kind (David 2026-10-07 live phone walk, task b2784c8d).
+// The fixtures are the LIVE rows the walk found broken, trimmed to the columns
+// that decide the page: the $5 transfer, a hoodie, the tee whose placement
+// picker blocked Add to Cart, and a blank.
+const patrioticTransfer = p({
+  name: 'Patriotic Heartbeat DTF', category: 'dtf-transfers', price: 5,
+  sizes: ['S', 'M', 'L', 'XL', '2XL', '3XL'], colors: ['#000000', '#FFFFFF', '#9CA3AF'], print_locations: [],
+  metadata: { duplicated_from: '99637ebe-7ed3-42eb-b24f-0e3ddbb21fb8' }
+})
+const lionTransfer = p({
+  category: 'dtf-transfers', price: 25, sizes: [], colors: [], print_locations: ['front_image'],
+  metadata: { product_type: 'tshirt', shirt_color: 'black', print_placement: 'front-center' }
+})
+const athleteHoodie = p({
+  category: 'hoodies', price: 35, sizes: [], colors: ['#FFFFFF', '#000000'], print_locations: [],
+  metadata: { product_type: 'hoodie', shirt_color: 'white', garment: { variant_pricing: { styles: { standard: 'G185' } } } }
+})
+const leftoversTee = p({
+  category: 'shirts', price: 24.99, sizes: [], colors: ['black'],
+  print_locations: ['front_image', 'back_image', 'pocket'],
+  metadata: { product_type: 'tshirt', shirt_color: 'black', print_placement: 'front-center', print_size_inches: 11 }
+})
+const classicBlank = p({
+  category: 'shirts', price: 3.07, sizes: ['S', 'M', 'L', 'XL', '2XL'], colors: ['White', 'Black'], print_locations: ['front_image'],
+  metadata: { garment: { blank: true, tier: 'standard' } }
+})
+
+describe('listingKindOf — what the shopper is actually buying', () => {
+  it('a dtf-transfers row is a transfer even when its metadata was written for a tee', () => {
+    expect(listingKindOf(patrioticTransfer)).toBe('dtf-transfer')
+    expect(listingKindOf(lionTransfer)).toBe('dtf-transfer')
+  })
+
+  it('hoodies, tees, blanks, metal and 3D each resolve to their own kind', () => {
+    expect(listingKindOf(athleteHoodie)).toBe('hoodie')
+    expect(listingKindOf(p({ category: 'shirts', metadata: { product_type: 'hoodie' } }))).toBe('hoodie')
+    expect(listingKindOf(leftoversTee)).toBe('tee')
+    // Live rows carry the legacy 't-shirts' value the type union doesn't list.
+    expect(listingKindOf(p({ category: 't-shirts' as Product['category'] }))).toBe('tee')
+    expect(listingKindOf(classicBlank)).toBe('blank')
+    expect(listingKindOf(p({ category: 'metal-art' }))).toBe('metal')
+    expect(listingKindOf(p({ category: '3d-prints' }))).toBe('3d')
+  })
+})
+
+describe('listingOptionSets — which pickers a listing renders', () => {
+  it('a DTF transfer offers transfer size, quantity and the gang sheet only', () => {
+    const o = listingOptionSets(patrioticTransfer)
+    expect(o.blankPicker).toBeNull()
+    expect(o.colors).toBe(false)
+    expect(o.placement).toBe(false)
+    expect(o.upload).toBe(false)
+    expect(o.gangSheet).toBe(true)
+    expect(o.tryOn).toBe(false)
+  })
+
+  it('a hoodie offers hoodie blanks and a tee offers tee blanks', () => {
+    expect(listingOptionSets(athleteHoodie).blankPicker).toBe('hoodie')
+    expect(listingOptionSets(leftoversTee).blankPicker).toBe('tee')
+  })
+
+  it('upload shows only where the shopper brings the art: blanks and personalizable templates', () => {
+    expect(listingOptionSets(leftoversTee).upload).toBe(false)
+    expect(listingOptionSets(athleteHoodie).upload).toBe(false)
+    expect(listingOptionSets(classicBlank).upload).toBe(true)
+    expect(listingOptionSets(p({ category: 'shirts', metadata: { is_template: true, personalization: 'customer_photo' } })).upload).toBe(true)
+  })
+
+  it('a blank carries no placement, no quality picker (it IS its tier) and no gang sheet', () => {
+    const o = listingOptionSets(classicBlank)
+    expect(o.blankPicker).toBeNull()
+    expect(o.placement).toBe(false)
+    expect(o.gangSheet).toBe(false)
+  })
+})
+
+describe('transfer sizes — a DTF transfer never shows shirt sizes or colours', () => {
+  it('the $5 transfer offers transfer sizes, not the shirt sizes stored on its row', () => {
+    const sizes = sizeChoicesFor(patrioticTransfer)
+    for (const shirt of ['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL']) expect(sizes).not.toContain(shirt)
+    expect(sizes).toEqual(['11 in (adult)', '8 in (youth)'])
+    expect(colorChoicesFor(patrioticTransfer)).toEqual([])
+  })
+
+  it('sizes follow the width the design was made at, when the row records one', () => {
+    expect(transferSizeChoicesFor(p({ category: 'dtf-transfers', metadata: { print_size_inches: 10 } }))).toEqual(['10 in (adult)', '8 in (youth)'])
+    expect(transferSizeChoicesFor(p({ category: 'dtf-transfers', metadata: { print_size_inches: 8 } }))).toEqual(['8 in'])
+  })
+
+  it('real transfer sheet sizes an admin set on the row win', () => {
+    const sheet = p({ category: 'dtf-transfers', sizes: ['8.5x11"', '11x17"', '13x19"'] })
+    expect(sizeChoicesFor(sheet)).toEqual(['8.5x11"', '11x17"', '13x19"'])
+  })
+
+  it('a transfer opens on a size, so Add to Cart never waits on a pick', () => {
+    expect(defaultSizeFor(patrioticTransfer)).toBe('11 in (adult)')
+  })
+
+  it('no transfer size carries a shirt upcharge or youth discount', () => {
+    for (const sz of [...sizeChoicesFor(patrioticTransfer), '8.5x11"', '13x19"']) {
+      expect(sizePriceDelta(patrioticTransfer, sz)).toBe(0)
+    }
+  })
+
+  it('a tee still opens with no size picked, and a one-size listing opens on it', () => {
+    expect(defaultSizeFor(leftoversTee)).toBe('')
+    expect(defaultSizeFor(p({ category: 'metal-art', sizes: ['4x6', '8x10'] }))).toBe('4x6')
+  })
+})
+
+describe('defaultPrintLocation — placement opens on where the design is printed', () => {
+  it('f09a7d64 (printed front-center, offered front/back/pocket) opens on Front', () => {
+    expect(placementChoicesFor(leftoversTee)).toEqual(['front_image', 'back_image', 'pocket'])
+    expect(defaultPrintLocation(leftoversTee)).toBe('front_image')
+  })
+
+  it('maps every recorded print_placement onto the location it is printed at', () => {
+    const offer = (print_placement: string) => p({ category: 'shirts', print_locations: ['front_image', 'back_image', 'pocket'], metadata: { print_placement } })
+    expect(defaultPrintLocation(offer('left-pocket'))).toBe('pocket')
+    expect(defaultPrintLocation(offer('back-only'))).toBe('back_image')
+    expect(defaultPrintLocation(offer('front-back'))).toBe('front_image')
+    expect(defaultPrintLocation(offer('pocket-front-back-full'))).toBe('pocket')
+  })
+
+  it('falls back to Front, then the first offered location, when nothing is recorded', () => {
+    expect(defaultPrintLocation(p({ category: 'shirts', print_locations: ['back_image', 'front_image'], metadata: {} }))).toBe('front_image')
+    expect(defaultPrintLocation(p({ category: 'shirts', print_locations: ['back_image', 'pocket'], metadata: {} }))).toBe('back_image')
+  })
+
+  it('a transfer, a blank or a listing with no locations has no placement', () => {
+    expect(placementChoicesFor(lionTransfer)).toEqual([])
+    expect(defaultPrintLocation(lionTransfer)).toBeNull()
+    expect(defaultPrintLocation(classicBlank)).toBeNull()
+    expect(defaultPrintLocation(p({ category: 'shirts', print_locations: [] }))).toBeNull()
+  })
+})
+
+describe('sizePriceDelta — size buttons carry the whole amount', () => {
+  it('a tee charges +$2.50 for 2XL and up and takes $3.00 off youth sizes', () => {
+    expect(sizePriceDelta(leftoversTee, '2XL')).toBe(2.5)
+    expect(sizePriceDelta(leftoversTee, '3XL')).toBe(2.5)
+    expect(sizePriceDelta(leftoversTee, '4XL')).toBe(3.25)
+    expect(sizePriceDelta(leftoversTee, 'YXS')).toBe(-3)
+    expect(sizePriceDelta(leftoversTee, 'M')).toBe(0)
+    expect(formatPriceDelta(2.5)).toBe('+$2.50')
+    expect(formatPriceDelta(-3)).toBe('-$3.00')
+    expect(formatPriceDelta(0)).toBe('')
+  })
+
+  it('a hoodie follows the same rails', () => {
+    expect(sizePriceDelta(athleteHoodie, '2XL')).toBe(2.5)
+    expect(sizePriceDelta(athleteHoodie, 'YL')).toBe(-3)
+  })
+
+  it('blanks and metal price per size outright, so they carry no delta', () => {
+    expect(sizePriceDelta(classicBlank, '2XL')).toBe(0)
+    expect(sizePriceDelta(p({ category: 'metal-art' }), '4x6')).toBe(0)
+  })
+})
+
+// Darrell McCutchen's "Walk By Faith" (e387149e) as it sits live: a Merch
+// Studio row whose print file doubles as clean + DTF, a watermarked bare-art
+// display, and three maroon garment photos (David 2026-10-07 phone walk).
+describe("creator apparel (Merch Studio) — sold as the creator's shirt", () => {
+  const assets = {
+    clean: 'https://cdn/front.png',
+    dtf: 'https://cdn/front.png',
+    display: 'https://cdn/watermarked-display.png',
+    mockups: ['https://cdn/mockup-1.png', 'https://cdn/mockup-2.png', 'https://cdn/mockup-3.png']
+  }
+  const walkByFaith = p({
+    category: 'shirts',
+    images: assets.mockups,
+    colors: ['maroon'],
+    metadata: { source: 'merch-studio', assets, mockup_url: 'https://cdn/mockup-1.png', print_files: { front: 'https://cdn/front.png' } }
+  })
+
+  it('leads with the maroon garment photos and never shows the bare art or the print file', () => {
+    expect(getGalleryImages(walkByFaith)).toEqual(assets.mockups)
+  })
+
+  it('offers no digital download even though the print file exists', () => {
+    expect(hasDigitalDeliverables(walkByFaith)).toBe(true)
+    expect(offersDigitalDownload(walkByFaith)).toBe(false)
+  })
+
+  it('has no upload and no Imagination Sheet, but keeps the tee pickers', () => {
+    const o = listingOptionSets(walkByFaith)
+    expect(o).toMatchObject({ kind: 'tee', upload: false, gangSheet: false, colors: true, tryOn: true })
+    expect(colorChoicesFor(walkByFaith)).toEqual(['maroon'])
+  })
+
+  it('leaves a non-creator design alone', () => {
+    const house = p({ category: 'shirts', images: [], metadata: { assets, creator_id: 'someone' } })
+    expect(getGalleryImages(house)[0]).toBe(assets.display)
+    expect(offersDigitalDownload(house)).toBe(true)
+    expect(listingOptionSets(house).gangSheet).toBe(true)
+  })
+})
+
+import { printLocationLabel as _pll } from './product-kind'
+describe('printLocationLabel', () => {
+  it('maps placement codes to shopper words', () => {
+    expect(_pll('front_image')).toBe('Front')
+    expect(_pll('back_image')).toBe('Back')
+    expect(_pll('pocket')).toBe('Pocket')
+  })
+  it('never shows a raw code and tolerates missing values', () => {
+    expect(_pll('sleeve_image')).toBe('Sleeve')
+    expect(_pll(undefined)).toBe('')
+    expect(_pll('')).toBe('')
+  })
+})
+
+describe('gallery images — a garment shot leads, never bare art (task 732f8a71)', () => {
+  const base = 'https://storage.googleapis.com/b/'
+  const raw = `${base}gnome/original/gnome-gpt.png`
+  const ghost = `${base}gnome/ghost_mannequin/gnome-ghost_mannequin-1.png`
+  const hanger = `${base}gnome/hanger/gnome-hanger-1.png`
+  const flat = `${base}gnome/flat_lay/gnome-flat_lay-1.png`
+  const onModel = `${base}u/mockups/etsy_shot_abc_step-model-x_1.png`
+  const details = `${base}system/mockups/abc-details-1.png`
+
+  it('moves the ghost mannequin ahead of the raw original', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, hanger, ghost, details, onModel] }))[0]).toBe(ghost)
+  })
+
+  it('ranks ghost mannequin, flat lay, hanger, then on-model; art and details trail', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, onModel, hanger, details, flat, ghost] }))).toEqual([
+      ghost, flat, hanger, onModel, raw, details,
+    ])
+  })
+
+  it('beats a watermarked display hero when a garment shot exists', () => {
+    const display = 'https://cdn/display.png'
+    expect(getGalleryImages(p({ metadata: { assets: { display } }, images: [raw, ghost] }))).toEqual([ghost, display, raw])
+  })
+
+  it('leaves a row with no garment shot in its stored order', () => {
+    expect(getGalleryImages(p({ metadata: {}, images: [raw, details] }))).toEqual([raw, details])
+  })
+
+  it('does not treat a details card or bare art as a garment shot', () => {
+    expect(isGarmentShotUrl(details)).toBe(false)
+    expect(isGarmentShotUrl(raw)).toBe(false)
+    expect(isGarmentShotUrl(ghost)).toBe(true)
+  })
+})
+
+describe('sizeChoicesFor — 4XL on listings frozen before it existed (David 2026-10-16)', () => {
+  const tee = (sizes: string[]) => p({ category: 'shirts', sizes, metadata: { product_type: 'tshirt' } })
+
+  it('puts 4XL right after 3XL on a Step Flow row frozen at S-3XL', () => {
+    expect(sizeChoicesFor(tee(['S', 'M', 'L', 'XL', '2XL', '3XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])))
+      .toEqual(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+  })
+
+  it('leaves a listing that was cut short of 3XL exactly as it was', () => {
+    expect(sizeChoicesFor(tee(['S', 'M', 'L', 'XL']))).toEqual(['S', 'M', 'L', 'XL', 'YXS', 'YS', 'YM', 'YL', 'YXL'])
+    expect(sizeChoicesFor(tee(['M', 'L', 'XL', '2XL']))).not.toContain('4XL')
+  })
+
+  it('never doubles a 4XL a listing already has', () => {
+    expect(sizeChoicesFor(tee(['S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL'])).filter(s => s === '4XL')).toHaveLength(1)
+  })
+})
+

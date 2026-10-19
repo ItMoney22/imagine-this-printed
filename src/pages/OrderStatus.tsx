@@ -5,6 +5,7 @@ import {
   ExternalLink, MapPin, Mail
 } from 'lucide-react'
 import { API_BASE } from '../lib/api'
+import { HelpStrip } from '../components/support/SupportParts'
 
 // Public, no-login order status. Reached from the tokenized link in every
 // transactional email (/order-status/:orderId?t=…), so guest buyers who never
@@ -160,8 +161,8 @@ const OrderStatus: React.FC = () => {
           <AlertCircle className="w-12 h-12 text-orange-500 mx-auto mb-4" />
           <h1 className="text-xl font-bold text-text mb-2">We couldn't open that order</h1>
           <p className="text-muted text-sm mb-6">{error}</p>
-          <Link to="/contact" className="inline-block px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors">
-            Contact Us
+          <Link to="/contact?topic=order" className="inline-block px-5 py-2.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg transition-colors">
+            Message the shop
           </Link>
         </div>
       </div>
@@ -322,14 +323,12 @@ const OrderStatus: React.FC = () => {
           <p className="flex items-center justify-center gap-2">
             <Mail className="w-4 h-4" /> Confirmation sent to {order.customer_email_masked}
           </p>
-          <p className="mt-3">
-            Questions? <Link to="/contact" className="text-purple-600 hover:underline font-semibold">Get in touch</Link> — or just reply to your order email.
-          </p>
           <p className="mt-6">
             <Link to="/" className="text-purple-600 hover:underline">Imagine This Printed</Link>
           </p>
         </div>
       </div>
+      <HelpStrip orderNumber={order.order_number} />
     </div>
   )
 }

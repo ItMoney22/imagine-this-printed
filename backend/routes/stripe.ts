@@ -14,7 +14,7 @@ import {
   sendOrderDeliveredEmail,
   sendItcPurchaseEmail
 } from '../utils/email.js'
-import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
+import { calculateOrderPricing, evaluateCheckoutAmount, pricingItemsFromCart, type PricingCartItem } from '../services/order-pricing.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
 import { parseTeamTemplate, sanitizeValues } from '../shared/team-template.js'
 import { renderOrGetCached, pressPlatePath } from '../services/team-plate/plate-store.js'
@@ -31,6 +31,7 @@ import {
   recordRefundOnOrder,
   refundedCentsFromMetadata
 } from '../services/order-refunds.js'
+import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
 
 const router = Router()
 
@@ -438,7 +439,11 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution } = req.body
+    // Landing UTMs captured client-side (src/utils/utm.ts) before checkout —
+    // sanitized/allowlisted so an untrusted body can't inject arbitrary JSONB.
+    // null means "nothing known this call", not "clear what's stored".
+    const sanitizedAttribution = sanitizeAttribution(attribution)
     // Authenticated callers: use the JWT subject. Guests: trust the body
     // (or null) because there's no logged-in user to verify against.
     const userId = req.user?.sub ?? bodyUserId ?? null
@@ -485,29 +490,7 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
     // backend/services/order-pricing.ts for the engine and its documented
     // scope/known gaps.
     // -----------------------------------------------------------------------
-    const pricingItems: PricingCartItem[] = (items || []).map((item: any) => ({
-      productId: item?.product?.id != null ? String(item.product.id) : null,
-      quantity: item?.quantity || 1,
-      selectedSize: item?.selectedSize ?? null,
-      // Colour NAME — only consulted for blank garments, whose DB price
-      // table is keyed by size + colour group (backend/shared/blank-pricing.ts).
-      selectedColor: item?.selectedColor ?? null,
-      selectedTier: item?.selectedTier ?? null,
-      selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
-      clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null,
-      // weight feeds the signed shipping-quote verification (must match the
-      // parcel weight POST /api/shipping/rates quoted against); metadata
-      // carries 3d-print color_mode/include_paint_kit OPTIONS — never a
-      // trusted dollar amount. See order-pricing.ts GAP 1 / GAP 2.
-      weight: item?.product?.weight != null ? Number(item.product.weight) : null,
-      metadata: item?.product?.metadata ?? null,
-      // "2 for $25" bundle eligibility (GAP 4) — mirrors the top-level flag
-      // src/context/CartContext.tsx reads off product.isThreeForTwentyFive.
-      // metadata (above) already carries metadata.isThreeForTwentyFive, but
-      // that alone isn't the full eligibility rule the cart uses — see
-      // backend/shared/promos.ts isBundleEligible.
-      isThreeForTwentyFive: item?.product?.isThreeForTwentyFive ?? null
-    }))
+    const pricingItems: PricingCartItem[] = pricingItemsFromCart(items)
 
     let pricing
     try {
@@ -630,6 +613,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             customer_email: shipping?.email || null,
             customer_name: `${shipping?.firstName || ''} ${shipping?.lastName || ''}`.trim() || null,
             metadata: mergedMetadata,
+            // Only overwrite when THIS call carried a known campaign — a later
+            // cart-total update with no attribution must not blank out what an
+            // earlier call on the same draft already recorded.
+            ...(sanitizedAttribution ? { attribution: sanitizedAttribution } : {}),
             updated_at: new Date().toISOString()
           })
           .eq('id', existingOrderId)
@@ -703,6 +690,7 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
         },
         discount_codes: couponCode ? [couponCode] : [],
         source: 'web',
+        attribution: sanitizedAttribution ?? { ...DIRECT_ATTRIBUTION },
         metadata: {
           items: snapshotCartItems(items),
           itc_credit_amount: itcCreditAmount || 0,
@@ -845,11 +833,13 @@ router.post('/create-payment-intent', requireAuth, async (req: Request, res: Res
       return res.status(400).json({ error: 'Only USD currency is supported' })
     }
 
-    // Get user email from user_profiles
+    // Get user email from user_profiles. Keyed on id (the auth user id):
+    // user_id is NULL on most live rows, so .eq('user_id') failed every ITC
+    // purchase except the admin's (task bdfa6939, proven live 2026-10-07).
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('email')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single()
 
     if (profileError || !profile) {

@@ -201,7 +201,7 @@ const REVERSED_ORDER_STATUSES = ['cancelled', 'refunded']
 // own tab, not in the Pending work queue. Whether money ever landed is decided
 // by src/lib/order-payment-truth.ts, the same rule the customer's My Orders
 // page uses.
-const ORDER_TABS = ['pending', 'processing', 'shipped', 'on_hold', 'unpaid', 'all'] as const
+const ORDER_TABS = ['pending', 'processing', 'shipped', 'delivered', 'on_hold', 'unpaid', 'all'] as const
 type OrderTab = typeof ORDER_TABS[number]
 
 const OrderManagement: React.FC = () => {
@@ -716,12 +716,13 @@ const OrderManagement: React.FC = () => {
       : orders.filter(order => order.status === selectedTab && !isUnpaidDraft(order))
 
   // Stats (memoized to avoid filtering on every render)
-  const { pendingCount, processingCount, shippedCount, onHoldCount, unpaidCount, realOrderCount } = useMemo(() => {
+  const { pendingCount, processingCount, shippedCount, deliveredCount, onHoldCount, unpaidCount, realOrderCount } = useMemo(() => {
     const real = orders.filter(o => paymentEverLanded(o.paymentStatus))
     return {
       pendingCount: real.filter(o => o.status === 'pending').length,
       processingCount: real.filter(o => o.status === 'processing').length,
       shippedCount: real.filter(o => o.status === 'shipped').length,
+      deliveredCount: real.filter(o => o.status === 'delivered').length,
       onHoldCount: real.filter(o => o.status === 'on_hold').length,
       unpaidCount: orders.length - real.length,
       realOrderCount: real.length
@@ -878,6 +879,7 @@ const OrderManagement: React.FC = () => {
               { id: 'pending', label: 'Pending', count: pendingCount },
               { id: 'processing', label: 'Processing', count: processingCount },
               { id: 'shipped', label: 'Shipped', count: shippedCount },
+              { id: 'delivered', label: 'Delivered', count: deliveredCount },
               { id: 'on_hold', label: 'On Hold', count: onHoldCount },
               { id: 'unpaid', label: 'Unpaid', count: unpaidCount },
               { id: 'all', label: 'All Orders', count: orders.length }

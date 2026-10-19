@@ -1,6 +1,8 @@
 // Replicate provider — uniform wrapper that returns { imageUrls, raw }.
 // Ported from david-trinidad-com (Watchtower) at src/modules/image-flow/lib/providers/replicate.ts.
 
+import { ProviderOutOfCreditError } from '../../provider-credit.js'
+
 export interface ReplicateInput {
   modelId: string
   input: Record<string, unknown>
@@ -76,7 +78,11 @@ export async function runReplicate(opts: ReplicateInput): Promise<ReplicateResul
 
   if (!submit.ok) {
     const text = await submit.text().catch(() => '')
-    throw new Error(`replicate ${opts.modelId} ${submit.status}: ${text.slice(0, 400)}`)
+    const message = `replicate ${opts.modelId} ${submit.status}: ${text.slice(0, 400)}`
+    // Every mockup that failed on an empty Replicate account (65 of them,
+    // 8/24-8/30) failed HERE. Typed, so the worker pauses the queue instead.
+    if (submit.status === 402) throw new ProviderOutOfCreditError('replicate', message, { status: 402 })
+    throw new Error(message)
   }
 
   let prediction = (await submit.json()) as {

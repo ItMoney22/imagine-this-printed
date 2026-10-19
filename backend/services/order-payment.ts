@@ -222,7 +222,7 @@ export async function applyPaidCheckoutOrder(
       // actually awards ITC the first time (checks for an existing
       // 'purchase'-type referral_transactions row for this user first).
       if (rewardsUserId) {
-        const referralResult = await processReferralFirstPurchase(rewardsUserId, orderTotalUsd)
+        const referralResult = await processReferralFirstPurchase(rewardsUserId, orderTotalUsd, orderId)
         if (referralResult.success) {
           log?.info({ orderId, referrerId: referralResult.referrerId, bonus: referralResult.bonusITC }, '[rewards] Referral first-purchase bonus awarded')
         }
@@ -328,7 +328,16 @@ async function sendOrderConfirmation(order: any) {
     items,
     order.total || 0,
     customerName,
-    { orderId: order.id }
+    {
+      orderId: order.id,
+      // The order row already carries these; they just never reached the email.
+      totals: {
+        subtotal: order.subtotal,
+        discount: order.discount_amount,
+        shipping: order.shipping_amount,
+        tax: order.tax_amount
+      }
+    }
   )
   console.log(`[Email] Order confirmation sent to ${order.customer_email}: Order #${order.order_number}`)
 }

@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
 import { buildOrderStatusUrl } from '../utils/order-status-token.js'
 import { buildAccountClaimUrl } from '../utils/account-claim-token.js'
-import { couponBlockHtml, type EmailCoupon } from '../utils/email-blocks.js'
+import { couponBlockHtml, buildTotalsRows, totalsFootHtml, subjectClaimsShipped, typedName, type EmailCoupon, type OrderTotals } from '../utils/email-blocks.js'
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -50,6 +50,8 @@ interface EmailContext {
   orderId?: string
   items?: Array<{ name: string; quantity: number; price: number }>
   total?: number
+  /** Subtotal / discount / shipping / tax off the order row, for the itemised totals block. */
+  totals?: OrderTotals
   trackingNumber?: string
   carrier?: string
   /** Thank-you coupon rendered verbatim under the AI copy (delivered orders). */
@@ -115,7 +117,8 @@ ${template.ai_prompt_context || 'Generate a friendly email.'}
 AVAILABLE INFORMATION:
 ${contextDescription}
 
-OUTPUT FORMAT:
+${context.templateKey === 'order_confirmation' ? `HARD RULE FOR THIS EMAIL: the order is PAID and CONFIRMED only. Nothing has been printed or shipped. The subject must say the order is confirmed or received. NEVER write "on its way", "shipped", "in transit", "arriving", "delivered" or any wording that implies it has left us. Do not restate prices or totals in your text; an itemised totals table is added for you.
+` : ''}OUTPUT FORMAT:
 You must respond with a JSON object containing:
 {
   "subject": "The email subject line (catchy, personal, with 1 emoji max)",
@@ -131,7 +134,7 @@ HTML TIPS:
 
     const userPrompt = `Generate a ${context.templateKey.replace(/_/g, ' ')} email for this customer.
 
-Customer: ${context.customerName || 'Friend'}
+Customer: ${context.customerName || 'Friend'}${context.templateKey === 'ticket_confirmation' && context.customerName ? ` (greet them by exactly this name: "${context.customerName}")` : ''}
 Email: ${context.customerEmail}
 ${context.orderNumber ? `Order: ${context.orderNumber}` : ''}
 ${context.items ? `Items: ${context.items.map(i => `${i.quantity}x ${i.name}`).join(', ')}` : ''}
@@ -160,6 +163,26 @@ Make it personal, creative, and memorable. This should feel like it came from a 
 
     const parsed = JSON.parse(content)
 
+    // The writer is free-form and the stored template prompt once led it to
+    // "Your Gothic Ghost Face Candle Holders are on their way" on a PAID-but-
+    // unshipped order. A confirmation must never claim movement, so the subject
+    // is checked in code, not trusted to the prompt.
+    // Ticket greeting: the name the customer typed, verbatim ("Sam Reed"), never "Friend".
+    const ticketName = context.templateKey === 'ticket_confirmation' ? typedName(context.customerName) : null
+    if (ticketName && !String(parsed.greeting || '').includes(ticketName)) {
+      parsed.greeting = `Got it, ${esc(ticketName)}!`
+    }
+
+    if (context.templateKey === 'order_confirmation') {
+      const fixed = confirmationSubject(parsed.subject, context)
+      if (fixed !== parsed.subject) console.warn('[EmailAI] order_confirmation subject replaced:', parsed.subject)
+      parsed.subject = fixed
+      if (subjectClaimsShipped(`${parsed.greeting || ''} ${parsed.mainContent || ''}`)) {
+        console.warn('[EmailAI] order_confirmation body claimed shipping, using fallback copy')
+        return generateFallbackEmail(context)
+      }
+    }
+
     // Build the final HTML email
     const htmlContent = buildMrImagineEmail({
       greeting: parsed.greeting || template.mr_imagine_greeting,
@@ -168,6 +191,7 @@ Make it personal, creative, and memorable. This should feel like it came from a 
       orderNumber: context.orderNumber,
       items: context.items,
       total: context.total,
+      totals: context.totals,
       trackingNumber: context.trackingNumber,
       carrier: context.carrier,
       ctaText: getCtaText(context.templateKey),
@@ -228,6 +252,7 @@ function buildMrImagineEmail(options: {
   orderNumber?: string
   items?: Array<{ name: string; quantity: number; price: number }>
   total?: number
+  totals?: OrderTotals
   trackingNumber?: string
   carrier?: string
   ctaText?: string
@@ -253,12 +278,9 @@ function buildMrImagineEmail(options: {
           </tr>
         `).join('')}
       </tbody>
-      ${options.total ? `
+      ${options.total != null ? `
         <tfoot>
-          <tr>
-            <td colspan="2" style="padding: 12px; font-weight: bold; color: #374151;">Total</td>
-            <td style="padding: 12px; text-align: right; font-weight: bold; color: #059669; font-size: 18px;">$${options.total.toFixed(2)}</td>
-          </tr>
+          ${totalsFootHtml(buildTotalsRows(options.items, options.total, options.totals))}
         </tfoot>
       ` : ''}
     </table>
@@ -337,7 +359,7 @@ function buildMrImagineEmail(options: {
               <a href="${options.claimUrl}" style="display: inline-block; background: #7c3aed; color: white; padding: 11px 24px; text-decoration: none; border-radius: 10px; font-weight: 600; font-size: 14px;">
                 Create My Account
               </a>
-              <p style="color: #9ca3af; font-size: 11px; margin: 10px 0 0;">Totally optional — your order is on its way either way.</p>
+              <p style="color: #9ca3af; font-size: 11px; margin: 10px 0 0;">Totally optional — your order is confirmed either way.</p>
             </div>
           ` : ''}
 
@@ -381,7 +403,7 @@ function getCtaText(templateKey: string): string {
     order_shipped: 'Track Package',
     order_delivered: 'Shop More Designs',
     design_approved: 'View My Product',
-    ticket_confirmation: 'Continue Shopping',
+    ticket_confirmation: 'See Quick Answers',
     itc_purchase: 'Use My ITC'
   }
   return texts[templateKey] || 'Continue'
@@ -402,7 +424,7 @@ function getCtaUrl(templateKey: string, context: EmailContext): string {
     order_shipped: orderStatusUrl,
     order_delivered: `${FRONTEND_URL}/catalog`,
     design_approved: context.productId ? `${FRONTEND_URL}/product/${context.productId}` : `${FRONTEND_URL}/my-products`,
-    ticket_confirmation: FRONTEND_URL,
+    ticket_confirmation: `${FRONTEND_URL}/help`,
     itc_purchase: `${FRONTEND_URL}/wallet`
   }
   return urls[templateKey] || FRONTEND_URL
@@ -411,6 +433,14 @@ function getCtaUrl(templateKey: string, context: EmailContext): string {
 /**
  * Generate fallback email when AI is unavailable
  */
+const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+function confirmationSubject(subject: unknown, context: EmailContext): string {
+  const s = typeof subject === 'string' ? subject.trim() : ''
+  if (s && !subjectClaimsShipped(s) && /confirm|receiv|got your order|thank/i.test(s)) return s
+  return `🎉 Order Confirmed - ${context.orderNumber || 'Your Order'}`
+}
+
 function generateFallbackEmail(context: EmailContext): GeneratedEmail {
   // First name off orders.customer_name; falls back to the old generic address.
   const first = (context.customerName || '').trim().split(/\s+/)[0]
@@ -449,7 +479,7 @@ function generateFallbackEmail(context: EmailContext): GeneratedEmail {
     },
     ticket_confirmation: {
       subject: `✅ We Got Your Message - ${context.ticketSubject || 'Support Request'}`,
-      greeting: 'We got your message!',
+      greeting: typedName(context.customerName) ? `Got it, ${esc(typedName(context.customerName)!)}!` : 'We got your message!',
       content: `<p>Thanks for reaching out! Our team will review your request and get back to you within 24 hours.</p>
         <p>Your reference number is: <strong>${(context.ticketId || '').slice(0, 8).toUpperCase()}</strong></p>`
     },
@@ -474,6 +504,7 @@ function generateFallbackEmail(context: EmailContext): GeneratedEmail {
     orderNumber: context.orderNumber,
     items: context.items,
     total: context.total,
+    totals: context.totals,
     trackingNumber: context.trackingNumber,
     carrier: context.carrier,
     ctaText: getCtaText(context.templateKey),

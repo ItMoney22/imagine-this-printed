@@ -9,22 +9,18 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor } from '../lib/product-kind'
+import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
+import { useFeaturedOffer } from '../lib/featured-offer'
+import { matchesOfferTheme } from '../../backend/shared/seasonal-offer'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
-
-// Customer-facing labels for products.print_locations values. Mirrors
-// ProductPage.tsx's PRINT_LOCATION_LABELS for the product-page selector.
-const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
-  front_image: 'Front',
-  back_image: 'Back',
-  pocket: 'Pocket'
-}
 
 interface ProductCardProps {
   product: Product
   showSocialBadges?: boolean
+  /** Home-page tile (task b9656cc9): photo, name, price and one Add to cart button, nothing else. */
+  compact?: boolean
 }
 
 // Raw social_posts row shape returned by GET /api/social/posts (backend/routes/social.ts)
@@ -54,7 +50,8 @@ interface SocialPostRow {
   engagement?: { likes: number; shares: number; comments: number }
 }
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true }) => {
+const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true, compact = false }) => {
+  const featuredOffer = useFeaturedOffer()
   const navigate = useNavigate()
   const { addToCart } = useCart()
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([])
@@ -68,7 +65,6 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
 
   // Product kind drives type-aware UI (metal/3D must not look like a t-shirt).
   const kind = productKindOf(product)
-  const isApparel = kind === 'apparel'
 
   // The sizes this listing offers â€” one shared answer with ProductPage, so the
   // card and the page can never disagree. Metal always goes through the
@@ -77,6 +73,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   // print with no explicit tiers comes back EMPTY, meaning one size.
   const displaySizes = sizeChoicesFor(product)
   const hasSizes = displaySizes.length > 0
+  // Same option sets as ProductPage (David 2026-10-07): a transfer has no
+  // shirt colours and no placement, and opens on its adult size.
+  const options = listingOptionSets(product)
+  const sizeToAdd = selectedSize ?? (options.kind === 'dtf-transfer' ? defaultSizeFor(product) || null : null)
 
   // Card price: a metal print shows the price of the size picked (or "from"
   // its smallest size); everything else shows products.price.
@@ -84,21 +84,22 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   const showFrom = kind === 'metal' && !selectedSize && hasPriceRange(product)
 
   // Get colors from product (admin saves them as hex strings on product.colors / metadata.colors)
-  const colors: string[] = product.colors || product.metadata?.colors || []
+  const colors: string[] = options.colors ? (product.colors || product.metadata?.colors || []) : []
   const hasColors = colors.length > 0
 
   // Quick Add is satisfied when every visible picker has been answered. The
   // size picker only shows when the listing actually has sizes â€” a one-size
   // 3D print has nothing to pick, so it must not block the add.
   const colorSatisfied = !hasColors || !!selectedColor
-  const sizeSatisfied = !hasSizes || !!selectedSize
-  // Multi-location products (front/back/pocket) need an explicit choice —
-  // mirrors ProductPage.tsx's requiresPrintLocation. Without this, quick-add
-  // silently shipped every product on the default (front) location even when
-  // the customer paid for back print (Watchtower task 2b20562c).
-  const printLocations = product.print_locations || []
+  const sizeSatisfied = !hasSizes || !!sizeToAdd
+  // Multi-location products (front/back/pocket) offer a choice — mirrors
+  // ProductPage.tsx's requiresPrintLocation — opening on where the design is
+  // actually printed, so the default never ships a placement nobody chose
+  // (Watchtower task 2b20562c) and never blocks the add (b2784c8d).
+  const printLocations = placementChoicesFor(product)
   const requiresPrintLocation = printLocations.length > 1
-  const printLocationSatisfied = !requiresPrintLocation || !!selectedPrintLocation
+  const placementToAdd = selectedPrintLocation ?? defaultPrintLocation(product)
+  const printLocationSatisfied = !requiresPrintLocation || !!placementToAdd
   const readyToAdd = colorSatisfied && sizeSatisfied && printLocationSatisfied
   // Nothing to choose at all (one-size, one-colour, single placement) â€” Quick
   // Add adds straight to the cart instead of opening an empty picker panel.
@@ -204,8 +205,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   return (
     <div
       className="group relative bg-card card-border rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      // Mouse only: a tap on a phone fires mouseenter and never mouseleave, so the
+      // primary image faded to opacity 0 over a still-unloaded hover image and the
+      // tile read blank (task 732f8a71).
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setIsHovered(true) }}
+      onPointerLeave={() => setIsHovered(false)}
     >
       <div className="relative aspect-square overflow-hidden">
         <Link to={`/product/${product.slug || product.id}`}>
@@ -252,24 +256,32 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           </div>
         )}
 
-        {/* Stock Status Badge */}
-        <div className="absolute top-2 right-2 z-10">
-          {product.inStock ? (
-            <span className="bg-green-500/20 backdrop-blur-md border border-green-500/50 text-green-400 text-xs font-bold px-2 py-1 rounded-full shadow-[0_0_10px_rgba(74,222,128,0.3)]">
-              In Stock
-            </span>
-          ) : (
+        {/* Stock Status Badge — everything here is printed to order, so there
+            is no "In Stock" to claim (task dda57173); only a listing that is
+            switched off says so. */}
+        {!product.inStock && (
+          <div className="absolute top-2 right-2 z-10">
             <span className="bg-red-500/20 backdrop-blur-md border border-red-500/50 text-red-400 text-xs font-bold px-2 py-1 rounded-full shadow-[0_0_10px_rgba(248,113,113,0.3)]">
               Out of Stock
             </span>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Promo Badge */}
         {isBundleEligible(product) && (
           <div className="absolute top-2 left-2 z-10 mt-8">
             <span className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20 animate-pulse">
               {BUNDLE_DEAL.label}!
+            </span>
+          </div>
+        )}
+
+        {/* Seasonal code badge: only while the live code behind it is valid,
+            and only on the designs it takes money off (SPOOKY20 = Halloween). */}
+        {featuredOffer && matchesOfferTheme(product as any, featuredOffer.theme) && (
+          <div className="absolute top-2 left-2 z-10 mt-24">
+            <span className="bg-primary text-bg text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+              {featuredOffer.percentOff}% off with {featuredOffer.code}
             </span>
           </div>
         )}
@@ -290,13 +302,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
         <div className="absolute inset-0 bg-gradient-to-t from-bg/90 via-transparent to-transparent opacity-60"></div>
       </div>
 
-      <div className="p-5 relative">
+      <div className={compact ? 'p-3 sm:p-4 relative' : 'p-5 relative'}>
         <Link to={`/product/${product.slug || product.id}`}>
           <h3 className="text-lg font-display font-bold text-text mb-2 group-hover:text-primary transition-colors line-clamp-1">
             {product.name}
           </h3>
         </Link>
-        <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>
+        {!compact && <p className="text-muted text-sm mb-4 line-clamp-2">{product.description}</p>}
 
         {/* Social Stats */}
         {showSocialBadges && socialPosts.length > 0 && (
@@ -331,7 +343,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 )
               })()}
             </span>
-            {cardPrice > 0 && (
+            {cardPrice > 0 && !compact && (
               <span className="text-[11px] text-muted">or {usdToItcLabel(cardPrice)}</span>
             )}
           </span>
@@ -351,7 +363,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               <p className="text-xs text-muted font-medium">Select Size:</p>
               {/* Blank garments price per size off their own table (shown on
                   each button) — the flat $2.50 plus-size rule never applies. */}
-              {isApparel && !isBlankProduct(product) && displaySizes.some((s: string) => ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => s.toUpperCase().includes(ps))) && (
+              {displaySizes.some((s: string) => sizePriceDelta(product, s) > 0) && (
                 <span className="text-[10px] bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded">
                   2XL+ = +$2.50
                 </span>
@@ -362,30 +374,32 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
             </div>
             <div className="flex flex-wrap gap-1.5">
               {displaySizes.map((size: string) => {
-                const isPlusSize = isApparel && !isBlankProduct(product) && ['2XL', '2X', 'XXL', '3XL', '3X', 'XXXL', '4XL', '4X', 'XXXXL', '5XL', '5X', 'XXXXXL'].some(ps => size.toUpperCase().includes(ps))
+                // The whole amount this size adds or takes off ("+$2.50",
+                // "-$3.00") — it used to show a bare "+$".
+                const deltaLabel = formatPriceDelta(sizePriceDelta(product, size))
                 const blankSizePrice = isBlankProduct(product)
                   ? blankUnitPriceDollars(blankPricingOf(product.metadata), size, selectedColor)
                   : null
+                const isPicked = sizeToAdd === size
                 return (
                   <button
                     key={size}
                     onClick={() => setSelectedSize(size)}
-                    title={isPlusSize ? '+$2.50 upcharge' : blankSizePrice !== null ? `$${blankSizePrice.toFixed(2)} each` : undefined}
+                    title={blankSizePrice !== null ? `$${blankSizePrice.toFixed(2)} each` : deltaLabel ? `${deltaLabel} for this size` : undefined}
                     className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all relative ${
-                      selectedSize === size
+                      isPicked
                         ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
                         : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
-                    } ${isPlusSize ? 'pr-5' : ''} ${blankSizePrice !== null ? 'flex flex-col items-center leading-tight' : ''}`}
+                    } ${blankSizePrice !== null || deltaLabel ? 'flex flex-col items-center leading-tight' : ''}`}
                   >
                     {size}
-                    {blankSizePrice !== null && (
-                      <span className={`text-[9px] font-medium ${selectedSize === size ? 'text-white/80' : 'text-muted'}`}>
+                    {blankSizePrice !== null ? (
+                      <span className={`text-[9px] font-medium ${isPicked ? 'text-white/80' : 'text-muted'}`}>
                         ${blankSizePrice.toFixed(2)}
                       </span>
-                    )}
-                    {isPlusSize && (
-                      <span className={`absolute right-1 top-1/2 -translate-y-1/2 text-[8px] font-bold ${selectedSize === size ? 'text-amber-200' : 'text-amber-400'}`}>
-                        +$
+                    ) : deltaLabel && (
+                      <span className={`text-[9px] font-medium ${isPicked ? 'text-white/80' : 'text-muted'}`}>
+                        {deltaLabel}
                       </span>
                     )}
                   </button>
@@ -455,12 +469,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                   type="button"
                   onClick={() => setSelectedPrintLocation(loc)}
                   className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
-                    selectedPrintLocation === loc
+                    placementToAdd === loc
                       ? 'bg-primary text-white shadow-[0_0_10px_rgba(168,85,247,0.5)]'
                       : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
                   }`}
                 >
-                  {PRINT_LOCATION_LABELS[loc] || loc}
+                  {printLocationLabel(loc)}
                 </button>
               ))}
             </div>
@@ -479,18 +493,15 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                 // Picker(s) already visible; user still needs to make required selections
                 return
               }
-              // Single-location products have nothing to choose — carry that
-              // one location along automatically so it still reaches the
-              // cart/order (matches ProductPage.tsx's auto-select).
-              // A blank garment has nothing to print — never carry a placement.
-              const printLocation = isBlankProduct(product)
-                ? undefined
-                : requiresPrintLocation ? selectedPrintLocation ?? undefined : printLocations[0]
-              addToCart(product, 1, selectedSize ?? undefined, selectedColor ?? undefined, undefined, undefined, undefined, undefined, printLocation)
+              // The placement picked, else where the design is printed (a
+              // single-location product carries its one location). A blank, a
+              // transfer, metal and 3D have no placement — never carry one.
+              const printLocation = placementToAdd ?? undefined
+              addToCart(product, 1, sizeToAdd ?? undefined, selectedColor ?? undefined, undefined, undefined, undefined, undefined, printLocation)
               setAddedToCart(true)
               // Dispatch custom event for cart notification
               window.dispatchEvent(new CustomEvent('cart-item-added', {
-                detail: { product, size: selectedSize, color: selectedColor, printLocation }
+                detail: { product, size: sizeToAdd, color: selectedColor, printLocation }
               }))
               setTimeout(() => {
                 setAddedToCart(false)
@@ -501,11 +512,13 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               }, 2000)
             }}
             disabled={!product.inStock}
-            className={`w-full font-bold py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm uppercase tracking-wider ${
+            className={`w-full font-bold py-2.5 rounded-lg transition-all flex items-center justify-center text-sm ${compact ? 'px-2 gap-1.5 text-xs sm:text-sm min-w-0' : 'px-4 gap-2 uppercase tracking-wider'} ${
               addedToCart
                 ? 'bg-green-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.5)]'
                 : showSizePicker && !readyToAdd
                 ? 'bg-amber-500/80 hover:bg-amber-500 text-white shadow-[0_0_10px_rgba(245,158,11,0.3)]'
+                : compact
+                ? 'bg-primary hover:opacity-90 text-white shadow-soft'
                 : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-400 hover:to-emerald-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.3)] hover:shadow-[0_0_20px_rgba(34,197,94,0.5)]'
             } disabled:opacity-50 disabled:cursor-not-allowed`}
           >
@@ -516,28 +529,30 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               </>
             ) : showSizePicker && !readyToAdd ? (
               <>
-                <ShoppingCart className="w-4 h-4" />
-                {`Pick ${missingSelections.join(' & ')}`}
+                <ShoppingCart className="w-4 h-4 shrink-0" />
+                <span className="truncate">{`Pick ${missingSelections.join(' & ')}`}</span>
               </>
             ) : (
               <>
                 <ShoppingCart className="w-4 h-4" />
-                {showSizePicker ? 'Add to Cart' : 'Quick Add'}
+                {showSizePicker || compact ? 'Add to Cart' : 'Quick Add'}
               </>
             )}
           </button>
 
-          {/* View Details Link */}
+          {/* View Details Link (the home tile links its photo and name instead) */}
+          {!compact && (
           <Link
             to={`/product/${product.slug || product.id}`}
             className="block w-full text-center py-2 text-sm text-muted hover:text-primary transition-colors"
           >
             View Details
           </Link>
+          )}
 
           {/* Add to Imagination Sheet â€” DTF/apparel only (metal & 3D are
               finished pieces, not designs to drop on a print sheet). */}
-          {isApparel && (
+          {options.gangSheet && !compact && (
           <button
             onClick={async () => {
               setIsAddingToSheet(true)

@@ -4,6 +4,7 @@ import { CheckCircle, Package, Truck, ArrowRight, Sparkles, Gift } from 'lucide-
 import Confetti from 'react-confetti'
 import { useWindowSize } from 'react-use'
 import { apiFetch } from '../lib/api'
+import { clearLandingUtms } from '../utils/utm'
 
 /** Minimal shape returned by GET /api/orders/:orderId/confirmation. */
 interface ConfirmationOrder {
@@ -66,6 +67,11 @@ const OrderSuccess: React.FC = () => {
           // Stop as soon as the payment is recorded (or has definitively
           // failed); keep polling only while it's genuinely still pending.
           const settled = fetched.payment_status !== 'pending'
+          // The order has now recorded whatever attribution it was going to
+          // record (backend/routes/stripe.ts, checkout-payment-intent) — clear
+          // the stored campaign so it isn't misattributed to a later, unrelated
+          // order in the same browser. A failed payment keeps it for retry.
+          if (fetched.payment_status === 'paid') clearLandingUtms()
           if (settled || attempts >= POLL_ATTEMPTS) return
         } else if (attempts >= POLL_ATTEMPTS) {
           setLookupFailed(true)

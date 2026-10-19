@@ -188,16 +188,16 @@ export default function AdminMrsImagine() {
   const stalled = !!progress && heartbeatMs > STALL_AFTER_MS
 
   return (
-    <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-6">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
+    <div className="bg-white rounded-2xl shadow-soft border border-slate-100 p-4 sm:p-6">
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        <div className="flex items-center gap-4 min-w-0">
           <img
             src="/mrs-imagine/mrs-imagine-head.png"
             alt="Mrs. Imagine"
-            className="w-16 h-16 object-contain"
+            className="w-16 h-16 shrink-0 object-contain"
             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
           />
-          <div>
+          <div className="min-w-0">
             <h3 className="text-lg font-display font-bold text-slate-900">Mrs. Imagine — Scout</h3>
             <p className="text-sm text-slate-500">
               Every morning she sweeps Etsy, keeps only designs with{' '}
@@ -209,7 +209,7 @@ export default function AdminMrsImagine() {
         <button
           onClick={sweep}
           disabled={busy}
-          className="shrink-0 px-4 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50 text-white font-semibold transition-colors inline-flex items-center gap-2"
+          className="shrink-0 self-start px-4 py-2 rounded-xl bg-fuchsia-600 hover:bg-fuchsia-700 disabled:opacity-50 text-white font-semibold transition-colors inline-flex items-center gap-2"
           title="Sweep Etsy again now. Read-only — no designs, no spend."
         >
           <RefreshCw className={`w-4 h-4 ${busy ? 'animate-spin' : ''}`} />

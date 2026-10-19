@@ -1,9 +1,29 @@
 import Replicate from 'replicate'
 import { buildDTFPrompt } from './dtf-optimizer.js'
+import { ProviderOutOfCreditError, isReplicateOutOfCredit, type CreditProbeResult } from './provider-credit.js'
+
+export { isReplicateOutOfCredit }
 
 const replicate = new Replicate({
   auth: process.env.REPLICATE_API_TOKEN!,
 })
+
+/**
+ * Runs one Replicate SDK call and turns an out-of-credit answer (HTTP 402
+ * "Insufficient credit") into a ProviderOutOfCreditError, so the job worker
+ * pauses the queue instead of failing the job (task dbce13a8). Every other
+ * error passes through untouched.
+ */
+async function withCreditCheck<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call()
+  } catch (err: any) {
+    if (isReplicateOutOfCredit(err)) {
+      throw new ProviderOutOfCreditError('replicate', err?.message || 'Replicate: insufficient credit', { status: 402, cause: err })
+    }
+    throw err
+  }
+}
 
 export interface ReplicateImageInput {
   prompt: string
@@ -131,7 +151,7 @@ async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: Rep
     console.log(`[replicate] 🔍 Using replicate.run() for ${modelName}`)
 
     // Use replicate.run() which returns the output directly
-    const output = await replicate.run(modelId as any, { input: modelInput }) as any
+    const output = await withCreditCheck(() => replicate.run(modelId as any, { input: modelInput })) as any
 
     console.log(`[replicate] ✅ ${modelName} generation complete`)
     console.log(`[replicate] 🔍 ${modelName} raw output type:`, typeof output, Array.isArray(output) ? `array[${output.length}]` : '')
@@ -191,7 +211,7 @@ async function generateWithSingleModel(modelConfig: typeof MODELS[0], input: Rep
 
     console.log(`[replicate] 🔍 Using predictions.create() for ${modelName}`)
 
-    const prediction = await replicate.predictions.create(params)
+    const prediction = await withCreditCheck(() => replicate.predictions.create(params))
     console.log(`[replicate] ✅ ${modelName} prediction created:`, prediction.id)
 
     return {
@@ -376,7 +396,7 @@ CRITICAL INSTRUCTIONS:
 
   console.log('[replicate] 🔍 Full Mr. Imagine mockup params:', JSON.stringify(params, null, 2))
 
-  const prediction = await replicate.predictions.create(params)
+  const prediction = await withCreditCheck(() => replicate.predictions.create(params))
 
   console.log('[replicate] ✅ Mr. Imagine mockup prediction created:', prediction.id)
   console.log('[replicate] 🔍 Full prediction response:', JSON.stringify(prediction, null, 2))
@@ -401,7 +421,7 @@ export async function upscaleImage(imageUrl: string) {
     webhook_events_filter: ['completed'],
   }
 
-  const prediction = await replicate.predictions.create(params)
+  const prediction = await withCreditCheck(() => replicate.predictions.create(params))
 
   console.log('[replicate] ✅ Upscale prediction created:', prediction.id)
 
@@ -422,13 +442,13 @@ export async function getPrediction(predictionId: string) {
  */
 export async function removeBackgroundSync(imageUrl: string): Promise<string> {
   console.log('[replicate] 🎨 Removing background (851-labs, sync):', imageUrl.substring(0, 80))
-  const output = await replicate.run(
+  const output = await withCreditCheck(() => replicate.run(
     // Pinned version — the version-less `owner/name` form hits Replicate's
     // official-models endpoint (/models/.../predictions) and 404s for this
     // community model. Pinning the version routes through /predictions, which works.
     '851-labs/background-remover:a029dff38972b5fda4ec5d75d7d1cd25aeff621d2cf4946a41055d7db66b80bc' as `${string}/${string}:${string}`,
     { input: { image: imageUrl, format: 'png', background_type: 'rgba' } }
-  )
+  ))
   const extractUrl = (item: any): string => {
     if (!item) return ''
     if (typeof item === 'string') return item
@@ -441,4 +461,48 @@ export async function removeBackgroundSync(imageUrl: string): Promise<string> {
   const url = Array.isArray(output) ? extractUrl(output[0]) : extractUrl(output)
   if (!url) throw new Error('Background remover returned no image URL')
   return url
+}
+
+type ProbeFetch = (url: string, init: { method: string; headers: Record<string, string>; body?: string; signal?: AbortSignal }) => Promise<{ ok: boolean; status: number; json(): Promise<any>; text(): Promise<string> }>
+
+/**
+ * Has credit come back? The image queue's resume check while it is paused on a
+ * Replicate 402 (services/image-credit-outage.ts runs it every few minutes).
+ *
+ * Creates ONE prediction on the model the mockups actually run on and cancels
+ * it at once. Replicate refuses with 402 at creation when the account is empty,
+ * and a refused call is free, so the probe costs nothing while the outage
+ * lasts; the one that gets through is cancelled before it renders. Only a 2xx
+ * counts as "back" — a throttle, a 5xx or a network error is inconclusive and
+ * leaves the queue paused for the next probe.
+ */
+export async function probeReplicateCredit(fetchImpl: ProbeFetch = fetch as unknown as ProbeFetch): Promise<CreditProbeResult> {
+  const token = process.env.REPLICATE_API_TOKEN
+  if (!token) return { outcome: 'inconclusive', detail: 'REPLICATE_API_TOKEN missing' }
+  const model = MODELS[0].id
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  try {
+    const res = await fetchImpl(`https://api.replicate.com/v1/models/${model}/predictions`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ input: { prompt: 'a plain light grey square', aspect_ratio: '1:1', output_format: 'png' } }),
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (res.status === 402) return { outcome: 'out_of_credit', detail: `${model} answered 402` }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      return { outcome: 'inconclusive', detail: `${model} answered ${res.status}: ${text.slice(0, 200)}` }
+    }
+    const prediction = (await res.json().catch(() => ({}))) as { id?: string; urls?: { cancel?: string } }
+    if (prediction.id) {
+      await fetchImpl(prediction.urls?.cancel || `https://api.replicate.com/v1/predictions/${prediction.id}/cancel`, {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.timeout(10_000),
+      }).catch(() => null)
+    }
+    return { outcome: 'ok', detail: `${model} accepted a prediction (${prediction.id ?? 'no id'}) and it was cancelled` }
+  } catch (err: any) {
+    return { outcome: 'inconclusive', detail: err?.message || String(err) }
+  }
 }
