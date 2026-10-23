@@ -4,6 +4,7 @@ import multer from 'multer'
 import { nanoid } from 'nanoid'
 import { supabase } from '../lib/supabase.js'
 import { requireStorefrontSecret } from '../middleware/requireStorefrontSecret.js'
+import { isMug, MUG_PRINT_AREA, productBaseCostUsd } from '../services/storefront-costs.js'
 import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 
@@ -533,18 +534,13 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
     }
 
     // D1 cost: base + extra-location upcharge when a back print ships.
-    // Base cost is resolved from environment variables based on garmentType, falling back to BASE_COST_USD.
-    let baseCost = BASE_COST_USD
-    if (garmentType) {
-      const envVarName = `STOREFRONT_${garmentType.toUpperCase().replace(/[- ]/g, '_')}_BASE_COST_USD`
-      const envValue = process.env[envVarName]
-      if (envValue) {
-        const parsedCost = Number(envValue)
-        if (Number.isFinite(parsedCost) && parsedCost > 0) {
-          baseCost = parsedCost
-        }
-      }
+    // Base cost comes from STOREFRONT_<TYPE>_BASE_COST_USD, then the type's own default (a mug is $8), then BASE_COST_USD
+    // (services/storefront-costs.ts). A mug prints one wrap: no back print, so never a back upcharge.
+    const mug = isMug(garmentType)
+    if (mug && backPrint) {
+      return res.status(400).json({ error: 'A mug prints one wrap — send it as front_print only' })
     }
+    const baseCost = productBaseCostUsd(garmentType, BASE_COST_USD)
 
     const costUsd = baseCost + (backPrint ? BACK_PRINT_UPCHARGE_USD : 0)
 
@@ -644,8 +640,8 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         : (typeof placementPrint3d?.glb_url === 'string' ? placementPrint3d.glb_url : null),
     } : null
 
-    // Resolve the category dynamically. Fall back to 'shirts' if not specified.
-    const resolvedCategorySlug = (categorySlug && categorySlug.toLowerCase()) || 'shirts'
+    // Resolve the category dynamically. Fall back to 'shirts' if not specified ('mugs' for a mug).
+    const resolvedCategorySlug = (categorySlug && categorySlug.toLowerCase()) || (mug ? 'mugs' : 'shirts')
     const resolvedCategoryName = resolvedCategorySlug
       .split('-')
       .map((word: string) => word.charAt(0).toUpperCase() + word.slice(1))
@@ -677,7 +673,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
       .like('slug', `${slugCandidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}%`)
     const uniqueSlug = generateUniqueSlug(slugCandidate, existingProducts?.map((p: any) => p.slug).filter(Boolean) || [])
 
-    const printLocations = backUpload ? ['front_image', 'back_image'] : ['front_image']
+    const printLocations = mug ? [...MUG_PRINT_AREA.locations] : backUpload ? ['front_image', 'back_image'] : ['front_image']
     const printFiles: { front: string; back?: string } = { front: frontUpload.publicUrl }
     if (backUpload) printFiles.back = backUpload.publicUrl
 
@@ -687,7 +683,7 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
         category_id: categoryId,
         name,
         slug: uniqueSlug,
-        description: description || `${name} — custom ${garmentLabel || 'shirt'}`,
+        description: description || `${name} — custom ${garmentLabel || (mug ? 'mug' : 'shirt')}`,
         price: retailUsd,
         cost_price: costUsd,
         status: 'pending_approval', // lands in the existing admin approval queue
@@ -730,6 +726,9 @@ router.post('/products', requireStorefrontSecret, (req: Request, res: Response, 
           submitted_at: new Date().toISOString(),
           garment_type: garmentType,
           garment_label: garmentLabel,
+          // Mugs: the print file is the creator's master; the shop lays it on an 8.5 x 3.5 in sublimation wrap
+          // (placement carries where). print_files.front stays the file so the order queue finds it as for shirts.
+          ...(mug ? { product_kind: 'mug', print_area: MUG_PRINT_AREA } : {}),
         },
       })
       .select('id, slug, status')

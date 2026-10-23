@@ -204,6 +204,41 @@ export async function deliverMerchEvent(url: string, body: string, signature: st
 let warnedMissingSecret = false
 let warnedMissingCreatorId = false
 
+/** One storefront that receives its own creator's order events. */
+export interface MerchWebhookTarget {
+  vendor: string
+  url: string
+  secret: string
+  creatorUserId: string
+}
+
+/**
+ * Every storefront that gets merch order events: Darrell's (the original MERCH_WEBHOOK_SECRET +
+ * MERCH_WEBHOOK_CREATOR_USER_ID pair, to MERCH_WEBHOOK_URL), plus any in MERCH_WEBHOOK_TARGETS, a JSON array of
+ * { vendor, url, secret, creatorUserId } (e.g. Jalynn Simmons' site, 2026-10-23). Each target only ever receives the
+ * order lines its own creator made. A malformed entry is skipped, never fatal. Pure: reads only `env`.
+ */
+export function merchWebhookTargets(env: NodeJS.ProcessEnv = process.env, log?: Logger): MerchWebhookTarget[] {
+  const targets: MerchWebhookTarget[] = []
+  if (env.MERCH_WEBHOOK_SECRET && env.MERCH_WEBHOOK_CREATOR_USER_ID) {
+    targets.push({ vendor: 'darrell', url: MERCH_WEBHOOK_URL, secret: env.MERCH_WEBHOOK_SECRET, creatorUserId: env.MERCH_WEBHOOK_CREATOR_USER_ID })
+  }
+  if (env.MERCH_WEBHOOK_TARGETS) {
+    try {
+      const parsed = JSON.parse(env.MERCH_WEBHOOK_TARGETS)
+      for (const entry of Array.isArray(parsed) ? parsed : []) {
+        const ok = entry && typeof entry.vendor === 'string' && entry.vendor && typeof entry.url === 'string' && /^https:\/\//.test(entry.url) &&
+          typeof entry.secret === 'string' && entry.secret.length >= 16 && typeof entry.creatorUserId === 'string' && entry.creatorUserId
+        if (ok) targets.push({ vendor: entry.vendor, url: entry.url, secret: entry.secret, creatorUserId: entry.creatorUserId })
+        else log?.error?.({ vendor: entry?.vendor }, '[merch-webhook] MERCH_WEBHOOK_TARGETS entry invalid (needs vendor, https url, secret >= 16 chars, creatorUserId) — skipped')
+      }
+    } catch (err: any) {
+      log?.error?.({ err: err?.message }, '[merch-webhook] MERCH_WEBHOOK_TARGETS is not valid JSON — extra targets disabled')
+    }
+  }
+  return targets
+}
+
 export interface SendMerchOrderEventInput {
   orderId: string
   type: MerchOrderEventType
@@ -218,24 +253,17 @@ export interface SendMerchOrderEventInput {
  */
 export async function sendMerchOrderEvent({ orderId, type, log }: SendMerchOrderEventInput): Promise<void> {
   try {
-    const secret = process.env.MERCH_WEBHOOK_SECRET
-    if (!secret) {
-      if (!warnedMissingSecret) {
+    const targets = merchWebhookTargets(process.env, log)
+    if (targets.length === 0) {
+      if (!process.env.MERCH_WEBHOOK_SECRET && !warnedMissingSecret) {
         warnedMissingSecret = true
         log?.info?.('[merch-webhook] MERCH_WEBHOOK_SECRET not set — merch order events disabled (no-op)')
-      }
-      return
-    }
-
-    const creatorUserId = process.env.MERCH_WEBHOOK_CREATOR_USER_ID
-    if (!creatorUserId) {
-      if (!warnedMissingCreatorId) {
+      } else if (!process.env.MERCH_WEBHOOK_CREATOR_USER_ID && !warnedMissingCreatorId) {
         warnedMissingCreatorId = true
         log?.info?.('[merch-webhook] MERCH_WEBHOOK_CREATOR_USER_ID not set — cannot scope to a creator, merch order events disabled (no-op)')
       }
       return
     }
-
     const { data: order, error: orderErr } = await supabase
       .from('orders')
       .select('id, order_number, customer_email, currency')
@@ -274,17 +302,17 @@ export async function sendMerchOrderEvent({ orderId, type, log }: SendMerchOrder
       .eq('order_id', orderId)
     const royaltiesByProduct = new Map<string, number>((royaltyRows || []).map((r: any) => [r.product_id, r.amount_cents]))
 
-    const darrellItems = selectDarrellItems(items, productsById, royaltiesByProduct, creatorUserId)
-    if (darrellItems.length === 0) {
-      log?.info?.({ orderId }, '[merch-webhook] no line items belong to the configured creator — nothing to send')
-      return
+    // Each storefront gets only its own creator's lines, signed with its own secret.
+    for (const target of targets) {
+      const creatorItems = selectDarrellItems(items, productsById, royaltiesByProduct, target.creatorUserId)
+      if (creatorItems.length === 0) {
+        log?.info?.({ orderId, vendor: target.vendor }, '[merch-webhook] no line items belong to this creator — nothing to send')
+        continue
+      }
+      const payload = buildMerchOrderPayload(order as MerchOrderInput, creatorItems, type)
+      const body = JSON.stringify(payload)
+      await deliverMerchEvent(target.url, body, signMerchPayload(body, target.secret), log)
     }
-
-    const payload = buildMerchOrderPayload(order as MerchOrderInput, darrellItems, type)
-    const body = JSON.stringify(payload)
-    const signature = signMerchPayload(body, secret)
-
-    await deliverMerchEvent(MERCH_WEBHOOK_URL, body, signature, log)
   } catch (err: any) {
     // Absolute last-resort guard — see module doc: must never throw.
     log?.error?.({ err, orderId, type }, '[merch-webhook] unexpected failure (swallowed)')

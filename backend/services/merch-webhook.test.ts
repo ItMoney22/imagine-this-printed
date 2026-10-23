@@ -25,6 +25,7 @@ const {
   selectDarrellItems,
   deliverMerchEvent,
   sendMerchOrderEvent,
+  merchWebhookTargets,
   MERCH_WEBHOOK_URL
 } = await import('./merch-webhook.js')
 
@@ -214,3 +215,36 @@ describe('sendMerchOrderEvent — inert until configured', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+// Jalynn Simmons' site (2026-10-23) gets its own creator's order events, the same contract as Darrell's.
+describe('merchWebhookTargets — one signed feed per storefront', () => {
+  const darrell = { MERCH_WEBHOOK_SECRET: 'darrell-secret-123456', MERCH_WEBHOOK_CREATOR_USER_ID: 'darrell-user' }
+  const jalynn = { vendor: 'jalynn', url: 'https://jalynn.imaginethiswebsite.com/api/merch/webhook', secret: 'jalynn-secret-1234567', creatorUserId: 'jalynn-user' }
+
+  it('keeps Darrell exactly as before and adds every valid extra target', () => {
+    const targets = merchWebhookTargets({ ...darrell, MERCH_WEBHOOK_TARGETS: JSON.stringify([jalynn]) } as any)
+    expect(targets).toEqual([
+      { vendor: 'darrell', url: MERCH_WEBHOOK_URL, secret: 'darrell-secret-123456', creatorUserId: 'darrell-user' },
+      jalynn
+    ])
+  })
+
+  it('works with only the extra target, and skips anything unsafe or malformed', () => {
+    expect(merchWebhookTargets({ MERCH_WEBHOOK_TARGETS: JSON.stringify([jalynn]) } as any)).toEqual([jalynn])
+    const bad = [{ ...jalynn, url: 'http://insecure.example/hook' }, { ...jalynn, secret: 'short' }, { ...jalynn, creatorUserId: '' }, null]
+    expect(merchWebhookTargets({ MERCH_WEBHOOK_TARGETS: JSON.stringify(bad) } as any)).toEqual([])
+    expect(merchWebhookTargets({ MERCH_WEBHOOK_TARGETS: 'not json' } as any)).toEqual([])
+    expect(merchWebhookTargets({} as any)).toEqual([])
+  })
+
+  it('each target only ever gets its own creator’s lines', () => {
+    const products = new Map([
+      ['p-darrell', { id: 'p-darrell', created_by_user_id: 'darrell-user', metadata: { external_ref: 'd1' } }],
+      ['p-jalynn', { id: 'p-jalynn', created_by_user_id: 'jalynn-user', metadata: { external_ref: 'j1' } }]
+    ]) as any
+    const items = [{ id: 'i1', product_id: 'p-darrell', quantity: 1, unit_price: 25 }, { id: 'i2', product_id: 'p-jalynn', quantity: 2, unit_price: 18 }]
+    const forJalynn = selectDarrellItems(items, products, new Map([['p-jalynn', 1046]]), 'jalynn-user')
+    expect(forJalynn.map((i: any) => [i.productId, i.quantity, i.subtotalCents, i.creatorMarginCents])).toEqual([['p-jalynn', 2, 3600, 1046]])
+  })
+})
+
