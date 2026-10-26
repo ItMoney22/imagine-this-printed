@@ -24,11 +24,18 @@ Decisions:
 - `src/utils/referral-capture.ts` (+ test), `src/pages/Checkout.tsx` (send referralCode)
 - `src/lib/vendor-store.ts` (types), `src/pages/store/StoreLink.tsx` (new card), `src/pages/store/StoreManager.tsx`
 - `backend/scripts/store-referral-test-proof.ts` (new; Stripe TEST mode proof, runs when KEY 8144ed23 lands)
+- Walk scope +1 (2026-10-26): `src/pages/store/StoreDesign.tsx` (one class): at 390 the "Create a design" title
+  column shrank to one word per line beside its button on the same page; rule 9 says the whole screen ships right.
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
 - 2026-10-26 (zero-pluto): built the link + cut end to end; migration applied on prod (CRYSTAL, percent NULL);
   store-referral 18/18, vendor-store route 7/7, referral-capture 25/25; npm run verify 185 files / 2557 pass.
+- 2026-10-26 (zero-pluto): real checkout route (proof script --checkout-only, live key, no payment) stamped CRYSTAL on
+  order ITP-MVPFNMMX-99N1, PaymentIntent cancelled, rows deleted. Walked the built site (API :4011 + preview :5191,
+  admin + ?view=seller) at 1400 and 390: card, Copy -> Copied, nav "My link", admin "Her link's cut". Fixed at 390:
+  link shown without https:// + smaller on phone, Copy no longer wraps, StoreDesign title no longer one word a line.
+  Stripe TEST-mode transfer proof waits on KEY 8144ed23; percent waits on APPROVE 0d6f0cdd.
 
 ## Current request (2026-10-18) — ITP custom QR counter stand (task deebfdca, mason-blaze)
 

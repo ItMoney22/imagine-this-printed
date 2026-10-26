@@ -63,15 +63,16 @@ export default function StoreLink({ data }: { data: ManageData }) {
 
       <div className="flex flex-col sm:flex-row gap-3">
         <label className="flex-1 min-w-0 flex items-center gap-2 rounded-xl border-2 border-[var(--vs-primary)]/30 bg-[var(--vs-page)] px-3 h-12 focus-within:border-[var(--vs-primary)]">
-          <Link2 className="w-5 h-5 text-[var(--vs-primary)] shrink-0" />
-          <input id="vs-my-link" readOnly value={link} onFocus={e => e.target.select()} aria-label="Your link" className="w-full min-w-0 bg-transparent outline-none font-semibold text-[var(--vs-text)]" />
+          <Link2 className="hidden sm:block w-5 h-5 text-[var(--vs-primary)] shrink-0" />
+          {/* Shown without https:// so the whole link fits; Copy and Share send the full link. */}
+          <input id="vs-my-link" readOnly value={link.replace(/^https?:\/\//, '')} onFocus={e => e.target.select()} aria-label="Your link" className="w-full min-w-0 bg-transparent outline-none font-semibold text-sm sm:text-base text-[var(--vs-text)]" />
         </label>
         <div className="flex gap-3">
-          <button onClick={copy} className="vs-btn-pink flex-1 sm:flex-none rounded-xl px-6 h-12 font-semibold inline-flex items-center justify-center gap-2">
+          <button onClick={copy} className="vs-btn-pink flex-[2] sm:flex-none whitespace-nowrap rounded-xl px-4 sm:px-6 h-12 font-semibold inline-flex items-center justify-center gap-2">
             {copied ? <><Check className="w-5 h-5" /> Copied</> : <><Copy className="w-5 h-5" /> Copy my link</>}
           </button>
           {canShare && (
-            <button onClick={share} className="vs-btn-solid flex-1 sm:flex-none rounded-xl px-5 h-12 font-semibold inline-flex items-center justify-center gap-2">
+            <button onClick={share} className="vs-btn-solid flex-1 sm:flex-none whitespace-nowrap rounded-xl px-4 sm:px-5 h-12 font-semibold inline-flex items-center justify-center gap-2">
               <Share2 className="w-5 h-5" /> Share
             </button>
           )}
