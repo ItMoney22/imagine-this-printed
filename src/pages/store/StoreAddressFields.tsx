@@ -34,9 +34,9 @@ export default function StoreAddressFields({ value, onChange, section, phoneLabe
       <input className={`${box} ${span('col-span-6', 'md:col-span-3')}`} placeholder="Full name" aria-label="Full name" autoComplete={`${section} name`} value={value.name} onChange={set('name')} />
       {wide && <input className={`${box} col-span-6 md:col-span-3`} inputMode="tel" placeholder={phoneLabel} aria-label={phoneLabel} autoComplete={`${section} tel`} value={value.phone} onChange={set('phone')} />}
       <input className={`${box} ${span('col-span-6', 'md:col-span-4')}`} placeholder="Street address" aria-label="Street address" autoComplete={`${section} address-line1`} value={value.street1} onChange={set('street1')} />
-      <input className={`${box} ${span('col-span-6', 'md:col-span-2')}`} placeholder="Apt or suite (optional)" aria-label="Apartment or suite" autoComplete={`${section} address-line2`} value={value.street2} onChange={set('street2')} />
-      <input className={`${box} ${span('col-span-6', 'md:col-span-3')}`} placeholder="City" aria-label="City" autoComplete={`${section} address-level2`} value={value.city} onChange={set('city')} />
-      <select className={`${box} ${span('col-span-3', 'md:col-span-1')} ${value.state ? '' : 'text-[var(--vs-muted)]'}`} aria-label="State" autoComplete={`${section} address-level1`} value={value.state} onChange={set('state')}>
+      <input className={`${box} ${span('col-span-6', 'md:col-span-2')}`} placeholder="Apt or suite" aria-label="Apartment or suite" autoComplete={`${section} address-line2`} value={value.street2} onChange={set('street2')} />
+      <input className={`${box} ${span('col-span-6', 'md:col-span-2')}`} placeholder="City" aria-label="City" autoComplete={`${section} address-level2`} value={value.city} onChange={set('city')} />
+      <select className={`${box} ${span('col-span-3', 'md:col-span-2')} ${value.state ? '' : 'text-[var(--vs-muted)]'}`} aria-label="State" autoComplete={`${section} address-level1`} value={value.state} onChange={set('state')}>
         <option value="">State</option>
         {US_STATES.map(([code, name]) => <option key={code} value={code}>{name}</option>)}
       </select>

@@ -161,7 +161,9 @@ export const vendorStoreApi = {
     apiFetch(manage(slug, `/itp-catalog?q=${encodeURIComponent(q)}`)),
   offer: (slug: string, productId: string, itpCostCents: number) =>
     apiFetch(manage(slug, '/offer'), { method: 'POST', body: JSON.stringify({ productId, itpCostCents }) }),
-  payoutsLink: (slug: string): Promise<{ url: string }> => apiFetch(manage(slug, '/payouts-link'), { method: 'POST' }),
+  /** `returnTo: 'start'` brings her back to the sign-up flow instead of the store manager. */
+  payoutsLink: (slug: string, returnTo?: 'start'): Promise<{ url: string }> =>
+    apiFetch(manage(slug, '/payouts-link'), { method: 'POST', ...(returnTo ? { body: JSON.stringify({ returnTo }) } : {}) }),
   /** Buys her package's label (once; a second press hands back the same one). */
   printLabel: (slug: string, orderNumber: string): Promise<{ ok: true; alreadyPurchased?: boolean; label: SellerLabel }> =>
     apiFetch(manage(slug, `/orders/${encodeURIComponent(orderNumber)}/label`), { method: 'POST' }),
