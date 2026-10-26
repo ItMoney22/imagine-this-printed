@@ -28,6 +28,7 @@ import { sendOrderConfirmationEmail as sendOrderEmail, sendNewOrderTeamEmail } f
 import { decrementBlanksForOrder } from './blank-inventory.js'
 import { accrueCreatorMarginsForOrder } from './creator-margins.js'
 import { sendMerchOrderEvent } from './merch-webhook.js'
+import { backfillVendorStoreBuyer, notifyVendorOfPaidOrder } from './vendor-store-orders.js'
 import { processOrderCompletion } from './order-reward-service.js'
 import { processReferralFirstPurchase } from './referral-service.js'
 import { findCouponIdByCode, recordCouponUsage } from '../routes/coupons.js'
@@ -186,7 +187,7 @@ export async function applyPaidCheckoutOrder(
   }
 
   // Get order details for notification/email
-  const { data: order, error: orderError } = await supabase
+  const { data: fetchedOrder, error: orderError } = await supabase
     .from('orders')
     .select('*, order_items(*)')
     .eq('id', orderId)
@@ -196,6 +197,10 @@ export async function applyPaidCheckoutOrder(
     log?.error({ err: orderError, orderId }, 'Failed to fetch order details')
     // Don't throw - order was updated successfully
   }
+
+  // A vendor storefront order (store:<slug>) gets its buyer from Stripe Checkout; copy the
+  // email and address in before the confirmation email reads them.
+  const order = fetchedOrder ? await backfillVendorStoreBuyer(fetchedOrder, log) : fetchedOrder
 
   // Award order rewards + first-purchase referral bonus, and record coupon
   // redemption. This runs only once we've won the idempotency claim above, and
@@ -264,6 +269,8 @@ export async function applyPaidCheckoutOrder(
   // an alerting problem must never corrupt a paid order.
   if (order) {
     await notifyTeamOfPaidOrder(order, source, log)
+    // The seller of a vendor storefront gets the lines she ships herself.
+    await notifyVendorOfPaidOrder(order, log)
   }
 
   // Decrement blank-shirt inventory for shirt line items (idempotent — the
