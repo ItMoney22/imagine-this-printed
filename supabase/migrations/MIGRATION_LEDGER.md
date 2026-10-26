@@ -7,6 +7,18 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-10-26 — store inbox: `vendor_storefronts.inbox_mailbox_id` + crystal@ mailbox APPLIED + TRACKED (Dr. Dill, Watchtower `f4a337b0`)
+
+- `20261026210000_vendor_store_inbox.sql` — **APPLIED LIVE** 2026-10-26 15:43Z, dry-run in a rolled-back
+  transaction first, then one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`.
+  Adds `vendor_storefronts.inbox_mailbox_id` (FK email_mailboxes, ON DELETE SET NULL, partial UNIQUE: one mailbox
+  per store), creates the ACTIVE `crystal@imaginethisprinted.com` mailbox (id `4d9ad818`, user_id null until she
+  claims the store; no forward_to) and links it to slug `crystal`. From that moment the Resend webhook stores her
+  mail and Jev files spam archived (Junk). Verified live: a test email landed in her inbox unread, a cold SEO pitch
+  landed archived + read; both test rows and the test reply deleted after the walk. Rollback = `update
+  vendor_storefronts set inbox_mailbox_id = null; drop index idx_vendor_storefronts_inbox; alter table
+  vendor_storefronts drop column inbox_mailbox_id;` and deactivate (not delete: it cascades her mail) the mailbox.
+
 ## 2026-09-22 — `print_materials` APPLIED + TRACKED, initial stock seeded (Lucas Blaze, Watchtower `c89e511c`)
 
 - `20260819230000_print_materials.sql` — **APPLIED LIVE** 2026-09-22 via

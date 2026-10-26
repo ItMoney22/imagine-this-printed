@@ -1,5 +1,33 @@
 # TASK_NOTES
 
+## Current request (2026-10-26) — Crystal's store assistant: memory, her face, picture review, Make it a product (task 44f16c24, sal-moretti)
+
+David 10/26: the assistant "needs a image and likeness, needs to have memory built in" and "she should be able to upload
+images and the assistant can assess the design to create a product out of it, it can go through the step flow". Built
+on Amelia's branch earth/amelia-chan/crystal-storefront (f0aee34); approved mock itp-crystal-store-manager-inbox round 1.
+
+Decisions:
+- The chat lives on the server (vendor_store_assistant_messages): the assistant reads its last 16 turns from there, never
+  from the browser; the last 30 memory facts go into every turn. An assistant row's image_url = the design it offers to
+  make into a product (no new column).
+- /step/upload on the CUSTOMER lane opens to store sellers (and staff viewing as a seller), stamped hers like any
+  customer-lane build, so it still goes to ITP review before it can sell. Shoppers stay refused.
+- After a reload, Make it a product reads the saved design back through the API (no cross-origin download).
+
+### File shortlist (approved scope — 2026-10-26 store assistant)
+- `backend/routes/vendor-store.ts` (+ test), `backend/services/store-assistant.ts` (one prompt line: use memory)
+- `backend/routes/admin/ai-products-step-flow.ts` (+ test): /step/upload seller gate + owner stamp
+- `src/pages/store/StoreAssistant.tsx` (+ new test), `src/pages/store/StoreManager.tsx`, `src/lib/vendor-store.ts`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (sal-moretti): picture turns (sharp: px size + real transparency, model sees a 1536 px copy on grey),
+  saved chat + memory + GET history + GET design, seller upload gate, panel with her face, paperclip, saved chat, Make it
+  a product (upload + adopt -> Create a design at ?productId=), thinking spinner -> progress bar. Fixed the claim path's
+  stale role cache (her first visit 403'd every other card for a minute). Tests: vendor-store 11, step-flow 52,
+  StoreAssistant 5; live Gemini turns on a QA copy of her store; fleet-browser walk 1400 + 390 landed in the Step Flow.
+  QA account, store, drafts and files deleted after.
+
 ## Current request (2026-10-18) — ITP custom QR counter stand (task deebfdca, mason-blaze)
 
 David 10/17: a business orders a QR counter stand on ITP with its own link, caption and logo ($25 struck, $17.95),
@@ -5244,6 +5272,26 @@ Built on top of ebf7dec0's branch (b062d1f): its lookup plan (id -> slug -> meta
   folgers-coffee-racing-legend-t-shirt, replaces [1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77]. vitest 2477/2477, vite build OK,
   live page walked logged out at 1400 + 390, old uuid link walked on a local build of this branch (redirects to the new slug).
 
+## Current request (2026-10-26) — Crystal's inbox in her store manager, junk kept out (task f4a337b0, dr-dill)
+
+David 10/26: "she needs a spot to read her email that goes to crystal@imaginethisprinted.com, also put jev in it so
+we make sure keeps junk away." Built on Amelia's unshipped branch earth/amelia-chan/crystal-storefront (fast-forwarded
+in: the store manager only exists there). Approved mock: itp-crystal-store-manager-inbox round 1 (Inbox card: Inbox +
+Junk kept out tabs, unread dots, open and reply). Store owner or admin (role admin only) reads it, enforced in the API.
+
+### File shortlist (approved scope — 2026-10-26 store inbox)
+- `supabase/migrations/20261026210000_vendor_store_inbox.sql` (new: store -> mailbox link, crystal@ mailbox row)
+- `backend/routes/vendor-store-inbox.ts` (+ `.test.ts`) new; `backend/routes/vendor-store.ts` (mount + owner sync only)
+- `src/lib/vendor-store.ts` (inbox API + types), `src/pages/store/StoreInbox.tsx` (new), `src/pages/store/StoreManager.tsx` (render + nav)
+- `supabase/migrations/MIGRATION_LEDGER.md`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (dr-dill): migration 20261026210000 applied live (crystal@ mailbox 4d9ad818 linked to her store). API
+  /api/vendor-store/manage/:slug/inbox (list, open, reply, junk) behind requireStoreManager + owner-or-admin check;
+  mailbox user_id follows the store owner on claim and on an admin owner change. Inbox card + nav badge on the
+  store manager. Two real test emails via Resend: the question landed in Inbox, the SEO pitch in Junk (Jev spam 1.0).
+  Walked the BUILT site signed in as David (minted session) at 1400 + 390, every button clicked, reply delivered.
+  vitest 2548/2548, backend tsc clean (junction TS2742 only), frontend tsc -b 0. Test rows deleted.
 ## Current request (2026-10-26) — Crystal's assistant emails her reminders (task 5cf5ca93, zero-earth019)
 
 David 10/26: "setup reminders for her through email with her assistant reminding her to post etc." Built on Amelia's

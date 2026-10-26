@@ -3,11 +3,12 @@
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Bell, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Bell, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Mail, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { money, vendorStoreApi, type ManageData, type ManageItem } from '../../lib/vendor-store'
 import StoreCredits from './StoreCredits'
 import StoreAssistant from './StoreAssistant'
 import StoreDesign from './StoreDesign'
+import StoreInbox from './StoreInbox'
 import StoreReminders from './StoreReminders'
 import './store.css'
 
@@ -20,10 +21,11 @@ const dollars = (v: string) => Math.round(Number(v.replace(/[^0-9.]/g, '')) * 10
 
 export default function StoreManager() {
   const { slug = '' } = useParams()
-  const [search] = useSearchParams()
+  const [search, setSearch] = useSearchParams()
   const [data, setData] = useState<ManageData | null>(null)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  const [unread, setUnread] = useState(0)
   // Create a design opens in place (and stays open while a design is being built: ?productId= is in the address).
   const [designOpen, setDesignOpen] = useState(() => !!new URLSearchParams(window.location.search).get('productId'))
   const openDesign = () => {
@@ -31,7 +33,17 @@ export default function StoreManager() {
     setTimeout(() => document.getElementById('design')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
   // The assistant sits docked beside the page on a wide screen; on a phone it opens from the floating button.
-  const [assistantOpen, setAssistantOpen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches)
+  const wide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches
+  const [assistantOpen, setAssistantOpen] = useState(wide)
+  // The assistant's Make it a product: her design is in the Step Flow, so Create a design opens on it (the phone's
+  // assistant sheet steps aside so she sees it).
+  const openDesignOn = (productId: string) => {
+    const next = new URLSearchParams(search)
+    next.set('productId', productId)
+    setSearch(next)
+    if (!wide()) setAssistantOpen(false)
+    openDesign()
+  }
 
   const load = useCallback(() => {
     vendorStoreApi.load(slug).then(setData).catch(e => setError(/403/.test(e.message) ? 'This isn’t your store.' : /404/.test(e.message) ? 'No store here.' : 'The store didn’t load.'))
@@ -80,6 +92,7 @@ export default function StoreManager() {
     { id: 'home', label: 'Home', icon: Home },
     { id: 'products', label: 'Products', icon: Shirt },
     { id: 'orders', label: 'Orders', icon: Package },
+    { id: 'inbox', label: 'Inbox', icon: Mail, count: unread },
     { id: 'reminders', label: 'Reminders', icon: Bell },
     { id: 'credits', label: 'Credits', icon: Sparkles },
     { id: 'design', label: 'Create a design', icon: Palette },
@@ -131,6 +144,7 @@ export default function StoreManager() {
             return (
               <a key={n.id} href={`#${n.id}`} className="flex items-center gap-3 rounded-xl px-4 h-11 shrink-0 font-medium hover:bg-white text-[var(--vs-text)]">
                 <Icon className="w-5 h-5 text-[var(--vs-primary)]" /> {n.label}
+                {!!n.count && <span className="ml-auto min-w-6 h-6 px-1.5 rounded-full grid place-items-center text-xs font-semibold text-white bg-[var(--vs-pink)]">{n.count}</span>}
               </a>
             )
           })}
@@ -185,6 +199,8 @@ export default function StoreManager() {
             )}
           </Card>
 
+          {/* Her store email, junk kept out */}
+          <StoreInbox slug={slug} onUnread={setUnread} onToast={setToast} />
           {/* Her reminders: her assistant emails them to her store inbox */}
           <StoreReminders slug={slug} onToast={setToast} />
 
@@ -235,7 +251,8 @@ export default function StoreManager() {
           {isAdmin && <AdminPanel data={data} slug={slug} save={save} />}
         </main>
 
-        <StoreAssistant slug={slug} ownerFirst={t.ownerFirst || store.name.split(/[’']/)[0]} open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+        <StoreAssistant slug={slug} ownerFirst={t.ownerFirst || store.name.split(/[’']/)[0]} faceUrl={t.assistant} open={assistantOpen} onClose={() => setAssistantOpen(false)}
+          onMakeProduct={openDesignOn} onNeedStudio={openDesign} />
       </div>
 
       {!assistantOpen && (
@@ -317,12 +334,24 @@ function ItpOffer({ item, onSave }: { item: ManageItem; onSave: (patch: Record<s
   useEffect(() => setPrice((item.priceCents / 100).toFixed(2)), [item.priceCents])
   const typed = dollars(price)
   const earn = Number.isFinite(typed) ? typed - item.itpCostCents : 0
+  const suggested = item.suggestedPriceCents
   return (
     <div className="rounded-2xl border border-[var(--vs-line)] p-3 grid grid-cols-[120px_1fr] sm:grid-cols-[160px_1fr] gap-4">
       {item.images[0] ? <img src={item.images[0]} alt="" className="w-full aspect-square object-cover rounded-xl" /> : <div />}
       <div className="flex flex-col gap-2 text-sm">
         <p className="font-semibold text-base leading-snug">{item.name}</p>
         <p className="flex justify-between"><span className="text-[var(--vs-muted)]">Our price to you</span><span className="font-semibold text-[var(--vs-primary)]">{money(item.itpCostCents)}</span></p>
+        {suggested != null && suggested > 0 && (
+          <p className="flex items-center justify-between gap-2">
+            <span className="text-[var(--vs-muted)]">Suggested price</span>
+            <span className="flex items-center gap-2">
+              <span className="font-semibold">{money(suggested)}</span>
+              {suggested !== item.priceCents && (
+                <button className="text-xs font-semibold text-[var(--vs-pink)] underline" onClick={() => onSave({ priceCents: suggested }, 'Using the suggested price')}>Use it</button>
+              )}
+            </span>
+          </p>
+        )}
         <label className="flex items-center justify-between gap-3"><span className="text-[var(--vs-muted)]">Your price</span>
           <span className="flex items-center rounded-xl border border-[var(--vs-line)] px-3 h-9 w-28 focus-within:border-[var(--vs-primary)]">$
             <input inputMode="decimal" className="w-full outline-none px-1" value={price} onChange={e => setPrice(e.target.value)} aria-label={`Your price for ${item.name}`}
@@ -458,6 +487,54 @@ function SellerSettings({ data, slug, save }: { data: ManageData; slug: string; 
   )
 }
 
+/**
+ * David's price list for her (David 2026-10-26: "a spot on there where I can set the prices for things and a suggested
+ * price she should sell them for"). Our price to her is what ITP keeps; the suggestion shows on her card with Use it;
+ * she still sets her own price, and the server lifts it to our price if David raises ours above hers.
+ */
+function HerPrices({ items, slug, save }: { items: ManageItem[]; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
+  if (!items.length) return null
+  return (
+    <div className="mt-5">
+      <p className="font-medium text-sm mb-2">Her prices from us</p>
+      <div className="overflow-x-auto rounded-2xl bg-white border border-[var(--vs-line)]">
+        <table className="w-full text-sm min-w-[620px]">
+          <thead className="text-left text-[var(--vs-muted)]">
+            <tr><th className="p-3">Product</th><th className="p-3">Our price to her</th><th className="p-3">Suggested price</th><th className="p-3">Her price</th><th className="p-3 text-right">She earns</th></tr>
+          </thead>
+          <tbody>{items.map(i => <HerPriceRow key={i.id} item={i} slug={slug} save={save} />)}</tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function HerPriceRow({ item, slug, save }: { item: ManageItem; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
+  const [cost, setCost] = useState((item.itpCostCents / 100).toFixed(2))
+  const [suggested, setSuggested] = useState(item.suggestedPriceCents != null ? (item.suggestedPriceCents / 100).toFixed(2) : '')
+  useEffect(() => setCost((item.itpCostCents / 100).toFixed(2)), [item.itpCostCents])
+  useEffect(() => setSuggested(item.suggestedPriceCents != null ? (item.suggestedPriceCents / 100).toFixed(2) : ''), [item.suggestedPriceCents])
+  const box = 'flex items-center rounded-xl border border-[var(--vs-line)] px-3 h-9 w-28 focus-within:border-[var(--vs-primary)]'
+  return (
+    <tr className="border-t border-[var(--vs-line)]">
+      <td className="p-3 font-medium">{item.name}{!item.active && <span className="ml-2 text-xs text-[var(--vs-muted)]">(off on her store)</span>}</td>
+      <td className="p-3">
+        <span className={box}>$<input inputMode="decimal" className="w-full outline-none px-1" value={cost} aria-label={`Our price to her for ${item.name}`} onChange={e => setCost(e.target.value)}
+          onBlur={() => dollars(cost) !== item.itpCostCents && dollars(cost) >= 0 && save(() => vendorStoreApi.saveItem(slug, item.id, { itpCostCents: dollars(cost) }), 'Her price from us saved')} /></span>
+      </td>
+      <td className="p-3">
+        <span className={box}>$<input inputMode="decimal" className="w-full outline-none px-1" value={suggested} placeholder="—" aria-label={`Suggested price for ${item.name}`} onChange={e => setSuggested(e.target.value)}
+          onBlur={() => {
+            const next = suggested.trim() ? dollars(suggested) : null
+            if (next !== item.suggestedPriceCents) save(() => vendorStoreApi.saveItem(slug, item.id, { suggestedPriceCents: next }), 'Suggested price saved')
+          }} /></span>
+      </td>
+      <td className="p-3">{money(item.priceCents)}</td>
+      <td className="p-3 text-right font-semibold text-[var(--vs-green)]">{money(Math.max(0, item.priceCents - item.itpCostCents))}</td>
+    </tr>
+  )
+}
+
 function AdminPanel({ data, slug, save }: { data: ManageData; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
   const { store } = data
   const [fee, setFee] = useState(String(store.feePercent))
@@ -492,6 +569,7 @@ function AdminPanel({ data, slug, save }: { data: ManageData; slug: string; save
           <input className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" value={owner} onChange={e => setOwner(e.target.value)} onBlur={() => owner !== (store.ownerEmail || '') && save(() => vendorStoreApi.saveStore(slug, { ownerEmail: owner }), 'Owner saved')} />
         </label>
       </div>
+      <HerPrices items={data.items.filter(i => i.kind === 'itp')} slug={slug} save={save} />
       <div className="mt-5">
         <p className="font-medium text-sm mb-2">Offer a product</p>
         <div className="flex gap-2 max-w-xl">
