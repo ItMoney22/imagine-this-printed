@@ -121,6 +121,17 @@ describe('vendor store checkout', () => {
     expect(items.map((i: any) => i.metadata.maker)).toEqual(['vendor', 'itp'])
   })
 
+  it('sells the QR stand as an ITP line that carries the buyer’s link, words and logo for the builder', async () => {
+    tables.vendor_store_items.push({ id: 'stand', storefront_id: STORE_ID, product_id: null, name: 'Custom QR Counter Stand', images: ['/business/qr-stand-shop.webp'], sizes: [], colors: [], price_cents: 2500, itp_cost_cents: 1795, active: true, metadata: { line_type: 'qr-stand' } })
+    expect((await buy([{ itemId: 'stand', quantity: 1, personalization: { qr_caption: 'Pay Here' } }])).status).toBe(400)
+    const res = await buy([{ itemId: 'stand', quantity: 2, personalization: { qr_link: 'crystal.imaginethisprinted.com', qr_caption: 'Shop My Store' } }])
+    expect(res.status).toBe(200)
+    expect(sessions[0].payment_intent_data.application_fee_amount).toBe(1795 * 2 + 699)
+    const line = writes.find(w => w.table === 'order_items')!.payload[0]
+    expect(line.metadata.maker).toBe('itp')
+    expect(line.metadata.qr_stand).toEqual({ line_index: 0, link: 'https://crystal.imaginethisprinted.com', caption: 'Shop My Store', logo_path: null })
+  })
+
   it('stays shut while the store is a draft', async () => {
     tables.vendor_storefronts = [store({ status: 'draft' })]
     const res = await buy([{ itemId: 'tee', quantity: 1, size: 'M' }])

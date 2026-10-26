@@ -11,6 +11,7 @@ import { plusSizeUpchargeCents } from '../shared/catalog-capability.js'
 import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
 import { askStoreAssistant, type AssistantTurn } from '../services/store-assistant.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
+import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
 
 // Vendor storefronts (David 2026-10-26): a seller's own branded store on
 // <slug>.imaginethisprinted.com, Crystal's Shirts and More first. Buyers check out through
@@ -92,6 +93,42 @@ type ItemRow = {
   itp_cost_cents: number
   active: boolean
   sort: number
+  metadata?: Record<string, any> | null
+}
+
+/**
+ * An ITP item is one ITP makes and ships: a products row, or a priced line type that has no products row
+ * (the Custom QR Counter Stand, backend/shared/qr-stand.ts: metadata.line_type 'qr-stand').
+ */
+const isQrStand = (i: ItemRow) => i.metadata?.line_type === QR_STAND.lineIdPrefix
+const isItp = (i: ItemRow) => !!i.product_id || isQrStand(i)
+
+/** The stand's listing photos: the real plate-and-brace stand, served from public/business/ on ITP and on every
+ *  store subdomain (one Vercel project). Stripe gets them made absolute (absoluteImage). */
+const QR_STAND_IMAGES = ['/business/qr-stand-shop.webp', '/business/qr-stand-lineup.webp']
+const absoluteImage = (src: string | undefined, origin: string) => (src && src.startsWith('/') ? `${origin}${src}` : src)
+
+/** Offer (or re-price) the QR stand on a store. One stand row per store; it has no products row to key on. */
+async function offerQrStand(storefrontId: string, itpCostCents: number): Promise<ItemRow | null> {
+  const fields = {
+    name: QR_STAND.name,
+    description:
+      'A 3D-printed counter stand with your own QR code: your link, your words under the code (Pay Here, Review Us, ' +
+      'Scan For Menu or your own) and your logo in the middle. Printed to order in Rockmart, GA. About 9 x 12 cm.',
+    images: QR_STAND_IMAGES,
+    sizes: [],
+    colors: [],
+    itp_cost_cents: itpCostCents,
+    metadata: { line_type: QR_STAND.lineIdPrefix },
+    updated_at: new Date().toISOString(),
+  }
+  const { data: existing } = await supabase
+    .from('vendor_store_items').select('*').eq('storefront_id', storefrontId).eq('metadata->>line_type', QR_STAND.lineIdPrefix).maybeSingle()
+  const q = existing
+    ? supabase.from('vendor_store_items').update({ ...fields, price_cents: Math.max(existing.price_cents, itpCostCents) }).eq('id', existing.id)
+    : supabase.from('vendor_store_items').insert({ ...fields, storefront_id: storefrontId, product_id: null, price_cents: Math.max(QR_STAND.wasCents, itpCostCents), active: false })
+  const { data } = await q.select().single()
+  return (data as ItemRow) || null
 }
 
 async function loadStore(slug: string): Promise<StoreRow | null> {
@@ -101,7 +138,8 @@ async function loadStore(slug: string): Promise<StoreRow | null> {
 
 const publicItem = (i: ItemRow) => ({
   id: i.id,
-  kind: i.product_id ? 'itp' : 'own',
+  kind: isItp(i) ? 'itp' : 'own',
+  lineType: isQrStand(i) ? QR_STAND.lineIdPrefix : null,
   name: i.name,
   description: i.description,
   images: Array.isArray(i.images) ? i.images : [],
@@ -183,7 +221,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
     }
     const printRefs = productIds.length ? await getPrintFileRefsFor(productIds) : {}
 
-    const lines: Array<SplitLine & { item: ItemRow; size?: string; color?: string }> = []
+    const lines: Array<SplitLine & { item: ItemRow; size?: string; color?: string; stand?: QrStandFields }> = []
     for (const raw of items) {
       const item = byId.get(String(raw?.itemId))
       if (!item) return res.status(400).json({ error: 'An item in the cart is no longer for sale' })
@@ -194,16 +232,24 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
       const size = typeof raw?.size === 'string' && item.sizes?.includes(raw.size) ? raw.size : undefined
       const color = typeof raw?.color === 'string' && item.colors?.includes(raw.color) ? raw.color : undefined
       if (item.sizes?.length && !size) return res.status(400).json({ error: `Pick a size for ${item.name}` })
+      // A QR stand carries the buyer's link, words and logo, checked by the same rules as ITP's own stand page.
+      let stand: QrStandFields | undefined
+      if (isQrStand(item)) {
+        const { fields, problem } = readQrStandFields(raw?.personalization)
+        if (problem) return res.status(400).json({ error: `${item.name}: ${problem}` })
+        stand = fields
+      }
       // A bigger ITP shirt costs ITP more, so the upcharge rides both the price and ITP's cost.
       const up = item.product_id ? plusSizeUpchargeCents(size) : 0
       lines.push({
-        kind: item.product_id ? 'itp' : 'own',
+        kind: isItp(item) ? 'itp' : 'own',
         unitCents: item.price_cents + up,
-        itpCostCents: item.product_id ? item.itp_cost_cents + up : 0,
+        itpCostCents: isItp(item) ? item.itp_cost_cents + up : 0,
         quantity,
         item,
         size,
-        color
+        color,
+        stand
       })
     }
 
@@ -257,7 +303,8 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
             quantity: l.quantity,
             image: l.item.images?.[0],
             size: l.size,
-            color: l.color
+            color: l.color,
+            ...(l.stand ? { qr_link: l.stand.link, qr_caption: l.stand.caption } : {})
           }))
         }
       })
@@ -269,10 +316,10 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
     }
 
     const { error: itemsError } = await supabase.from('order_items').insert(
-      lines.map(l => ({
+      lines.map((l, lineIndex) => ({
         order_id: order.id,
         product_id: l.item.product_id,
-        product_name: l.item.name,
+        product_name: l.stand ? `${QR_STAND.name}: ${l.stand.caption}` : l.item.name,
         quantity: l.quantity,
         unit_price: l.unitCents / 100,
         subtotal: (l.unitCents * l.quantity) / 100,
@@ -284,7 +331,9 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
           image_url: l.item.images?.[0] ?? null,
           size: l.size ?? null,
           color: l.color ?? null,
-          ...(l.item.product_id && printRefs[l.item.product_id] ? { print_file_refs: printRefs[l.item.product_id] } : {})
+          ...(l.item.product_id && printRefs[l.item.product_id] ? { print_file_refs: printRefs[l.item.product_id] } : {}),
+          // The stand's paid-order hook (services/qr-stand-builds.ts onQrStandOrderPaid) queues its print file from this.
+          ...(l.stand ? { qr_stand: { line_index: lineIndex, link: l.stand.link, caption: l.stand.caption, logo_path: l.stand.logoPath } } : {})
         }
       }))
     )
@@ -300,8 +349,8 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
           currency: 'usd',
           unit_amount: l.unitCents,
           product_data: {
-            name: [l.item.name, l.size, l.color].filter(Boolean).join(' / '),
-            ...(l.item.images?.[0] ? { images: [l.item.images[0]] } : {})
+            name: [l.item.name, l.size, l.color, l.stand?.caption].filter(Boolean).join(' / '),
+            ...(absoluteImage(l.item.images?.[0], origin)?.startsWith('https://') ? { images: [absoluteImage(l.item.images[0], origin)!] } : {})
           }
         }
       })),
@@ -536,17 +585,17 @@ router.patch('/manage/:slug/items/:id', requireAuth, requireStoreManager, async 
   const b = req.body || {}
   const patch: Record<string, unknown> = {}
   const cost = isAdmin && Number.isInteger(b.itpCostCents) && b.itpCostCents >= 0 ? b.itpCostCents : item.itp_cost_cents
-  if (isAdmin && item.product_id && cost !== item.itp_cost_cents) patch.itp_cost_cents = cost
+  if (isAdmin && isItp(item) && cost !== item.itp_cost_cents) patch.itp_cost_cents = cost
   if (b.priceCents !== undefined) {
     if (!Number.isInteger(b.priceCents) || b.priceCents < 100) return res.status(400).json({ error: 'Price must be at least $1.00' })
-    if (item.product_id && b.priceCents < cost) {
+    if (isItp(item) && b.priceCents < cost) {
       return res.status(400).json({ error: `Price can't be under Imagine This Printed's price of $${(cost / 100).toFixed(2)}` })
     }
     patch.price_cents = b.priceCents
   }
   if (typeof b.active === 'boolean') patch.active = b.active
   if (Number.isInteger(b.sort)) patch.sort = b.sort
-  if (!item.product_id) {
+  if (!isItp(item)) {
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim().slice(0, 120)
     if (typeof b.description === 'string') patch.description = b.description.trim().slice(0, 2000) || null
   }
@@ -559,10 +608,12 @@ router.patch('/manage/:slug/items/:id', requireAuth, requireStoreManager, async 
 
 router.delete('/manage/:slug/items/:id', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
   const { store, isAdmin } = req.vendorStore!
-  let q = supabase.from('vendor_store_items').delete().eq('id', req.params.id).eq('storefront_id', store.id)
+  const { data: item } = await supabase
+    .from('vendor_store_items').select('*').eq('id', req.params.id).eq('storefront_id', store.id).maybeSingle()
+  if (!item) return res.status(404).json({ error: 'Item not found' })
   // ITP products David offered her stay on the list; she switches them off instead.
-  if (!isAdmin) q = q.is('product_id', null)
-  const { error } = await q
+  if (!isAdmin && isItp(item as ItemRow)) return res.status(403).json({ error: 'Switch it off instead' })
+  const { error } = await supabase.from('vendor_store_items').delete().eq('id', item.id)
   if (error) return res.status(500).json({ error: 'Failed to delete' })
   return res.json({ ok: true })
 })
@@ -600,7 +651,7 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, voiceNo
         payoutsReady: payouts.ready,
         feePercent: Number(store.fee_percent),
         instagram: store.instagram,
-        items: ((items || []) as ItemRow[]).map(i => ({ name: i.name, kind: i.product_id ? 'itp' : 'own', priceCents: i.price_cents, itpCostCents: i.itp_cost_cents, active: i.active })),
+        items: ((items || []) as ItemRow[]).map(i => ({ name: i.name, kind: isItp(i) ? 'itp' : 'own', priceCents: i.price_cents, itpCostCents: i.itp_cost_cents, active: i.active })),
         orders: (orders || []).map((o: any) => ({ createdAt: o.created_at, totalCents: Math.round(Number(o.total) * 100), shareCents: o.metadata?.vendor_store?.split?.vendorShareCents ?? null }))
       },
       turns,
@@ -674,15 +725,20 @@ router.get('/manage/:slug/itp-catalog', requireAuth, requireStoreManager, async 
     .limit(24)
   if (term) q = q.ilike('name', `%${term.replace(/[%_]/g, '')}%`)
   const { data } = await q
+  // The QR stand has no products row (it is a priced line type), so it is offered by its line id.
+  const standMatches = !term || /qr|stand|counter|code/i.test(term)
   return res.json({
-    products: (data || []).map((p: any) => ({
+    products: [
+      ...(standMatches ? [{ id: QR_STAND.lineIdPrefix, name: QR_STAND.name, priceCents: QR_STAND.wasCents, costCents: QR_STAND.priceCents, image: QR_STAND_IMAGES[0], category: 'business' }] : []),
+      ...(data || []).map((p: any) => ({
       id: p.id,
       name: p.name,
       priceCents: Math.round(Number(p.price) * 100),
       costCents: p.cost_price != null ? Math.round(Number(p.cost_price) * 100) : null,
       image: Array.isArray(p.images) ? p.images[0] : null,
       category: p.category
-    }))
+      }))
+    ]
   })
 })
 
@@ -693,6 +749,11 @@ router.post('/manage/:slug/offer', requireAuth, requireStoreManager, async (req:
   if (!isAdmin) return res.status(403).json({ error: 'Admins only' })
   const { productId, itpCostCents } = req.body || {}
   if (!Number.isInteger(itpCostCents) || itpCostCents < 0) return res.status(400).json({ error: 'Set her price (cents)' })
+  if (productId === QR_STAND.lineIdPrefix) {
+    const row = await offerQrStand(store.id, itpCostCents)
+    if (!row) return res.status(500).json({ error: 'Failed to offer' })
+    return res.json({ item: { ...publicItem(row), active: row.active, itpCostCents } })
+  }
   const { data: p } = await supabase
     .from('products')
     .select('id, name, description, price, images, sizes, colors, status, is_active, is_user_generated')

@@ -3,10 +3,11 @@
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Package, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { money, vendorStoreApi, type ManageData, type ManageItem } from '../../lib/vendor-store'
 import StoreCredits from './StoreCredits'
 import StoreAssistant from './StoreAssistant'
+import StoreDesign from './StoreDesign'
 import './store.css'
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
@@ -22,6 +23,12 @@ export default function StoreManager() {
   const [data, setData] = useState<ManageData | null>(null)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  // Create a design opens in place (and stays open while a design is being built: ?productId= is in the address).
+  const [designOpen, setDesignOpen] = useState(() => !!new URLSearchParams(window.location.search).get('productId'))
+  const openDesign = () => {
+    setDesignOpen(true)
+    setTimeout(() => document.getElementById('design')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
+  }
   // The assistant sits docked beside the page on a wide screen; on a phone it opens from the floating button.
   const [assistantOpen, setAssistantOpen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches)
 
@@ -73,6 +80,7 @@ export default function StoreManager() {
     { id: 'products', label: 'Products', icon: Shirt },
     { id: 'orders', label: 'Orders', icon: Package },
     { id: 'credits', label: 'Credits', icon: Sparkles },
+    { id: 'design', label: 'Create a design', icon: Palette },
     { id: 'payouts', label: 'Payouts', icon: Wallet },
     { id: 'settings', label: 'Settings', icon: Settings },
   ]
@@ -137,7 +145,10 @@ export default function StoreManager() {
           </div>
 
           {/* Her ITC credits and the AI tools they pay for */}
-          <StoreCredits slug={slug} />
+          <StoreCredits slug={slug} onDesign={openDesign} />
+
+          {/* Create a design: the Step Flow, right here on her page */}
+          <StoreDesign open={designOpen} onOpen={openDesign} />
 
           {/* 3. Add a product */}
           <AddProduct slug={slug} feePercent={store.feePercent} onSaved={() => { setToast('Added to your store'); load() }} onError={setToast} />

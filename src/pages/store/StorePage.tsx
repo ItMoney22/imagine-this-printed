@@ -4,7 +4,8 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { CandlestickChart, CupSoda, Gift, Instagram, Lock, MessageCircle, Minus, Plus, ShieldCheck, Shirt, ShoppingCart, Sparkles, Trash2, Truck, X, Flame } from 'lucide-react'
-import { fetchStore, money, startCheckout, useStoreCart, type StoreInfo, type StoreItem } from '../../lib/vendor-store'
+import { fetchStore, money, startCheckout, useStoreCart, type CartLine, type StoreInfo, type StoreItem } from '../../lib/vendor-store'
+import StoreStandFields, { type StandChoice } from './StoreStandFields'
 import './store.css'
 
 const ITP_HOME = 'https://imaginethisprinted.com'
@@ -190,9 +191,9 @@ export default function StorePage({ slug: slugProp }: { slug?: string }) {
                   <p className="text-[var(--vs-primary)] font-bold text-lg">{money(item.priceCents)}</p>
                   <button
                     className="vs-btn-pink mt-auto rounded-xl h-10 text-sm font-semibold flex items-center justify-center gap-2"
-                    onClick={() => (item.sizes.length || item.colors.length > 1 ? setOpen(item) : (cart.add({ itemId: item.id, quantity: 1, color: item.colors[0] }), setCartOpen(true)))}
+                    onClick={() => (item.sizes.length || item.colors.length > 1 || item.lineType ? setOpen(item) : (cart.add({ itemId: item.id, quantity: 1, color: item.colors[0] }), setCartOpen(true)))}
                   >
-                    <ShoppingCart className="w-4 h-4" /> {item.sizes.length ? 'Pick a size' : 'Add to cart'}
+                    <ShoppingCart className="w-4 h-4" /> {item.lineType ? 'Make yours' : item.sizes.length ? 'Pick a size' : 'Add to cart'}
                   </button>
                 </div>
               </article>
@@ -263,14 +264,17 @@ function ItemSheet({ item, ownerFirst, onClose, onAdd }: {
   item: StoreItem
   ownerFirst: string
   onClose: () => void
-  onAdd: (line: { itemId: string; quantity: number; size?: string; color?: string }) => void
+  onAdd: (line: CartLine) => void
 }) {
   const [img, setImg] = useState(0)
   const [size, setSize] = useState<string | undefined>()
   const [color, setColor] = useState<string | undefined>(item.colors.length === 1 ? item.colors[0] : undefined)
   const [qty, setQty] = useState(1)
+  const isStand = item.lineType === 'qr-stand'
+  const [stand, setStand] = useState<StandChoice>({ ready: false, personalization: {} })
   const needsSize = item.sizes.length > 0 && !size
   const needsColor = item.colors.length > 1 && !color
+  const needsStand = isStand && !stand.ready
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
     window.addEventListener('keydown', esc)
@@ -312,6 +316,7 @@ function ItemSheet({ item, ownerFirst, onClose, onAdd }: {
               {item.kind === 'itp' && <p className="text-xs text-[var(--vs-muted)] mt-2">2XL and up cost a little more.</p>}
             </div>
           )}
+          {isStand && <StoreStandFields onChange={setStand} />}
           {item.colors.length > 1 && (
             <div>
               <p className="text-sm font-semibold mb-2">Colour</p>
@@ -329,11 +334,11 @@ function ItemSheet({ item, ownerFirst, onClose, onAdd }: {
               <button className="w-10 h-10 grid place-items-center" onClick={() => setQty(Math.min(20, qty + 1))} aria-label="One more"><Plus className="w-4 h-4" /></button>
             </div>
             <button
-              disabled={needsSize || needsColor}
-              onClick={() => onAdd({ itemId: item.id, quantity: qty, size, color })}
+              disabled={needsSize || needsColor || needsStand}
+              onClick={() => onAdd({ itemId: item.id, quantity: qty, size, color, ...(isStand ? { personalization: stand.personalization } : {}) })}
               className="vs-btn-pink flex-1 rounded-xl h-12 font-semibold flex items-center justify-center gap-2"
             >
-              <ShoppingCart className="w-5 h-5" /> {needsSize ? 'Pick a size' : needsColor ? 'Pick a colour' : 'Add to cart'}
+              <ShoppingCart className="w-5 h-5" /> {needsSize ? 'Pick a size' : needsColor ? 'Pick a colour' : needsStand ? 'Add your link' : 'Add to cart'}
             </button>
           </div>
         </div>
@@ -359,7 +364,7 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
     setBusy(true)
     setError('')
     try {
-      window.location.href = await startCheckout(slug, lines.map(({ itemId, quantity, size, color }) => ({ itemId, quantity, size, color })))
+      window.location.href = await startCheckout(slug, lines.map(({ itemId, quantity, size, color, personalization }) => ({ itemId, quantity, size, color, personalization })))
     } catch (e: any) {
       setError(e.message)
       setBusy(false)
@@ -378,11 +383,11 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
         <div className="flex-1 overflow-auto p-5 flex flex-col gap-4">
           {lines.length === 0 && <p className="text-[var(--vs-muted)] text-center mt-10">Your cart is empty.</p>}
           {lines.map(l => (
-            <div key={`${l.itemId}-${l.size}-${l.color}`} className="flex gap-3">
+            <div key={`${l.itemId}-${l.size}-${l.color}-${l.index}`} className="flex gap-3">
               {l.item!.images[0] && <img src={l.item!.images[0]} alt="" className="w-20 h-20 rounded-xl object-cover bg-[#f1ebf6]" />}
               <div className="flex-1 min-w-0">
                 <p className="font-medium leading-snug">{l.item!.name}</p>
-                <p className="text-sm text-[var(--vs-muted)]">{[l.size, l.color].filter(Boolean).join(' · ')}</p>
+                <p className="text-sm text-[var(--vs-muted)] break-all">{[l.size, l.color, l.personalization?.qr_caption, l.personalization?.qr_link?.replace(/^https?:\/\//, '')].filter(Boolean).join(' · ')}</p>
                 <div className="flex items-center gap-2 mt-1">
                   <button className="w-7 h-7 rounded-lg border border-[var(--vs-line)] grid place-items-center" onClick={() => cart.setQty(l.index, l.quantity - 1)} aria-label="One less"><Minus className="w-3 h-3" /></button>
                   <span className="w-6 text-center text-sm font-semibold">{l.quantity}</span>

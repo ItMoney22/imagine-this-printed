@@ -17,6 +17,8 @@ export type StoreInfo = { slug: string; name: string; tagline: string | null; lo
 export type StoreItem = {
   id: string
   kind: 'own' | 'itp'
+  /** 'qr-stand': the buyer fills in a link, words and a logo (StoreStandFields). */
+  lineType?: string | null
   name: string
   description: string | null
   images: string[]
@@ -24,7 +26,7 @@ export type StoreItem = {
   colors: string[]
   priceCents: number
 }
-export type CartLine = { itemId: string; quantity: number; size?: string; color?: string }
+export type CartLine = { itemId: string; quantity: number; size?: string; color?: string; personalization?: Record<string, string> }
 
 export const money = (cents: number) => `$${(cents / 100).toFixed(2)}`
 
@@ -71,7 +73,9 @@ export function useStoreCart(slug: string) {
 
   const add = useCallback((line: CartLine) => {
     setLines(prev => {
-      const i = prev.findIndex(l => l.itemId === line.itemId && l.size === line.size && l.color === line.color)
+      // Two stands with different links are two lines, so the personalization is part of the match.
+      const same = (l: CartLine) => JSON.stringify(l.personalization ?? null) === JSON.stringify(line.personalization ?? null)
+      const i = prev.findIndex(l => l.itemId === line.itemId && l.size === line.size && l.color === line.color && same(l))
       if (i < 0) return [...prev, line]
       const next = [...prev]
       next[i] = { ...next[i], quantity: Math.min(20, next[i].quantity + line.quantity) }

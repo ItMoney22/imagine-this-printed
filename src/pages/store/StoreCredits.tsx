@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight, Clock, ImageIcon, Shirt, Sparkles } from 'lucide-react'
 import { vendorStoreApi, type StoreCredits as Credits } from '../../lib/vendor-store'
 
-export default function StoreCredits({ slug }: { slug: string }) {
+export default function StoreCredits({ slug, onDesign }: { slug: string; onDesign: () => void }) {
   const [c, setC] = useState<Credits | null>(null)
   useEffect(() => { vendorStoreApi.credits(slug).then(setC).catch(() => setC({ linked: false, balance: null, prices: [], recent: [] })) }, [slug])
 
@@ -36,7 +36,7 @@ export default function StoreCredits({ slug }: { slug: string }) {
       </div>
 
       {/* Doors into the AI tools (they charge ITC themselves) */}
-      <Door to="/creator/studio" icon={Shirt} title="Design a shirt" colours={['#8b3fd1', '#5b1d8f']} />
+      <Door onClick={onDesign} icon={Shirt} title="Design a shirt" colours={['#8b3fd1', '#5b1d8f']} />
       <Door to="/imagination-station" icon={ImageIcon} title="Make an image" colours={['#1fb5c9', '#0b7f9c']} />
 
       {/* Recent use */}
@@ -63,9 +63,11 @@ export default function StoreCredits({ slug }: { slug: string }) {
   )
 }
 
-function Door({ to, icon: Icon, title, colours }: { to: string; icon: typeof Shirt; title: string; colours: [string, string] }) {
+function Door({ to, onClick, icon: Icon, title, colours }: { to?: string; onClick?: () => void; icon: typeof Shirt; title: string; colours: [string, string] }) {
+  // The design flow opens right on her page (StoreDesign); Make an image still goes to Imagination Station.
+  const Tag: any = to ? Link : 'button'
   return (
-    <Link to={to} className="vs-card group relative overflow-hidden p-4 sm:p-5 flex flex-col items-center justify-center gap-4 text-white text-center min-h-48"
+    <Tag {...(to ? { to } : { type: 'button', onClick })} className="vs-card group relative overflow-hidden p-4 sm:p-5 flex flex-col items-center justify-center gap-4 text-white text-center min-h-48"
       style={{ background: `linear-gradient(160deg, ${colours[0]}, ${colours[1]})`, border: 'none' }}>
       {[[14, 18], [80, 14], [86, 70], [10, 76]].map(([l, t], i) => (
         <Sparkles key={i} className="vs-sparkle w-4 h-4" style={{ left: `${l}%`, top: `${t}%`, animationDelay: `${i * 0.6}s` }} />
@@ -73,6 +75,6 @@ function Door({ to, icon: Icon, title, colours }: { to: string; icon: typeof Shi
       <span className="w-20 h-20 rounded-2xl bg-white/15 grid place-items-center transition-transform group-hover:scale-110"><Icon className="w-10 h-10" /></span>
       <span className="vs-display text-xl">{title}</span>
       <span className="inline-flex items-center gap-1 rounded-full bg-white/20 px-4 h-9 text-sm font-semibold group-hover:bg-white/30">Open <ArrowRight className="w-4 h-4" /></span>
-    </Link>
+    </Tag>
   )
 }
