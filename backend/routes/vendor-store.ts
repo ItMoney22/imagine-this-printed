@@ -808,6 +808,7 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
         {
           storeName: store.name,
           ownerFirst: String((store.theme as any)?.ownerFirst || store.name.split(/[’']/)[0]),
+          assistantName: (store.theme as any)?.assistantName || undefined,
           status: store.status,
           payoutsReady: payouts.ready,
           feePercent: Number(store.fee_percent),

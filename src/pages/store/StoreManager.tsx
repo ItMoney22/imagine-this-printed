@@ -247,7 +247,7 @@ export default function StoreManager() {
           {isAdmin && <AdminPanel data={data} slug={slug} save={save} />}
         </main>
 
-        <StoreAssistant slug={slug} ownerFirst={t.ownerFirst || store.name.split(/[’']/)[0]} faceUrl={t.assistant} open={assistantOpen} onClose={() => setAssistantOpen(false)}
+        <StoreAssistant slug={slug} ownerFirst={t.ownerFirst || store.name.split(/[’']/)[0]} assistantName={t.assistantName} faceUrl={t.assistant} open={assistantOpen} onClose={() => setAssistantOpen(false)}
           onMakeProduct={openDesignOn} onNeedStudio={openDesign} />
       </div>
 

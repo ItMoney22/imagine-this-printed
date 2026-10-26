@@ -13,6 +13,8 @@ export type StoreTheme = {
   /** Her store assistant's face (defaults to /stores/<slug>/assistant.webp). */
   assistant?: string
   ownerFirst?: string
+  /** Her store assistant's first name (Crystal's is Opal). */
+  assistantName?: string
   about?: string
 }
 export type StoreInfo = { slug: string; name: string; tagline: string | null; logoUrl: string | null; theme: StoreTheme; open: boolean; instagram: string | null }

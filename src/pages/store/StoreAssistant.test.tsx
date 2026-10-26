@@ -52,6 +52,14 @@ describe('StoreAssistant', () => {
     expect(faces.length).toBe(2) // the header and the reply
   })
 
+  it('introduces her assistant by name', async () => {
+    api.history.mockResolvedValue({ messages: [] })
+    render(<StoreAssistant slug="crystal" ownerFirst="Crystal" assistantName="Opal" open onClose={vi.fn()} onMakeProduct={vi.fn()} onNeedStudio={vi.fn()} />)
+    expect(await screen.findByText(/I’m Opal, your store assistant/)).toBeTruthy()
+    expect(screen.getByText('Opal')).toBeTruthy()
+    expect(screen.getByLabelText('Opal, your store assistant')).toBeTruthy()
+  })
+
   it('sends the attached picture with her message, and offers Make it a product on the reply', async () => {
     api.history.mockResolvedValue({ messages: [] })
     api.ask.mockResolvedValue({
