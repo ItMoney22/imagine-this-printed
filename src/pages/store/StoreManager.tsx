@@ -306,7 +306,7 @@ function Stat({ icon: Icon, colour, label, value }: { icon: typeof Home; colour:
 
 function Card({ id, icon: Icon, title, children }: { id?: string; icon: typeof Home; title: string; children: React.ReactNode }) {
   return (
-    <section id={id} className="rounded-3xl bg-white border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-28">
+    <section id={id} className="rounded-3xl bg-white border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-44 md:scroll-mt-28">
       <h2 className="vs-display text-2xl sm:text-3xl flex items-center gap-3 mb-5">
         <span className="w-10 h-10 rounded-full grid place-items-center text-white" style={{ background: 'var(--vs-primary)' }}><Icon className="w-5 h-5" /></span>
         {title}
@@ -562,7 +562,7 @@ function AdminPanel({ data, slug, save }: { data: ManageData; slug: string; save
   const find = () => vendorStoreApi.searchCatalog(slug, q).then(r => setResults(r.products)).catch(() => setResults([]))
 
   return (
-    <section id="settings" className="rounded-3xl bg-[#efe8f7] border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-28">
+    <section id="settings" className="rounded-3xl bg-[#efe8f7] border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-44 md:scroll-mt-28">
       <h2 className="flex items-center gap-2 font-semibold text-[var(--vs-primary)] mb-4"><Lock className="w-5 h-5" /> Admin only</h2>
       <div className="grid sm:grid-cols-2 xl:grid-cols-6 gap-4 text-sm">
         <label className="font-medium">Fee on her products (%)

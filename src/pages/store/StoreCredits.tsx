@@ -12,7 +12,7 @@ export default function StoreCredits({ slug, onDesign }: { slug: string; onDesig
   useEffect(() => { vendorStoreApi.credits(slug).then(setC).catch(() => setC({ linked: false, balance: null, prices: [], recent: [] })) }, [slug])
 
   return (
-    <div id="credits" className="grid sm:grid-cols-2 xl:grid-cols-[1.15fr_0.8fr_0.8fr_1fr] gap-3 sm:gap-5 scroll-mt-28">
+    <div id="credits" className="grid sm:grid-cols-2 xl:grid-cols-[1.15fr_0.8fr_0.8fr_1fr] gap-3 sm:gap-5 scroll-mt-44 md:scroll-mt-28">
       {/* Balance + prices */}
       <div className="vs-card p-4 sm:p-5 flex flex-col gap-3">
         <div className="flex items-center gap-3">

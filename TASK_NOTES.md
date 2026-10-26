@@ -5393,3 +5393,24 @@ personal sign-in email.
   skipped); the inbox-only detour (ce1d0e0..63eaa86) is undone. Live proof on that path: the real sweep fired at 11:51 ET
   and Resend shows exactly one reminder to ctrin82@yahoo.com (01a178e8, delivered); switched off, nothing more sent.
   One more from the detour sits in her crystal@ store inbox (01a178ee). vitest 21/21, backend tsc clean, tsc -b 0.
+
+## Current request (2026-10-26) — store manager side-menu jumps under the phone header (task 123ab6ca, amelia-chan)
+
+On a phone the store manager header (.vs-bar, sticky) wraps to 172px (Your store / View my store + Draft / Set up
+payouts) from 320 to 414px wide, 124px up to ~620, 72px from md up. Every section card used scroll-mt-28 (112px), so a
+side-menu tap landed with the title under the header. Fix: the Inbox pattern (scroll-mt-44 md:scroll-mt-28 = 176px on a
+phone, 112px from md) on every section root. Chosen over a one-row phone header: three buttons and the title don't fit
+one 390px row without shrinking the tap targets, and the class keeps md+ exactly as it was.
+
+### File shortlist (approved scope — 2026-10-26 menu jumps)
+- `src/pages/store/StoreManager.tsx` (Card + the admin panel section), `StoreCredits.tsx`, `StoreDesign.tsx`
+- `src/pages/store/StoreLink.tsx`, `StoreReminders.tsx` (same bug: My link and Reminders are side-menu pills too)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (amelia-chan): branch fast-forwarded to Nine's 10/27 Crystal batch b60401a (main + 580c4f3 + f9d8117: the
+  only tree with every store card). Before, at 390x844: My link, Products, Orders, Reminders, Credits, Create a design,
+  Payouts (+ Settings in the admin view) landed with the title top at 129px under a 172px header. After: all 11 pills
+  land with the section top at 176px and the title at 193-201px at 360, 390 and 414 (seller + admin views); 600 too;
+  768 and 1400 still 112px. Walk = built site + local API on prod data, signed in as David; shots in
+  E:/memory/watchtower/projects/imagine-this-printed/2026-10-26-123ab6ca-store-menu-jump/. vitest src/pages/store 5/5.

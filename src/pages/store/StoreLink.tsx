@@ -50,7 +50,7 @@ export default function StoreLink({ data }: { data: ManageData }) {
   const waitingCents = waiting.reduce((n, o) => n + o.cutCents, 0)
 
   return (
-    <section id="link" className="rounded-3xl bg-white border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-28">
+    <section id="link" className="rounded-3xl bg-white border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-44 md:scroll-mt-28">
       <h2 className="vs-display text-2xl sm:text-3xl flex items-center gap-3 mb-2">
         <span className="w-10 h-10 rounded-full grid place-items-center text-white" style={{ background: 'var(--vs-pink)' }}><Link2 className="w-5 h-5" /></span>
         Your link

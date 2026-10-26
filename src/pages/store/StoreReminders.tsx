@@ -64,7 +64,7 @@ export default function StoreReminders({ slug, onToast }: { slug: string; onToas
   }
 
   return (
-    <section id="reminders" className="rounded-3xl bg-white border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-28">
+    <section id="reminders" className="rounded-3xl bg-white border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-44 md:scroll-mt-28">
       <h2 className="vs-display text-2xl sm:text-3xl flex items-center gap-3">
         <span className="w-10 h-10 rounded-full grid place-items-center text-white" style={{ background: 'var(--vs-primary)' }}><Bell className="w-5 h-5" /></span>
         Reminders
