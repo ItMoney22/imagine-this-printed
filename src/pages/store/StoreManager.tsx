@@ -3,12 +3,13 @@
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Link2, Lock, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Link2, Lock, Mail, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { money, vendorStoreApi, type ManageData, type ManageItem } from '../../lib/vendor-store'
 import StoreCredits from './StoreCredits'
 import StoreAssistant from './StoreAssistant'
 import StoreDesign from './StoreDesign'
 import StoreLink from './StoreLink'
+import StoreInbox from './StoreInbox'
 import './store.css'
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
@@ -24,6 +25,7 @@ export default function StoreManager() {
   const [data, setData] = useState<ManageData | null>(null)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  const [unread, setUnread] = useState(0)
   // Create a design opens in place (and stays open while a design is being built: ?productId= is in the address).
   const [designOpen, setDesignOpen] = useState(() => !!new URLSearchParams(window.location.search).get('productId'))
   const openDesign = () => {
@@ -83,6 +85,7 @@ export default function StoreManager() {
     { id: 'link', label: 'My link', icon: Link2 },
     { id: 'products', label: 'Products', icon: Shirt },
     { id: 'orders', label: 'Orders', icon: Package },
+    { id: 'inbox', label: 'Inbox', icon: Mail, count: unread },
     { id: 'credits', label: 'Credits', icon: Sparkles },
     { id: 'design', label: 'Create a design', icon: Palette },
     { id: 'payouts', label: 'Payouts', icon: Wallet },
@@ -133,6 +136,7 @@ export default function StoreManager() {
             return (
               <a key={n.id} href={`#${n.id}`} className="flex items-center gap-3 rounded-xl px-4 h-11 shrink-0 font-medium hover:bg-white text-[var(--vs-text)]">
                 <Icon className="w-5 h-5 text-[var(--vs-primary)]" /> {n.label}
+                {!!n.count && <span className="ml-auto min-w-6 h-6 px-1.5 rounded-full grid place-items-center text-xs font-semibold text-white bg-[var(--vs-pink)]">{n.count}</span>}
               </a>
             )
           })}
@@ -189,6 +193,9 @@ export default function StoreManager() {
               </div>
             )}
           </Card>
+
+          {/* Her store email, junk kept out */}
+          <StoreInbox slug={slug} onUnread={setUnread} onToast={setToast} />
 
           {/* 6. Orders */}
           <Card id="orders" icon={Package} title="Orders">

@@ -5280,3 +5280,24 @@ Built on top of ebf7dec0's branch (b062d1f): its lookup plan (id -> slug -> meta
   dropped), and adds the old slug to metadata.replaces. Live one-off applied to 9c3b3d19: slug
   folgers-coffee-racing-legend-t-shirt, replaces [1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77]. vitest 2477/2477, vite build OK,
   live page walked logged out at 1400 + 390, old uuid link walked on a local build of this branch (redirects to the new slug).
+
+## Current request (2026-10-26) — Crystal's inbox in her store manager, junk kept out (task f4a337b0, dr-dill)
+
+David 10/26: "she needs a spot to read her email that goes to crystal@imaginethisprinted.com, also put jev in it so
+we make sure keeps junk away." Built on Amelia's unshipped branch earth/amelia-chan/crystal-storefront (fast-forwarded
+in: the store manager only exists there). Approved mock: itp-crystal-store-manager-inbox round 1 (Inbox card: Inbox +
+Junk kept out tabs, unread dots, open and reply). Store owner or admin (role admin only) reads it, enforced in the API.
+
+### File shortlist (approved scope — 2026-10-26 store inbox)
+- `supabase/migrations/20261026210000_vendor_store_inbox.sql` (new: store -> mailbox link, crystal@ mailbox row)
+- `backend/routes/vendor-store-inbox.ts` (+ `.test.ts`) new; `backend/routes/vendor-store.ts` (mount + owner sync only)
+- `src/lib/vendor-store.ts` (inbox API + types), `src/pages/store/StoreInbox.tsx` (new), `src/pages/store/StoreManager.tsx` (render + nav)
+- `supabase/migrations/MIGRATION_LEDGER.md`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (dr-dill): migration 20261026210000 applied live (crystal@ mailbox 4d9ad818 linked to her store). API
+  /api/vendor-store/manage/:slug/inbox (list, open, reply, junk) behind requireStoreManager + owner-or-admin check;
+  mailbox user_id follows the store owner on claim and on an admin owner change. Inbox card + nav badge on the
+  store manager. Two real test emails via Resend: the question landed in Inbox, the SEO pitch in Junk (Jev spam 1.0).
+  Walked the BUILT site signed in as David (minted session) at 1400 + 390, every button clicked, reply delivered.
+  vitest 2548/2548, backend tsc clean (junction TS2742 only), frontend tsc -b 0. Test rows deleted.

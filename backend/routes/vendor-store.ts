@@ -13,6 +13,7 @@ import { askStoreAssistant, type AssistantTurn } from '../services/store-assista
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
 import { ensureStoreReferralCode, settleWaitingStoreReferrals, storeReferralOrders } from '../services/store-referral.js'
+import storeInboxRouter, { syncInboxOwner } from './vendor-store-inbox.js'
 
 // Vendor storefronts (David 2026-10-26): a seller's own branded store on
 // <slug>.imaginethisprinted.com, Crystal's Shirts and More first. Buyers check out through
@@ -81,6 +82,8 @@ type StoreRow = {
   instagram: string | null
   referral_code: string | null
   referral_percent: number | null
+  /** The store's own mailbox (routes/vendor-store-inbox.ts). */
+  inbox_mailbox_id: string | null
 }
 
 type ItemRow = {
@@ -420,6 +423,7 @@ async function claimIfOwner(store: StoreRow, user: { sub: string; email?: string
   if (!authUser?.user?.email_confirmed_at) return role
   await supabase.from('vendor_storefronts').update({ owner_user_id: user.sub, updated_at: new Date().toISOString() }).eq('id', store.id)
   store.owner_user_id = user.sub
+  await syncInboxOwner(store.inbox_mailbox_id, user.sub)
   if (role && [...ADMIN_ROLES, 'vendor'].includes(role)) return role
   // The role cache holds the old role for a minute, so the answer here is what counts.
   await supabase.from('user_profiles').update({ role: 'vendor' }).eq('id', user.sub)
@@ -559,6 +563,7 @@ router.patch('/manage/:slug', requireAuth, requireStoreManager, async (req: Requ
   if (error) return res.status(500).json({ error: 'Failed to save' })
   // David just set her percent: pay the cuts that were waiting for it (each checks her payouts).
   if (patch.referral_percent != null) void settleWaitingStoreReferrals(store.id, req.log)
+  if ('owner_user_id' in patch) await syncInboxOwner(store.inbox_mailbox_id, patch.owner_user_id as string | null)
   return res.json({ ok: true, ownerLinked: patch.owner_email ? !!patch.owner_user_id : undefined })
 })
 
@@ -652,6 +657,9 @@ router.delete('/manage/:slug/items/:id', requireAuth, requireStoreManager, async
   if (error) return res.status(500).json({ error: 'Failed to delete' })
   return res.json({ ok: true })
 })
+
+// Her store inbox (her own address on our domain, Jev's junk kept out): the owner and ITP admins only.
+router.use('/manage/:slug/inbox', requireAuth, requireStoreManager, storeInboxRouter)
 
 // Her store assistant: a typed message, or a voice note (multipart field `audio`). Body field `messages` is the chat
 // so far as JSON [{ role, text }]. Answers { heard, reply }; the page asks /assistant/speak to read the reply out.
