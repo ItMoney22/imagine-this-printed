@@ -1,15 +1,16 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import Stripe from 'stripe'
 import multer from 'multer'
+import sharp from 'sharp'
 import { nanoid } from 'nanoid'
 import { supabase } from '../lib/supabase.js'
 import { requireAuth } from '../middleware/supabaseAuth.js'
-import { getCachedRole } from '../lib/role-cache.js'
-import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { getCachedRole, invalidateCachedRole } from '../lib/role-cache.js'
+import { getSignedUrl, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { getPrintFileRefsFor } from '../services/print-files.js'
 import { plusSizeUpchargeCents } from '../shared/catalog-capability.js'
 import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
-import { askStoreAssistant, type AssistantTurn } from '../services/store-assistant.js'
+import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../services/store-assistant.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
 
@@ -41,12 +42,45 @@ const upload = multer({
   fileFilter: (_req, file, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype))
 })
 
-// Her voice note for the assistant: what a browser's MediaRecorder makes (webm/ogg/mp4) or a plain file.
-const voiceNote = multer({
+// What she can hand her assistant with a message: a voice note (what a browser's MediaRecorder makes, webm/ogg/mp4,
+// or a plain audio file) and a picture of a design for it to look over. A file of the wrong kind is a clear 400,
+// never silently dropped: a dropped picture would get an answer about a design it never saw.
+const VOICE_TYPES = /^audio\/(webm|ogg|wav|x-wav|mp4|mpeg|aac|flac)/
+const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
+const assistantFiles = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
-  fileFilter: (_req, file, cb) => cb(null, /^audio\/(webm|ogg|wav|x-wav|mp4|mpeg|aac|flac)/.test(file.mimetype))
-})
+  limits: { fileSize: 15 * 1024 * 1024, files: 2 },
+  fileFilter: (_req, file, cb) => {
+    if (file.fieldname === 'audio' ? VOICE_TYPES.test(file.mimetype) : PICTURE_TYPES.includes(file.mimetype)) cb(null, true)
+    else cb(new Error(file.fieldname === 'audio' ? 'That voice note can’t be played' : 'Send a PNG, JPG or WEBP picture'))
+  }
+}).fields([{ name: 'audio', maxCount: 1 }, { name: 'image', maxCount: 1 }])
+function takeAssistantFiles(req: Request, res: Response, next: NextFunction): void {
+  assistantFiles(req, res, (err: any) => {
+    if (!err) return next()
+    res.status(400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'That file is over 15 MB' : err.message || 'That file didn’t come through' })
+  })
+}
+
+/**
+ * Her picture, read the way a print shop reads one: its pixel size and whether the background is really clear (an
+ * alpha channel with at least one see-through pixel, not just a channel). The model gets a copy at most 1536 px on mid
+ * grey, never the raw file: on white, white artwork vanishes (same reason as step-flow's describeUpload), and a 15 MB
+ * PNG would not fit in one request.
+ */
+export async function readDesignPicture(buffer: Buffer): Promise<Omit<AssistantImage, 'data' | 'mimeType'> & { preview: Buffer }> {
+  const meta = await sharp(buffer).metadata()
+  if (!meta.width || !meta.height) throw new Error('unreadable picture')
+  const sideways = (meta.orientation ?? 1) >= 5
+  const transparent = !!meta.hasAlpha && ((await sharp(buffer).stats()).channels[3]?.min ?? 255) < 255
+  const preview = await sharp(buffer)
+    .rotate()
+    .flatten({ background: '#808080' })
+    .resize(1536, 1536, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 85 })
+    .toBuffer()
+  return { widthPx: sideways ? meta.height : meta.width, heightPx: sideways ? meta.width : meta.height, transparent, preview }
+}
 
 // The assistant is part of her store, not metered in ITC, so it gets a daily ceiling per store instead.
 const ASSISTANT_DAILY_TURNS = 200
@@ -414,8 +448,10 @@ async function claimIfOwner(store: StoreRow, user: { sub: string; email?: string
   await supabase.from('vendor_storefronts').update({ owner_user_id: user.sub, updated_at: new Date().toISOString() }).eq('id', store.id)
   store.owner_user_id = user.sub
   if (role && [...ADMIN_ROLES, 'vendor'].includes(role)) return role
-  // The role cache holds the old role for a minute, so the answer here is what counts.
+  // The role cache holds the old role for a minute, so the answer here is what counts, and the cache is dropped:
+  // without that, every other card on her first visit (assistant, credits) read the old role and said Not your store.
   await supabase.from('user_profiles').update({ role: 'vendor' }).eq('id', user.sub)
+  invalidateCachedRole(user.sub)
   return 'vendor'
 }
 
@@ -618,47 +654,181 @@ router.delete('/manage/:slug/items/:id', requireAuth, requireStoreManager, async
   return res.json({ ok: true })
 })
 
-// Her store assistant: a typed message, or a voice note (multipart field `audio`). Body field `messages` is the chat
-// so far as JSON [{ role, text }]. Answers { heard, reply }; the page asks /assistant/speak to read the reply out.
-router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, voiceNote.single('audio'), async (req: Request, res: Response): Promise<any> => {
-  const { store } = req.vendorStore!
-  let turns: AssistantTurn[] = []
-  try {
-    const raw = typeof req.body?.messages === 'string' ? JSON.parse(req.body.messages) : req.body?.messages
-    if (Array.isArray(raw)) {
-      turns = raw
-        .filter((t: any) => (t?.role === 'user' || t?.role === 'assistant') && typeof t.text === 'string' && t.text.trim())
-        .map((t: any) => ({ role: t.role, text: t.text }))
-    }
-  } catch {
-    return res.status(400).json({ error: 'messages must be JSON' })
+// Her store assistant. One turn: what she typed (`text`), a voice note (multipart `audio`) and/or a picture of a design
+// (multipart `image`). The chat itself lives in vendor_store_assistant_messages, so it follows her to any device and the
+// assistant reads its own last turns from there, never from the browser. What it chose to remember about her
+// (vendor_store_assistant_memory) goes back into every turn. Answers { heard, reply, makeProduct, imageUrl, messages }:
+// `messages` are her turn and the reply as saved. The page asks /assistant/speak to read the reply out.
+const HISTORY_TURNS = 16
+const MEMORY_FACTS = 30
+type MessageRow = { id: string; role: 'user' | 'assistant'; text: string; image_url: string | null; created_at: string }
+// An assistant row's image_url is the design that reply offers to make into a product (her Make it a product button).
+const publicMessage = (m: MessageRow) => ({
+  id: m.id,
+  role: m.role,
+  text: m.text,
+  imageUrl: m.image_url,
+  makeProduct: m.role === 'assistant' && !!m.image_url,
+  createdAt: m.created_at
+})
+
+/** Her last turns (newest first, as read) the way the model takes them: oldest first, opening on her, one per speaker. */
+export function chatTurns(rows: MessageRow[]): AssistantTurn[] {
+  const turns: AssistantTurn[] = []
+  for (const r of [...rows].reverse()) {
+    const text = r.text.trim() || (r.image_url && r.role === 'user' ? '(She sent a picture.)' : '')
+    if (!text) continue
+    const last = turns[turns.length - 1]
+    if (last?.role === r.role) last.text += `\n${text}`
+    else turns.push({ role: r.role, text })
   }
-  const file = req.file
-  if (!file && (!turns.length || turns[turns.length - 1].role !== 'user')) return res.status(400).json({ error: 'Say or type something' })
+  while (turns[0]?.role === 'assistant') turns.shift()
+  return turns
+}
+
+router.get('/manage/:slug/assistant/history', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  const { data, error } = await supabase
+    .from('vendor_store_assistant_messages')
+    .select('id, role, text, image_url, created_at')
+    .eq('storefront_id', store.id)
+    .order('created_at', { ascending: false })
+    .limit(60)
+  if (error) return res.status(500).json({ error: 'The chat didn’t load' })
+  return res.json({ messages: ((data || []) as MessageRow[]).reverse().map(publicMessage) })
+})
+
+// The design a reply offered to make into a product, handed back as a data URL for the Step Flow's upload
+// (customerStepFlow.upload takes the file itself). Read here from where her turn saved it, so the page never
+// downloads it cross-origin from the media host.
+router.get('/manage/:slug/assistant/design/:messageId', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  const { data: row } = await supabase
+    .from('vendor_store_assistant_messages')
+    .select('image_url')
+    .eq('id', req.params.messageId)
+    .eq('storefront_id', store.id)
+    .maybeSingle()
+  const url: string | undefined = row?.image_url
+  if (!url?.startsWith(`${MEDIA_BASE}/`)) return res.status(404).json({ error: 'That design isn’t saved any more. Attach it again.' })
+  try {
+    const path = url.slice(MEDIA_BASE.length + 1)
+    const file = await fetch(await getSignedUrl(path, 5))
+    if (!file.ok) throw new Error(`storage ${file.status}`)
+    const type = file.headers.get('content-type')?.split(';')[0] || 'image/png'
+    // A neutral name: the stored one is a random id, and the upload reads a file name as a hint for the product's name.
+    const filename = `design.${type === 'image/jpeg' ? 'jpg' : type.replace('image/', '')}`
+    return res.json({ image: `data:${type};base64,${Buffer.from(await file.arrayBuffer()).toString('base64')}`, filename })
+  } catch (error) {
+    req.log?.error({ err: error }, 'vendor-store assistant design not read')
+    return res.status(502).json({ error: 'That design didn’t load. Try again.' })
+  }
+})
+
+router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAssistantFiles, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  const files = (req.files || {}) as Record<string, Express.Multer.File[] | undefined>
+  const voice = files.audio?.[0]
+  const picture = files.image?.[0]
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim().slice(0, 4000) : ''
+  if (!text && !voice && !picture) return res.status(400).json({ error: 'Say or type something' })
+
+  let design: Awaited<ReturnType<typeof readDesignPicture>> | null = null
+  if (picture) {
+    try {
+      design = await readDesignPicture(picture.buffer)
+    } catch {
+      return res.status(400).json({ error: 'That picture couldn’t be opened' })
+    }
+  }
   if (!assistantTurnAllowed(store.slug)) return res.status(429).json({ error: 'The assistant has done a lot today. It’s back tomorrow.' })
 
   try {
-    const [{ data: items }, { data: orders }, payouts] = await Promise.all([
+    const [{ data: items }, { data: orders }, payouts, { data: past }, { data: memory }] = await Promise.all([
       supabase.from('vendor_store_items').select('*').eq('storefront_id', store.id),
       supabase.from('orders').select('created_at, total, metadata').eq('source', sourceOf(store.slug)).eq('payment_status', 'paid').limit(500),
-      payoutsReady(store.stripe_account_id)
+      payoutsReady(store.stripe_account_id),
+      supabase
+        .from('vendor_store_assistant_messages')
+        .select('id, role, text, image_url, created_at')
+        .eq('storefront_id', store.id)
+        .order('created_at', { ascending: false })
+        .limit(HISTORY_TURNS),
+      supabase
+        .from('vendor_store_assistant_memory')
+        .select('fact')
+        .eq('storefront_id', store.id)
+        .order('created_at', { ascending: false })
+        .limit(MEMORY_FACTS)
     ])
-    const { heard, reply, usage } = await askStoreAssistant(
-      {
-        storeName: store.name,
-        ownerFirst: String((store.theme as any)?.ownerFirst || store.name.split(/[’']/)[0]),
-        status: store.status,
-        payoutsReady: payouts.ready,
-        feePercent: Number(store.fee_percent),
-        instagram: store.instagram,
-        items: ((items || []) as ItemRow[]).map(i => ({ name: i.name, kind: isItp(i) ? 'itp' : 'own', priceCents: i.price_cents, itpCostCents: i.itp_cost_cents, active: i.active })),
-        orders: (orders || []).map((o: any) => ({ createdAt: o.created_at, totalCents: Math.round(Number(o.total) * 100), shareCents: o.metadata?.vendor_store?.split?.vendorShareCents ?? null }))
-      },
-      turns,
-      file ? { mimeType: file.mimetype.replace(/;.*$/, '').replace('x-wav', 'wav'), data: file.buffer.toString('base64') } : undefined
-    )
-    req.log?.info({ slug: store.slug, voice: !!file, usage }, 'vendor-store assistant turn')
-    return res.json({ heard, reply })
+    const memories = ((memory || []) as Array<{ fact: string }>).map(m => m.fact)
+    const turns = chatTurns((past || []) as MessageRow[])
+    if (text) {
+      const last = turns[turns.length - 1]
+      if (last?.role === 'user') last.text += `\n${text}`
+      else turns.push({ role: 'user', text })
+    }
+
+    const savePicture = async (): Promise<string | null> => {
+      if (!picture) return null
+      try {
+        const ext = picture.mimetype === 'image/png' ? 'png' : picture.mimetype === 'image/webp' ? 'webp' : 'jpg'
+        const path = `products/vendor-stores/${store.slug}/assistant/${nanoid(12)}.${ext}`
+        await uploadImageFromBuffer(picture.buffer, path, picture.mimetype)
+        return `${MEDIA_BASE}/${path}`
+      } catch (error) {
+        req.log?.warn({ err: error }, 'vendor-store assistant picture not saved')
+        return null
+      }
+    }
+    const [answer, imageUrl] = await Promise.all([
+      askStoreAssistant(
+        {
+          storeName: store.name,
+          ownerFirst: String((store.theme as any)?.ownerFirst || store.name.split(/[’']/)[0]),
+          status: store.status,
+          payoutsReady: payouts.ready,
+          feePercent: Number(store.fee_percent),
+          instagram: store.instagram,
+          items: ((items || []) as ItemRow[]).map(i => ({ name: i.name, kind: isItp(i) ? 'itp' : 'own', priceCents: i.price_cents, itpCostCents: i.itp_cost_cents, active: i.active })),
+          orders: (orders || []).map((o: any) => ({ createdAt: o.created_at, totalCents: Math.round(Number(o.total) * 100), shareCents: o.metadata?.vendor_store?.split?.vendorShareCents ?? null })),
+          memories
+        },
+        turns,
+        voice ? { mimeType: voice.mimetype.replace(/;.*$/, '').replace('x-wav', 'wav'), data: voice.buffer.toString('base64') } : undefined,
+        design
+          ? { mimeType: 'image/jpeg', data: design.preview.toString('base64'), widthPx: design.widthPx, heightPx: design.heightPx, transparent: design.transparent }
+          : undefined
+      ),
+      savePicture()
+    ])
+    const { heard, reply, remember, makeProduct, usage } = answer
+
+    // Both turns, in order (the reply a millisecond after hers), then anything new worth remembering about her.
+    const at = Date.now()
+    const { data: saved, error: saveError } = await supabase
+      .from('vendor_store_assistant_messages')
+      .insert([
+        { storefront_id: store.id, role: 'user', text: heard || text || (voice ? '(voice note)' : ''), image_url: imageUrl, created_at: new Date(at).toISOString() },
+        { storefront_id: store.id, role: 'assistant', text: reply, image_url: makeProduct ? imageUrl : null, created_at: new Date(at + 1).toISOString() }
+      ])
+      .select('id, role, text, image_url, created_at')
+    if (saveError) req.log?.error({ err: saveError }, 'vendor-store assistant chat not saved')
+    const known = new Set(memories.map(m => m.toLowerCase()))
+    const fresh = remember.filter(r => !known.has(r.toLowerCase()))
+    if (fresh.length) {
+      const { error } = await supabase.from('vendor_store_assistant_memory').insert(fresh.map(fact => ({ storefront_id: store.id, fact })))
+      if (error) req.log?.error({ err: error }, 'vendor-store assistant memory not saved')
+    }
+
+    req.log?.info({ slug: store.slug, voice: !!voice, picture: !!picture, remembered: fresh.length, makeProduct, usage }, 'vendor-store assistant turn')
+    return res.json({
+      heard,
+      reply,
+      makeProduct,
+      imageUrl,
+      messages: ((saved || []) as MessageRow[]).sort((a, b) => a.created_at.localeCompare(b.created_at)).map(publicMessage)
+    })
   } catch (error: any) {
     req.log?.error({ err: error }, 'vendor-store assistant failed')
     return res.status(502).json({ error: 'The assistant didn’t answer. Try again.' })
