@@ -11,6 +11,7 @@ import { getPrintFileRefsFor } from '../services/print-files.js'
 import { plusSizeUpchargeCents } from '../shared/catalog-capability.js'
 import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
 import { pickMemories, type MemoryFact } from '../services/store-assistant-memory.js'
+import { fileStoreRequest } from '../services/store-requests.js'
 import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../services/store-assistant.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
@@ -933,7 +934,23 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
       ),
       savePicture()
     ])
-    const { heard, reply, remember, makeProduct, usage } = answer
+    const { heard, reply: said, remember, makeProduct, usage, request } = answer
+    // She asked for something her store doesn't do yet: Rico puts it straight on the board, and says so either way.
+    let reply = said
+    let requestFiled: string | null = null
+    if (request) {
+      const filed = await fileStoreRequest(
+        { slug: store.slug, storeName: store.name, ownerFirst: String((store.theme as any)?.ownerFirst || store.name.split(/[’']/)[0]), ownerEmail: store.owner_email },
+        request
+      )
+      if (filed.ok) requestFiled = filed.id || 'filed'
+      else {
+        req.log?.warn({ slug: store.slug, error: filed.error }, 'vendor-store feature request not filed')
+        reply = `${said}
+
+I couldn’t send that to the team just now. Ask me again in a little while, and I’ll try again.`
+      }
+    }
 
     // Both turns, in order (the reply a millisecond after hers), then anything new worth remembering about her.
     const at = Date.now()
@@ -952,7 +969,7 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
       if (error) req.log?.error({ err: error }, 'vendor-store assistant memory not saved')
     }
 
-    req.log?.info({ slug: store.slug, voice: !!voice, picture: !!picture, remembered: fresh.length, makeProduct, usage }, 'vendor-store assistant turn')
+    req.log?.info({ slug: store.slug, voice: !!voice, picture: !!picture, remembered: fresh.length, makeProduct, requestFiled, usage }, 'vendor-store assistant turn')
     return res.json({
       heard,
       reply,
@@ -1199,7 +1216,8 @@ router.post('/manage/:slug/payouts-link', requireAuth, requireStoreManager, asyn
       accountId = account.id
       await supabase.from('vendor_storefronts').update({ stripe_account_id: accountId, updated_at: new Date().toISOString() }).eq('id', store.id)
     }
-    const back = `${SITE_URL}/vendor/store/${store.slug}`
+    // Her sign-up flow (/start/:slug) sends her back to where she left it; the store manager's own button stays on the manager.
+    const back = `${SITE_URL}/${req.body?.returnTo === 'start' ? 'start' : 'vendor/store'}/${store.slug}`
     const link = await stripe.accountLinks.create({
       account: accountId,
       type: 'account_onboarding',

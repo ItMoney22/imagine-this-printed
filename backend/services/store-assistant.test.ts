@@ -25,3 +25,13 @@ describe('Rico, the store assistant', () => {
     expect(PERSONAS['store-assistant'].style).toMatch(/Spanish/)
   })
 })
+
+describe('feature requests', () => {
+  it('Rico is told to file them on the board, and only real ones are kept', async () => {
+    const { featureRequest } = await import('./store-assistant.js')
+    expect(systemPrompt(facts)).toMatch(/FEATURE REQUESTS/)
+    expect(featureRequest({ title: 'Gift wrap option', details: 'Buyers can add gift wrap at checkout.' })).toEqual({ title: 'Gift wrap option', details: 'Buyers can add gift wrap at checkout.' })
+    expect(featureRequest({ title: '', details: 'x' })).toBeNull()
+    expect(featureRequest(undefined)).toBeNull()
+  })
+})

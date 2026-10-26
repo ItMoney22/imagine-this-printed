@@ -56,6 +56,7 @@ export function systemPrompt(f: StoreFacts): string {
     'When she sends a picture of a design, look it over like a print shop would: what it is, whether it will print well (its size in pixels, a clear background, bold colours, nothing cut off), what it would sell well on, a product name and a price idea. If it could become a product, set makeProduct to true: she then presses Make it a product and the design studio takes it from there (mockups, photos and the listing; each step costs a few ITC credits).',
     'Use only the facts below for numbers. Never invent sales, orders, prices or buyers. If something is not in the facts, say you do not see it.',
     'You cannot change anything yourself. When she wants to change a price, add a product or set up payouts, tell her which card on this page does it.',
+    "FEATURE REQUESTS: when she asks for something her store or page does not do yet (a new option, a new section, a change to how the store looks or works) and no card on her page already does it, set requestFeature with a short title and the details in plain English from what she said. It goes straight onto the Imagine This Printed team's board. Tell her it is on the board and that she will hear when it is done; never promise a date. Do not set it for questions, for things she can do herself, or for the same request twice.",
     'Memory: put in "remember" only lasting facts worth knowing next time (her style, her customers, plans, dates, names, what she likes or dislikes), at most two short sentences, written about her in the third person. Leave it empty for small talk.',
     'What you remember about her (at the end, from earlier chats) is yours to use without her repeating it: pick up where you left off, and let a caption, a description or an idea fit the line she is planning and the customers she sells to. Only the facts that fit what she is saying now are listed, so if she mentions something you do not see, ask her instead of guessing.',
     'Keep replies short and warm, the way you would say them out loud: two to four sentences, unless she asks for a description, a caption or a list. Plain text: no markdown, no asterisks, no headings, no emoji.',
@@ -100,6 +101,7 @@ export function assistantBody(f: StoreFacts, turns: AssistantTurn[], audio?: { m
           reply: { type: 'STRING' },
           remember: { type: 'ARRAY', items: { type: 'STRING' } },
           makeProduct: { type: 'BOOLEAN' },
+          requestFeature: { type: 'OBJECT', properties: { title: { type: 'STRING' }, details: { type: 'STRING' } }, required: ['title', 'details'] },
         },
         required: ['reply'],
       },
@@ -107,7 +109,7 @@ export function assistantBody(f: StoreFacts, turns: AssistantTurn[], audio?: { m
   }
 }
 
-export type AssistantAnswer = { heard: string | null; reply: string; remember: string[]; makeProduct: boolean; usage: unknown }
+export type AssistantAnswer = { heard: string | null; reply: string; remember: string[]; makeProduct: boolean; request: { title: string; details: string } | null; usage: unknown }
 
 /** One assistant turn. `heard` is what she said in a voice note (null for a typed message). */
 export async function askStoreAssistant(
@@ -127,7 +129,7 @@ export async function askStoreAssistant(
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`)
   const j = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; usageMetadata?: unknown }
   const raw = (j.candidates?.[0]?.content?.parts ?? []).map(p => p.text ?? '').join('').trim()
-  let out: { heard?: string; reply?: string; remember?: unknown; makeProduct?: unknown } = {}
+  let out: { heard?: string; reply?: string; remember?: unknown; makeProduct?: unknown; requestFeature?: { title?: unknown; details?: unknown } } = {}
   try {
     out = JSON.parse(raw)
   } catch {
@@ -143,6 +145,14 @@ export async function askStoreAssistant(
     reply,
     remember,
     makeProduct: !!image && out.makeProduct === true,
+    request: featureRequest(out.requestFeature),
     usage: j.usageMetadata ?? null,
   }
+}
+
+/** A request Rico decided to file: a real title and some detail, trimmed to what the board takes. */
+export function featureRequest(raw: { title?: unknown; details?: unknown } | undefined): { title: string; details: string } | null {
+  const title = String(raw?.title ?? '').trim().slice(0, 140)
+  const details = String(raw?.details ?? '').trim().slice(0, 1500)
+  return title.length >= 3 && details.length >= 3 ? { title, details } : null
 }
