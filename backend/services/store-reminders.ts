@@ -154,6 +154,8 @@ export function reminderAsk(r: Pick<ReminderRow, 'kind' | 'title' | 'note'>, ctx
   return [
     `(This is not a chat. It is her scheduled "${r.title}" reminder for ${easternDay(slot)}, sent to her email.`,
     `Write the email body to her, from you, her store assistant. ${what[r.kind]}`,
+    // Measured 2026-10-26: unprompted, it told her to launch her draft store from Settings, which only ITP can do.
+    'Only send her to things she can do on her store page: Add a product, Create a design, Payouts, and Settings (Instagram, tagline, her shipping). Imagine This Printed switches her store live, not her.',
     'Plain text, no subject line, no markdown. Start with a short warm hello using her first name.)',
   ].join(' ')
 }
