@@ -135,6 +135,12 @@ export const vendorStoreApi = {
   credits: (slug: string): Promise<StoreCredits> => apiFetch(manage(slug, '/credits')),
   speak: (slug: string, text: string): Promise<{ audioUrl: string }> =>
     apiFetch(manage(slug, '/assistant/speak'), { method: 'POST', body: JSON.stringify({ text }) }),
+  /** Her store inbox (backend/routes/vendor-store-inbox.ts): the owner and ITP admins only. */
+  inbox: (slug: string, folder: InboxFolder): Promise<InboxList> => apiFetch(manage(slug, `/inbox?folder=${folder}`)),
+  inboxMessage: (slug: string, id: string): Promise<{ message: InboxMessage; replies: InboxReply[] }> => apiFetch(manage(slug, `/inbox/${id}`)),
+  reply: (slug: string, id: string, text: string): Promise<{ ok: true; reply: InboxReply }> =>
+    apiFetch(manage(slug, `/inbox/${id}/reply`), { method: 'POST', body: JSON.stringify({ text }) }),
+  setJunk: (slug: string, id: string, junk: boolean) => apiFetch(manage(slug, `/inbox/${id}`), { method: 'PATCH', body: JSON.stringify({ junk }) }),
   /** Multipart: apiFetch forces JSON, so this one sets only the token. */
   addItem: (slug: string, form: FormData): Promise<{ item: StoreItem }> => postForm(manage(slug, '/items'), form, 'Could not save'),
   /** Her chat with the assistant as the server keeps it, oldest first. */
@@ -151,6 +157,23 @@ export const vendorStoreApi = {
     if (turn.image) form.append('image', turn.image, turn.image.name || 'design.png')
     return postForm(manage(slug, '/assistant'), form, 'The assistant didn’t answer')
   }
+}
+
+export type InboxFolder = 'inbox' | 'junk'
+export type InboxRow = { id: string; fromName: string; fromAddress: string; subject: string; preview: string; at: string; read: boolean; attachments: number }
+export type InboxList = { address: string | null; folder: InboxFolder; unread: number; junk: number; messages: InboxRow[] }
+export type InboxReply = { at: string; text: string }
+export type InboxMessage = {
+  id: string
+  fromName: string
+  fromAddress: string
+  to: string[]
+  subject: string
+  at: string
+  html: string | null
+  text: string | null
+  attachments: Array<{ filename: string; size: number; url: string | null }>
+  junk: boolean
 }
 
 /** imageUrl on a reply is the design it offers to make into a product (makeProduct). */

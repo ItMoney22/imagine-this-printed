@@ -32,8 +32,8 @@ beforeEach(() => {
   Element.prototype.scrollTo = vi.fn()
 })
 
-const panel = (over: Partial<Parameters<typeof StoreAssistant>[0]> = {}) => {
-  const props = { slug: 'crystal', ownerFirst: 'Crystal', open: true, onClose: vi.fn(), onMakeProduct: vi.fn(), onNeedStudio: vi.fn(), ...over }
+const panel = () => {
+  const props = { slug: 'crystal', ownerFirst: 'Crystal', open: true, onClose: vi.fn(), onMakeProduct: vi.fn(), onNeedStudio: vi.fn() }
   render(<StoreAssistant {...props} />)
   return props
 }

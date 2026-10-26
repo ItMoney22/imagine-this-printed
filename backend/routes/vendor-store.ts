@@ -13,6 +13,7 @@ import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
 import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../services/store-assistant.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
+import storeInboxRouter, { syncInboxOwner } from './vendor-store-inbox.js'
 
 // Vendor storefronts (David 2026-10-26): a seller's own branded store on
 // <slug>.imaginethisprinted.com, Crystal's Shirts and More first. Buyers check out through
@@ -112,6 +113,8 @@ type StoreRow = {
   stripe_account_id: string | null
   status: 'draft' | 'live' | 'paused'
   instagram: string | null
+  /** The store's own mailbox (routes/vendor-store-inbox.ts). */
+  inbox_mailbox_id: string | null
 }
 
 type ItemRow = {
@@ -451,6 +454,7 @@ async function claimIfOwner(store: StoreRow, user: { sub: string; email?: string
   if (!authUser?.user?.email_confirmed_at) return role
   await supabase.from('vendor_storefronts').update({ owner_user_id: user.sub, updated_at: new Date().toISOString() }).eq('id', store.id)
   store.owner_user_id = user.sub
+  await syncInboxOwner(store.inbox_mailbox_id, user.sub)
   if (role && [...ADMIN_ROLES, 'vendor'].includes(role)) return role
   // The role cache holds the old role for a minute, so the answer here is what counts, and the cache is dropped:
   // without that, every other card on her first visit (assistant, credits) read the old role and said Not your store.
@@ -574,6 +578,7 @@ router.patch('/manage/:slug', requireAuth, requireStoreManager, async (req: Requ
   patch.updated_at = new Date().toISOString()
   const { error } = await supabase.from('vendor_storefronts').update(patch).eq('id', store.id)
   if (error) return res.status(500).json({ error: 'Failed to save' })
+  if ('owner_user_id' in patch) await syncInboxOwner(store.inbox_mailbox_id, patch.owner_user_id as string | null)
   return res.json({ ok: true, ownerLinked: patch.owner_email ? !!patch.owner_user_id : undefined })
 })
 
@@ -667,6 +672,9 @@ router.delete('/manage/:slug/items/:id', requireAuth, requireStoreManager, async
   if (error) return res.status(500).json({ error: 'Failed to delete' })
   return res.json({ ok: true })
 })
+
+// Her store inbox (her own address on our domain, Jev's junk kept out): the owner and ITP admins only.
+router.use('/manage/:slug/inbox', requireAuth, requireStoreManager, storeInboxRouter)
 
 // Her store assistant. One turn: what she typed (`text`), a voice note (multipart `audio`) and/or a picture of a design
 // (multipart `image`). The chat itself lives in vendor_store_assistant_messages, so it follows her to any device and the
