@@ -69,7 +69,7 @@ export default function StoreDiscounts({ slug, onToast }: { slug: string; onToas
       </div>
       <p className="text-[var(--vs-muted)] mb-5">Give your people a deal. Whatever a code takes off comes out of your share. Our price to you and shipping stay the same.</p>
 
-      <div className="rounded-2xl bg-[var(--vs-page)] border border-[var(--vs-line)] p-3 sm:p-4">
+      <div role="group" aria-label="Make a code" className="rounded-2xl bg-[var(--vs-page)] border border-[var(--vs-line)] p-3 sm:p-4">
         <p className="font-semibold mb-3">Make a code</p>
         <CodeFields draft={draft} onChange={setDraft} today={today} />
         <button disabled={busy || !draft.code.trim() || !draft.amount.trim()} onClick={create} className="vs-btn-pink rounded-xl h-11 px-6 font-semibold mt-3 w-full sm:w-auto">
@@ -114,7 +114,7 @@ export default function StoreDiscounts({ slug, onToast }: { slug: string; onToas
 function EditRow({ code, today, onCancel, onSave }: { code: DiscountCode; today: string; onCancel: () => void; onSave: (d: Draft) => void }) {
   const [draft, setDraft] = useState<Draft>(() => draftOf(code))
   return (
-    <div className="rounded-2xl border-2 border-[var(--vs-primary)]/40 p-3 sm:p-4">
+    <div role="group" aria-label={`Editing ${code.code}`} className="rounded-2xl border-2 border-[var(--vs-primary)]/40 p-3 sm:p-4">
       <CodeFields draft={draft} onChange={setDraft} today={today} />
       <div className="flex gap-2 mt-3">
         <button className="vs-btn-solid rounded-xl h-10 px-5 text-sm font-semibold" onClick={() => onSave(draft)}>Save</button>
@@ -149,7 +149,8 @@ function CodeFields({ draft, onChange, today }: { draft: Draft; onChange: (d: Dr
       </div>
       <label className="font-medium">Last day <span className="font-normal text-[var(--vs-muted)]">(optional)</span>
         <span className="mt-1 flex gap-2 items-center">
-          <input type="date" className={box.replace('mt-1 ', '')} min={today || undefined} value={draft.endsOn} onChange={e => set({ endsOn: e.target.value })} />
+          <input type="date" className="flex-1 min-w-0 rounded-xl border border-[var(--vs-line)] bg-white px-3 h-11 outline-none focus:border-[var(--vs-primary)]"
+            min={today || undefined} value={draft.endsOn} onChange={e => set({ endsOn: e.target.value })} />
           {draft.endsOn && <button type="button" className="text-xs text-[var(--vs-muted)] underline shrink-0" onClick={() => set({ endsOn: '' })}>No end</button>}
         </span>
       </label>

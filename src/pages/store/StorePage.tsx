@@ -408,6 +408,8 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
   // code too big for it.
   const appliedCode = applied?.code
   useEffect(() => {
+    // An empty cart has nothing to take off; the code is remembered and comes back with the next item.
+    if (!cartLines.length) return setApplied(null)
     let saved: string | null = null
     try { saved = sessionStorage.getItem(codeKey) } catch { /* no storage */ }
     const code = appliedCode || saved
@@ -460,7 +462,7 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
               <TicketPercent className="w-4 h-4 text-[var(--vs-green)]" />
               <span className="font-mono font-semibold tracking-wider">{applied.code}</span>
               <span className="text-[var(--vs-muted)]">{applied.label}</span>
-              <button className="text-[var(--vs-muted)] underline text-xs" onClick={removeCode}>Remove</button>
+              <button className="text-[var(--vs-muted)] underline text-xs" onClick={removeCode} aria-label="Remove code">Remove</button>
               <span className="ml-auto font-semibold text-[var(--vs-green)]">−{money(applied.discountCents)}</span>
             </div>
           ) : codeOpen ? (
