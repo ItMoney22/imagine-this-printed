@@ -140,3 +140,75 @@ export function computeCartWeightLb(items: Array<{ weight?: number | null; quant
   )
   return Math.round(Math.max(0.1, total) * 100) / 100
 }
+
+// ---------------------------------------------------------------------------
+// Store quotes (routes/vendor-store.ts, David 2026-10-26, Crystal's store). A seller's store order can ship as TWO
+// packages: her own items from her address, ITP's from Rockmart. One token carries both packages' charges for the
+// service the buyer picked, bound to the store, the destination zip and each package's weight, so the checkout
+// charges exactly what the cart showed and no package's amount can be edited, swapped or replayed on another cart.
+// ---------------------------------------------------------------------------
+
+export interface StorePackageQuote {
+  /** What the buyer pays to ship this package (the carrier rate plus ITP's cut), in cents. */
+  chargeCents: number
+  carrier: string
+  /** Shippo servicelevel token, e.g. usps_ground_advantage. */
+  service: string
+  name: string
+  weightLb: number
+  /** 'shippo' = a live rate; 'estimate' = the weight-aware fallback. */
+  source: 'shippo' | 'estimate'
+}
+
+export interface StoreShippingQuoteClaims {
+  kind: 'store'
+  slug: string
+  destinationZip: string
+  own: StorePackageQuote | null
+  itp: StorePackageQuote | null
+  exp: number
+}
+
+export function signStoreShippingQuote(claims: Omit<StoreShippingQuoteClaims, 'kind' | 'exp'>, ttlMs = QUOTE_TTL_MS): string {
+  const full: StoreShippingQuoteClaims = { kind: 'store', ...claims, exp: Date.now() + ttlMs }
+  const payload = Buffer.from(JSON.stringify(full), 'utf8').toString('base64url')
+  return `${payload}.${signPayload(payload)}`
+}
+
+export function verifyStoreShippingQuote(input: {
+  token: unknown
+  slug: string
+  destinationZip: string
+  /** The cart's package weights now: null when the cart has no items of that side. */
+  ownWeightLb: number | null
+  itpWeightLb: number | null
+}): { ok: true; claims: StoreShippingQuoteClaims } | { ok: false; error: string } {
+  const pick = 'Pick a shipping option again.'
+  const token = input.token
+  if (!token || typeof token !== 'string') return { ok: false, error: `Shipping isn’t picked yet. ${pick}` }
+  const dot = token.indexOf('.')
+  if (dot <= 0 || token.indexOf('.', dot + 1) !== -1) return { ok: false, error: `That shipping price didn’t come through. ${pick}` }
+  const payload = token.slice(0, dot)
+  const sigBuf = Buffer.from(token.slice(dot + 1), 'hex')
+  const expectedBuf = Buffer.from(signPayload(payload), 'hex')
+  if (sigBuf.length !== expectedBuf.length || !crypto.timingSafeEqual(sigBuf, expectedBuf)) {
+    return { ok: false, error: `That shipping price didn’t check out. ${pick}` }
+  }
+  let claims: StoreShippingQuoteClaims
+  try {
+    claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+  } catch {
+    return { ok: false, error: `That shipping price didn’t come through. ${pick}` }
+  }
+  if (claims?.kind !== 'store' || claims.slug !== input.slug) return { ok: false, error: `That shipping price is for another store. ${pick}` }
+  if (!claims.exp || Date.now() > claims.exp) return { ok: false, error: `Shipping prices expire after 15 minutes. ${pick}` }
+  if ((claims.destinationZip || '') !== (input.destinationZip || '')) return { ok: false, error: `The ZIP code changed since shipping was priced. ${pick}` }
+  const samePackage = (quoted: StorePackageQuote | null, weightLb: number | null) => {
+    if (!quoted || weightLb == null) return !quoted && weightLb == null
+    return Number.isInteger(quoted.chargeCents) && quoted.chargeCents >= 0 && Math.abs((quoted.weightLb ?? 0) - weightLb) <= 0.05
+  }
+  if (!samePackage(claims.own, input.ownWeightLb) || !samePackage(claims.itp, input.itpWeightLb)) {
+    return { ok: false, error: `Your cart changed since shipping was priced. ${pick}` }
+  }
+  return { ok: true, claims }
+}

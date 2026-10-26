@@ -1,14 +1,16 @@
 // Where a seller runs her store (imaginethisprinted.com/vendor/store/<slug>), and where ITP admins
-// set ITP's side: the fee, shipping, status, owner and the ITP products she may sell at the price
+// set ITP's side: the fee, status, owner and the ITP products she may sell at the price
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Mail, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
-import { money, vendorStoreApi, type ManageData, type ManageItem } from '../../lib/vendor-store'
+import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, Download, ExternalLink, Home, ImagePlus, Instagram, Lock, Mail, Package, Palette, Printer, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Truck, Wallet } from 'lucide-react'
+import { emptyAddress, money, vendorStoreApi, type ManageData, type ManageItem, type ShipAddress } from '../../lib/vendor-store'
+import StoreAddressFields from './StoreAddressFields'
 import StoreCredits from './StoreCredits'
 import StoreAssistant from './StoreAssistant'
 import StoreDesign from './StoreDesign'
 import StoreInbox from './StoreInbox'
+import ProgressBar from '../../components/studio/ProgressBar'
 import './store.css'
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
@@ -71,7 +73,8 @@ export default function StoreManager() {
     return {
       sales: thisMonth.reduce((n, o) => n + o.totalCents, 0),
       earnings: thisMonth.reduce((n, o) => n + (o.yourShareCents || 0), 0),
-      toShip: data.orders.filter(o => o.fulfillment === 'unfulfilled' && o.items.some(i => i.maker === 'vendor')).length,
+      // Her orders to ship: her items in it and no label printed yet.
+      toShip: data.orders.filter(o => !o.label && o.items.some(i => i.maker === 'vendor')).length,
       live: data.items.filter(i => i.active).length,
     }
   }, [data])
@@ -213,7 +216,13 @@ export default function StoreManager() {
                       <tr key={o.orderNumber} className="border-t border-[var(--vs-line)] align-top">
                         <td className="py-3 font-medium">{o.orderNumber}<div className="text-xs text-[var(--vs-muted)]">{new Date(o.createdAt).toLocaleDateString()}</div></td>
                         <td className="py-3">{o.customer || '—'}</td>
-                        <td className="py-3"><Tags items={o.items.filter(i => i.maker === 'vendor')} cls="vs-tag-own" /></td>
+                        <td className="py-3 pr-2">
+                          <Tags items={o.items.filter(i => i.maker === 'vendor')} cls="vs-tag-own" />
+                          {/* Her package's label: the buyer's shipping paid for it */}
+                          {o.items.some(i => i.maker === 'vendor') && (
+                            <div className="mt-2"><LabelCell slug={slug} order={o} hasShipFrom={!!store.shipFrom} onToast={setToast} onDone={load} /></div>
+                          )}
+                        </td>
                         <td className="py-3"><Tags items={o.items.filter(i => i.maker === 'itp')} cls="vs-tag-itp" /></td>
                         <td className="py-3 text-right font-semibold">{o.yourShareCents != null ? money(o.yourShareCents) : '—'}</td>
                       </tr>
@@ -451,15 +460,102 @@ function AddProduct({ slug, feePercent, onSaved, onError }: { slug: string; feeP
   )
 }
 
+/**
+ * Her label for one order (David 2026-10-26: "give her the Shippo label to print from her store manager"). The
+ * buyer's shipping already paid for it: Print label buys it once and saves the PDF; after that it downloads again.
+ */
+function LabelCell({ slug, order, hasShipFrom, onToast, onDone }: {
+  slug: string
+  order: ManageData['orders'][number]
+  hasShipFrom: boolean
+  onToast: (m: string) => void
+  onDone: () => void
+}) {
+  const [busy, setBusy] = useState<{ stage: string; startedAt: number } | null>(null)
+  const fail = (e: any) => onToast(String(e.message).replace(/^HTTP \d+: /, '').replace(/^\{"error":"(.*?)".*\}$/, '$1'))
+  const download = async () => {
+    setBusy({ stage: 'Downloading your label', startedAt: Date.now() })
+    try {
+      await vendorStoreApi.downloadLabel(slug, order.orderNumber)
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(null)
+    }
+  }
+  const print = async () => {
+    if (!hasShipFrom) {
+      onToast('Add the address you ship from in Settings first')
+      document.getElementById('ship-from')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
+    setBusy({ stage: 'Making your label', startedAt: Date.now() })
+    try {
+      await vendorStoreApi.printLabel(slug, order.orderNumber)
+      setBusy({ stage: 'Downloading your label', startedAt: Date.now() })
+      await vendorStoreApi.downloadLabel(slug, order.orderNumber)
+      onToast('Label saved. Print it and tape it on the box.')
+      onDone()
+    } catch (e) {
+      fail(e)
+    } finally {
+      setBusy(null)
+    }
+  }
+  if (busy) return <div className="min-w-[180px]"><ProgressBar label={busy.stage} startedAt={busy.startedAt} expectedMs={4000} /></div>
+  if (order.label) {
+    return (
+      <div className="flex flex-col gap-1">
+        <button className="self-start inline-flex items-center gap-2 rounded-lg border border-[var(--vs-primary)] text-[var(--vs-primary)] px-3 h-9 font-semibold" onClick={download}>
+          <Download className="w-4 h-4" /> Download label
+        </button>
+        {order.label.trackingNumber && (
+          order.label.trackingUrl
+            ? <a className="text-xs underline text-[var(--vs-muted)]" href={order.label.trackingUrl} target="_blank" rel="noreferrer">{order.label.carrier} {order.label.trackingNumber}</a>
+            : <span className="text-xs text-[var(--vs-muted)]">{order.label.carrier} {order.label.trackingNumber}</span>
+        )}
+      </div>
+    )
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <button className="self-start vs-btn-pink inline-flex items-center gap-2 rounded-lg px-3 h-9 font-semibold" onClick={print}>
+        <Printer className="w-4 h-4" /> Print label
+      </button>
+      {order.shipping && <span className="text-xs text-[var(--vs-muted)]">Paid for: {order.shipping.service}</span>}
+    </div>
+  )
+}
+
+/** Where she ships her own items from: her labels are bought from this address, and buyers never see it. */
+function ShipFrom({ data, slug, save }: { data: ManageData; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
+  const saved = data.store.shipFrom
+  const [addr, setAddr] = useState<ShipAddress>(() => ({ ...emptyAddress(), ...(saved || {}) }))
+  const changed = JSON.stringify({ ...emptyAddress(), ...(saved || {}) }) !== JSON.stringify(addr)
+  return (
+    <div id="ship-from" className="mt-5 pt-5 border-t border-[var(--vs-line)] scroll-mt-28">
+      <p className="font-medium flex items-center gap-2"><Truck className="w-5 h-5 text-[var(--vs-primary)]" /> Where you ship from</p>
+      <p className="text-xs text-[var(--vs-muted)] mt-1 mb-3">
+        Your shipping labels come from this address. Shoppers pay real shipping at checkout and never see it.
+        {!saved && <strong className="text-[var(--vs-pink)]"> Add it before your first order so Print label works.</strong>}
+      </p>
+      <StoreAddressFields value={addr} onChange={setAddr} section="section-shipfrom shipping" phoneLabel="Your phone (the carrier may call)" wide />
+      <button disabled={!changed} className="vs-btn-solid rounded-xl px-5 h-11 mt-3 font-semibold disabled:opacity-50 disabled:shadow-none"
+        onClick={() => save(() => vendorStoreApi.saveStore(slug, { shipFrom: addr }), 'Ship-from address saved')}>
+        Save address
+      </button>
+    </div>
+  )
+}
+
 function SellerSettings({ data, slug, save }: { data: ManageData; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
   const { store } = data
   const [ig, setIg] = useState(store.instagram ? `@${store.instagram}` : '')
   const [tagline, setTagline] = useState(store.tagline || '')
-  const [ship, setShip] = useState((store.ownShippingCents / 100).toFixed(2))
   const igNow = store.instagram ? `@${store.instagram}` : ''
   return (
     <Card id="settings" icon={Settings} title="Settings">
-      <div className="grid md:grid-cols-3 gap-4 text-sm">
+      <div className="grid md:grid-cols-2 gap-4 text-sm">
         <label className="font-medium">Instagram
           <span className="mt-1 flex items-center gap-2 rounded-xl border border-[var(--vs-line)] px-3 h-11 focus-within:border-[var(--vs-primary)]">
             <Instagram className="w-5 h-5 text-[var(--vs-pink)]" />
@@ -473,12 +569,8 @@ function SellerSettings({ data, slug, save }: { data: ManageData; slug: string; 
             onBlur={() => tagline !== (store.tagline || '') && save(() => vendorStoreApi.saveStore(slug, { tagline }), 'Tagline saved')} />
           <span className="block text-xs text-[var(--vs-muted)] font-normal mt-1">The line under your name on the store.</span>
         </label>
-        <label className="font-medium">Your shipping ($)
-          <input inputMode="decimal" className="mt-1 w-full rounded-xl border border-[var(--vs-line)] px-3 h-11 outline-none focus:border-[var(--vs-primary)]" value={ship} onChange={e => setShip(e.target.value)}
-            onBlur={() => dollars(ship) !== store.ownShippingCents && save(() => vendorStoreApi.saveStore(slug, { ownShippingCents: dollars(ship) }), 'Shipping saved')} />
-          <span className="block text-xs text-[var(--vs-muted)] font-normal mt-1">Charged once on orders with things you ship.</span>
-        </label>
       </div>
+      <ShipFrom data={data} slug={slug} save={save} />
     </Card>
   )
 }
@@ -534,8 +626,6 @@ function HerPriceRow({ item, slug, save }: { item: ManageItem; slug: string; sav
 function AdminPanel({ data, slug, save }: { data: ManageData; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
   const { store } = data
   const [fee, setFee] = useState(String(store.feePercent))
-  const [ownShip, setOwnShip] = useState((store.ownShippingCents / 100).toFixed(2))
-  const [itpShip, setItpShip] = useState((store.itpShippingCents / 100).toFixed(2))
   const [owner, setOwner] = useState(store.ownerEmail || '')
   const [q, setQ] = useState('')
   const [results, setResults] = useState<Array<{ id: string; name: string; priceCents: number; costCents: number | null; image: string | null }>>([])
@@ -546,15 +636,9 @@ function AdminPanel({ data, slug, save }: { data: ManageData; slug: string; save
   return (
     <section id="settings" className="rounded-3xl bg-[#efe8f7] border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-28">
       <h2 className="flex items-center gap-2 font-semibold text-[var(--vs-primary)] mb-4"><Lock className="w-5 h-5" /> Admin only</h2>
-      <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-4 text-sm">
+      <div className="grid sm:grid-cols-3 gap-4 text-sm">
         <label className="font-medium">Fee on her products (%)
           <input className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" value={fee} onChange={e => setFee(e.target.value)} onBlur={() => Number(fee) !== store.feePercent && save(() => vendorStoreApi.saveStore(slug, { feePercent: Number(fee) }))} />
-        </label>
-        <label className="font-medium">Her shipping ($)
-          <input className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" value={ownShip} onChange={e => setOwnShip(e.target.value)} onBlur={() => dollars(ownShip) !== store.ownShippingCents && save(() => vendorStoreApi.saveStore(slug, { ownShippingCents: dollars(ownShip) }))} />
-        </label>
-        <label className="font-medium">Our shipping ($)
-          <input className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" value={itpShip} onChange={e => setItpShip(e.target.value)} onBlur={() => dollars(itpShip) !== store.itpShippingCents && save(() => vendorStoreApi.saveStore(slug, { itpShippingCents: dollars(itpShip) }))} />
         </label>
         <label className="font-medium">Store status
           <select className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" value={store.status} onChange={e => save(() => vendorStoreApi.saveStore(slug, { status: e.target.value }), 'Status saved')}>
