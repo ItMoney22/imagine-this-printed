@@ -5292,3 +5292,31 @@ Junk kept out tabs, unread dots, open and reply). Store owner or admin (role adm
   store manager. Two real test emails via Resend: the question landed in Inbox, the SEO pitch in Junk (Jev spam 1.0).
   Walked the BUILT site signed in as David (minted session) at 1400 + 390, every button clicked, reply delivered.
   vitest 2548/2548, backend tsc clean (junction TS2742 only), frontend tsc -b 0. Test rows deleted.
+
+## Current request (2026-10-26) — Crystal's store: real Shippo shipping at checkout, she prints her own labels (task 41551288, mia-potts)
+
+David 10/26: "use ITP's same GoShippo flow (real rates at checkout like the main site; ITP keeps its usual cut of
+shipping). Her own items ship from HER: give her the Shippo label to print from her store manager. ITP items (candle
+holder, QR stand) ship from ITP through the normal order flow." Built on Sal's superset f0da3ee (store + assistant +
+inbox). One Shippo client for every path: the main site's quote and admin label now call the same helper.
+
+### File shortlist (approved scope — 2026-10-26 store shipping)
+- new `backend/services/shippo.ts` (+ test): the one Shippo client (rate a parcel, buy a label, estimates fallback)
+- `backend/routes/shipping.ts`, `backend/routes/orders.ts`: use the helper (same behaviour); ITP's label weighs only ITP lines
+- `backend/services/shipping-quote.ts`: signed store quote (both packages in one token)
+- `backend/lib/vendor-store-split.ts` (+ test): per-package shipping, ITP's 5% cut, her label paid from her package's shipping
+- `backend/routes/vendor-store.ts` (+ test): rates, checkout on the signed quote, ship-from, Print label + PDF
+- `backend/services/vendor-store-orders.ts`: keep the address the cart quoted; seller email points at Print label
+- `supabase/migrations/20261026230000_vendor_store_ship_from.sql` (new), `supabase/migrations/MIGRATION_LEDGER.md`
+- `vitest.hermetic-env.ts`: strip SHIPPO_API_TOKEN too (the list had only SHIPPO_API_KEY, which ITP never uses)
+- `src/lib/vendor-store.ts`, `src/pages/store/StorePage.tsx` (cart: ship to + real rates), `src/pages/store/StoreManager.tsx`
+  (Print label, ship-from address; flat shipping boxes removed), new `src/pages/store/StoreAddressFields.tsx` (the one
+  address form: buyer ship-to, seller ship-from), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (mia-potts): flat $5.99/side gone. Cart takes the address and shows live Shippo rates for both boxes (hers
+  from her ship-from, ITP's from Rockmart, ITP's 5% on each); checkout charges the signed two-package quote only; split
+  records each package (charge, label, cut) on its own side; Print label in her manager buys once on ITP's Shippo from
+  her ship-from and downloads the PDF. Migration 20261026230000 applied live. vitest 188 files / 2586 pass, tsc -b 0,
+  backend tsc clean. Live: real rates (QA store, Atlanta + LA), real checkout row with split (Stripe faked, no test
+  key), fleet-browser walks 1400 + 390 of cart and manager; QA rows deleted. Real label PDF waits on APPROVE d5a1eb28.

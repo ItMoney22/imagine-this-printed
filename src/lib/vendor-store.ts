@@ -34,6 +34,16 @@ export type CartLine = { itemId: string; quantity: number; size?: string; color?
 
 export const money = (cents: number) => `$${(cents / 100).toFixed(2)}`
 
+/** A US address as the store forms take it: the buyer's ship-to, her ship-from. */
+export type ShipAddress = { name: string; street1: string; street2: string; city: string; state: string; zip: string; phone: string }
+export const emptyAddress = (): ShipAddress => ({ name: '', street1: '', street2: '', city: '', state: '', zip: '', phone: '' })
+/** Enough of an address to price shipping for (the server checks it properly). */
+export const addressReady = (a: ShipAddress) =>
+  !!(a.name.trim() && a.street1.trim() && a.city.trim() && /^[A-Za-z]{2}$/.test(a.state.trim()) && /^\d{5}(-\d{4})?$/.test(a.zip.trim()))
+
+/** One shipping choice for the whole cart (both packages when her items and ITP's ship separately). */
+export type ShippingOption = { id: string; name: string; days: number; amountCents: number; packages: number; token: string }
+
 /** Where the store lives: its subdomain in production, /store/<slug> anywhere else. */
 export function storeHome(slug: string): string {
   return storeSlugFromHost(window.location.hostname) === slug ? '/' : `/store/${slug}`
@@ -45,11 +55,23 @@ export async function fetchStore(slug: string): Promise<{ store: StoreInfo; item
   return res.json()
 }
 
-export async function startCheckout(slug: string, lines: CartLine[]): Promise<string> {
+/** Real carrier prices for this cart to this address (backend/services/vendor-store-shipping.ts). */
+export async function quoteShipping(slug: string, lines: CartLine[], shipTo: ShipAddress): Promise<ShippingOption[]> {
+  const res = await fetch(`${API_BASE}/api/vendor-store/${encodeURIComponent(slug)}/shipping-rates`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: lines, shipTo })
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok || !Array.isArray(body.options)) throw new Error(body.error || 'Shipping prices didn’t load. Try again.')
+  return body.options
+}
+
+export async function startCheckout(slug: string, lines: CartLine[], shipTo: ShipAddress, shippingQuote: string): Promise<string> {
   const res = await fetch(`${API_BASE}/api/vendor-store/${encodeURIComponent(slug)}/checkout`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: lines, cancelPath: storeHome(slug) === '/' ? '/' : undefined })
+    body: JSON.stringify({ items: lines, shipTo, shippingQuote, cancelPath: storeHome(slug) === '/' ? '/' : undefined })
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok || !body.url) throw new Error(body.error === 'store_not_open' ? 'Checkout opens soon.' : body.error || 'Checkout failed')
@@ -104,6 +126,8 @@ export type ManageData = {
     ownShippingCents: number
     itpShippingCents: number
     ownerEmail: string | null
+    /** Where she ships her own items from (her labels are bought from here). */
+    shipFrom: ShipAddress | null
     url: string
   }
   payouts: { hasAccount: boolean; ready: boolean; detailsSubmitted: boolean }
@@ -116,8 +140,12 @@ export type ManageData = {
     customer: string | null
     fulfillment: string
     items: Array<{ name: string; quantity: number; size?: string; color?: string; maker: 'vendor' | 'itp' }>
+    /** What her package's shipping charged (it pays for her label). */
+    shipping: { chargeCents: number; service: string } | null
+    label: SellerLabel | null
   }>
 }
+export type SellerLabel = { trackingNumber: string | null; trackingUrl: string | null; carrier: string | null; service: string | null; purchasedAt: string }
 
 const manage = (slug: string, rest = '') => `/api/vendor-store/manage/${encodeURIComponent(slug)}${rest}`
 
@@ -134,6 +162,26 @@ export const vendorStoreApi = {
   offer: (slug: string, productId: string, itpCostCents: number) =>
     apiFetch(manage(slug, '/offer'), { method: 'POST', body: JSON.stringify({ productId, itpCostCents }) }),
   payoutsLink: (slug: string): Promise<{ url: string }> => apiFetch(manage(slug, '/payouts-link'), { method: 'POST' }),
+  /** Buys her package's label (once; a second press hands back the same one). */
+  printLabel: (slug: string, orderNumber: string): Promise<{ ok: true; alreadyPurchased?: boolean; label: SellerLabel }> =>
+    apiFetch(manage(slug, `/orders/${encodeURIComponent(orderNumber)}/label`), { method: 'POST' }),
+  /** Saves her label PDF to this device. */
+  async downloadLabel(slug: string, orderNumber: string): Promise<void> {
+    const { supabase } = await import('./supabase')
+    const { data } = await supabase.auth.getSession()
+    const res = await fetch(`${API_BASE}${manage(slug, `/orders/${encodeURIComponent(orderNumber)}/label.pdf`)}`, {
+      headers: data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {}
+    })
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'The label didn’t download. Try again.')
+    const url = URL.createObjectURL(await res.blob())
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `label-${orderNumber}.pdf`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 30_000)
+  },
   credits: (slug: string): Promise<StoreCredits> => apiFetch(manage(slug, '/credits')),
   speak: (slug: string, text: string): Promise<{ audioUrl: string }> =>
     apiFetch(manage(slug, '/assistant/speak'), { method: 'POST', body: JSON.stringify({ text }) }),

@@ -15,6 +15,19 @@ import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../s
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
 import storeInboxRouter, { syncInboxOwner } from './vendor-store-inbox.js'
+import { WAREHOUSE_ADDRESS_FROM } from './shipping.js'
+import { verifyStoreShippingQuote } from '../services/shipping-quote.js'
+import {
+  buySellerLabel,
+  isShippoLabelUrl,
+  labelCents,
+  orderShippingAddress,
+  packageWeights,
+  quoteStoreShipping,
+  readUsAddress,
+  type SellerLabel,
+  type ShipAddress
+} from '../services/vendor-store-shipping.js'
 
 // Vendor storefronts (David 2026-10-26): a seller's own branded store on
 // <slug>.imaginethisprinted.com, Crystal's Shirts and More first. Buyers check out through
@@ -24,6 +37,7 @@ import storeInboxRouter, { syncInboxOwner } from './vendor-store-inbox.js'
 // the { orderId, orderNumber } metadata, like routes/storefront.ts.
 //
 //   GET  /api/vendor-store/:slug                 public store + live items
+//   POST /api/vendor-store/:slug/shipping-rates   real Shippo rates for the cart (services/vendor-store-shipping.ts)
 //   POST /api/vendor-store/:slug/checkout         Stripe Checkout URL
 //   /api/vendor-store/manage/...                  the seller (owner) and ITP admins
 const router = Router()
@@ -116,6 +130,8 @@ type StoreRow = {
   instagram: string | null
   /** The store's own mailbox (routes/vendor-store-inbox.ts). */
   inbox_mailbox_id: string | null
+  /** Where she ships her own items from. Server-only: never in a public response. */
+  ship_from: ShipAddress | null
 }
 
 type ItemRow = {
@@ -231,6 +247,45 @@ router.get('/:slug', async (req: Request, res: Response): Promise<any> => {
   })
 })
 
+// The cart's shipping: real Shippo rates for both packages (hers from her ship-from address, ITP's from Rockmart),
+// with ITP's usual cut, each choice signed for the checkout. Rating is free; nothing is bought here.
+router.post('/:slug/shipping-rates', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const store = await loadStore(req.params.slug)
+    if (!store || store.status === 'paused') return res.status(404).json({ error: 'Store not found' })
+    const shipTo = readUsAddress(req.body?.shipTo)
+    if ('error' in shipTo) return res.status(400).json({ error: shipTo.error })
+
+    const items = req.body?.items
+    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'Your cart is empty' })
+    if (items.length > 30) return res.status(400).json({ error: 'Too many items (max 30)' })
+    const ids = [...new Set(items.map((i: any) => String(i?.itemId || '')))].filter(Boolean)
+    const { data: rows } = await supabase
+      .from('vendor_store_items').select('*').eq('storefront_id', store.id).eq('active', true).in('id', ids)
+    const byId = new Map(((rows || []) as ItemRow[]).map(r => [r.id, r]))
+    const sides: Array<{ kind: 'own' | 'itp'; quantity: number }> = []
+    for (const raw of items) {
+      const item = byId.get(String(raw?.itemId))
+      if (!item) return res.status(400).json({ error: 'An item in the cart is no longer for sale' })
+      // Same quantity rule as the checkout, so the package weights match the signed quote.
+      sides.push({ kind: isItp(item) ? 'itp' : 'own', quantity: Math.max(1, Math.min(20, parseInt(raw?.quantity, 10) || 1)) })
+    }
+
+    const quoted = await quoteStoreShipping({
+      slug: store.slug,
+      shipFrom: store.ship_from,
+      warehouse: WAREHOUSE_ADDRESS_FROM,
+      shipTo: shipTo.address,
+      weights: packageWeights(sides)
+    })
+    req.log?.info({ slug: store.slug, zip: shipTo.address.zip, source: quoted.source, options: quoted.options.length }, 'vendor-store shipping quoted')
+    return res.json(quoted)
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'vendor-store shipping quote failed')
+    return res.status(500).json({ error: 'Shipping prices didn’t load. Try again.' })
+  }
+})
+
 router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any> => {
   try {
     const store = await loadStore(req.params.slug)
@@ -239,7 +294,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
     const { ready } = await payoutsReady(store.stripe_account_id)
     if (!ready) return res.status(409).json({ error: 'store_not_open' })
 
-    const { items, email, cancelPath } = req.body || {}
+    const { items, email, cancelPath, shipTo: rawShipTo, shippingQuote } = req.body || {}
     if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items array required' })
     if (items.length > 30) return res.status(400).json({ error: 'Too many items (max 30)' })
 
@@ -293,10 +348,26 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
       })
     }
 
+    // Shipping is what the cart showed: the signed Shippo quote for this address and these packages, never a flat rate.
+    const shipTo = readUsAddress(rawShipTo)
+    if ('error' in shipTo) return res.status(400).json({ error: shipTo.error, code: 'ship_to' })
+    const weights = packageWeights(lines)
+    const quote = verifyStoreShippingQuote({
+      token: shippingQuote,
+      slug: store.slug,
+      destinationZip: shipTo.address.zip,
+      ownWeightLb: weights.own,
+      itpWeightLb: weights.itp
+    })
+    if (!quote.ok) return res.status(400).json({ error: quote.error, code: 'shipping_quote' })
+    const { own: ownShip, itp: itpShip } = quote.claims
+
     const split = splitOrder(lines, {
       feePercent: Number(store.fee_percent),
-      ownShippingCents: store.own_shipping_cents,
-      itpShippingCents: store.itp_shipping_cents
+      ownShippingCents: ownShip?.chargeCents ?? 0,
+      itpShippingCents: itpShip?.chargeCents ?? 0,
+      ownLabelCents: labelCents(ownShip),
+      itpLabelCents: labelCents(itpShip)
     })
     if (split.totalCents < 50) return res.status(400).json({ error: 'Order total below Stripe minimum ($0.50)' })
 
@@ -309,7 +380,9 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
       name: store.name,
       stripe_account_id: store.stripe_account_id,
       fee_percent: Number(store.fee_percent),
-      split
+      split,
+      // Each package's quote: her label is bought on this service when she presses Print label.
+      shipping: { destination_zip: shipTo.address.zip, own: ownShip, itp: itpShip }
     }
 
     const { data: order, error: orderError } = await supabase
@@ -318,6 +391,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
         order_number: orderNumber,
         user_id: null,
         customer_email: buyerEmail,
+        customer_name: shipTo.address.name,
         subtotal: split.subtotalCents / 100,
         tax_amount: 0,
         shipping_amount: split.shippingCents / 100,
@@ -328,7 +402,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
         payment_status: 'pending',
         fulfillment_status: 'unfulfilled',
         payment_method: 'stripe',
-        shipping_address: {},
+        shipping_address: orderShippingAddress(shipTo.address, buyerEmail),
         discount_codes: [],
         source,
         metadata: {
@@ -399,20 +473,33 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
       ...(buyerEmail ? { customer_email: buyerEmail } : {}),
       success_url: `${origin}${origin.includes('/store/') ? '' : '/'}?thanks=${encodeURIComponent(orderNumber)}`,
       cancel_url: cancel,
+      // The cart already took the address its rate was quoted for, so Stripe shows the shipping line and doesn't ask
+      // again (the same as routes/storefront.ts).
       shipping_options: [{
         shipping_rate_data: {
           type: 'fixed_amount' as const,
-          display_name: split.ownShippingCents && split.itpShippingCents ? 'Shipping (ships in two packages)' : 'Shipping',
+          display_name: `${(ownShip || itpShip)!.name}${ownShip && itpShip ? ' (ships in two packages)' : ''}`.slice(0, 100),
           fixed_amount: { amount: split.shippingCents, currency: 'usd' }
         }
       }],
-      shipping_address_collection: { allowed_countries: ['US'] },
-      phone_number_collection: { enabled: true },
+      phone_number_collection: { enabled: !shipTo.address.phone },
       metadata: { orderId: order.id, orderNumber, source },
       payment_intent_data: {
         description: `Order ${orderNumber} (${store.name})`,
         application_fee_amount: split.itpShareCents,
         transfer_data: { destination: store.stripe_account_id! },
+        shipping: {
+          name: shipTo.address.name,
+          ...(shipTo.address.phone ? { phone: shipTo.address.phone } : {}),
+          address: {
+            line1: shipTo.address.street1,
+            ...(shipTo.address.street2 ? { line2: shipTo.address.street2 } : {}),
+            city: shipTo.address.city,
+            state: shipTo.address.state,
+            postal_code: shipTo.address.zip,
+            country: 'US'
+          }
+        },
         metadata: { orderId: order.id, orderNumber, userId: '', itcCreditAmount: '0', itcCreditUSD: '0', vendorStore: store.slug }
       }
     })
@@ -522,6 +609,7 @@ router.get('/manage/:slug', requireAuth, requireStoreManager, async (req: Reques
       itpShippingCents: store.itp_shipping_cents,
       ownerEmail: store.owner_email,
       instagram: store.instagram,
+      shipFrom: store.ship_from,
       url: storeOrigin(store.slug)
     },
     payouts: {
@@ -537,7 +625,12 @@ router.get('/manage/:slug', requireAuth, requireStoreManager, async (req: Reques
       yourShareCents: o.metadata?.vendor_store?.split?.vendorShareCents ?? null,
       customer: o.customer_name || o.customer_email,
       fulfillment: o.fulfillment_status,
-      items: o.metadata?.items || []
+      items: o.metadata?.items || [],
+      // Her package: what its shipping charged and the label she prints for it.
+      shipping: o.metadata?.vendor_store?.shipping?.own
+        ? { chargeCents: o.metadata.vendor_store.shipping.own.chargeCents, service: o.metadata.vendor_store.shipping.own.name }
+        : null,
+      label: sellerLabelView(o.metadata?.vendor_store?.label)
     }))
   })
 })
@@ -553,6 +646,15 @@ router.patch('/manage/:slug', requireAuth, requireStoreManager, async (req: Requ
     const handle = b.instagram.trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/[/?#].*$/, '')
     if (handle && !/^[A-Za-z0-9._]{1,30}$/.test(handle)) return res.status(400).json({ error: 'That doesn’t look like an Instagram handle' })
     patch.instagram = handle || null
+  }
+  if (b.shipFrom !== undefined) {
+    // Where she ships from: her labels are bought from this address, her package is rated from it.
+    if (b.shipFrom === null) patch.ship_from = null
+    else {
+      const read = readUsAddress(b.shipFrom, { phoneRequired: true })
+      if ('error' in read) return res.status(400).json({ error: read.error })
+      patch.ship_from = read.address
+    }
   }
   if (isAdmin) {
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim().slice(0, 80)
@@ -980,6 +1082,104 @@ router.post('/manage/:slug/offer', requireAuth, requireStoreManager, async (req:
     .single()
   if (error) return res.status(500).json({ error: 'Failed to offer' })
   return res.json({ item: { ...publicItem(data as ItemRow), active: (data as ItemRow).active, itpCostCents } })
+})
+
+// ---------------------------------------------------------------------------
+// Her shipping labels (David 2026-10-26: "her own items ship from HER: give her the Shippo label to print"). Her
+// package's shipping, paid at checkout, buys the label on ITP's Shippo account from her ship-from address. One label
+// per order, never two; ITP's own package keeps the normal order flow (routes/orders.ts).
+// ---------------------------------------------------------------------------
+
+function sellerLabelView(label: SellerLabel | undefined | null) {
+  if (!label?.label_url) return null
+  return {
+    trackingNumber: label.tracking_number,
+    trackingUrl: label.tracking_url,
+    carrier: label.carrier,
+    service: label.service,
+    purchasedAt: label.purchased_at
+  }
+}
+
+async function loadStoreOrder(store: StoreRow, orderNumber: string) {
+  const { data } = await supabase
+    .from('orders')
+    .select('id, order_number, customer_email, customer_name, shipping_address, payment_status, metadata')
+    .eq('source', sourceOf(store.slug))
+    .eq('order_number', String(orderNumber))
+    .maybeSingle()
+  return data as any
+}
+
+const labelsBuying = new Set<string>()
+
+router.post('/manage/:slug/orders/:orderNumber/label', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  const order = await loadStoreOrder(store, req.params.orderNumber)
+  if (!order || order.payment_status !== 'paid') return res.status(404).json({ error: 'Order not found' })
+  const vs = order.metadata?.vendor_store || {}
+  const hers = (order.metadata?.items || []).filter((i: any) => i.maker === 'vendor')
+  if (!hers.length) return res.status(400).json({ error: 'Imagine This Printed ships everything in this order' })
+  if (vs.label?.label_url) return res.json({ ok: true, alreadyPurchased: true, label: sellerLabelView(vs.label) })
+  if (!store.ship_from) return res.status(409).json({ error: 'Add the address you ship from in Settings first', code: 'ship_from' })
+
+  const a = order.shipping_address || {}
+  const shipTo = {
+    name: order.customer_name || [a.firstName, a.lastName].filter(Boolean).join(' ') || 'Customer',
+    street1: a.address || a.street1 || '',
+    street2: a.address2 || a.street2 || '',
+    city: a.city || '',
+    state: a.state || '',
+    zip: a.zipCode || a.zip || '',
+    country: a.country || 'US',
+    phone: a.phone || '',
+    email: order.customer_email || a.email || ''
+  }
+  if (!shipTo.street1 || !shipTo.city || !shipTo.state || !shipTo.zip) return res.status(400).json({ error: 'This order has no full shipping address' })
+
+  if (labelsBuying.has(order.id)) return res.status(409).json({ error: 'The label is already being made' })
+  labelsBuying.add(order.id)
+  try {
+    const weightLb = Number(vs.shipping?.own?.weightLb) || packageWeights(hers.map((i: any) => ({ kind: 'own' as const, quantity: Number(i.quantity) || 1 }))).own!
+    const bought = await buySellerLabel({
+      shipFrom: store.ship_from,
+      shipTo,
+      weightLb,
+      service: vs.shipping?.own?.service || null,
+      reference: `${order.order_number} ${store.slug}`,
+      purchasedBy: req.user!.sub
+    })
+    if (!bought.ok) {
+      req.log?.error({ orderId: order.id, error: bought.error }, 'vendor-store label purchase failed')
+      return res.status(502).json({ error: bought.error })
+    }
+    // Read the row fresh so a webhook write in the meantime isn't lost. The label is bought: keep it whatever happens.
+    const { data: fresh } = await supabase.from('orders').select('metadata').eq('id', order.id).maybeSingle()
+    const metadata = (fresh as any)?.metadata || order.metadata || {}
+    const { error } = await supabase
+      .from('orders')
+      .update({ metadata: { ...metadata, vendor_store: { ...(metadata.vendor_store || {}), label: bought.label } }, updated_at: new Date().toISOString() })
+      .eq('id', order.id)
+    if (error) req.log?.error({ err: error, orderId: order.id, label: bought.label }, 'vendor-store label bought but not saved')
+    req.log?.info({ orderId: order.id, slug: store.slug, tracking: bought.label.tracking_number, costCents: bought.label.cost_cents }, 'vendor-store label bought')
+    return res.json({ ok: true, label: sellerLabelView(bought.label) })
+  } finally {
+    labelsBuying.delete(order.id)
+  }
+})
+
+// The label as a PDF download (Shippo's file, passed through so the browser saves it with the order number).
+router.get('/manage/:slug/orders/:orderNumber/label.pdf', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  const order = await loadStoreOrder(store, req.params.orderNumber)
+  const url = order?.metadata?.vendor_store?.label?.label_url
+  if (!order || !isShippoLabelUrl(url)) return res.status(404).json({ error: 'No label for this order yet' })
+  const file = await fetch(url)
+  if (!file.ok) return res.status(502).json({ error: 'Shippo didn’t send the label file. Try again.' })
+  const pdf = Buffer.from(await file.arrayBuffer())
+  res.setHeader('Content-Type', 'application/pdf')
+  res.setHeader('Content-Disposition', `attachment; filename="label-${order.order_number}.pdf"`)
+  return res.send(pdf)
 })
 
 // The seller's payouts: one Express account per store, onboarded on Stripe's own page.

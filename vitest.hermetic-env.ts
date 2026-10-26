@@ -25,6 +25,8 @@ const REAL_KEYS = [
   'STRIPE_WEBHOOK_SECRET',
   'RESEND_API_KEY',
   'SHIPPO_API_KEY',
+  // ITP's real Shippo variable (services/shippo.ts): a live token buys real labels.
+  'SHIPPO_API_TOKEN',
   'ETSY_KEYSTRING',
   'ETSY_SHARED_SECRET',
   'TURNSTILE_SECRET_KEY',
