@@ -3,7 +3,7 @@
 // through ITP's Stripe; the seller is paid by destination charge (backend/routes/vendor-store.ts).
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { CandlestickChart, CupSoda, Gift, Lock, MessageCircle, Minus, Plus, ShieldCheck, Shirt, ShoppingCart, Sparkles, Trash2, Truck, X, Flame } from 'lucide-react'
+import { CandlestickChart, CupSoda, Gift, Instagram, Lock, MessageCircle, Minus, Plus, ShieldCheck, Shirt, ShoppingCart, Sparkles, Trash2, Truck, X, Flame } from 'lucide-react'
 import { fetchStore, money, startCheckout, useStoreCart, type StoreInfo, type StoreItem } from '../../lib/vendor-store'
 import './store.css'
 
@@ -100,6 +100,11 @@ export default function StorePage({ slug: slugProp }: { slug?: string }) {
               <span className="hidden sm:inline text-sm font-medium">Cart</span>
               {cart.count > 0 && <span className="absolute -top-1.5 -right-1.5 min-w-5 h-5 px-1 rounded-full bg-[var(--vs-pink)] text-[11px] font-bold grid place-items-center">{cart.count}</span>}
             </button>
+            {store.instagram && (
+              <a href={`https://instagram.com/${store.instagram}`} target="_blank" rel="noreferrer" aria-label={`${store.name} on Instagram`} className="w-10 h-10 rounded-full border border-white/40 text-white grid place-items-center hover:bg-white/10">
+                <Instagram className="w-5 h-5" />
+              </a>
+            )}
             <a href={ITP_HOME} className="hidden md:inline-flex items-center rounded-full border border-white/40 text-white/90 text-xs px-3 h-8 hover:bg-white/10">Powered by Imagine This Printed</a>
           </div>
         </div>
@@ -218,6 +223,11 @@ export default function StorePage({ slug: slugProp }: { slug?: string }) {
             <p className="text-xs tracking-[0.25em] uppercase text-[var(--vs-primary)] font-semibold">Meet {ownerFirst}</p>
             <h2 className="vs-display text-4xl sm:text-5xl mt-2">Hi, I’m {ownerFirst}!</h2>
             <p className="text-[var(--vs-muted)] text-lg mt-3 max-w-xl">{t.about || store.tagline}</p>
+            {store.instagram && (
+              <a href={`https://instagram.com/${store.instagram}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 mt-5 rounded-full px-5 h-11 font-semibold text-white" style={{ background: 'linear-gradient(90deg, #7b2ff7, #e8407a, #f2b33d)' }}>
+                <Instagram className="w-5 h-5" /> Follow @{store.instagram}
+              </a>
+            )}
           </div>
         </section>
       </main>

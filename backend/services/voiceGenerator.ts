@@ -20,6 +20,8 @@ export const TTS_MODELS = ['gemini-3.8-flash-tts', 'gemini-3.8-flash-lite-tts']
 export const PERSONAS = {
   'mr-imagine': { voice: 'Puck', style: 'high-pitched, goofy cartoon mascot voice, warm and gentle, smiling' },
   'mrs-imagine': { voice: 'Laomedeia', style: 'bright, sweet, warm and motherly cartoon mascot voice, playful and encouraging, smiling' },
+  // A seller's store assistant (routes/vendor-store.ts, David 2026-10-26). Sulafat is Google's "warm" voice.
+  'store-assistant': { voice: 'Sulafat', style: 'warm, upbeat and friendly, like a helpful friend in a craft shop, smiling' },
 } as const
 
 export type Persona = keyof typeof PERSONAS

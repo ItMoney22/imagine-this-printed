@@ -3,8 +3,10 @@
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Lock, Package, Search, Settings, Shirt, ShoppingCart, Trash2, Wallet } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Package, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { money, vendorStoreApi, type ManageData, type ManageItem } from '../../lib/vendor-store'
+import StoreCredits from './StoreCredits'
+import StoreAssistant from './StoreAssistant'
 import './store.css'
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
@@ -20,6 +22,8 @@ export default function StoreManager() {
   const [data, setData] = useState<ManageData | null>(null)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
+  // The assistant sits docked beside the page on a wide screen; on a phone it opens from the floating button.
+  const [assistantOpen, setAssistantOpen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches)
 
   const load = useCallback(() => {
     vendorStoreApi.load(slug).then(setData).catch(e => setError(/403/.test(e.message) ? 'This isn’t your store.' : /404/.test(e.message) ? 'No store here.' : 'The store didn’t load.'))
@@ -56,7 +60,10 @@ export default function StoreManager() {
   if (error) return <div className="vstore grid place-items-center text-center px-6"><p className="vs-display text-3xl">{error}</p></div>
   if (!data || !stats) return <div className="vstore grid place-items-center"><div className="w-10 h-10 rounded-full border-2 border-[var(--vs-primary)] border-t-transparent animate-spin" /></div>
 
-  const { store, payouts, isAdmin } = data
+  const { store, payouts } = data
+  // An admin can see exactly what the seller sees (?view=seller): no admin panel.
+  const asSeller = search.get('view') === 'seller'
+  const isAdmin = data.isAdmin && !asSeller
   const t = store.theme || {}
   const rootStyle = { ...(t.primary ? { '--vs-primary': t.primary } : {}), ...(t.green ? { '--vs-green': t.green } : {}), ...(t.pink ? { '--vs-pink': t.pink } : {}), ...(t.gold ? { '--vs-gold': t.gold } : {}) } as CSSProperties
   const own = data.items.filter(i => i.kind === 'own')
@@ -65,8 +72,9 @@ export default function StoreManager() {
     { id: 'home', label: 'Home', icon: Home },
     { id: 'products', label: 'Products', icon: Shirt },
     { id: 'orders', label: 'Orders', icon: Package },
+    { id: 'credits', label: 'Credits', icon: Sparkles },
     { id: 'payouts', label: 'Payouts', icon: Wallet },
-    ...(isAdmin ? [{ id: 'settings', label: 'Settings', icon: Settings }] : []),
+    { id: 'settings', label: 'Settings', icon: Settings },
   ]
 
   return (
@@ -89,11 +97,23 @@ export default function StoreManager() {
         </div>
       </header>
 
+      {data.isAdmin && (
+        <div className="bg-[var(--vs-ink)] text-white text-sm">
+          <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-2 flex items-center gap-3">
+            <Lock className="w-4 h-4 text-[var(--vs-gold)]" />
+            {asSeller ? 'You’re seeing exactly what the seller sees.' : 'You’re signed in as an admin: the admin panel is at the bottom.'}
+            <Link className="ml-auto underline" to={asSeller ? `/vendor/store/${slug}` : `/vendor/store/${slug}?view=seller`}>
+              {asSeller ? 'Back to admin view' : 'See it as the seller'}
+            </Link>
+          </div>
+        </div>
+      )}
+
       {search.get('payouts') === 'done' && !payouts.ready && (
         <p className="bg-[var(--vs-gold)]/20 text-center text-sm py-2">Thanks! Stripe is checking your details. This page shows Payouts ready once it’s done.</p>
       )}
 
-      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 py-6 lg:grid lg:grid-cols-[190px_1fr] gap-6">
+      <div className={`mx-auto px-4 sm:px-6 py-6 lg:grid gap-6 ${assistantOpen ? 'max-w-[1700px] lg:grid-cols-[190px_1fr] xl:grid-cols-[190px_1fr_360px]' : 'max-w-[1400px] lg:grid-cols-[190px_1fr]'}`}>
         {/* Side menu (a pill row on a phone) */}
         <nav className="lg:sticky lg:top-24 self-start flex lg:flex-col gap-2 overflow-x-auto pb-3 lg:pb-0 mb-4 lg:mb-0">
           {nav.map(n => {
@@ -115,6 +135,9 @@ export default function StoreManager() {
             <Stat icon={Boxes} colour="var(--vs-primary)" label="Orders to ship" value={String(stats.toShip)} />
             <Stat icon={Shirt} colour="var(--vs-gold)" label="Items for sale" value={String(stats.live)} />
           </div>
+
+          {/* Her ITC credits and the AI tools they pay for */}
+          <StoreCredits slug={slug} />
 
           {/* 3. Add a product */}
           <AddProduct slug={slug} feePercent={store.feePercent} onSaved={() => { setToast('Added to your store'); load() }} onError={setToast} />
@@ -189,10 +212,19 @@ export default function StoreManager() {
             )}
           </Card>
 
+          {/* Her settings */}
+          <SellerSettings data={data} slug={slug} save={save} />
+
           {/* 7. Admin only */}
           {isAdmin && <AdminPanel data={data} slug={slug} save={save} />}
         </main>
+
+        <StoreAssistant slug={slug} ownerFirst={t.ownerFirst || store.name.split(/[’']/)[0]} open={assistantOpen} onClose={() => setAssistantOpen(false)} />
       </div>
+
+      {!assistantOpen && (
+        <button className="vs-fab" onClick={() => setAssistantOpen(true)} aria-label="Open your store assistant"><Sparkles className="w-7 h-7" /></button>
+      )}
 
       {toast && <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 rounded-full bg-[var(--vs-ink)] text-white px-5 py-3 shadow-xl text-sm">{toast}</div>}
     </div>
@@ -373,6 +405,38 @@ function AddProduct({ slug, feePercent, onSaved, onError }: { slug: string; feeP
             <span className="block text-right text-xs text-[var(--vs-muted)]">{description.length}/500</span>
           </label>
         </div>
+      </div>
+    </Card>
+  )
+}
+
+function SellerSettings({ data, slug, save }: { data: ManageData; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
+  const { store } = data
+  const [ig, setIg] = useState(store.instagram ? `@${store.instagram}` : '')
+  const [tagline, setTagline] = useState(store.tagline || '')
+  const [ship, setShip] = useState((store.ownShippingCents / 100).toFixed(2))
+  const igNow = store.instagram ? `@${store.instagram}` : ''
+  return (
+    <Card id="settings" icon={Settings} title="Settings">
+      <div className="grid md:grid-cols-3 gap-4 text-sm">
+        <label className="font-medium">Instagram
+          <span className="mt-1 flex items-center gap-2 rounded-xl border border-[var(--vs-line)] px-3 h-11 focus-within:border-[var(--vs-primary)]">
+            <Instagram className="w-5 h-5 text-[var(--vs-pink)]" />
+            <input className="w-full outline-none" placeholder="@yourhandle" value={ig} onChange={e => setIg(e.target.value)}
+              onBlur={() => ig.trim() !== igNow && save(() => vendorStoreApi.saveStore(slug, { instagram: ig }), 'Instagram saved')} />
+          </span>
+          <span className="block text-xs text-[var(--vs-muted)] font-normal mt-1">Shows on your store.</span>
+        </label>
+        <label className="font-medium">Store tagline
+          <input maxLength={140} className="mt-1 w-full rounded-xl border border-[var(--vs-line)] px-3 h-11 outline-none focus:border-[var(--vs-primary)]" value={tagline} onChange={e => setTagline(e.target.value)}
+            onBlur={() => tagline !== (store.tagline || '') && save(() => vendorStoreApi.saveStore(slug, { tagline }), 'Tagline saved')} />
+          <span className="block text-xs text-[var(--vs-muted)] font-normal mt-1">The line under your name on the store.</span>
+        </label>
+        <label className="font-medium">Your shipping ($)
+          <input inputMode="decimal" className="mt-1 w-full rounded-xl border border-[var(--vs-line)] px-3 h-11 outline-none focus:border-[var(--vs-primary)]" value={ship} onChange={e => setShip(e.target.value)}
+            onBlur={() => dollars(ship) !== store.ownShippingCents && save(() => vendorStoreApi.saveStore(slug, { ownShippingCents: dollars(ship) }), 'Shipping saved')} />
+          <span className="block text-xs text-[var(--vs-muted)] font-normal mt-1">Charged once on orders with things you ship.</span>
+        </label>
       </div>
     </Card>
   )

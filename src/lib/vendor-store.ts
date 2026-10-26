@@ -13,7 +13,7 @@ export type StoreTheme = {
   ownerFirst?: string
   about?: string
 }
-export type StoreInfo = { slug: string; name: string; tagline: string | null; logoUrl: string | null; theme: StoreTheme; open: boolean }
+export type StoreInfo = { slug: string; name: string; tagline: string | null; logoUrl: string | null; theme: StoreTheme; open: boolean; instagram: string | null }
 export type StoreItem = {
   id: string
   kind: 'own' | 'itp'
@@ -126,17 +126,37 @@ export const vendorStoreApi = {
   offer: (slug: string, productId: string, itpCostCents: number) =>
     apiFetch(manage(slug, '/offer'), { method: 'POST', body: JSON.stringify({ productId, itpCostCents }) }),
   payoutsLink: (slug: string): Promise<{ url: string }> => apiFetch(manage(slug, '/payouts-link'), { method: 'POST' }),
+  credits: (slug: string): Promise<StoreCredits> => apiFetch(manage(slug, '/credits')),
+  speak: (slug: string, text: string): Promise<{ audioUrl: string }> =>
+    apiFetch(manage(slug, '/assistant/speak'), { method: 'POST', body: JSON.stringify({ text }) }),
   /** Multipart: apiFetch forces JSON, so this one sets only the token. */
-  async addItem(slug: string, form: FormData): Promise<{ item: StoreItem }> {
-    const { supabase } = await import('./supabase')
-    const { data } = await supabase.auth.getSession()
-    const res = await fetch(`${API_BASE}${manage(slug, '/items')}`, {
-      method: 'POST',
-      headers: data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {},
-      body: form
-    })
-    const body = await res.json().catch(() => ({}))
-    if (!res.ok) throw new Error(body.error || 'Could not save')
-    return body
+  addItem: (slug: string, form: FormData): Promise<{ item: StoreItem }> => postForm(manage(slug, '/items'), form, 'Could not save'),
+  /** One assistant turn: the chat so far, plus her voice note when she talked instead of typing. */
+  ask(slug: string, messages: AssistantMessage[], audio?: Blob): Promise<{ heard: string | null; reply: string }> {
+    const form = new FormData()
+    form.append('messages', JSON.stringify(messages))
+    if (audio) form.append('audio', audio, `voice.${audio.type.includes('mp4') ? 'm4a' : audio.type.includes('ogg') ? 'ogg' : 'webm'}`)
+    return postForm(manage(slug, '/assistant'), form, 'The assistant didn’t answer')
   }
+}
+
+export type AssistantMessage = { role: 'user' | 'assistant'; text: string }
+export type StoreCredits = {
+  linked: boolean
+  balance: number | null
+  prices: Array<{ label: string; itc: number }>
+  recent: Array<{ at: string; amount: number; what: string }>
+}
+
+async function postForm(path: string, form: FormData, fallback: string) {
+  const { supabase } = await import('./supabase')
+  const { data } = await supabase.auth.getSession()
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: data.session?.access_token ? { Authorization: `Bearer ${data.session.access_token}` } : {},
+    body: form
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error || fallback)
+  return body
 }

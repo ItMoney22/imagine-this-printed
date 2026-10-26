@@ -9,6 +9,8 @@ import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { getPrintFileRefsFor } from '../services/print-files.js'
 import { plusSizeUpchargeCents } from '../shared/catalog-capability.js'
 import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
+import { askStoreAssistant, type AssistantTurn } from '../services/store-assistant.js'
+import { generateVoiceResponse } from '../services/voiceGenerator.js'
 
 // Vendor storefronts (David 2026-10-26): a seller's own branded store on
 // <slug>.imaginethisprinted.com, Crystal's Shirts and More first. Buyers check out through
@@ -38,6 +40,28 @@ const upload = multer({
   fileFilter: (_req, file, cb) => cb(null, ['image/png', 'image/jpeg', 'image/webp'].includes(file.mimetype))
 })
 
+// Her voice note for the assistant: what a browser's MediaRecorder makes (webm/ogg/mp4) or a plain file.
+const voiceNote = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+  fileFilter: (_req, file, cb) => cb(null, /^audio\/(webm|ogg|wav|x-wav|mp4|mpeg|aac|flac)/.test(file.mimetype))
+})
+
+// The assistant is part of her store, not metered in ITC, so it gets a daily ceiling per store instead.
+const ASSISTANT_DAILY_TURNS = 200
+const assistantUse = new Map<string, { day: string; turns: number }>()
+function assistantTurnAllowed(slug: string): boolean {
+  const day = new Date().toISOString().slice(0, 10)
+  const u = assistantUse.get(slug)
+  if (!u || u.day !== day) {
+    assistantUse.set(slug, { day, turns: 1 })
+    return true
+  }
+  if (u.turns >= ASSISTANT_DAILY_TURNS) return false
+  u.turns++
+  return true
+}
+
 type StoreRow = {
   id: string
   slug: string
@@ -52,6 +76,7 @@ type StoreRow = {
   itp_shipping_cents: number
   stripe_account_id: string | null
   status: 'draft' | 'live' | 'paused'
+  instagram: string | null
 }
 
 type ItemRow = {
@@ -120,6 +145,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<any> => {
       tagline: store.tagline,
       logoUrl: store.logo_url,
       theme: store.theme || {},
+      instagram: store.instagram,
       // Checkout is open once David has set the store live AND her payouts are set up.
       open: store.status === 'live' && (await payoutsReady(store.stripe_account_id)).ready
     },
@@ -401,6 +427,7 @@ router.get('/manage/:slug', requireAuth, requireStoreManager, async (req: Reques
       ownShippingCents: store.own_shipping_cents,
       itpShippingCents: store.itp_shipping_cents,
       ownerEmail: store.owner_email,
+      instagram: store.instagram,
       url: storeOrigin(store.slug)
     },
     payouts: {
@@ -427,6 +454,12 @@ router.patch('/manage/:slug', requireAuth, requireStoreManager, async (req: Requ
   const patch: Record<string, unknown> = {}
   if (typeof b.tagline === 'string') patch.tagline = b.tagline.trim().slice(0, 140) || null
   if (Number.isInteger(b.ownShippingCents) && b.ownShippingCents >= 0 && b.ownShippingCents <= 5000) patch.own_shipping_cents = b.ownShippingCents
+  if (typeof b.instagram === 'string') {
+    // Accepts @handle or a profile link; stores the bare handle.
+    const handle = b.instagram.trim().replace(/^https?:\/\/(www\.)?instagram\.com\//i, '').replace(/^@/, '').replace(/[/?#].*$/, '')
+    if (handle && !/^[A-Za-z0-9._]{1,30}$/.test(handle)) return res.status(400).json({ error: 'That doesn’t look like an Instagram handle' })
+    patch.instagram = handle || null
+  }
   if (isAdmin) {
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim().slice(0, 80)
     if (typeof b.feePercent === 'number' && b.feePercent >= 0 && b.feePercent <= 50) patch.fee_percent = b.feePercent
@@ -532,6 +565,98 @@ router.delete('/manage/:slug/items/:id', requireAuth, requireStoreManager, async
   const { error } = await q
   if (error) return res.status(500).json({ error: 'Failed to delete' })
   return res.json({ ok: true })
+})
+
+// Her store assistant: a typed message, or a voice note (multipart field `audio`). Body field `messages` is the chat
+// so far as JSON [{ role, text }]. Answers { heard, reply }; the page asks /assistant/speak to read the reply out.
+router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, voiceNote.single('audio'), async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  let turns: AssistantTurn[] = []
+  try {
+    const raw = typeof req.body?.messages === 'string' ? JSON.parse(req.body.messages) : req.body?.messages
+    if (Array.isArray(raw)) {
+      turns = raw
+        .filter((t: any) => (t?.role === 'user' || t?.role === 'assistant') && typeof t.text === 'string' && t.text.trim())
+        .map((t: any) => ({ role: t.role, text: t.text }))
+    }
+  } catch {
+    return res.status(400).json({ error: 'messages must be JSON' })
+  }
+  const file = req.file
+  if (!file && (!turns.length || turns[turns.length - 1].role !== 'user')) return res.status(400).json({ error: 'Say or type something' })
+  if (!assistantTurnAllowed(store.slug)) return res.status(429).json({ error: 'The assistant has done a lot today. It’s back tomorrow.' })
+
+  try {
+    const [{ data: items }, { data: orders }, payouts] = await Promise.all([
+      supabase.from('vendor_store_items').select('*').eq('storefront_id', store.id),
+      supabase.from('orders').select('created_at, total, metadata').eq('source', sourceOf(store.slug)).eq('payment_status', 'paid').limit(500),
+      payoutsReady(store.stripe_account_id)
+    ])
+    const { heard, reply, usage } = await askStoreAssistant(
+      {
+        storeName: store.name,
+        ownerFirst: String((store.theme as any)?.ownerFirst || store.name.split(/[’']/)[0]),
+        status: store.status,
+        payoutsReady: payouts.ready,
+        feePercent: Number(store.fee_percent),
+        instagram: store.instagram,
+        items: ((items || []) as ItemRow[]).map(i => ({ name: i.name, kind: i.product_id ? 'itp' : 'own', priceCents: i.price_cents, itpCostCents: i.itp_cost_cents, active: i.active })),
+        orders: (orders || []).map((o: any) => ({ createdAt: o.created_at, totalCents: Math.round(Number(o.total) * 100), shareCents: o.metadata?.vendor_store?.split?.vendorShareCents ?? null }))
+      },
+      turns,
+      file ? { mimeType: file.mimetype.replace(/;.*$/, '').replace('x-wav', 'wav'), data: file.buffer.toString('base64') } : undefined
+    )
+    req.log?.info({ slug: store.slug, voice: !!file, usage }, 'vendor-store assistant turn')
+    return res.json({ heard, reply })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'vendor-store assistant failed')
+    return res.status(502).json({ error: 'The assistant didn’t answer. Try again.' })
+  }
+})
+
+// Read an assistant reply out loud (Gemini 3.8 Flash TTS, voiceGenerator's 'store-assistant' voice).
+router.post('/manage/:slug/assistant/speak', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim().slice(0, 1500) : ''
+  if (!text) return res.status(400).json({ error: 'Nothing to say' })
+  try {
+    return res.json({ audioUrl: await generateVoiceResponse(text, { persona: 'store-assistant' }) })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'vendor-store assistant speak failed')
+    return res.status(502).json({ error: 'Couldn’t read that out loud' })
+  }
+})
+
+// Her ITC credits: the balance on her own ITP account, what the AI tools cost, and what she spent them on.
+// She buys more on /wallet; the tools (Imagination Station, the Creator Studio design flow) charge ITC themselves.
+const CREDIT_PRICES: Array<{ key: string; label: string }> = [
+  { key: 'generate', label: 'Design a shirt with AI (per design)' },
+  { key: 'generate', label: 'Make an image' },
+  { key: 'bg_remove', label: 'Remove a background' },
+]
+router.get('/manage/:slug/credits', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  const { data: pricing } = await supabase
+    .from('imagination_pricing')
+    .select('feature_key, current_cost')
+    .in('feature_key', [...new Set(CREDIT_PRICES.map(p => p.key))])
+  const cost = new Map((pricing || []).map((p: any) => [p.feature_key, Number(p.current_cost)]))
+  const prices = CREDIT_PRICES.filter(p => cost.has(p.key)).map(p => ({ label: p.label, itc: cost.get(p.key)! }))
+  if (!store.owner_user_id) return res.json({ linked: false, balance: null, prices, recent: [] })
+
+  const [{ data: wallet }, { data: recent }] = await Promise.all([
+    supabase.from('user_wallets').select('itc_balance').eq('user_id', store.owner_user_id).maybeSingle(),
+    supabase.from('itc_transactions').select('type, amount, reference, metadata, created_at').eq('user_id', store.owner_user_id).order('created_at', { ascending: false }).limit(8)
+  ])
+  return res.json({
+    linked: true,
+    balance: Number(wallet?.itc_balance ?? 0),
+    prices,
+    recent: (recent || []).map((t: any) => ({
+      at: t.created_at,
+      amount: Number(t.amount),
+      what: String(t.metadata?.reason || t.reference || t.type).replace(/^imagination_station:/, '').replace(/_/g, ' ')
+    }))
+  })
 })
 
 // Admin: search ITP's live catalog to offer a product to the store.
