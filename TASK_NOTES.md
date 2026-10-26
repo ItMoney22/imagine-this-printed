@@ -5243,3 +5243,28 @@ Built on top of ebf7dec0's branch (b062d1f): its lookup plan (id -> slug -> meta
   dropped), and adds the old slug to metadata.replaces. Live one-off applied to 9c3b3d19: slug
   folgers-coffee-racing-legend-t-shirt, replaces [1d2b8a23-0cdd-4dd3-b010-ba2ce3a7bc77]. vitest 2477/2477, vite build OK,
   live page walked logged out at 1400 + 390, old uuid link walked on a local build of this branch (redirects to the new slug).
+
+## Current request (2026-10-26) — Crystal's assistant emails her reminders (task 5cf5ca93, zero-earth019)
+
+David 10/26: "setup reminders for her through email with her assistant reminding her to post etc." Built on Amelia's
+unshipped crystal-storefront branch (fast-forwarded to f0aee34). Reminders card to the approved mock
+itp-crystal-store-manager-inbox round 1: Post on Instagram (Mon/Wed/Fri 10 AM), Check new orders (daily 9 AM), Add a new
+product (Sundays 10 AM), switches, Add a reminder. Each one is written fresh by her store assistant (store-assistant.ts)
+and goes to the store's own inbox (vendor_storefronts.inbox_mailbox_id from task f4a337b0 = crystal@), never her
+personal sign-in email.
+
+### File shortlist (approved scope — 2026-10-26 reminders)
+- new `supabase/migrations/20261026213500_vendor_store_reminders.sql` (applied live 2026-10-26)
+- new `backend/services/store-reminders.ts` (+ test), new `backend/worker/store-reminders-sweep.ts` (+ test), `backend/worker/index.ts`
+- new `backend/routes/vendor-store-reminders.ts`, `backend/routes/vendor-store.ts` (export requireStoreManager only), `backend/index.ts` (mount)
+- `backend/services/email-resend.ts` (optional Idempotency-Key header)
+- new `src/pages/store/StoreReminders.tsx`, `src/pages/store/StoreManager.tsx` (mount + side-menu link)
+- `TASK_NOTES.md`, `supabase/migrations/MIGRATION_LEDGER.md`
+
+### Work log (append-only)
+- 2026-10-26 (zero-earth019): reminders table + sends table (unique reminder_id+slot_at = the claim), trigger seeds the
+  three for every new store; worker sweep every 5 min (STORE_REMINDERS_MINUTES / _ENABLED / _GRACE_MINUTES), first run 1
+  min after boot; a failed send retries up to 3 times with the stored email and the slot as Resend's Idempotency-Key.
+  vitest 21/21 new (+ 121/121 email/vendor-store/worker files), backend tsc clean (junction TS2742 only), tsc -b 0. Live:
+  the real sweep fired a temp reminder at 11:58 ET, it landed once in crystal@'s in-app inbox (email_messages 487c94e1),
+  nothing while switched off. Walked the built card signed in as David at 1400 + 390, every button clicked, 0 errors.

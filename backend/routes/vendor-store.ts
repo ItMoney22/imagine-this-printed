@@ -419,7 +419,7 @@ async function claimIfOwner(store: StoreRow, user: { sub: string; email?: string
   return 'vendor'
 }
 
-async function requireStoreManager(req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function requireStoreManager(req: Request, res: Response, next: NextFunction): Promise<void> {
   const store = await loadStore(req.params.slug)
   if (!store) {
     res.status(404).json({ error: 'Store not found' })

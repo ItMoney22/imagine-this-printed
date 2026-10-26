@@ -65,6 +65,7 @@ import { qrStandRouter, adminQrStandRouter } from './routes/qr-stand.js'
 import vendorAnalyticsRouter from './routes/vendor-analytics.js'
 import storefrontRouter from './routes/storefront.js'
 import vendorStoreRouter from './routes/vendor-store.js'
+import vendorStoreRemindersRouter from './routes/vendor-store-reminders.js'
 import emailRouter from './routes/email.js'
 import adminProductsRouter from './routes/admin/products.js'
 import shippingRouter from './routes/shipping.js'
@@ -317,6 +318,7 @@ app.use('/api/qr-stand', qrStandRouter) // QR counter stand: customer logo uploa
 app.use('/api/admin/qr-stands', adminQrStandRouter) // QR counter stand: admin edit, rebuild, send to print
 app.use('/api/storefront', storefrontRouter) // headless checkout for external storefronts (earth019)
 app.use('/api/vendor-store', vendorStoreRouter) // <slug>.imaginethisprinted.com stores, split by destination charge
+app.use('/api/vendor-store', vendorStoreRemindersRouter) // a seller's reminder emails, written by her store assistant
 app.use('/api/vendor', vendorAnalyticsRouter) // real vendor sales analytics (replaces dashboard mock)
 app.use('/api/email', emailRouter) // in-app email system (Resend send/receive, per-employee inboxes)
 app.use('/api/admin', adminProductsRouter)

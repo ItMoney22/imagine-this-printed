@@ -3,11 +3,12 @@
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Bell, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { money, vendorStoreApi, type ManageData, type ManageItem } from '../../lib/vendor-store'
 import StoreCredits from './StoreCredits'
 import StoreAssistant from './StoreAssistant'
 import StoreDesign from './StoreDesign'
+import StoreReminders from './StoreReminders'
 import './store.css'
 
 const SIZES = ['XS', 'S', 'M', 'L', 'XL', '2XL', '3XL']
@@ -79,6 +80,7 @@ export default function StoreManager() {
     { id: 'home', label: 'Home', icon: Home },
     { id: 'products', label: 'Products', icon: Shirt },
     { id: 'orders', label: 'Orders', icon: Package },
+    { id: 'reminders', label: 'Reminders', icon: Bell },
     { id: 'credits', label: 'Credits', icon: Sparkles },
     { id: 'design', label: 'Create a design', icon: Palette },
     { id: 'payouts', label: 'Payouts', icon: Wallet },
@@ -182,6 +184,9 @@ export default function StoreManager() {
               </div>
             )}
           </Card>
+
+          {/* Her reminders: her assistant emails them to her store inbox */}
+          <StoreReminders slug={slug} onToast={setToast} />
 
           {/* 6. Orders */}
           <Card id="orders" icon={Package} title="Orders">
