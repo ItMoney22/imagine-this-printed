@@ -10,6 +10,8 @@ export type StoreTheme = {
   primary?: string; green?: string; pink?: string; gold?: string; ink?: string
   /** Art: hero backdrop, the cut-out character, the Meet-her portrait, the tab icon. */
   hero?: string; character?: string; portrait?: string; icon?: string
+  /** Her store assistant's face (defaults to /stores/<slug>/assistant.webp). */
+  assistant?: string
   ownerFirst?: string
   about?: string
 }
@@ -150,11 +152,18 @@ export const vendorStoreApi = {
   setJunk: (slug: string, id: string, junk: boolean) => apiFetch(manage(slug, `/inbox/${id}`), { method: 'PATCH', body: JSON.stringify({ junk }) }),
   /** Multipart: apiFetch forces JSON, so this one sets only the token. */
   addItem: (slug: string, form: FormData): Promise<{ item: StoreItem }> => postForm(manage(slug, '/items'), form, 'Could not save'),
-  /** One assistant turn: the chat so far, plus her voice note when she talked instead of typing. */
-  ask(slug: string, messages: AssistantMessage[], audio?: Blob): Promise<{ heard: string | null; reply: string }> {
+  /** Her chat with the assistant as the server keeps it, oldest first. */
+  /** The design a reply offered to make into a product, as a data URL (for customerStepFlow.upload). */
+  design: (slug: string, messageId: string): Promise<{ image: string; filename: string }> =>
+    apiFetch(manage(slug, `/assistant/design/${encodeURIComponent(messageId)}`)),
+  history: (slug: string): Promise<{ messages: AssistantMessage[] }> => apiFetch(manage(slug, '/assistant/history')),
+  /** One assistant turn: what she typed, her voice note when she talked, a picture of a design. The server reads the
+   *  chat so far itself and answers with both turns as saved. */
+  ask(slug: string, turn: { text?: string; audio?: Blob; image?: File }): Promise<AssistantAnswer> {
     const form = new FormData()
-    form.append('messages', JSON.stringify(messages))
-    if (audio) form.append('audio', audio, `voice.${audio.type.includes('mp4') ? 'm4a' : audio.type.includes('ogg') ? 'ogg' : 'webm'}`)
+    if (turn.text) form.append('text', turn.text)
+    if (turn.audio) form.append('audio', turn.audio, `voice.${turn.audio.type.includes('mp4') ? 'm4a' : turn.audio.type.includes('ogg') ? 'ogg' : 'webm'}`)
+    if (turn.image) form.append('image', turn.image, turn.image.name || 'design.png')
     return postForm(manage(slug, '/assistant'), form, 'The assistant didn’t answer')
   }
 }
@@ -176,7 +185,16 @@ export type InboxMessage = {
   junk: boolean
 }
 
-export type AssistantMessage = { role: 'user' | 'assistant'; text: string }
+/** imageUrl on a reply is the design it offers to make into a product (makeProduct). */
+export type AssistantMessage = {
+  id?: string
+  role: 'user' | 'assistant'
+  text: string
+  imageUrl?: string | null
+  makeProduct?: boolean
+  createdAt?: string
+}
+export type AssistantAnswer = { heard: string | null; reply: string; makeProduct: boolean; imageUrl: string | null; messages: AssistantMessage[] }
 export type StoreCredits = {
   linked: boolean
   balance: number | null

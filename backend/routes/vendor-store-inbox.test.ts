@@ -81,7 +81,7 @@ vi.mock('../middleware/supabaseAuth.js', () => ({
   },
 }))
 const roles: Record<string, string> = {}
-vi.mock('../lib/role-cache.js', () => ({ getCachedRole: async (id: string) => roles[id] ?? null }))
+vi.mock('../lib/role-cache.js', () => ({ getCachedRole: async (id: string) => roles[id] ?? null, invalidateCachedRole: () => {} }))
 vi.mock('../services/google-cloud-storage.js', () => ({ uploadImageFromBuffer: async () => ({ publicUrl: '', path: '' }) }))
 vi.mock('../services/print-files.js', () => ({ getPrintFileRefsFor: async () => ({}) }))
 vi.mock('stripe', () => ({ default: class { accounts = { retrieve: async (id: string) => ({ id, capabilities: {} }) } } }))

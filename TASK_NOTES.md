@@ -37,6 +37,34 @@ Decisions:
   link shown without https:// + smaller on phone, Copy no longer wraps, StoreDesign title no longer one word a line.
   Stripe TEST-mode transfer proof waits on KEY 8144ed23; percent waits on APPROVE 0d6f0cdd.
 
+## Current request (2026-10-26) — Crystal's store assistant: memory, her face, picture review, Make it a product (task 44f16c24, sal-moretti)
+
+David 10/26: the assistant "needs a image and likeness, needs to have memory built in" and "she should be able to upload
+images and the assistant can assess the design to create a product out of it, it can go through the step flow". Built
+on Amelia's branch earth/amelia-chan/crystal-storefront (f0aee34); approved mock itp-crystal-store-manager-inbox round 1.
+
+Decisions:
+- The chat lives on the server (vendor_store_assistant_messages): the assistant reads its last 16 turns from there, never
+  from the browser; the last 30 memory facts go into every turn. An assistant row's image_url = the design it offers to
+  make into a product (no new column).
+- /step/upload on the CUSTOMER lane opens to store sellers (and staff viewing as a seller), stamped hers like any
+  customer-lane build, so it still goes to ITP review before it can sell. Shoppers stay refused.
+- After a reload, Make it a product reads the saved design back through the API (no cross-origin download).
+
+### File shortlist (approved scope — 2026-10-26 store assistant)
+- `backend/routes/vendor-store.ts` (+ test), `backend/services/store-assistant.ts` (one prompt line: use memory)
+- `backend/routes/admin/ai-products-step-flow.ts` (+ test): /step/upload seller gate + owner stamp
+- `src/pages/store/StoreAssistant.tsx` (+ new test), `src/pages/store/StoreManager.tsx`, `src/lib/vendor-store.ts`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (sal-moretti): picture turns (sharp: px size + real transparency, model sees a 1536 px copy on grey),
+  saved chat + memory + GET history + GET design, seller upload gate, panel with her face, paperclip, saved chat, Make it
+  a product (upload + adopt -> Create a design at ?productId=), thinking spinner -> progress bar. Fixed the claim path's
+  stale role cache (her first visit 403'd every other card for a minute). Tests: vendor-store 11, step-flow 52,
+  StoreAssistant 5; live Gemini turns on a QA copy of her store; fleet-browser walk 1400 + 390 landed in the Step Flow.
+  QA account, store, drafts and files deleted after.
+
 ## Current request (2026-10-18) — ITP custom QR counter stand (task deebfdca, mason-blaze)
 
 David 10/17: a business orders a QR counter stand on ITP with its own link, caption and logo ($25 struck, $17.95),

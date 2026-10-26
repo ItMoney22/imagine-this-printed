@@ -232,9 +232,22 @@ router.post('/step/inspiration', requireAuth, requireStudioAccess, rateLimitAI(1
 // check, upscale, background cut and approval stamp as a library design, and
 // the builder opens on Garment & Color.
 //
-// Staff only. This router is also mounted on the customer lane, and a
-// customer uploading their own artwork straight into a listing is a review
-// and IP question nobody has decided.
+// Staff, and sellers with their own store. This router is also mounted on the
+// customer lane, and a customer uploading their own artwork straight into a
+// listing is a review and IP question nobody has decided for shoppers. David
+// decided it for store sellers (2026-10-26, Crystal's store assistant: "she
+// should be able to upload images and the assistant can assess the design to
+// create a product out of it, it can go through the step flow"). Her upload is
+// stamped hers like any customer-lane build, so it lands in her resume list
+// and still goes to ITP's review before it can sell.
+export async function mayUploadOnCustomerLane(userId: string): Promise<boolean> {
+  const { data: store } = await supabase.from('vendor_storefronts').select('id').eq('owner_user_id', userId).limit(1).maybeSingle()
+  if (store) return true
+  // Staff looking at a store as its seller run the customer lane too.
+  const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', userId).maybeSingle()
+  return !!profile && ['admin', 'manager'].includes(profile.role)
+}
+
 const UPLOAD_DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/
 // Print-ready PNGs are big (4500x5400 runs well past 10MB), so this is looser
 // than the 8MB inspiration cap. Still under the 50MB JSON body limit after
@@ -274,7 +287,10 @@ async function describeUpload(productId: string, artwork: Buffer, hint: string, 
 
 router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Request, res: Response): Promise<any> => {
   try {
-    if (laneOf(req) !== 'admin') return res.status(403).json({ error: 'Uploading finished artwork is staff-only' })
+    const customerLane = laneOf(req) === 'customer'
+    if (customerLane && !(await mayUploadOnCustomerLane(actorId(req)))) {
+      return res.status(403).json({ error: 'Uploading finished artwork is for store sellers' })
+    }
 
     const { image, kind, name, filename } = req.body || {}
     const isMetal = kind === 'metal'
@@ -340,7 +356,12 @@ router.post('/step/upload', requireAuth, requireStudioAccess, async (req: Reques
         images: [publicUrl],
         category: categorySlug,
         print_locations: isMetal ? [] : ['front_image'],
+        // The customer lane's owner stamp, the same three fields
+        // handleAIProductCreate writes there: without them her own /:id/step
+        // calls (adopt first) answer 404 and the build never reaches review.
+        ...(customerLane ? { created_by_user_id: actorId(req), is_user_generated: true } : {}),
         metadata: {
+          ...(customerLane ? { creator_studio: true, creator_id: actorId(req) } : {}),
           // Read by adopt as the source asset's `adopted_from`. Not
           // 'design-library', so the row lists under Products, not Designs.
           import_source: 'upload',
