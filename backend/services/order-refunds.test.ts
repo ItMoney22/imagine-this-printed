@@ -17,6 +17,7 @@ const {
   reverseOrderRewards,
   reverseReferralBonus,
   reverseCouponUsage,
+  refundShippingLabels,
   reverseOrderSideEffects,
   refundedCentsFromMetadata
 } = await import('./order-refunds.js')
@@ -663,7 +664,7 @@ describe('reverseOrderSideEffects', () => {
 
     expect(first.ok).toBe(true)
     expect(second.ok).toBe(true)
-    for (const step of ['itcStoreCredit', 'inventory', 'creatorMargins', 'loyaltyItc', 'referralBonus', 'couponUsage'] as const) {
+    for (const step of ['itcStoreCredit', 'inventory', 'creatorMargins', 'loyaltyItc', 'referralBonus', 'couponUsage', 'shippingLabels'] as const) {
       expect(second[step]).toMatchObject({ ok: true, skipped: true })
     }
 
@@ -675,6 +676,162 @@ describe('reverseOrderSideEffects', () => {
     expect(db._store.discount_codes[0].current_uses).toBe(2)
     expect(db._store.itc_transactions.filter((t: any) => t.type === 'order_reward_refund')).toHaveLength(1)
     expect(db._store.itc_transactions.filter((t: any) => t.type === 'referral_bonus_refund')).toHaveLength(1)
+  })
+})
+
+describe('refundShippingLabels', () => {
+  // Her Print label (routes/vendor-store.ts) and ITP's admin label (routes/orders.ts), as they sit on a store order.
+  const sellerLabel = {
+    transaction_id: 'tx_hers', label_url: 'https://deliver.goshippo.com/tx_hers.pdf', tracking_number: '9400111',
+    carrier: 'USPS', service: 'Ground Advantage', cost_cents: 619, weight_lb: 1, purchased_at: '2026-10-26T17:00:00Z', purchased_by: USER_ID
+  }
+  const itpLabel = {
+    transaction_id: 'tx_ours', label_url: 'https://deliver.goshippo.com/tx_ours.pdf', carrier: 'USPS', service: 'Ground Advantage',
+    cost: 5.73, weight_lb: 0.5, purchased_at: '2026-10-26T17:05:00Z', purchased_by: USER_ID
+  }
+  const storeOrder = (metadata: Record<string, any>) =>
+    makeDb({ orders: [{ id: ORDER_ID, source: 'store:crystal', payment_status: 'refunded', metadata }] })
+
+  /** Fake Shippo: tracking per transaction, refunds answered by `answer`, every call recorded. */
+  function fakeShippo(tracking: Record<string, string | null>, answer?: (tx: string) => any) {
+    const calls: string[] = []
+    return {
+      calls,
+      configured: () => true,
+      trackingStatus: async (tx: string) => { calls.push(`track ${tx}`); return tracking[tx] ?? null },
+      refund: async (tx: string) => {
+        calls.push(`refund ${tx}`)
+        return answer ? answer(tx) : { ok: true, refund: { id: `rf_${tx}`, status: 'QUEUED' } }
+      }
+    }
+  }
+
+  it('hands her unscanned label back to Shippo and stamps the answer on it, leaving the rest of the order alone', async () => {
+    const db = storeOrder({ items: [{ maker: 'vendor' }], vendor_store: { split: { vendorShareCents: 5300 }, label: sellerLabel }, refunds: [{ amount_cents: 8898 }] })
+    const shippo = fakeShippo({ tx_hers: 'PRE_TRANSIT' })
+
+    const result = await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+
+    expect(result).toMatchObject({ ok: true, skipped: false })
+    expect(shippo.calls).toEqual(['track tx_hers', 'refund tx_hers'])
+    const md = db._store.orders[0].metadata
+    expect(md.vendor_store.label.refund).toMatchObject({ status: 'QUEUED', shippo_refund_id: 'rf_tx_hers', tracking_status: 'PRE_TRANSIT' })
+    expect(md.vendor_store.label.transaction_id).toBe('tx_hers')
+    expect(md.vendor_store.split.vendorShareCents).toBe(5300)
+    expect(md.refunds).toEqual([{ amount_cents: 8898 }])
+    expect(md.items).toEqual([{ maker: 'vendor' }])
+  })
+
+  it('covers ITP’s own label too, and leaves a label the carrier already scanned alone', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel }, shipping_label: itpLabel })
+    const shippo = fakeShippo({ tx_hers: 'UNKNOWN', tx_ours: 'TRANSIT' })
+
+    const result = await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+
+    expect(result).toMatchObject({ ok: true, skipped: false })
+    expect(shippo.calls).toEqual(['track tx_hers', 'refund tx_hers', 'track tx_ours'])
+    const md = db._store.orders[0].metadata
+    expect(md.vendor_store.label.refund.status).toBe('QUEUED')
+    expect(md.shipping_label.refund).toMatchObject({ status: 'SCANNED', shippo_refund_id: null, tracking_status: 'TRANSIT' })
+  })
+
+  it('refunds ITP’s label alone on a main-site order', async () => {
+    const db = storeOrder({ shipping_label: itpLabel })
+    const shippo = fakeShippo({ tx_ours: 'PRE_TRANSIT' })
+
+    expect(await refundShippingLabels(ORDER_ID, undefined, db, shippo)).toMatchObject({ ok: true, skipped: false })
+    expect(shippo.calls).toEqual(['track tx_ours', 'refund tx_ours'])
+    expect(db._store.orders[0].metadata.shipping_label.refund.status).toBe('QUEUED')
+  })
+
+  it('reports skipped when every label is already with the carrier', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel } })
+    const shippo = fakeShippo({ tx_hers: 'DELIVERED' })
+
+    const result = await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+
+    expect(result).toMatchObject({ ok: true, skipped: true })
+    expect(result.reason).toMatch(/carrier already has the box/)
+    expect(shippo.calls).toEqual(['track tx_hers'])
+  })
+
+  it('still asks when Shippo can’t say where the box is (Shippo refuses a used label itself)', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel } })
+    const shippo = fakeShippo({})
+
+    await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+
+    expect(shippo.calls).toEqual(['track tx_hers', 'refund tx_hers'])
+    expect(db._store.orders[0].metadata.vendor_store.label.refund).toMatchObject({ status: 'QUEUED', tracking_status: null })
+  })
+
+  it('is idempotent — a second run asks Shippo nothing', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel }, shipping_label: itpLabel })
+    const shippo = fakeShippo({ tx_hers: 'PRE_TRANSIT', tx_ours: 'DELIVERED' })
+
+    await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+    const callsAfterFirst = shippo.calls.length
+    const second = await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+
+    expect(second).toMatchObject({ ok: true, skipped: true, reason: 'already handed back to Shippo' })
+    expect(shippo.calls).toHaveLength(callsAfterFirst)
+  })
+
+  it('a request that didn’t go through is stamped FAILED, reported for a human, and asked again on a re-run', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel } })
+    let down = true
+    const shippo = fakeShippo({ tx_hers: 'PRE_TRANSIT' }, tx => down
+      ? { ok: false, status: 503, error: 'Shippo could not refund the label (503)' }
+      : { ok: true, refund: { id: `rf_${tx}`, status: 'SUCCESS' } })
+
+    const first = await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+    expect(first.ok).toBe(false)
+    expect(first.reason).toMatch(/503/)
+    expect(db._store.orders[0].metadata.vendor_store.label.refund).toMatchObject({ status: 'FAILED', reason: 'Shippo could not refund the label (503)' })
+
+    down = false
+    const retry = await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+    expect(retry).toMatchObject({ ok: true, skipped: false })
+    expect(db._store.orders[0].metadata.vendor_store.label.refund).toMatchObject({ status: 'SUCCESS', shippo_refund_id: 'rf_tx_hers' })
+    expect(shippo.calls.filter(c => c.startsWith('refund'))).toHaveLength(2)
+  })
+
+  it('Shippo’s own refusal of a used label is its answer, not a failure', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel } })
+    const shippo = fakeShippo({ tx_hers: 'PRE_TRANSIT' }, tx => ({ ok: true, refund: { id: `rf_${tx}`, status: 'ERROR' } }))
+
+    expect(await refundShippingLabels(ORDER_ID, undefined, db, shippo)).toMatchObject({ ok: true, skipped: false })
+    expect(db._store.orders[0].metadata.vendor_store.label.refund.status).toBe('ERROR')
+  })
+
+  it('without a Shippo token it asks nothing, stamps nothing and reports the label for a human', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel } })
+    const shippo = { ...fakeShippo({ tx_hers: 'PRE_TRANSIT' }), configured: () => false }
+
+    const result = await refundShippingLabels(ORDER_ID, undefined, db, shippo)
+
+    expect(result.ok).toBe(false)
+    expect(result.details).toEqual({ transactions: [{ label: 'seller', transactionId: 'tx_hers' }] })
+    expect(shippo.calls).toEqual([])
+    expect(db._store.orders[0].metadata.vendor_store.label.refund).toBeUndefined()
+  })
+
+  it('skips an order with no label (nothing bought, or a label with no Shippo transaction)', async () => {
+    const shippo = fakeShippo({})
+    expect(await refundShippingLabels(ORDER_ID, undefined, storeOrder({ vendor_store: { split: {} } }), shippo)).toMatchObject({ ok: true, skipped: true })
+    expect(await refundShippingLabels(ORDER_ID, undefined, storeOrder({ shipping_label: { label_url: 'x' } }), shippo)).toMatchObject({ ok: true, skipped: true })
+    expect(shippo.calls).toEqual([])
+  })
+
+  it('runs inside reverseOrderSideEffects: a failed label refund makes the report not ok', async () => {
+    const db = storeOrder({ vendor_store: { label: sellerLabel } })
+    const shippo = fakeShippo({ tx_hers: 'PRE_TRANSIT' }, () => ({ ok: false, status: 0, error: 'Shippo refund request failed: offline' }))
+
+    const report = await reverseOrderSideEffects(ORDER_ID, undefined, db, shippo)
+
+    expect(report.ok).toBe(false)
+    expect(report.shippingLabels).toMatchObject({ ok: false, skipped: false })
+    expect(report.couponUsage).toMatchObject({ ok: true, skipped: true })
   })
 })
 

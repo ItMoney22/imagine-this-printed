@@ -1167,6 +1167,8 @@ router.get('/manage/:slug/orders/:orderNumber/label.pdf', requireAuth, requireSt
   const order = await loadStoreOrder(store, req.params.orderNumber)
   const url = order?.metadata?.vendor_store?.label?.label_url
   if (!order || !isShippoLabelUrl(url)) return res.status(404).json({ error: 'No label for this order yet' })
+  // A refunded order hands its label back to Shippo (services/order-refunds.ts), which voids it: nothing to ship.
+  if (order.payment_status === 'refunded') return res.status(410).json({ error: 'This order was refunded, so don’t ship it. Its label is cancelled.' })
   const file = await fetch(url)
   if (!file.ok) return res.status(502).json({ error: 'Shippo didn’t send the label file. Try again.' })
   const pdf = Buffer.from(await file.arrayBuffer())
