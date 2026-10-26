@@ -45,7 +45,7 @@ export default function StoreDesign({ open, onOpen }: { open: boolean; onOpen: (
     <section id="design" className="rounded-3xl bg-white border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-28">
       <div className="flex flex-wrap items-center gap-3">
         <span className="w-10 h-10 rounded-full grid place-items-center text-white" style={{ background: 'linear-gradient(135deg, var(--vs-primary), var(--vs-pink))' }}><Palette className="w-5 h-5" /></span>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 basis-52">
           <h2 className="vs-display text-2xl sm:text-3xl">Create a design</h2>
           <p className="text-sm text-[var(--vs-muted)]">One idea in, a finished shirt design out. You approve every step.</p>
         </div>

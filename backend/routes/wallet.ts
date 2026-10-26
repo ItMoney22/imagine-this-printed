@@ -22,6 +22,7 @@ import {
 import { ITC_TO_USD_RATE } from '../config/itc-pricing.js'
 import { validateCouponForOrder, recordCouponUsage } from './coupons.js'
 import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
+import { isStoreReferralCode } from '../services/store-referral.js'
 
 const router = Router()
 
@@ -260,6 +261,12 @@ router.post('/referral/apply', requireAuth, async (req: Request, res: Response):
 
     if (!code || typeof code !== 'string') {
       return res.status(400).json({ error: 'Referral code is required' })
+    }
+
+    // A store owner's link (?ref=CRYSTAL) isn't an account referral: it pays her a cut of
+    // what this visitor buys (services/store-referral.ts), so the site keeps it for checkout.
+    if (await isStoreReferralCode(code)) {
+      return res.json({ ok: true, store: true, message: 'Store link kept for checkout' })
     }
 
     // user_profiles.id is the auth user id. (user_id is NULL on most live

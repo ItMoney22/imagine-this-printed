@@ -11,6 +11,11 @@
 // decides whether the account may join through it (new accounts only, never
 // your own code, one link per account); every final answer clears the stored
 // code so it can never be applied twice.
+//
+// A store owner's link (?ref=CRYSTAL, David 2026-10-26) is the same link, but
+// it pays her a cut of what this visitor BUYS, not an account bonus: the API
+// answers { store: true }, the code stays on the device (marked store) for the
+// 30 days, and Checkout sends it with the order (backend/services/store-referral.ts).
 // ---------------------------------------------------------------------------
 
 import { apiFetch } from '../lib/api'
@@ -26,6 +31,8 @@ const LEGACY_KEYS = ['pending_referral', 'referral_timestamp']
 export interface PendingReferral {
   code: string
   landed_at: string
+  /** A store owner's code: kept for checkout instead of being applied to the account. */
+  store?: boolean
 }
 
 /** Pure: a referral code as the API stores it (upper case), or null when it can't be one. */
@@ -75,7 +82,7 @@ export function getPendingReferral(now: number = Date.now()): PendingReferral | 
       clearPendingReferral()
       return null
     }
-    return { code, landed_at: parsed.landed_at }
+    return { code, landed_at: parsed.landed_at, ...(parsed.store ? { store: true } : {}) }
   } catch {
     clearPendingReferral()
     return null
@@ -93,6 +100,7 @@ export function clearPendingReferral(): void {
 
 export type ReferralApplyOutcome =
   | 'none'     // nothing stored
+  | 'kept'     // a store owner's link: stays on the device for checkout
   | 'applied'  // recorded now
   | 'already'  // this account already carries this link: no-op
   | 'refused'  // final no (own code, not a new account, bad code...): cleared
@@ -104,7 +112,7 @@ export function httpStatusOf(err: unknown): number | null {
   return match ? Number(match[1]) : null
 }
 
-export type ReferralPost = (code: string) => Promise<{ ok?: boolean; already?: boolean }>
+export type ReferralPost = (code: string) => Promise<{ ok?: boolean; already?: boolean; store?: boolean }>
 
 const postApply: ReferralPost = (code) =>
   apiFetch('/api/wallet/referral/apply', { method: 'POST', body: JSON.stringify({ code }) })
@@ -120,8 +128,17 @@ export function applyPendingReferral(post: ReferralPost = postApply): Promise<Re
   inFlight = (async (): Promise<ReferralApplyOutcome> => {
     const pending = getPendingReferral()
     if (!pending) return 'none'
+    if (pending.store) return 'kept'
     try {
       const result = await post(pending.code)
+      if (result?.store) {
+        try {
+          window.localStorage.setItem(PENDING_REFERRAL_KEY, JSON.stringify({ ...pending, store: true }))
+        } catch {
+          // Storage full: checkout still has this visit's code until it's gone.
+        }
+        return 'kept'
+      }
       clearPendingReferral()
       return result?.already ? 'already' : 'applied'
     } catch (err) {

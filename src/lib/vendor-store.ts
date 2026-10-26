@@ -94,6 +94,8 @@ export function useStoreCart(slug: string) {
 // ---- Manage (Crystal + ITP admins), signed in on imaginethisprinted.com ----
 
 export type ManageItem = StoreItem & { active: boolean; itpCostCents: number; suggestedPriceCents: number | null; sort: number }
+/** Where a cut of an order through her link stands (backend/services/store-referral.ts CutStatus). */
+export type ReferralStatus = 'paid' | 'waiting_percent' | 'waiting_payouts' | 'nothing' | 'own_order' | 'failed' | 'reversed' | 'cancelled'
 export type ManageData = {
   isAdmin: boolean
   store: StoreInfo & {
@@ -105,6 +107,13 @@ export type ManageData = {
     url: string
   }
   payouts: { hasAccount: boolean; ready: boolean; detailsSubmitted: boolean }
+  /** Her own link (imaginethisprinted.com/?ref=CODE) and the orders that came through it. percent null = not set yet. */
+  referral: {
+    code: string | null
+    link: string | null
+    percent: number | null
+    orders: Array<{ orderNumber: string; createdAt: string; productsCents: number; cutCents: number; status: ReferralStatus }>
+  }
   items: ManageItem[]
   orders: Array<{
     orderNumber: string
