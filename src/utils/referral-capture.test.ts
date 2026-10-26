@@ -138,6 +138,23 @@ describe('applyPendingReferral', () => {
     expect(stored()).toBeNull()
   })
 
+  it('keeps a store owner link for checkout and never posts it again', async () => {
+    captureReferralFromUrl('?ref=CRYSTAL')
+    const post = vi.fn().mockResolvedValue({ ok: true, store: true })
+    expect(await applyPendingReferral(post)).toBe('kept')
+    expect(getPendingReferral()).toMatchObject({ code: 'CRYSTAL', store: true })
+
+    expect(await applyPendingReferral(post)).toBe('kept')
+    expect(post).toHaveBeenCalledTimes(1)
+  })
+
+  it('a newer friend link replaces a kept store link', async () => {
+    captureReferralFromUrl('?ref=CRYSTAL')
+    await applyPendingReferral(vi.fn().mockResolvedValue({ ok: true, store: true }))
+    captureReferralFromUrl('?ref=REFAB12CD')
+    expect(getPendingReferral()).toEqual({ code: 'REFAB12CD', landed_at: expect.any(String) })
+  })
+
   it.each([400, 404, 409])('a final refusal (%i) clears the link so it is never retried', async (status) => {
     captureReferralFromUrl('?ref=REFAB12CD')
     const post = vi.fn().mockRejectedValue(new Error(`HTTP ${status}: no`))

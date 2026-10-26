@@ -13,6 +13,7 @@ import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
 import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../services/store-assistant.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
+import { ensureStoreReferralCode, settleWaitingStoreReferrals, storeReferralOrders } from '../services/store-referral.js'
 import storeInboxRouter, { syncInboxOwner } from './vendor-store-inbox.js'
 
 // Vendor storefronts (David 2026-10-26): a seller's own branded store on
@@ -113,6 +114,8 @@ type StoreRow = {
   stripe_account_id: string | null
   status: 'draft' | 'live' | 'paused'
   instagram: string | null
+  referral_code: string | null
+  referral_percent: number | null
   /** The store's own mailbox (routes/vendor-store-inbox.ts). */
   inbox_mailbox_id: string | null
 }
@@ -495,7 +498,9 @@ router.get('/manage/mine', requireAuth, async (req: Request, res: Response): Pro
 
 router.get('/manage/:slug', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
   const { store, isAdmin } = req.vendorStore!
-  const [{ data: items }, { data: orders }, payouts] = await Promise.all([
+  const referralCode = await ensureStoreReferralCode(store)
+  const referralPercent = store.referral_percent == null ? null : Number(store.referral_percent)
+  const [{ data: items }, { data: orders }, payouts, referralOrders] = await Promise.all([
     supabase.from('vendor_store_items').select('*').eq('storefront_id', store.id).order('sort').order('created_at', { ascending: false }),
     supabase
       .from('orders')
@@ -504,8 +509,13 @@ router.get('/manage/:slug', requireAuth, requireStoreManager, async (req: Reques
       .eq('payment_status', 'paid')
       .order('created_at', { ascending: false })
       .limit(50),
-    payoutsReady(store.stripe_account_id)
+    payoutsReady(store.stripe_account_id),
+    storeReferralOrders(store.id)
   ])
+  // Her payouts just went live (or the percent was set elsewhere): pay the cuts that waited.
+  if (payouts.ready && referralPercent != null && referralOrders.some(o => o.status === 'waiting_payouts' || o.status === 'waiting_percent' || o.status === 'failed')) {
+    void settleWaitingStoreReferrals(store.id, req.log)
+  }
 
   return res.json({
     isAdmin,
@@ -527,6 +537,13 @@ router.get('/manage/:slug', requireAuth, requireStoreManager, async (req: Reques
       hasAccount: !!store.stripe_account_id,
       ready: payouts.ready,
       detailsSubmitted: !!payouts.account?.details_submitted
+    },
+    // Her own link: the site's friend link with her store's code (services/store-referral.ts).
+    referral: {
+      code: referralCode,
+      link: referralCode ? `${SITE_URL}/?ref=${referralCode}` : null,
+      percent: referralPercent,
+      orders: referralOrders
     },
     items: ((items || []) as ItemRow[]).map(i => ({ ...publicItem(i), active: i.active, itpCostCents: i.itp_cost_cents, suggestedPriceCents: i.suggested_price_cents ?? null, sort: i.sort })),
     orders: (orders || []).map((o: any) => ({
@@ -556,6 +573,8 @@ router.patch('/manage/:slug', requireAuth, requireStoreManager, async (req: Requ
   if (isAdmin) {
     if (typeof b.name === 'string' && b.name.trim()) patch.name = b.name.trim().slice(0, 80)
     if (typeof b.feePercent === 'number' && b.feePercent >= 0 && b.feePercent <= 50) patch.fee_percent = b.feePercent
+    // Her cut of what her link's visitors buy on ITP. null = not decided: cuts wait on the orders.
+    if (b.referralPercent === null || (typeof b.referralPercent === 'number' && b.referralPercent >= 0 && b.referralPercent <= 50)) patch.referral_percent = b.referralPercent
     if (Number.isInteger(b.itpShippingCents) && b.itpShippingCents >= 0 && b.itpShippingCents <= 5000) patch.itp_shipping_cents = b.itpShippingCents
     if (['draft', 'live', 'paused'].includes(b.status)) patch.status = b.status
     if (typeof b.ownerEmail === 'string') {
@@ -578,6 +597,8 @@ router.patch('/manage/:slug', requireAuth, requireStoreManager, async (req: Requ
   patch.updated_at = new Date().toISOString()
   const { error } = await supabase.from('vendor_storefronts').update(patch).eq('id', store.id)
   if (error) return res.status(500).json({ error: 'Failed to save' })
+  // David just set her percent: pay the cuts that were waiting for it (each checks her payouts).
+  if (patch.referral_percent != null) void settleWaitingStoreReferrals(store.id, req.log)
   if ('owner_user_id' in patch) await syncInboxOwner(store.inbox_mailbox_id, patch.owner_user_id as string | null)
   return res.json({ ok: true, ownerLinked: patch.owner_email ? !!patch.owner_user_id : undefined })
 })

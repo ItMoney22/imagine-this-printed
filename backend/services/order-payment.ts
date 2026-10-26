@@ -30,6 +30,7 @@ import { accrueCreatorMarginsForOrder } from './creator-margins.js'
 import { sendMerchOrderEvent } from './merch-webhook.js'
 import { backfillVendorStoreBuyer, notifyVendorOfPaidOrder } from './vendor-store-orders.js'
 import { onQrStandOrderPaid } from './qr-stand-builds.js'
+import { payStoreReferralCut } from './store-referral.js'
 import { processOrderCompletion } from './order-reward-service.js'
 import { processReferralFirstPurchase } from './referral-service.js'
 import { findCouponIdByCode, recordCouponUsage } from '../routes/coupons.js'
@@ -305,6 +306,10 @@ export async function applyPaidCheckoutOrder(
   ).catch((err) => {
     log?.error({ err, orderId }, '[qr-stand] paid-order hook threw unexpectedly')
   })
+
+  // A store owner's referral link (Crystal's ?ref=CRYSTAL): pay her cut of the products to
+  // her Stripe account, or record on the order why it waits. Never throws.
+  await payStoreReferralCut(orderId, log)
 
   log?.info({
     orderId,

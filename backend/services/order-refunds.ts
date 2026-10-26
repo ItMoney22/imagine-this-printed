@@ -30,8 +30,12 @@
  *      discount_codes.current_uses. Reversal decrements current_uses and
  *      marks the usage row reversed (coupon_usage.reversed_at, added by
  *      supabase/migrations/20260728_refund_reward_reversal.sql).
+ *   7. Store referral cut — payStoreReferralCut() (services/store-referral.ts)
+ *      transferred a store owner her share of an order that came through her
+ *      link. Reversal reverses that Stripe transfer (or cancels a cut that was
+ *      still waiting), keyed on the order.
  *
- * (Item 7, the Stripe charge itself, isn't reversed here — that's the caller's
+ * (The Stripe charge itself, isn't reversed here — that's the caller's
  * job via stripe.refunds.create(); this module only undoes ITP's own bookkeeping.)
  *
  * ─── Idempotency ──────────────────────────────────────────────────────────
@@ -52,6 +56,7 @@
 
 import { supabase as realSupabase } from '../lib/supabase.js'
 import { addBalance } from '../lib/webhook-helpers.js'
+import { reverseStoreReferralCut } from './store-referral.js'
 
 /** Minimal structural type of the Supabase client bits this module uses. */
 export type RefundDb = {
@@ -111,6 +116,7 @@ export interface ReversalReport {
   loyaltyItc: StepResult
   referralBonus: StepResult
   couponUsage: StepResult
+  storeReferralCut: StepResult
   reversedAt: string
 }
 
@@ -937,15 +943,17 @@ export async function reverseOrderSideEffects(
   const loyaltyItc = await reverseOrderRewards(orderId, log, db)
   const referralBonus = await reverseReferralBonus(orderId, log, db)
   const couponUsage = await reverseCouponUsage(orderId, log, db)
+  const storeReferralCut = await reverseStoreReferralCut(orderId, log, { db })
 
   const report: ReversalReport = {
-    ok: itcStoreCredit.ok && inventory.ok && creatorMargins.ok && loyaltyItc.ok && referralBonus.ok && couponUsage.ok,
+    ok: itcStoreCredit.ok && inventory.ok && creatorMargins.ok && loyaltyItc.ok && referralBonus.ok && couponUsage.ok && storeReferralCut.ok,
     itcStoreCredit,
     inventory,
     creatorMargins,
     loyaltyItc,
     referralBonus,
     couponUsage,
+    storeReferralCut,
     reversedAt: new Date().toISOString()
   }
 

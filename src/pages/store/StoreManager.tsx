@@ -3,11 +3,12 @@
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Bell, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Lock, Mail, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Bell, Boxes, CircleDollarSign, ExternalLink, Home, ImagePlus, Instagram, Link2, Lock, Mail, Package, Palette, Search, Settings, Shirt, ShoppingCart, Sparkles, Trash2, Wallet } from 'lucide-react'
 import { money, vendorStoreApi, type ManageData, type ManageItem } from '../../lib/vendor-store'
 import StoreCredits from './StoreCredits'
 import StoreAssistant from './StoreAssistant'
 import StoreDesign from './StoreDesign'
+import StoreLink from './StoreLink'
 import StoreInbox from './StoreInbox'
 import StoreReminders from './StoreReminders'
 import './store.css'
@@ -71,7 +72,9 @@ export default function StoreManager() {
     const thisMonth = data.orders.filter(o => o.createdAt.startsWith(month))
     return {
       sales: thisMonth.reduce((n, o) => n + o.totalCents, 0),
-      earnings: thisMonth.reduce((n, o) => n + (o.yourShareCents || 0), 0),
+      // Her store's sales plus what her link paid her this month.
+      earnings: thisMonth.reduce((n, o) => n + (o.yourShareCents || 0), 0)
+        + (data.referral?.orders || []).filter(o => o.status === 'paid' && o.createdAt.startsWith(month)).reduce((n, o) => n + o.cutCents, 0),
       toShip: data.orders.filter(o => o.fulfillment === 'unfulfilled' && o.items.some(i => i.maker === 'vendor')).length,
       live: data.items.filter(i => i.active).length,
     }
@@ -90,6 +93,7 @@ export default function StoreManager() {
   const ours = data.items.filter(i => i.kind === 'itp')
   const nav = [
     { id: 'home', label: 'Home', icon: Home },
+    { id: 'link', label: 'My link', icon: Link2 },
     { id: 'products', label: 'Products', icon: Shirt },
     { id: 'orders', label: 'Orders', icon: Package },
     { id: 'inbox', label: 'Inbox', icon: Mail, count: unread },
@@ -159,6 +163,9 @@ export default function StoreManager() {
             <Stat icon={Boxes} colour="var(--vs-primary)" label="Orders to ship" value={String(stats.toShip)} />
             <Stat icon={Shirt} colour="var(--vs-gold)" label="Items for sale" value={String(stats.live)} />
           </div>
+
+          {/* Her own link: a cut of what her referrals buy on ITP */}
+          <StoreLink data={data} />
 
           {/* Her ITC credits and the AI tools they pay for */}
           <StoreCredits slug={slug} onDesign={openDesign} />
@@ -538,6 +545,8 @@ function HerPriceRow({ item, slug, save }: { item: ManageItem; slug: string; sav
 function AdminPanel({ data, slug, save }: { data: ManageData; slug: string; save: (fn: () => Promise<unknown>, done?: string) => void }) {
   const { store } = data
   const [fee, setFee] = useState(String(store.feePercent))
+  const [refPct, setRefPct] = useState(data.referral.percent == null ? '' : String(data.referral.percent))
+  const savedRefPct = data.referral.percent == null ? '' : String(data.referral.percent)
   const [ownShip, setOwnShip] = useState((store.ownShippingCents / 100).toFixed(2))
   const [itpShip, setItpShip] = useState((store.itpShippingCents / 100).toFixed(2))
   const [owner, setOwner] = useState(store.ownerEmail || '')
@@ -550,9 +559,14 @@ function AdminPanel({ data, slug, save }: { data: ManageData; slug: string; save
   return (
     <section id="settings" className="rounded-3xl bg-[#efe8f7] border border-[var(--vs-line)] p-4 sm:p-6 scroll-mt-28">
       <h2 className="flex items-center gap-2 font-semibold text-[var(--vs-primary)] mb-4"><Lock className="w-5 h-5" /> Admin only</h2>
-      <div className="grid sm:grid-cols-2 xl:grid-cols-5 gap-4 text-sm">
+      <div className="grid sm:grid-cols-2 xl:grid-cols-6 gap-4 text-sm">
         <label className="font-medium">Fee on her products (%)
           <input className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" value={fee} onChange={e => setFee(e.target.value)} onBlur={() => Number(fee) !== store.feePercent && save(() => vendorStoreApi.saveStore(slug, { feePercent: Number(fee) }))} />
+        </label>
+        <label className="font-medium">Her link's cut (%)
+          <input className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" inputMode="decimal" placeholder="Not set" value={refPct} onChange={e => setRefPct(e.target.value)}
+            onBlur={() => refPct.trim() !== savedRefPct && save(() => vendorStoreApi.saveStore(slug, { referralPercent: refPct.trim() === '' ? null : Number(refPct) }), 'Her cut saved')} />
+          <span className="block text-xs text-[var(--vs-muted)] font-normal mt-1">Of products bought through her link. Blank: her cuts wait.</span>
         </label>
         <label className="font-medium">Her shipping ($)
           <input className="mt-1 w-full rounded-xl border border-[var(--vs-line)] bg-white px-3 h-10" value={ownShip} onChange={e => setOwnShip(e.target.value)} onBlur={() => dollars(ownShip) !== store.ownShippingCents && save(() => vendorStoreApi.saveStore(slug, { ownShippingCents: dollars(ownShip) }))} />
