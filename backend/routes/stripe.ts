@@ -34,6 +34,7 @@ import {
 import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
 import { QR_STAND, QR_FIELD, isQrStandLineId, readQrStandFields } from '../shared/qr-stand.js'
 import { verifyResellerRef } from '../services/qr-stand-reseller.js'
+import { resolveStoreReferral } from '../services/store-referral.js'
 
 const router = Router()
 
@@ -468,7 +469,7 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution, referralCode } = req.body
     // Landing UTMs captured client-side (src/utils/utm.ts) before checkout —
     // sanitized/allowlisted so an untrusted body can't inject arbitrary JSONB.
     // null means "nothing known this call", not "clear what's stored".
@@ -480,6 +481,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
     // caller we've actually authenticated via the JWT — never a body-supplied
     // guest id, which anyone could spoof to drain someone else's wallet.
     const trustedUserId = req.user?.sub ?? null
+    // A store owner's referral link (?ref=CRYSTAL, src/utils/referral-capture.ts): stamp the
+    // order so its paid hook pays her cut (services/store-referral.ts). A friend's personal
+    // code is not a store code and resolves to null here; that link is applied at sign-in.
+    const storeReferral = await resolveStoreReferral(referralCode, userId).catch(() => null)
 
     // Validate currency
     if (currency !== 'usd') {
@@ -626,7 +631,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             shippingCents: pricing.shippingCents,
             rushFeeCents: pricing.rushFeeCents,
             freeShippingApplied: pricing.freeShippingApplied
-          })
+          }),
+          // Only set when THIS call carried a store link, like attribution below.
+          ...(storeReferral ? { store_referral: storeReferral } : {})
         }
 
         // Update the existing order
@@ -742,7 +749,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             shippingCents: pricing.shippingCents,
             rushFeeCents: pricing.rushFeeCents,
             freeShippingApplied: pricing.freeShippingApplied
-          })
+          }),
+          ...(storeReferral ? { store_referral: storeReferral } : {})
         }
       })
       .select()
@@ -789,7 +797,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           ? String(shippingType).toLowerCase()
           : 'shipping',
         itcCreditAmount: itcCreditAmount?.toString() || '0',
-        itcCreditUSD: itcCreditUSD?.toString() || '0'
+        itcCreditUSD: itcCreditUSD?.toString() || '0',
+        storeReferral: storeReferral?.slug || ''
       },
       // Note: We don't set receipt_email - we send our own branded Mr. Imagine emails via Resend
       automatic_payment_methods: {
@@ -1269,7 +1278,8 @@ async function claimAndReverseRefundedOrder(
         `creator margins: ${report.creatorMargins.ok ? 'ok' : report.creatorMargins.reason}; ` +
         `loyalty ITC: ${report.loyaltyItc.ok ? 'ok' : report.loyaltyItc.reason}; ` +
         `referral bonus: ${report.referralBonus.ok ? 'ok' : report.referralBonus.reason}; ` +
-        `coupon usage: ${report.couponUsage.ok ? 'ok' : report.couponUsage.reason}`
+        `coupon usage: ${report.couponUsage.ok ? 'ok' : report.couponUsage.reason}; ` +
+        `store referral cut: ${report.storeReferralCut.ok ? 'ok' : report.storeReferralCut.reason}`
     })
     if (notifErr) {
       req.log?.error({ err: notifErr, orderId }, '[refund] Failed to raise reversal-failure notification')

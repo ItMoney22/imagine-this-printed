@@ -51,8 +51,9 @@ function builder(table: string) {
 }
 
 vi.mock('../lib/supabase.js', () => ({ supabase: { from: (t: string) => builder(t) } }))
-vi.mock('../middleware/supabaseAuth.js', () => ({ requireAuth: (_q: any, _s: any, n: any) => n() }))
-vi.mock('../lib/role-cache.js', () => ({ getCachedRole: async () => null }))
+vi.mock('../middleware/supabaseAuth.js', () => ({ requireAuth: (q: any, _s: any, n: any) => { q.user = { sub: 'user-1', email: 'someone@example.com' }; n() } }))
+let role: string | null = null
+vi.mock('../lib/role-cache.js', () => ({ getCachedRole: async () => role }))
 vi.mock('../services/google-cloud-storage.js', () => ({ uploadImageFromBuffer: async () => ({ publicUrl: '', path: '' }) }))
 vi.mock('../services/print-files.js', () => ({ getPrintFileRefsFor: async () => ({}) }))
 
@@ -87,6 +88,7 @@ beforeEach(() => {
   transfers = 'active'
   sessions.length = 0
   writes.length = 0
+  role = null
   tables = {
     vendor_storefronts: [store()],
     vendor_store_items: [
@@ -156,5 +158,30 @@ describe('vendor store checkout', () => {
     tables.products = [{ id: CANDLE, status: 'draft', is_active: true }]
     expect((await buy([{ itemId: 'candle', quantity: 1 }])).status).toBe(400)
     expect(sessions).toHaveLength(0)
+  })
+})
+
+// Her own link (task 1a699ba8): the manager page gets the link, and only an ITP admin sets her cut.
+describe('store manager: her link', () => {
+  const manage = (init?: RequestInit) => fetch(`${base}/api/vendor-store/manage/crystal`, { headers: { 'Content-Type': 'application/json' }, ...init })
+
+  it('hands her the site link with her store code; the cut waits until it is set', async () => {
+    role = 'admin'
+    tables.vendor_storefronts = [store({ referral_code: 'CRYSTAL', referral_percent: null })]
+    const body = await (await manage()).json()
+    expect(body.referral).toEqual({ code: 'CRYSTAL', link: expect.stringMatching(/\/\?ref=CRYSTAL$/), percent: null, orders: [] })
+  })
+
+  it('lets an ITP admin set her cut, and not the seller', async () => {
+    role = 'admin'
+    const res = await manage({ method: 'PATCH', body: JSON.stringify({ referralPercent: 10 }) })
+    expect(res.status).toBe(200)
+    expect(writes.find(w => w.table === 'vendor_storefronts' && w.op === 'update')?.payload).toMatchObject({ referral_percent: 10 })
+
+    writes.length = 0
+    role = 'vendor'
+    tables.vendor_storefronts = [store({ owner_user_id: 'user-1' })]
+    expect((await manage({ method: 'PATCH', body: JSON.stringify({ referralPercent: 50 }) })).status).toBe(400)
+    expect(writes.some(w => w.payload?.referral_percent !== undefined)).toBe(false)
   })
 })

@@ -13,6 +13,7 @@ import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blan
 import { BUNDLE_DEAL, bundleTotalCents, isBundleEligible } from '../../backend/shared/promos'
 import { isYouthSize, isPlusSize, YOUTH_SIZE_DISCOUNT_DOLLARS, plusSizeUpchargeDollars } from '../../backend/shared/catalog-capability'
 import { getLandingUtms } from '../utils/utm'
+import { getPendingReferral } from '../utils/referral-capture'
 import type { ShippingCalculation } from '../utils/shipping-calculator'
 import { getColorName } from '../utils/color-presets'
 import { ProgressNote } from '../components/checkout/ProgressNote'
@@ -610,7 +611,10 @@ const Checkout: React.FC = () => {
           existingOrderId: orderId || undefined,
           // Last-touch landing UTMs captured before React mounted (see
           // src/utils/utm.ts) — null when this visitor has no known campaign.
-          attribution: getLandingUtms()
+          attribution: getLandingUtms(),
+          // The ?ref= link this visitor came through (src/utils/referral-capture.ts):
+          // a store owner's code pays her a cut once this order is paid.
+          referralCode: getPendingReferral()?.code ?? null
         }),
       })
 
