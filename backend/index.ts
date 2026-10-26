@@ -61,6 +61,7 @@ import adminControlPanelRouter from './routes/admin/control-panel.js'
 import adminEmailTemplatesRouter from './routes/admin/email-templates.js'
 import threeDModelsRouter from './routes/3d-models.js'
 import printBridgeRouter from './routes/print-bridge.js'
+import { qrStandRouter, adminQrStandRouter } from './routes/qr-stand.js'
 import vendorAnalyticsRouter from './routes/vendor-analytics.js'
 import storefrontRouter from './routes/storefront.js'
 import vendorStoreRouter from './routes/vendor-store.js'
@@ -312,6 +313,8 @@ app.use('/api/admin/control-panel', adminControlPanelRouter)
 app.use('/api/admin/email-templates', adminEmailTemplatesRouter)
 app.use('/api/3d-models', threeDModelsRouter)
 app.use('/api/print-bridge', printBridgeRouter) // Watchtower print factory bridge (queue + status)
+app.use('/api/qr-stand', qrStandRouter) // QR counter stand: customer logo upload + the Earth builder's lane
+app.use('/api/admin/qr-stands', adminQrStandRouter) // QR counter stand: admin edit, rebuild, send to print
 app.use('/api/storefront', storefrontRouter) // headless checkout for external storefronts (earth019)
 app.use('/api/vendor-store', vendorStoreRouter) // <slug>.imaginethisprinted.com stores, split by destination charge
 app.use('/api/vendor', vendorAnalyticsRouter) // real vendor sales analytics (replaces dashboard mock)

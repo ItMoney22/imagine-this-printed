@@ -27,7 +27,7 @@ import { randomUUID } from 'crypto'
 
 const router = Router()
 
-function requireBridgeAuth(req: Request, res: Response, next: NextFunction): void {
+export function requireBridgeAuth(req: Request, res: Response, next: NextFunction): void {
   const token = process.env.PRINT_BRIDGE_TOKEN
   if (!token) {
     res.status(500).json({ error: 'PRINT_BRIDGE_TOKEN not configured' })

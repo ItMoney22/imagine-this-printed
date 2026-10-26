@@ -5,6 +5,8 @@ import { useToast } from '../hooks/useToast'
 import { apiFetch } from '../lib/api'
 import { wasEverPaid as paymentEverLanded } from '../lib/order-payment-truth'
 import LiveTrackingPanel from '../components/orders/LiveTrackingPanel'
+import AdminStandOrders, { type StandOrderSummary } from '../components/qr-stand/AdminStandOrders'
+import { QR_STAND } from '../../backend/shared/qr-stand'
 import type { Order } from '../types'
 
 // Database order interface
@@ -138,6 +140,8 @@ interface ShippingChoice {
 }
 
 type AdminOrder = Order & {
+  /** orders.id — `id` above is the friendly order number. */
+  orderId?: string
   /** orders.tracking_company — free text ("USPS", "UPS Ground"). */
   trackingCompany?: string | null
   shippingChoice?: ShippingChoice | null
@@ -728,6 +732,29 @@ const OrderManagement: React.FC = () => {
       realOrderCount: real.length
     }
   }, [orders])
+  // QR counter stand orders get their own row and editor above the table
+  // (task deebfdca): change the link, words or logo, rebuild, send to print.
+  const standOrders: StandOrderSummary[] = useMemo(
+    () =>
+      filteredOrders
+        .map((o) => {
+          const lines = (o.fulfilmentLines ?? []).filter((l) => l.name === QR_STAND.name)
+          const snap = ((o.metadata?.items as any[]) ?? []).filter((i) => i?.qr_stand)
+          const quantity = lines.length
+            ? lines.reduce((n, l) => n + l.quantity, 0)
+            : snap.reduce((n, i) => n + (Number(i.quantity) || 1), 0)
+          return {
+            orderId: o.orderId ?? '',
+            orderNumber: o.id,
+            customer: o.shippingAddress?.name?.trim() || '',
+            quantity,
+            paid: paymentEverLanded(o.paymentStatus),
+            createdAt: o.createdAt,
+          }
+        })
+        .filter((s) => s.quantity > 0 && !!s.orderId),
+    [filteredOrders]
+  )
   const unpaidValue = orders
     .filter(isUnpaidDraft)
     .reduce((sum, o) => sum + (o.total || 0), 0)
@@ -905,6 +932,8 @@ const OrderManagement: React.FC = () => {
             ))}
           </nav>
         </div>
+
+        <AdminStandOrders orders={standOrders} />
 
         {/* Loading State */}
         {isLoading && (

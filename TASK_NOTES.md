@@ -1,5 +1,36 @@
 # TASK_NOTES
 
+## Current request (2026-10-18) — ITP custom QR counter stand (task deebfdca, mason-blaze)
+
+David 10/17: a business orders a QR counter stand on ITP with its own link, caption and logo ($25 struck, $17.95),
+the ITP admin can change the link/caption/logo, rebuild the print file and send it to the A1s, and the same
+product is orderable from client sites we build (Darrell's first) through the same ITP order, with his 10%
+in his own earnings. Approved mocks: card fe38ef61 (order page, listing photos, admin edit, Darrell backend).
+
+Decisions:
+- Logo is PRINTED IN (one-colour black silhouette, raised like the code), not a sticker. No logo = blank square.
+- No products row: the stand is a priced line type (`qr-stand`, like `metal-art-custom-*`), price in ONE module
+  (backend/shared/qr-stand.ts), so it goes live exactly when the code ships and never leaks into the catalog early.
+- Link rule = UTF-8 bytes <= 58 (QR v6 at level H in byte mode), same in the page, the server and gen.py.
+- Face colour = a filament change at 6.2 mm (custom_gcode_per_layer.xml), not triangle paint (sliced proof).
+- The Python runs on Earth (tools/qr-stand), claims builds from the backend over the print-bridge token.
+
+### File shortlist (approved scope — 2026-10-18 QR stand)
+- `tools/qr-stand/*` (new: gen.py from E:/memory/watchtower/knowledge/itp-qr-stand + logo, wrapper/, tests, builder)
+- `backend/shared/qr-stand.ts` (+ test, new), `backend/routes/qr-stand.ts` (+ test, new), `backend/index.ts` (mount)
+- `backend/services/order-pricing.ts` (+ test), `backend/routes/stripe.ts` (line metadata + snapshot),
+  `backend/services/order-payment.ts` (queue builds + reseller share on paid), `backend/services/qr-stand-*.ts` (new)
+- `supabase/migrations/20261018*_qr_stand_builds.sql` (new)
+- `src/pages/QrStandOrder.tsx` (new), `src/components/qr-stand/*` (new), `src/lib/qr-stand/*` (new),
+  `src/App.tsx` (route), `src/components/Sidebar.tsx` (Business Products), `src/pages/OrderManagement.tsx` (QR panel),
+  `src/pages/Cart.tsx` / `src/pages/Checkout.tsx` (line display only, if needed), `public/business/*` (listing photos)
+- `package.json` / `package-lock.json` (`qrcode` for the live preview)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-18 (mason-blaze): generator into tools/qr-stand: logo printed in, "use a shorter link" guard, mandatory
+  zxing scan-back, face band at 6.2 mm, 2.1-CLI-safe project. 11/11 unittest incl. a real Bambu CLI slice:
+  loads T0 then T1 at z 6.2, 0 support lines, 2 filaments, 50.8 g / 1 h 43 m (paint version was 6 loads, 52 g).
 ## Current request (2026-10-07) - ITP real social proof (task 36222110, iahhm)
 
 Real Etsy reviews + buyer photos on home and matching product pages, zero invented content.
@@ -5120,6 +5151,8 @@ branch (merged in) because /referrals + src/lib/referral-program.ts live there.
   accounts (qa+referral-*-bdfa6939@imaginethisprinted.com): code REFR9449Q -> friend joined -> referred_by
   set, signup row, repeat = no-op, first-order bonus 50 ITC paid once.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+- 2026-10-18 (mason-blaze): backend: backend/shared/qr-stand.ts (price + link/caption/logo rules), line type priced server-side, checkout gate + order-line qr_stand metadata, qr_stand_builds table + builder/admin routes, paid hook queues builds + posts reseller sale (signed with the storefront key). vitest: shared 15, reseller 8, pricing +2, builds 3, checkout line 3 all pass; backend tsc only the 6 known TS2742.
+- 2026-10-18 (mason-blaze): order page /business/qr-stand (approved mock), Business Products nav, live preview (same layout as gen.py, decodes), cart line shows link/words/logo, admin stand editor on Orders (banner + edit + rebuild + send to print), tools/qr-stand/builder.mjs. Local E2E on live DB with a throwaway order: server priced 2 x 17.95, line holds checked fields + verified reseller, builder ready+scans in ~10 s, admin rebuild to a new link decodes, print hand-off to a stub queue picked the idle printer. Only the newest build may print (found in the walk).
 - 2026-10-07 (dr-dill): scope +1 file with rationale: `backend/routes/stripe.ts` create-payment-intent read
   user_profiles by the NULL user_id column, same root cause as the referral route; proven live (non-admin
   account -> 500 "Failed to fetch user profile" on api.imaginethisprinted.com). Re-keyed on id.
@@ -5164,6 +5197,7 @@ margin, not native lazy only.
 ### File shortlist (approved scope)
 - `backend/services/order-pricing.ts` (+ test), `backend/routes/stripe.ts`, `src/pages/Checkout.tsx`, `src/context/CartContext.test.tsx` (parity test)
 - 2026-10-12 (daisy-carter): Checkout usdTotal now pools BUNDLE_DEAL; server reads eligibility from products.metadata (fetchBundleEligibleIds), ignores body flag. vitest backend+Cart green, tsc 0.
+- 2026-10-18 (mason-blaze): Darrell side (Darrell V2 branch earth/mason-blaze/darrell-qr-stand-reseller), DTC runner branch earth/mason-blaze/qr-stand-project-print. Full cross-site E2E on local servers + live DBs with throwaway rows (all deleted): sale event booked Darrell 10% = $3.59 of $35.90 (source product_sale), his Billing card shows it. Reseller param renamed ?via= (ITP ?ref= is a friend referral code). Builder stops on 404 until shipped; Earth scheduled task 'ITP QR stand builder' every 10 min.
 
 ## Current request (2026-10-18) — ITP share: short /p/ link that opens the product and unfurls with the main mockup (task ebf7dec0, zero-saturn)
 

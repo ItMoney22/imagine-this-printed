@@ -1,0 +1,9 @@
+numpy
+segno
+pillow
+trimesh
+manifold3d
+shapely
+mapbox_earcut
+matplotlib
+zxing-cpp

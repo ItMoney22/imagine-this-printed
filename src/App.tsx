@@ -57,6 +57,7 @@ const FoundersDashboard = lazy(() => import('./pages/FoundersDashboard'))
 const VendorDashboard = lazy(() => import('./pages/VendorDashboard'))
 const ToyLand = lazy(() => import('./pages/ToyLand'))
 const BlankShirts = lazy(() => import('./pages/BlankShirts'))
+const QrStandOrder = lazy(() => import('./pages/QrStandOrder'))
 const Wallet = lazy(() => import('./pages/Wallet'))
 const CRM = lazy(() => import('./pages/CRM'))
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'))
@@ -213,6 +214,7 @@ function App() {
                   {/* PUBLIC — the blank-tee lane (Good / Better / Best / Top Line),
                       David 2026-09-02. Buying goes through the normal cart. */}
                   <Route path="/blanks" element={<BlankShirts />} />
+                  <Route path="/business/qr-stand" element={<QrStandOrder />} />
                   <Route path="/product/:id" element={<ProductPage />} />
                   {/* PUBLIC — the short link Share hands out (imaginethisprinted.com/p/<words>-<id8>). */}
                   <Route path="/p/:code" element={<ProductPage />} />

@@ -9,6 +9,7 @@ import { getColorName } from '../utils/color-presets'
 import { addonsUnitTotal, lineBasePrice, printLocationLabel, sizePriceDelta, formatPriceDelta } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import type { CartItem } from '../types'
+import { QR_FIELD, QR_STAND, isQrStandLineId } from '../../backend/shared/qr-stand'
 
 const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
 
@@ -21,6 +22,15 @@ function sizeUpcharge(item: CartItem): number {
 /** The shopper's own choices on a cart line, in plain words (never a code like front_image). */
 function choiceChips(item: CartItem): string[] {
   const chips: string[] = []
+  // A QR counter stand says what the stand will say. Its other fields (the logo's
+  // storage path, a reseller site's ref) are for the order, never this screen.
+  if (isQrStandLineId(item.product.id)) {
+    const p = item.personalization ?? {}
+    if (p[QR_FIELD.link]) chips.push(`Opens ${p[QR_FIELD.link]}`)
+    if (p[QR_FIELD.caption]) chips.push(p[QR_FIELD.caption])
+    chips.push(p[QR_FIELD.logoPath] ? 'Your logo in the middle' : 'No logo')
+    return chips
+  }
   if (item.selectedSize) {
     const plus = sizeUpcharge(item)
     chips.push(plus > 0 ? `${item.selectedSize} (${formatPriceDelta(plus)})` : item.selectedSize)
@@ -94,7 +104,7 @@ const Cart: React.FC = () => {
               const line = (unit + sizeUpcharge(item) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity
               return (
                 <li key={item.id} className="bg-card rounded-2xl border border-border shadow-soft p-3 sm:p-4 flex gap-3 sm:gap-5">
-                  <Link to={`/product/${item.product.slug || item.product.id}`} className="shrink-0">
+                  <Link to={isQrStandLineId(item.product.id) ? QR_STAND.path : `/product/${item.product.slug || item.product.id}`} className="shrink-0">
                     <img
                       src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || FALLBACK}
                       alt={item.product.name}
@@ -107,7 +117,7 @@ const Cart: React.FC = () => {
 
                   <div className="flex-1 min-w-0 flex flex-col">
                     <div className="flex items-start justify-between gap-3">
-                      <Link to={`/product/${item.product.slug || item.product.id}`} className="font-display text-lg sm:text-xl text-text leading-snug hover:text-primary">
+                      <Link to={isQrStandLineId(item.product.id) ? QR_STAND.path : `/product/${item.product.slug || item.product.id}`} className="font-display text-lg sm:text-xl text-text leading-snug hover:text-primary">
                         {item.product.name}
                       </Link>
                       <p className="font-semibold text-text whitespace-nowrap">${line.toFixed(2)}</p>
