@@ -3,8 +3,8 @@
 // through ITP's Stripe; the seller is paid by destination charge (backend/routes/vendor-store.ts).
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
-import { CandlestickChart, CupSoda, Gift, Instagram, Lock, MessageCircle, Minus, Plus, ShieldCheck, Shirt, ShoppingCart, Sparkles, Trash2, Truck, X, Flame } from 'lucide-react'
-import { fetchStore, money, startCheckout, useStoreCart, type CartLine, type StoreInfo, type StoreItem } from '../../lib/vendor-store'
+import { CandlestickChart, CupSoda, Gift, Instagram, Lock, MessageCircle, Minus, Plus, ShieldCheck, Shirt, ShoppingCart, Sparkles, TicketPercent, Trash2, Truck, X, Flame } from 'lucide-react'
+import { applyCode, fetchStore, money, startCheckout, useStoreCart, type AppliedCode, type CartLine, type StoreInfo, type StoreItem } from '../../lib/vendor-store'
 import StoreStandFields, { type StandChoice } from './StoreStandFields'
 import './store.css'
 
@@ -52,9 +52,13 @@ export default function StorePage({ slug: slugProp }: { slug?: string }) {
     return () => { document.title = prevTitle; if (icon && prevIcon) icon.href = prevIcon }
   }, [store])
 
-  // Back from a paid Stripe checkout: empty the cart once.
+  // Back from a paid Stripe checkout: empty the cart (and drop the code it used) once.
   const clearCart = cart.clear
-  useEffect(() => { if (thanks) clearCart() }, [thanks, clearCart])
+  useEffect(() => {
+    if (!thanks) return
+    clearCart()
+    try { sessionStorage.removeItem(`vstore-code:${slug}`) } catch { /* no storage */ }
+  }, [thanks, clearCart, slug])
 
   const chips = useMemo(() => CHIPS.filter(c => items.some(i => chipOf(i) === c.key)), [items])
   const shown = chip ? items.filter(i => chipOf(i) === chip) : items
@@ -356,15 +360,68 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  // Her discount code: typed, then applied (the server says what it takes off this cart).
+  const [codeOpen, setCodeOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [applied, setApplied] = useState<AppliedCode | null>(null)
+  const [codeError, setCodeError] = useState('')
+  const [checking, setChecking] = useState(false)
   // A line whose item came off the store since it was added is dropped from the total and the checkout.
   const lines = cart.lines.map((l, index) => ({ ...l, index, item: byId.get(l.itemId) })).filter(l => l.item)
   const subtotal = lines.reduce((n, l) => n + l.item!.priceCents * l.quantity, 0)
+  const cartLines = useMemo(
+    () => lines.map(({ itemId, quantity, size, color, personalization }) => ({ itemId, quantity, size, color, personalization })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [JSON.stringify(cart.lines), byId]
+  )
+
+  // The applied code stays with this visit when the cart closes and opens again.
+  const codeKey = `vstore-code:${slug}`
+  const remember = (code: string | null) => {
+    try {
+      if (code) sessionStorage.setItem(codeKey, code)
+      else sessionStorage.removeItem(codeKey)
+    } catch {
+      /* private mode: the code still works until the cart closes */
+    }
+  }
+  const apply = async (code: string) => {
+    if (!code.trim() || !cartLines.length) return
+    setChecking(true)
+    setCodeError('')
+    try {
+      const a = await applyCode(slug, cartLines, code)
+      setApplied(a)
+      remember(a.code)
+    } catch (e: any) {
+      setApplied(null)
+      setTyped(code)
+      setCodeOpen(true)
+      setCodeError(e.message)
+      remember(null)
+    } finally {
+      setChecking(false)
+    }
+  }
+  const removeCode = () => { setApplied(null); setTyped(''); remember(null) }
+  // The discount depends on the cart, so a changed cart (or a reopened one) asks again: a smaller cart can make a
+  // code too big for it.
+  const appliedCode = applied?.code
+  useEffect(() => {
+    // An empty cart has nothing to take off; the code is remembered and comes back with the next item.
+    if (!cartLines.length) return setApplied(null)
+    let saved: string | null = null
+    try { saved = sessionStorage.getItem(codeKey) } catch { /* no storage */ }
+    const code = appliedCode || saved
+    if (code && cartLines.length) void apply(code)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cartLines])
 
   const checkout = async () => {
     setBusy(true)
     setError('')
     try {
-      window.location.href = await startCheckout(slug, lines.map(({ itemId, quantity, size, color, personalization }) => ({ itemId, quantity, size, color, personalization })))
+      window.location.href = await startCheckout(slug, cartLines, applied?.code)
     } catch (e: any) {
       setError(e.message)
       setBusy(false)
@@ -400,7 +457,34 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
           ))}
         </div>
         <div className="border-t border-[var(--vs-line)] p-5 flex flex-col gap-3">
-          <div className="flex justify-between font-semibold text-lg"><span>Subtotal</span><span>{money(subtotal)}</span></div>
+          {lines.length > 0 && (applied ? (
+            <div className="flex items-center gap-2 text-sm">
+              <TicketPercent className="w-4 h-4 text-[var(--vs-green)]" />
+              <span className="font-mono font-semibold tracking-wider">{applied.code}</span>
+              <span className="text-[var(--vs-muted)]">{applied.label}</span>
+              <button className="text-[var(--vs-muted)] underline text-xs" onClick={removeCode} aria-label="Remove code">Remove</button>
+              <span className="ml-auto font-semibold text-[var(--vs-green)]">−{money(applied.discountCents)}</span>
+            </div>
+          ) : codeOpen ? (
+            <div>
+              <div className="flex gap-2">
+                <input className="flex-1 min-w-0 rounded-xl border border-[var(--vs-line)] px-3 h-11 outline-none focus:border-[var(--vs-primary)] font-mono uppercase tracking-wider"
+                  placeholder="Discount code" aria-label="Discount code" value={typed} autoFocus
+                  onChange={e => { setTyped(e.target.value.toUpperCase()); setCodeError('') }} onKeyDown={e => e.key === 'Enter' && apply(typed)} />
+                <button disabled={!typed.trim() || checking} onClick={() => apply(typed)} className="vs-btn-solid rounded-xl px-5 h-11 font-semibold disabled:opacity-50">
+                  {checking ? 'Checking…' : 'Apply'}
+                </button>
+              </div>
+              {codeError && <p className="text-sm text-red-600 mt-2">{codeError}</p>}
+            </div>
+          ) : (
+            <button className="self-start flex items-center gap-2 text-sm font-medium text-[var(--vs-primary)]" onClick={() => setCodeOpen(true)}>
+              <TicketPercent className="w-4 h-4" /> Have a discount code?
+            </button>
+          ))}
+          <div className="flex justify-between font-semibold text-lg"><span>Subtotal</span>
+            <span>{applied ? <><s className="text-[var(--vs-muted)] font-normal text-base mr-2">{money(subtotal)}</s>{money(subtotal - applied.discountCents)}</> : money(subtotal)}</span>
+          </div>
           <p className="text-xs text-[var(--vs-muted)]">Shipping is added at checkout. 2XL and up on Imagine This Printed shirts cost a little more.</p>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button

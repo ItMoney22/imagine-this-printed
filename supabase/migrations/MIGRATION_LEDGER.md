@@ -7,6 +7,17 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-10-26 — store discount codes: `vendor_store_discount_codes` APPLIED + TRACKED (Dr. Dill, Watchtower `b72f83b5`)
+
+- `20261026220000_vendor_store_discount_codes.sql` — **APPLIED LIVE** 2026-10-26 16:18Z, dry-run in a rolled-back
+  transaction first, then one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`.
+  Creates the empty table (storefront_id FK ON DELETE CASCADE, code upper-case CHECK `^[A-Z0-9][A-Z0-9_-]{2,23}$`,
+  kind percent|amount, amount > 0 and <= 100 for percent, ends_on date, active, UNIQUE (storefront_id, code)).
+  RLS on with no policies and every grant revoked from anon/authenticated. Verified live: anon REST read and insert
+  both 401, service role 200 (empty); the CHECKs refused a lower-case code and 101 percent inside the dry run.
+  Rollback = `drop table public.vendor_store_discount_codes;` (no other table references it; checkout orders keep
+  the code they used in `orders.metadata.vendor_store.discount`).
+
 ## 2026-10-26 — store inbox: `vendor_storefronts.inbox_mailbox_id` + crystal@ mailbox APPLIED + TRACKED (Dr. Dill, Watchtower `f4a337b0`)
 
 - `20261026210000_vendor_store_inbox.sql` — **APPLIED LIVE** 2026-10-26 15:43Z, dry-run in a rolled-back

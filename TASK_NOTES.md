@@ -36,6 +36,37 @@ Decisions:
   admin + ?view=seller) at 1400 and 390: card, Copy -> Copied, nav "My link", admin "Her link's cut". Fixed at 390:
   link shown without https:// + smaller on phone, Copy no longer wraps, StoreDesign title no longer one word a line.
   Stripe TEST-mode transfer proof waits on KEY 8144ed23; percent waits on APPROVE 0d6f0cdd.
+## Current request (2026-10-26) — Crystal's store: discount codes that cut only her share (task b72f83b5, dr-dill)
+
+David 10/26: "she should be able to give a discount to her peeps but whatever she does cuts at her own cost." Codes in
+her store manager (percent or dollars off, optional end date, on/off); buyers enter one at her store's checkout; ITP's
+share (our price to her on ITP items, our percent on her own items, our shipping) is computed on full prices and never
+moves; a code that would take the total under ITP's share is refused. Built on Sal's superset f0da3ee (store + inbox +
+assistant, SHIP eaaf34b1).
+
+Decisions:
+- One code per order, whole cart, off the ITEMS before the split (buyer-visible), never off shipping. ITP's share is
+  worked out first on full prices; the discount only comes off what she keeps.
+- Stripe: a one-off amount_off coupon (max 1 redemption) for exactly the split's discount, so Stripe charges the split
+  total to the cent and shows the code as its own line; application_fee_amount is the unchanged itpShareCents.
+- Her code is NOT written to orders.discount_codes (the paid-order step records redemptions against ITP's own coupons
+  table by that code, and her names could clash with ours): it lives in orders.metadata.vendor_store.discount.
+- End date = the last day a code works, in Eastern time (ITP's day).
+
+### File shortlist (approved scope — 2026-10-26 store discount codes)
+- `backend/lib/vendor-store-split.ts` (+ test), `backend/lib/vendor-store-discount-codes.ts` (new)
+- `backend/routes/vendor-store.ts` (cart reader shared by checkout + the cart's Apply, code at checkout, mount)
+- `backend/routes/vendor-store-discounts.ts` (new) + `backend/routes/vendor-store-discounts.test.ts` (new)
+- `supabase/migrations/20261026220000_vendor_store_discount_codes.sql` (new) + `MIGRATION_LEDGER.md`
+- `src/pages/store/StoreDiscounts.tsx` (new), `src/pages/store/StoreManager.tsx`, `src/pages/store/StorePage.tsx`,
+  `src/lib/vendor-store.ts`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (dr-dill): split takes an optional code (DiscountTooDeepError when it would need ITP money), code rules
+  lib, manage router (list/create/edit/on-off), cart Apply endpoint + checkout code + one-off Stripe coupon. Table
+  applied live (anon 401). Split tests 12 incl. 2,000 generated carts x 7 codes (ITP side byte-identical); route
+  tests 6; three deliberate breaks of the rule each turned tests red. Real Stripe (live key, no money, sessions
+  expired, coupons deleted): amount_total = split total to the cent with and without a code, shipping untouched.
 
 ## Current request (2026-10-26) — Crystal's store assistant: memory, her face, picture review, Make it a product (task 44f16c24, sal-moretti)
 
