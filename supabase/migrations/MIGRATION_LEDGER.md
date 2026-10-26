@@ -7,6 +7,16 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-10-26 — store referral link: `vendor_storefronts.referral_code` + `referral_percent` APPLIED, NOT TRACKED (Zero Pluto, Watchtower `1a699ba8`; renamed by Zero Nine, `963903af`)
+
+- `20261026211000_vendor_store_referral.sql` — **APPLIED LIVE** 2026-10-26 by Zero Pluto. It was committed as
+  `20261026210000_vendor_store_referral.sql`, the same version as `20261026210000_vendor_store_inbox.sql`, so
+  Zero Nine renamed it to `20261026211000` before it shipped; the SQL is unchanged. Verified live 2026-10-26 16:25Z
+  by SELECT: both columns, `vendor_storefronts_referral_code_check`, `vendor_storefronts_referral_percent_check`,
+  `idx_vendor_storefronts_referral_code`, `idx_orders_store_referral`, and slug `crystal` = code `CRYSTAL`, percent
+  NULL. No row in `supabase_migrations.schema_migrations` (version `20261026210000` there is the inbox); every
+  statement is `if not exists` / null-guarded, so a later `db push` that runs it again changes nothing.
+
 ## 2026-10-26 — store discount codes: `vendor_store_discount_codes` APPLIED + TRACKED (Dr. Dill, Watchtower `b72f83b5`)
 
 - `20261026220000_vendor_store_discount_codes.sql` — **APPLIED LIVE** 2026-10-26 16:18Z, dry-run in a rolled-back

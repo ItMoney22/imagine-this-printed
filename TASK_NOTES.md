@@ -16,7 +16,7 @@ Decisions:
   percent is set or her payouts go live. A full refund reverses a paid cut / cancels a waiting one.
 
 ### File shortlist (approved scope — 2026-10-26 Crystal referral)
-- `supabase/migrations/20261026210000_vendor_store_referral.sql` (new; APPLIED to ITP prod + ledger row)
+- `supabase/migrations/20261026211000_vendor_store_referral.sql` (new; APPLIED to ITP prod; renamed from 20261026210000 by zero-nine 10/26, which the inbox migration already used)
 - `backend/services/store-referral.ts` (+ test, new)
 - `backend/routes/stripe.ts` (checkout stamp + reversal alert line), `backend/routes/wallet.ts` (apply: store code kept)
 - `backend/routes/vendor-store.ts` (+ test: manage GET referral, admin PATCH referralPercent, settle)
@@ -36,6 +36,10 @@ Decisions:
   admin + ?view=seller) at 1400 and 390: card, Copy -> Copied, nav "My link", admin "Her link's cut". Fixed at 390:
   link shown without https:// + smaller on phone, Copy no longer wraps, StoreDesign title no longer one word a line.
   Stripe TEST-mode transfer proof waits on KEY 8144ed23; percent waits on APPROVE 0d6f0cdd.
+- 2026-10-26 (zero-nine, SHIP 963903af): the 10/26 ITP slot went to f0da3eed (main 2af93f65), so the 10/27 batch is
+  main + 580c4f3 + Dr Dill's discount codes f9d8117 (SHIP a7a8eba8) on one branch; StoreManager imports + TASK_NOTES
+  unioned; referral migration renamed 20261026210000 -> 20261026211000 (the inbox owns 210000) with its ledger row.
+
 ## Current request (2026-10-26) — Crystal's store: discount codes that cut only her share (task b72f83b5, dr-dill)
 
 David 10/26: "she should be able to give a discount to her peeps but whatever she does cuts at her own cost." Codes in
