@@ -245,7 +245,7 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
           <div className="flex items-start gap-2">
             {faceIcon(32)}
             <div className="rounded-2xl rounded-tl-md bg-[var(--vs-page)] p-4 text-sm">
-              Hi {ownerFirst}!{assistantName ? ` I’m ${assistantName}, your store assistant.` : ''} Ask me anything about your store, or tap the mic and just talk. I write descriptions and Instagram captions and tell you how your sales are doing. Attach a picture of a design with the paperclip and I’ll tell you how it will print, and help you make it a product.
+              {assistantName ? `¡Hola ${ownerFirst}! Soy ${assistantName}, your store assistant.` : `Hi ${ownerFirst}!`} Ask me anything about your store, or tap the mic and just talk. I write descriptions and Instagram captions and tell you how your sales are doing. Attach a picture of a design with the paperclip and I’ll tell you how it will print, and help you make it a product.
             </div>
           </div>
         )}

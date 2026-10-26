@@ -10,6 +10,7 @@ import { getSignedUrl, uploadImageFromBuffer } from '../services/google-cloud-st
 import { getPrintFileRefsFor } from '../services/print-files.js'
 import { plusSizeUpchargeCents } from '../shared/catalog-capability.js'
 import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
+import { pickMemories, type MemoryFact } from '../services/store-assistant-memory.js'
 import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../services/store-assistant.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
@@ -682,7 +683,8 @@ router.use('/manage/:slug/inbox', requireAuth, requireStoreManager, storeInboxRo
 // (vendor_store_assistant_memory) goes back into every turn. Answers { heard, reply, makeProduct, imageUrl, messages }:
 // `messages` are her turn and the reply as saved. The page asks /assistant/speak to read the reply out.
 const HISTORY_TURNS = 16
-const MEMORY_FACTS = 30
+// Everything she has had it keep (a few hundred short facts at most); pickMemories chooses which ones ride along.
+const MEMORY_FACTS = 300
 type MessageRow = { id: string; role: 'user' | 'assistant'; text: string; image_url: string | null; created_at: string }
 // An assistant row's image_url is the design that reply offers to make into a product (her Make it a product button).
 const publicMessage = (m: MessageRow) => ({
@@ -778,18 +780,22 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
         .limit(HISTORY_TURNS),
       supabase
         .from('vendor_store_assistant_memory')
-        .select('fact')
+        .select('fact, created_at')
         .eq('storefront_id', store.id)
         .order('created_at', { ascending: false })
         .limit(MEMORY_FACTS)
     ])
-    const memories = ((memory || []) as Array<{ fact: string }>).map(m => m.fact)
     const turns = chatTurns((past || []) as MessageRow[])
     if (text) {
       const last = turns[turns.length - 1]
       if (last?.role === 'user') last.text += `\n${text}`
       else turns.push({ role: 'user', text })
     }
+    // Only the facts that fit what she is saying now (plus the newest few) ride along; the rest stay on the shelf.
+    const memories = pickMemories(
+      (memory || []) as MemoryFact[],
+      turns.filter(t => t.role === 'user').slice(-3).map(t => t.text).join(' ')
+    )
 
     const savePicture = async (): Promise<string | null> => {
       if (!picture) return null
@@ -808,7 +814,7 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
         {
           storeName: store.name,
           ownerFirst: String((store.theme as any)?.ownerFirst || store.name.split(/[’']/)[0]),
-          assistantName: (store.theme as any)?.assistantName || undefined,
+          assistantName: (store.theme as any)?.assistantName || 'Rico',
           status: store.status,
           payoutsReady: payouts.ready,
           feePercent: Number(store.fee_percent),

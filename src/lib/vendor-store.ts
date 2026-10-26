@@ -13,7 +13,7 @@ export type StoreTheme = {
   /** Her store assistant's face (defaults to /stores/<slug>/assistant.webp). */
   assistant?: string
   ownerFirst?: string
-  /** Her store assistant's first name (Crystal's is Opal). */
+  /** Her store assistant's first name (Crystal's is Rico). */
   assistantName?: string
   about?: string
 }
