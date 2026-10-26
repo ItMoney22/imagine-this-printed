@@ -9,7 +9,9 @@ import { getCachedRole, invalidateCachedRole } from '../lib/role-cache.js'
 import { getSignedUrl, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { getPrintFileRefsFor } from '../services/print-files.js'
 import { plusSizeUpchargeCents } from '../shared/catalog-capability.js'
-import { splitOrder, type SplitLine } from '../lib/vendor-store-split.js'
+import { splitOrder, DiscountTooDeepError, type SplitLine, type OrderSplit } from '../lib/vendor-store-split.js'
+import { codeLabel, codeRefusal, normalizeCode, type DiscountCodeRow } from '../lib/vendor-store-discount-codes.js'
+import storeDiscountsRouter from './vendor-store-discounts.js'
 import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../services/store-assistant.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
@@ -23,7 +25,8 @@ import storeInboxRouter, { syncInboxOwner } from './vendor-store-inbox.js'
 // the { orderId, orderNumber } metadata, like routes/storefront.ts.
 //
 //   GET  /api/vendor-store/:slug                 public store + live items
-//   POST /api/vendor-store/:slug/checkout         Stripe Checkout URL
+//   POST /api/vendor-store/:slug/discount         what her code takes off this cart (the cart's Apply)
+//   POST /api/vendor-store/:slug/checkout         Stripe Checkout URL (with her code, if the buyer has one)
 //   /api/vendor-store/manage/...                  the seller (owner) and ITP admins
 const router = Router()
 
@@ -230,6 +233,116 @@ router.get('/:slug', async (req: Request, res: Response): Promise<any> => {
   })
 })
 
+type CartLine = SplitLine & { item: ItemRow; size?: string; color?: string; stand?: QrStandFields }
+
+/**
+ * The buyer's cart read against the store's own rows (prices come from the rows, never the browser): the lines to
+ * split, or what's wrong in words for the buyer. The checkout and the cart's code check both price the cart here.
+ */
+async function readCart(store: StoreRow, items: any): Promise<{ lines: CartLine[] } | { error: string }> {
+  if (!Array.isArray(items) || items.length === 0) return { error: 'items array required' }
+  if (items.length > 30) return { error: 'Too many items (max 30)' }
+
+  const ids = [...new Set(items.map((i: any) => String(i?.itemId || '')))].filter(Boolean)
+  const { data: rows } = await supabase
+    .from('vendor_store_items')
+    .select('*')
+    .eq('storefront_id', store.id)
+    .eq('active', true)
+    .in('id', ids)
+  const byId = new Map(((rows || []) as ItemRow[]).map(r => [r.id, r]))
+
+  // An ITP product must still be sellable on ITP itself.
+  const productIds = [...new Set(((rows || []) as ItemRow[]).map(r => r.product_id).filter(Boolean))] as string[]
+  const liveProducts = new Set<string>()
+  if (productIds.length) {
+    const { data: prods } = await supabase.from('products').select('id, status, is_active').in('id', productIds)
+    for (const p of prods || []) if ((p as any).status === 'active' && (p as any).is_active !== false) liveProducts.add((p as any).id)
+  }
+
+  const lines: CartLine[] = []
+  for (const raw of items) {
+    const item = byId.get(String(raw?.itemId))
+    if (!item) return { error: 'An item in the cart is no longer for sale' }
+    if (item.product_id && !liveProducts.has(item.product_id)) return { error: `${item.name} is no longer for sale` }
+    const quantity = Math.max(1, Math.min(20, parseInt(raw?.quantity, 10) || 1))
+    const size = typeof raw?.size === 'string' && item.sizes?.includes(raw.size) ? raw.size : undefined
+    const color = typeof raw?.color === 'string' && item.colors?.includes(raw.color) ? raw.color : undefined
+    if (item.sizes?.length && !size) return { error: `Pick a size for ${item.name}` }
+    // A QR stand carries the buyer's link, words and logo, checked by the same rules as ITP's own stand page.
+    let stand: QrStandFields | undefined
+    if (isQrStand(item)) {
+      const { fields, problem } = readQrStandFields(raw?.personalization)
+      if (problem) return { error: `${item.name}: ${problem}` }
+      stand = fields
+    }
+    // A bigger ITP shirt costs ITP more, so the upcharge rides both the price and ITP's cost.
+    const up = item.product_id ? plusSizeUpchargeCents(size) : 0
+    lines.push({
+      kind: isItp(item) ? 'itp' : 'own',
+      unitCents: item.price_cents + up,
+      itpCostCents: isItp(item) ? item.itp_cost_cents + up : 0,
+      quantity,
+      item,
+      size,
+      color,
+      stand
+    })
+  }
+  return { lines }
+}
+
+/** The code the buyer typed, if any: hers, switched on, not past its last day. null when no code was typed. */
+async function findStoreCode(store: StoreRow, typed: unknown): Promise<{ row: DiscountCodeRow } | { error: string } | null> {
+  const code = normalizeCode(typed)
+  if (!code) return null
+  const { data } = await supabase
+    .from('vendor_store_discount_codes').select('*').eq('storefront_id', store.id).eq('code', code.slice(0, 40)).maybeSingle()
+  const refusal = codeRefusal((data as DiscountCodeRow) || null)
+  return refusal ? { error: refusal } : { row: data as DiscountCodeRow }
+}
+
+/** The order's split with her code. A code that would reach into ITP's share is refused, in words for the buyer. */
+function splitWithCode(store: StoreRow, lines: CartLine[], code: DiscountCodeRow | null): { split: OrderSplit } | { error: string } {
+  try {
+    return {
+      split: splitOrder(lines, {
+        feePercent: Number(store.fee_percent),
+        ownShippingCents: store.own_shipping_cents,
+        itpShippingCents: store.itp_shipping_cents
+      }, code)
+    }
+  } catch (e) {
+    if (e instanceof DiscountTooDeepError) return { error: `${code!.code} takes off more than this order allows, so it can’t be used here. You can still check out without it.` }
+    throw e
+  }
+}
+
+// The cart's Apply: what her code takes off this cart, worked out exactly the way the checkout will, so the buyer sees
+// it before Stripe. Nothing is saved; the checkout checks the code again itself.
+router.post('/:slug/discount', async (req: Request, res: Response): Promise<any> => {
+  try {
+    const store = await loadStore(req.params.slug)
+    if (!store || store.status === 'paused') return res.status(404).json({ error: 'Store not found' })
+    const found = await findStoreCode(store, req.body?.code)
+    if (!found) return res.status(400).json({ error: 'Type a code first.' })
+    if ('error' in found) return res.status(400).json({ error: found.error })
+    const cart = await readCart(store, req.body?.items)
+    if ('error' in cart) return res.status(400).json({ error: cart.error })
+    const priced = splitWithCode(store, cart.lines, found.row)
+    if ('error' in priced) return res.status(400).json({ error: priced.error })
+    return res.json({
+      code: found.row.code,
+      label: codeLabel(found.row),
+      subtotalCents: priced.split.subtotalCents,
+      discountCents: priced.split.discountCents
+    })
+  } catch (error: any) {
+    req.log?.error({ err: error }, 'vendor-store discount check failed')
+    return res.status(500).json({ error: 'The code couldn’t be checked. Try again.' })
+  }
+})
+
 router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any> => {
   try {
     const store = await loadStore(req.params.slug)
@@ -238,66 +351,22 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
     const { ready } = await payoutsReady(store.stripe_account_id)
     if (!ready) return res.status(409).json({ error: 'store_not_open' })
 
-    const { items, email, cancelPath } = req.body || {}
-    if (!Array.isArray(items) || items.length === 0) return res.status(400).json({ error: 'items array required' })
-    if (items.length > 30) return res.status(400).json({ error: 'Too many items (max 30)' })
+    const { email, cancelPath } = req.body || {}
+    const cart = await readCart(store, req.body?.items)
+    if ('error' in cart) return res.status(400).json({ error: cart.error })
+    const { lines } = cart
 
-    const ids = [...new Set(items.map((i: any) => String(i?.itemId || '')))].filter(Boolean)
-    const { data: rows } = await supabase
-      .from('vendor_store_items')
-      .select('*')
-      .eq('storefront_id', store.id)
-      .eq('active', true)
-      .in('id', ids)
-    const byId = new Map(((rows || []) as ItemRow[]).map(r => [r.id, r]))
-
-    // An ITP product must still be sellable on ITP itself.
-    const productIds = [...new Set(((rows || []) as ItemRow[]).map(r => r.product_id).filter(Boolean))] as string[]
-    const liveProducts = new Set<string>()
-    if (productIds.length) {
-      const { data: prods } = await supabase.from('products').select('id, status, is_active').in('id', productIds)
-      for (const p of prods || []) if ((p as any).status === 'active' && (p as any).is_active !== false) liveProducts.add((p as any).id)
-    }
-    const printRefs = productIds.length ? await getPrintFileRefsFor(productIds) : {}
-
-    const lines: Array<SplitLine & { item: ItemRow; size?: string; color?: string; stand?: QrStandFields }> = []
-    for (const raw of items) {
-      const item = byId.get(String(raw?.itemId))
-      if (!item) return res.status(400).json({ error: 'An item in the cart is no longer for sale' })
-      if (item.product_id && !liveProducts.has(item.product_id)) {
-        return res.status(400).json({ error: `${item.name} is no longer for sale` })
-      }
-      const quantity = Math.max(1, Math.min(20, parseInt(raw?.quantity, 10) || 1))
-      const size = typeof raw?.size === 'string' && item.sizes?.includes(raw.size) ? raw.size : undefined
-      const color = typeof raw?.color === 'string' && item.colors?.includes(raw.color) ? raw.color : undefined
-      if (item.sizes?.length && !size) return res.status(400).json({ error: `Pick a size for ${item.name}` })
-      // A QR stand carries the buyer's link, words and logo, checked by the same rules as ITP's own stand page.
-      let stand: QrStandFields | undefined
-      if (isQrStand(item)) {
-        const { fields, problem } = readQrStandFields(raw?.personalization)
-        if (problem) return res.status(400).json({ error: `${item.name}: ${problem}` })
-        stand = fields
-      }
-      // A bigger ITP shirt costs ITP more, so the upcharge rides both the price and ITP's cost.
-      const up = item.product_id ? plusSizeUpchargeCents(size) : 0
-      lines.push({
-        kind: isItp(item) ? 'itp' : 'own',
-        unitCents: item.price_cents + up,
-        itpCostCents: isItp(item) ? item.itp_cost_cents + up : 0,
-        quantity,
-        item,
-        size,
-        color,
-        stand
-      })
-    }
-
-    const split = splitOrder(lines, {
-      feePercent: Number(store.fee_percent),
-      ownShippingCents: store.own_shipping_cents,
-      itpShippingCents: store.itp_shipping_cents
-    })
+    // Her discount code, when the buyer has one. A refused code stops here: no order, no Stripe session.
+    const found = await findStoreCode(store, req.body?.code)
+    if (found && 'error' in found) return res.status(400).json({ error: found.error })
+    const code = found?.row ?? null
+    const priced = splitWithCode(store, lines, code)
+    if ('error' in priced) return res.status(400).json({ error: priced.error })
+    const { split } = priced
     if (split.totalCents < 50) return res.status(400).json({ error: 'Order total below Stripe minimum ($0.50)' })
+
+    const productIds = [...new Set(lines.map(l => l.item.product_id).filter(Boolean))] as string[]
+    const printRefs = productIds.length ? await getPrintFileRefsFor(productIds) : {}
 
     const source = sourceOf(store.slug)
     const orderNumber = `ITP-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`
@@ -308,8 +377,23 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
       name: store.name,
       stripe_account_id: store.stripe_account_id,
       fee_percent: Number(store.fee_percent),
-      split
+      split,
+      discount: code ? { id: code.id, code: code.code, kind: code.kind, amount: code.amount } : null
     }
+
+    // Her code shows on Stripe's page as its own line: a one-off coupon for exactly the discount worked out above, so
+    // Stripe charges split.totalCents to the cent. Coupons come off the items, never shipping, same as the split.
+    // ITP's fee (application_fee_amount below) is the same number with or without it.
+    const coupon = code && split.discountCents > 0
+      ? await stripe.coupons.create({
+        amount_off: split.discountCents,
+        currency: 'usd',
+        duration: 'once',
+        max_redemptions: 1,
+        name: code.code,
+        metadata: { vendorStore: store.slug, discountCodeId: code.id, orderNumber }
+      })
+      : null
 
     const { data: order, error: orderError } = await supabase
       .from('orders')
@@ -320,7 +404,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
         subtotal: split.subtotalCents / 100,
         tax_amount: 0,
         shipping_amount: split.shippingCents / 100,
-        discount_amount: 0,
+        discount_amount: split.discountCents / 100,
         total: split.totalCents / 100,
         currency: 'USD',
         status: 'pending',
@@ -328,6 +412,8 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
         fulfillment_status: 'unfulfilled',
         payment_method: 'stripe',
         shipping_address: {},
+        // ITP's own coupons only: the paid-order step records a redemption against ITP's coupons table by this
+        // code, so her code (which may share a name with one of ours) lives in metadata.vendor_store.discount.
         discount_codes: [],
         source,
         metadata: {
@@ -396,6 +482,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
         }
       })),
       ...(buyerEmail ? { customer_email: buyerEmail } : {}),
+      ...(coupon ? { discounts: [{ coupon: coupon.id }] } : {}),
       success_url: `${origin}${origin.includes('/store/') ? '' : '/'}?thanks=${encodeURIComponent(orderNumber)}`,
       cancel_url: cancel,
       shipping_options: [{
@@ -421,7 +508,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
       .update({ metadata: { ...order.metadata, stripe_session_id: session.id } })
       .eq('id', order.id)
 
-    req.log?.info({ orderId: order.id, orderNumber, source, split, sessionId: session.id }, 'vendor-store checkout session created')
+    req.log?.info({ orderId: order.id, orderNumber, source, split, code: code?.code ?? null, sessionId: session.id }, 'vendor-store checkout session created')
     return res.json({ url: session.url, orderNumber })
   } catch (error: any) {
     req.log?.error({ err: error }, 'vendor-store checkout failed')
@@ -675,6 +762,9 @@ router.delete('/manage/:slug/items/:id', requireAuth, requireStoreManager, async
 
 // Her store inbox (her own address on our domain, Jev's junk kept out): the owner and ITP admins only.
 router.use('/manage/:slug/inbox', requireAuth, requireStoreManager, storeInboxRouter)
+
+// Her discount codes (routes/vendor-store-discounts.ts): the owner and ITP admins.
+router.use('/manage/:slug/discounts', requireAuth, requireStoreManager, storeDiscountsRouter)
 
 // Her store assistant. One turn: what she typed (`text`), a voice note (multipart `audio`) and/or a picture of a design
 // (multipart `image`). The chat itself lives in vendor_store_assistant_messages, so it follows her to any device and the

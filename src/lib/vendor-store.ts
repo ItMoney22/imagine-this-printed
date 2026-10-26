@@ -43,15 +43,29 @@ export async function fetchStore(slug: string): Promise<{ store: StoreInfo; item
   return res.json()
 }
 
-export async function startCheckout(slug: string, lines: CartLine[]): Promise<string> {
+export async function startCheckout(slug: string, lines: CartLine[], code?: string): Promise<string> {
   const res = await fetch(`${API_BASE}/api/vendor-store/${encodeURIComponent(slug)}/checkout`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ items: lines, cancelPath: storeHome(slug) === '/' ? '/' : undefined })
+    body: JSON.stringify({ items: lines, code: code || undefined, cancelPath: storeHome(slug) === '/' ? '/' : undefined })
   })
   const body = await res.json().catch(() => ({}))
   if (!res.ok || !body.url) throw new Error(body.error === 'store_not_open' ? 'Checkout opens soon.' : body.error || 'Checkout failed')
   return body.url
+}
+
+/** Her discount code applied to this cart: what it takes off, worked out by the server the way checkout will. */
+export type AppliedCode = { code: string; label: string; subtotalCents: number; discountCents: number }
+
+export async function applyCode(slug: string, lines: CartLine[], code: string): Promise<AppliedCode> {
+  const res = await fetch(`${API_BASE}/api/vendor-store/${encodeURIComponent(slug)}/discount`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items: lines, code })
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error || 'That code couldn’t be checked')
+  return body
 }
 
 /** The cart lives in this browser, per store (a subdomain has its own storage anyway). */
@@ -141,6 +155,12 @@ export const vendorStoreApi = {
   reply: (slug: string, id: string, text: string): Promise<{ ok: true; reply: InboxReply }> =>
     apiFetch(manage(slug, `/inbox/${id}/reply`), { method: 'POST', body: JSON.stringify({ text }) }),
   setJunk: (slug: string, id: string, junk: boolean) => apiFetch(manage(slug, `/inbox/${id}`), { method: 'PATCH', body: JSON.stringify({ junk }) }),
+  /** Her discount codes (backend/routes/vendor-store-discounts.ts). amount: whole percent, or cents for dollars off. */
+  discounts: (slug: string): Promise<{ codes: DiscountCode[]; today: string }> => apiFetch(manage(slug, '/discounts')),
+  addDiscount: (slug: string, code: DiscountCodeInput): Promise<{ code: DiscountCode }> =>
+    apiFetch(manage(slug, '/discounts'), { method: 'POST', body: JSON.stringify(code) }),
+  saveDiscount: (slug: string, id: string, patch: Partial<DiscountCodeInput>): Promise<{ code: DiscountCode }> =>
+    apiFetch(manage(slug, `/discounts/${id}`), { method: 'PATCH', body: JSON.stringify(patch) }),
   /** Multipart: apiFetch forces JSON, so this one sets only the token. */
   addItem: (slug: string, form: FormData): Promise<{ item: StoreItem }> => postForm(manage(slug, '/items'), form, 'Could not save'),
   /** Her chat with the assistant as the server keeps it, oldest first. */
@@ -158,6 +178,10 @@ export const vendorStoreApi = {
     return postForm(manage(slug, '/assistant'), form, 'The assistant didn’t answer')
   }
 }
+
+export type DiscountKind = 'percent' | 'amount'
+export type DiscountCode = { id: string; code: string; kind: DiscountKind; amount: number; endsOn: string | null; active: boolean; createdAt: string }
+export type DiscountCodeInput = { code: string; kind: DiscountKind; amount: number; endsOn: string | null; active?: boolean }
 
 export type InboxFolder = 'inbox' | 'junk'
 export type InboxRow = { id: string; fromName: string; fromAddress: string; subject: string; preview: string; at: string; read: boolean; attachments: number }
