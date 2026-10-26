@@ -24,6 +24,7 @@ import { ToastContainer } from './components/ToastContainer'
 import { ImaginationErrorBoundary } from './components/imagination'
 import CookieConsent from './components/CookieConsent'
 import ReferralApplier from './components/ReferralApplier'
+import { storeSlugFromHost } from './lib/store-host'
 
 // Eagerly-loaded pages: public/landing routes that should be on the first
 // paint (the rest is below as React.lazy chunks). Auth + catalog + cart are
@@ -98,6 +99,9 @@ const ToyAR = lazy(() => import('./pages/ToyAR'))
 const BecomeCreator = lazy(() => import('./pages/BecomeCreator'))
 const CreatorStudio = lazy(() => import('./pages/CreatorStudio'))
 const CreatorStudioVoice = lazy(() => import('./pages/CreatorStudioVoice'))
+const StorePage = lazy(() => import('./pages/store/StorePage'))
+const StoreManager = lazy(() => import('./pages/store/StoreManager'))
+const MyStoreRedirect = lazy(() => import('./pages/store/StoreManager').then(m => ({ default: m.MyStoreRedirect })))
 
 // Team templates moved into Imagination Station (Team Studio, 2026-09-24).
 // Old links — bookmarks, the admin index, earlier Step Flow builds — land there.
@@ -108,6 +112,10 @@ function TeamTemplateRedirect() {
 
 // Routes that should hide the sidebar for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk', '/ar/']
+const STORE_ROUTES = ['/store/', '/vendor/store']
+
+// <slug>.imaginethisprinted.com is a seller's own store and shows nothing else (David 2026-10-26).
+const HOST_STORE = storeSlugFromHost(window.location.hostname)
 
 // Scroll to top on route change
 function ScrollToTop() {
@@ -125,6 +133,9 @@ function AppLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation()
   const { isCollapsed, siteMenuHidden } = useSidebar()
   const isFullScreen = FULL_SCREEN_ROUTES.some(route => location.pathname.startsWith(route))
+
+  // A seller's store and her manager are her brand, not ITP's: no ITP menu, cart, chat or footer.
+  if (STORE_ROUTES.some(route => location.pathname.startsWith(route))) return <>{children}</>
 
   return (
     <div className="min-h-screen bg-bg text-text flex">
@@ -152,6 +163,19 @@ function AppLayout({ children }: { children: React.ReactNode }) {
 }
 
 function App() {
+  if (HOST_STORE) {
+    return (
+      <ErrorBoundary>
+        <Router>
+          <Suspense fallback={null}>
+            <Routes>
+              <Route path="*" element={<StorePage slug={HOST_STORE} />} />
+            </Routes>
+          </Suspense>
+        </Router>
+      </ErrorBoundary>
+    )
+  }
   return (
     <ErrorBoundary>
       <SupabaseAuthProvider>
@@ -258,6 +282,10 @@ function App() {
                   <Route path="/creator/studio/voice" element={<ProtectedRoute><CreatorStudioVoice /></ProtectedRoute>} />
 
                   {/* Vendor Routes */}
+                  {/* A seller's own store (also on <slug>.imaginethisprinted.com) and where she runs it. */}
+                  <Route path="/store/:slug" element={<StorePage />} />
+                  <Route path="/vendor/store" element={<ProtectedRoute><MyStoreRedirect /></ProtectedRoute>} />
+                  <Route path="/vendor/store/:slug" element={<ProtectedRoute><StoreManager /></ProtectedRoute>} />
                   <Route path="/vendor/dashboard" element={<VendorDashboard />} />
                   <Route path="/vendor/messages" element={<VendorMessages />} />
                   <Route path="/vendor/payouts" element={<VendorPayouts />} />

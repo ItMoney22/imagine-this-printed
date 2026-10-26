@@ -6,7 +6,13 @@ import { storeSlugFromHost } from './store-host'
 
 export { storeSlugFromHost }
 
-export type StoreTheme = { primary?: string; green?: string; pink?: string; gold?: string; ink?: string; hero?: string }
+export type StoreTheme = {
+  primary?: string; green?: string; pink?: string; gold?: string; ink?: string
+  /** Art: hero backdrop, the cut-out character, the Meet-her portrait, the tab icon. */
+  hero?: string; character?: string; portrait?: string; icon?: string
+  ownerFirst?: string
+  about?: string
+}
 export type StoreInfo = { slug: string; name: string; tagline: string | null; logoUrl: string | null; theme: StoreTheme; open: boolean }
 export type StoreItem = {
   id: string
