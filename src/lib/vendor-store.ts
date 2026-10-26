@@ -93,7 +93,7 @@ export function useStoreCart(slug: string) {
 
 // ---- Manage (Crystal + ITP admins), signed in on imaginethisprinted.com ----
 
-export type ManageItem = StoreItem & { active: boolean; itpCostCents: number; sort: number }
+export type ManageItem = StoreItem & { active: boolean; itpCostCents: number; suggestedPriceCents: number | null; sort: number }
 export type ManageData = {
   isAdmin: boolean
   store: StoreInfo & {

@@ -125,6 +125,7 @@ type ItemRow = {
   colors: string[]
   price_cents: number
   itp_cost_cents: number
+  suggested_price_cents?: number | null
   active: boolean
   sort: number
   metadata?: Record<string, any> | null
@@ -132,10 +133,11 @@ type ItemRow = {
 
 /**
  * An ITP item is one ITP makes and ships: a products row, or a priced line type that has no products row
- * (the Custom QR Counter Stand, backend/shared/qr-stand.ts: metadata.line_type 'qr-stand').
+ * (the Custom QR Counter Stand, backend/shared/qr-stand.ts: metadata.line_type 'qr-stand'), or an ITP-made item
+ * that is only sold through stores (metadata.made_by 'itp', e.g. the can lids, printed from metadata.print_file).
  */
 const isQrStand = (i: ItemRow) => i.metadata?.line_type === QR_STAND.lineIdPrefix
-const isItp = (i: ItemRow) => !!i.product_id || isQrStand(i)
+const isItp = (i: ItemRow) => !!i.product_id || isQrStand(i) || i.metadata?.made_by === 'itp'
 
 /** The stand's listing photos: the real plate-and-brace stand, served from public/business/ on ITP and on every
  *  store subdomain (one Vercel project). Stripe gets them made absolute (absoluteImage). */
@@ -367,7 +369,9 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
           color: l.color ?? null,
           ...(l.item.product_id && printRefs[l.item.product_id] ? { print_file_refs: printRefs[l.item.product_id] } : {}),
           // The stand's paid-order hook (services/qr-stand-builds.ts onQrStandOrderPaid) queues its print file from this.
-          ...(l.stand ? { qr_stand: { line_index: lineIndex, link: l.stand.link, caption: l.stand.caption, logo_path: l.stand.logoPath } } : {})
+          ...(l.stand ? { qr_stand: { line_index: lineIndex, link: l.stand.link, caption: l.stand.caption, logo_path: l.stand.logoPath } } : {}),
+          // An ITP item with no products row (the can lids) names its print file for the print desk.
+          ...(l.item.metadata?.print_file ? { print_file: l.item.metadata.print_file } : {})
         }
       }))
     )
@@ -520,7 +524,7 @@ router.get('/manage/:slug', requireAuth, requireStoreManager, async (req: Reques
       ready: payouts.ready,
       detailsSubmitted: !!payouts.account?.details_submitted
     },
-    items: ((items || []) as ItemRow[]).map(i => ({ ...publicItem(i), active: i.active, itpCostCents: i.itp_cost_cents, sort: i.sort })),
+    items: ((items || []) as ItemRow[]).map(i => ({ ...publicItem(i), active: i.active, itpCostCents: i.itp_cost_cents, suggestedPriceCents: i.suggested_price_cents ?? null, sort: i.sort })),
     orders: (orders || []).map((o: any) => ({
       orderNumber: o.order_number,
       createdAt: o.created_at,
@@ -621,13 +625,23 @@ router.patch('/manage/:slug/items/:id', requireAuth, requireStoreManager, async 
   const b = req.body || {}
   const patch: Record<string, unknown> = {}
   const cost = isAdmin && Number.isInteger(b.itpCostCents) && b.itpCostCents >= 0 ? b.itpCostCents : item.itp_cost_cents
-  if (isAdmin && isItp(item) && cost !== item.itp_cost_cents) patch.itp_cost_cents = cost
+  if (isAdmin && isItp(item) && cost !== item.itp_cost_cents) {
+    patch.itp_cost_cents = cost
+    // David sets her price; a cost above what she charges lifts her price with it, so no sale goes under our cost.
+    if (b.priceCents === undefined && item.price_cents < cost) patch.price_cents = cost
+  }
   if (b.priceCents !== undefined) {
-    if (!Number.isInteger(b.priceCents) || b.priceCents < 100) return res.status(400).json({ error: 'Price must be at least $1.00' })
+    // Small ITP items (a 25-cent can lid) may sell under a dollar; her own products start at $1.
+    const floor = isItp(item) ? 50 : 100
+    if (!Number.isInteger(b.priceCents) || b.priceCents < floor) return res.status(400).json({ error: `Price must be at least $${(floor / 100).toFixed(2)}` })
     if (isItp(item) && b.priceCents < cost) {
       return res.status(400).json({ error: `Price can't be under Imagine This Printed's price of $${(cost / 100).toFixed(2)}` })
     }
     patch.price_cents = b.priceCents
+  }
+  // David suggests what she sells an ITP product for; she still sets her own price.
+  if (isAdmin && isItp(item) && (b.suggestedPriceCents === null || (Number.isInteger(b.suggestedPriceCents) && b.suggestedPriceCents >= 0))) {
+    patch.suggested_price_cents = b.suggestedPriceCents
   }
   if (typeof b.active === 'boolean') patch.active = b.active
   if (Number.isInteger(b.sort)) patch.sort = b.sort
