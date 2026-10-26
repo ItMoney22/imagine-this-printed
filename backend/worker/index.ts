@@ -61,8 +61,8 @@ startStepFlowStallSweep()
 // backend/worker/delivery-tracking-sweep.ts.
 startDeliveryTrackingSweep()
 // A seller's reminders (post on Instagram, check orders, add a product): at
-// each Eastern-time slot her store assistant writes one and emails it to her
-// store inbox, once. Needs RESEND_API_KEY. See
+// each Eastern-time slot her store assistant writes one and emails it to her,
+// once. Needs RESEND_API_KEY. See
 // backend/worker/store-reminders-sweep.ts.
 startStoreRemindersSweep()
 

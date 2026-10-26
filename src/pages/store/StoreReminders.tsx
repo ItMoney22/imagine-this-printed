@@ -70,7 +70,7 @@ export default function StoreReminders({ slug, onToast }: { slug: string; onToas
         Reminders
       </h2>
       <p className="text-sm text-[var(--vs-muted)] mt-2 mb-4">
-        Your assistant emails you these at {to ? <span className="font-medium text-[var(--vs-text)]">{to}</span> : 'your store inbox'}, written fresh each time. Times are Eastern.
+        Your assistant emails you these at {to ? <span className="font-medium text-[var(--vs-text)]">{to}</span> : 'your email'}, written fresh each time. Times are Eastern.
       </p>
 
       {!list ? (

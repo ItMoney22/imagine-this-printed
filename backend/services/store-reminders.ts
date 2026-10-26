@@ -1,7 +1,7 @@
 // A seller's reminders (David 2026-10-26: "setup reminders for her through email with her assistant reminding her to
 // post etc."). When one is due, her store assistant (store-assistant.ts, the same brain, facts and memory she chats
-// with) writes it fresh, and it goes to the store's own inbox (crystal@imaginethisprinted.com, never her personal
-// sign-in address) from her assistant through sendViaResend, after the suppression check. Times are Eastern. The clock that calls fireReminder
+// with) writes it fresh, and it goes to her real email (the store's owner_email: David gave Crystal's on 2026-10-26)
+// from her assistant through sendViaResend, after the suppression check. Times are Eastern. The clock that calls fireReminder
 // is worker/store-reminders-sweep.ts; the card that switches them on and off is src/pages/store/StoreReminders.tsx.
 import Stripe from 'stripe'
 import { supabase } from '../lib/supabase.js'
@@ -127,7 +127,7 @@ export type ReminderContext = {
   facts: StoreFacts
   storeName: string
   slug: string
-  /** Where the reminder goes: the store's in-app inbox (storeInboxAddress), null when it has none. */
+  /** Where the reminder goes: her real email, the store's owner_email (David 2026-10-26: "so they reach her"). */
   to: string | null
   newOrders24h: number
   ordersToShip: number
@@ -225,21 +225,10 @@ async function payoutsReady(accountId: string | null): Promise<boolean> {
   }
 }
 
-/**
- * Where reminders go: the store's own inbox (vendor_storefronts.inbox_mailbox_id, task f4a337b0), which is
- * crystal@imaginethisprinted.com for Crystal. Never owner_email: that is the address she signs in with, her personal
- * mail, and on 2026-10-26 it was changed to it minutes before a live test sent there. No active inbox, no reminder.
- */
-export async function storeInboxAddress(inboxMailboxId: string | null | undefined): Promise<string | null> {
-  if (!inboxMailboxId) return null
-  const { data } = await supabase.from('email_mailboxes').select('address, is_active').eq('id', inboxMailboxId).maybeSingle()
-  return data?.is_active ? String(data.address) : null
-}
-
 export async function loadReminderContext(storefrontId: string, now: Date = new Date()): Promise<ReminderContext | null> {
   const { data: store } = await supabase.from('vendor_storefronts').select('*').eq('id', storefrontId).maybeSingle()
   if (!store) return null
-  const [{ data: items }, { data: orders }, { data: memories }, ready, to] = await Promise.all([
+  const [{ data: items }, { data: orders }, { data: memories }, ready] = await Promise.all([
     supabase.from('vendor_store_items').select('*').eq('storefront_id', store.id),
     supabase
       .from('orders')
@@ -250,7 +239,6 @@ export async function loadReminderContext(storefrontId: string, now: Date = new 
       .limit(500),
     supabase.from('vendor_store_assistant_memory').select('fact').eq('storefront_id', store.id).order('created_at', { ascending: false }).limit(20),
     payoutsReady(store.stripe_account_id),
-    storeInboxAddress(store.inbox_mailbox_id),
   ])
   const isItp = (i: any) => !!i.product_id || i.metadata?.line_type === QR_STAND.lineIdPrefix
   const paid = (orders || []) as any[]
@@ -258,7 +246,7 @@ export async function loadReminderContext(storefrontId: string, now: Date = new 
   return {
     storeName: store.name,
     slug: store.slug,
-    to,
+    to: store.owner_email || null,
     newOrders24h: paid.filter(o => new Date(o.created_at).getTime() >= dayAgo).length,
     ordersToShip: paid.filter(o => o.fulfillment_status === 'unfulfilled' && (o.metadata?.items || []).some((i: any) => i.maker === 'vendor')).length,
     facts: {
@@ -314,8 +302,8 @@ export async function fireReminder(claim: ClaimedSend, now: Date = new Date()): 
 
   const ctx = await loadReminderContext(reminder.storefront_id, now)
   if (!ctx?.to) {
-    await update(claim.id, { status: 'skipped', error: 'store has no inbox' })
-    return { status: 'skipped', error: 'store has no inbox' }
+    await update(claim.id, { status: 'skipped', error: 'store has no email' })
+    return { status: 'skipped', error: 'store has no email' }
   }
   const suppression = await getSuppression(ctx.to)
   if (suppression) {

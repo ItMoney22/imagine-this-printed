@@ -2,13 +2,13 @@ import { Router, Request, Response } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { requireAuth } from '../middleware/supabaseAuth.js'
 import { requireStoreManager } from './vendor-store.js'
-import { scheduleLabel, storeInboxAddress, type ReminderRow } from '../services/store-reminders.js'
+import { scheduleLabel, type ReminderRow } from '../services/store-reminders.js'
 
 // A seller's reminders card (David 2026-10-26: "setup reminders for her through email with her assistant reminding
 // her to post etc."; approved mock itp-crystal-store-manager-inbox round 1). The store owner or an ITP admin, like
 // the rest of /api/vendor-store/manage. The worker that sends them is worker/store-reminders-sweep.ts.
 //
-//   GET    /api/vendor-store/manage/:slug/reminders       her reminders + the store inbox they go to
+//   GET    /api/vendor-store/manage/:slug/reminders       her reminders + the email they go to
 //   POST   /api/vendor-store/manage/:slug/reminders       Add a reminder { title, days, time, note? }
 //   PATCH  /api/vendor-store/manage/:slug/reminders/:id   { enabled?, days?, time?, title?, note? }
 //   DELETE /api/vendor-store/manage/:slug/reminders/:id   ones she added (the three standing ones switch off instead)
@@ -64,9 +64,8 @@ router.get('/manage/:slug/reminders', requireAuth, requireStoreManager, async (r
     : { data: [] }
   const last = new Map<string, string>()
   for (const s of (sends || []) as Array<{ reminder_id: string; sent_at: string }>) if (!last.has(s.reminder_id)) last.set(s.reminder_id, s.sent_at)
-  // Her store inbox (vendor_storefronts.inbox_mailbox_id), never the personal address she signs in with.
-  const to = await storeInboxAddress((store as { inbox_mailbox_id?: string | null }).inbox_mailbox_id)
-  return res.json({ to, timezone: 'Eastern', reminders: reminders.map(r => shape(r, last.get(r.id) ?? null)) })
+  // Her real email (owner_email), where the worker sends them.
+  return res.json({ to: store.owner_email, timezone: 'Eastern', reminders: reminders.map(r => shape(r, last.get(r.id) ?? null)) })
 })
 
 router.post('/manage/:slug/reminders', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {

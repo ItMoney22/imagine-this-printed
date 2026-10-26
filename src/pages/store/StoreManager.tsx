@@ -201,7 +201,7 @@ export default function StoreManager() {
 
           {/* Her store email, junk kept out */}
           <StoreInbox slug={slug} onUnread={setUnread} onToast={setToast} />
-          {/* Her reminders: her assistant emails them to her store inbox */}
+          {/* Her reminders: her assistant emails them to her */}
           <StoreReminders slug={slug} onToast={setToast} />
 
           {/* 6. Orders */}

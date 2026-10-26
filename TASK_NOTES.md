@@ -5316,3 +5316,8 @@ personal sign-in email.
   vitest 21/21 new (+ 121/121 email/vendor-store/worker files), backend tsc clean (junction TS2742 only), tsc -b 0. Live:
   the real sweep fired a temp reminder at 11:58 ET, it landed once in crystal@'s in-app inbox (email_messages 487c94e1),
   nothing while switched off. Walked the built card signed in as David at 1400 + 390, every button clicked, 0 errors.
+- 2026-10-26 (zero-earth019): the card was updated at 15:40Z (after dispatch): "SEND THEM TO HER REAL EMAIL
+  ctrin82@yahoo.com (vendor_storefronts.owner_email)". Recipient is the store's owner_email again (a store with none is
+  skipped); the inbox-only detour (ce1d0e0..63eaa86) is undone. Live proof on that path: the real sweep fired at 11:51 ET
+  and Resend shows exactly one reminder to ctrin82@yahoo.com (01a178e8, delivered); switched off, nothing more sent.
+  One more from the detour sits in her crystal@ store inbox (01a178ee). vitest 21/21, backend tsc clean, tsc -b 0.

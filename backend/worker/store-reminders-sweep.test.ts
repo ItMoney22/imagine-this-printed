@@ -5,9 +5,9 @@ import type { AddressInfo } from 'node:net'
 // Crystal's reminders, end to end (David 2026-10-26: "setup reminders for her through email with her assistant
 // reminding her to post etc."). The REAL sweep, its Supabase claim, fireReminder, store-assistant.ts, sendViaResend
 // and the reminders route run here; only the database, Gemini, Resend and auth are faked. Resend's fake honours the
-// Idempotency-Key header and stores one inbox message per (address, email id), which is what Resend inbound plus
-// routes/email.ts's unique (mailbox_id, resend_id) do for crystal@imaginethisprinted.com. What must hold:
-//   * a reminder fires at its Eastern time and lands in her inbox exactly once, however many ticks or replicas run;
+// Idempotency-Key header and delivers one message per (address, email id) to her mailbox, the email David gave for
+// her (the store's owner_email; ctrin82@yahoo.com on prod). What must hold:
+//   * a reminder fires at its Eastern time and lands in her email exactly once, however many ticks or replicas run;
 //   * switching it off stops it (and switching it on again never mails a slot that already passed);
 //   * a failed send is retried with the same email and key, so it still lands once.
 
@@ -129,11 +129,11 @@ globalThis.fetch = (async (url: any, init: any = {}) => {
 const { sweepReminders, makeSupabaseReminderDeps } = await import('./store-reminders-sweep.js')
 const { default: remindersRouter } = await import('../routes/vendor-store-reminders.js')
 
-const CRYSTAL = 'crystal@imaginethisprinted.com'
-const PERSONAL = 'crystal.personal@example.com'
+// The email David gave for her (2026-10-26: "send them to her real email ... so they reach her").
+const HER_EMAIL = 'crystal.real@example.com'
 const at = (iso: string) => vi.setSystemTime(new Date(iso))
 const tick = () => sweepReminders(makeSupabaseReminderDeps())
-const mail = (subject: string) => inbox.filter(m => m.to === CRYSTAL && m.subject === subject)
+const mail = (subject: string) => inbox.filter(m => m.to === HER_EMAIL && m.subject === subject)
 const POST_SUBJECT = 'Time to post on Instagram'
 const reminder = (kind: string) => db.vendor_store_reminders.find(r => r.kind === kind)!
 
@@ -171,12 +171,10 @@ beforeEach(() => {
   resendCalls.length = 0
   inbox = []
   db = {
-    // Like prod on 2026-10-26: she signs in with a personal address; her store inbox is crystal@ (task f4a337b0).
     vendor_storefronts: [{
-      id: 'store-1', slug: 'crystal', name: 'Crystal’s Shirts and More', owner_email: PERSONAL, status: 'draft',
-      theme: { ownerFirst: 'Crystal' }, fee_percent: 10, stripe_account_id: null, instagram: null, inbox_mailbox_id: 'mb-crystal',
+      id: 'store-1', slug: 'crystal', name: 'Crystal’s Shirts and More', owner_email: HER_EMAIL, status: 'draft',
+      theme: { ownerFirst: 'Crystal' }, fee_percent: 10, stripe_account_id: null, instagram: null
     }],
-    email_mailboxes: [{ id: 'mb-crystal', address: CRYSTAL, is_active: true }],
     vendor_store_items: [{
       id: 'item-1', storefront_id: 'store-1', product_id: '43d607e5-e8e1-4b57-a52f-110a5cd6a1c3',
       name: 'Gothic Ghost Face Candle Holder', price_cents: 2000, itp_cost_cents: 1400, active: true, metadata: {},
@@ -245,7 +243,7 @@ describe('reminders fire at their Eastern time and land in her inbox exactly onc
     expect(system).toContain('store assistant')
     expect(system).toContain('Gothic Ghost Face Candle Holder')
     expect(system).toContain('Crystal loves spooky season designs.')
-    expect(db.vendor_store_reminder_sends.find(s => s.reminder_id === 'rem-ig')).toMatchObject({ written_by: 'assistant', to_email: CRYSTAL })
+    expect(db.vendor_store_reminder_sends.find(s => s.reminder_id === 'rem-ig')).toMatchObject({ written_by: 'assistant', to_email: HER_EMAIL })
   })
 })
 
@@ -355,7 +353,7 @@ describe('when something goes wrong it still lands once', () => {
   })
 
   it('a suppressed address is never mailed', async () => {
-    db.email_suppressions = [{ id: 's1', email: CRYSTAL, reason: 'hard_bounce', expires_at: null }]
+    db.email_suppressions = [{ id: 's1', email: HER_EMAIL, reason: 'hard_bounce', expires_at: null }]
     at('2026-10-26T14:00:30Z')
     await tick()
     expect(inbox).toHaveLength(0)
@@ -363,23 +361,17 @@ describe('when something goes wrong it still lands once', () => {
     expect(db.vendor_store_reminder_sends.every(s => s.status === 'skipped' && s.error === 'suppressed (hard_bounce)')).toBe(true)
   })
 
-  it('only ever mails her store inbox: never the personal address she signs in with', async () => {
+  it('goes to her real email (the store owner email); a store with no email is skipped', async () => {
     at('2026-10-26T14:00:30Z')
     await tick()
-    expect(inbox.length).toBe(2)
-    expect(inbox.every(m => m.to === CRYSTAL)).toBe(true)
+    expect(inbox).toHaveLength(2)
+    expect(inbox.every(m => m.to === HER_EMAIL)).toBe(true)
 
-    // No store inbox (or a switched-off one): skipped, and still nothing to her personal address.
-    db.email_mailboxes[0].is_active = false
+    db.vendor_storefronts[0].owner_email = null
     at('2026-10-28T14:00:30Z')
     await tick()
-    db.vendor_storefronts[0].inbox_mailbox_id = null
-    at('2026-10-30T14:00:30Z')
-    await tick()
-    expect(inbox.filter(m => m.to === PERSONAL)).toHaveLength(0)
     expect(inbox).toHaveLength(2)
-    expect(db.vendor_store_reminder_sends.filter(s => s.status === 'skipped').map(s => s.error)).toEqual(Array(4).fill('store has no inbox'))
-    expect((await api('GET', '')).body.to).toBeNull()
+    expect(db.vendor_store_reminder_sends.filter(s => s.status === 'skipped').map(s => s.error)).toEqual(['store has no email', 'store has no email'])
   })
 
   it('a worker that was down at 10 AM does not mail it at 1 PM', async () => {
@@ -394,7 +386,7 @@ describe('her reminders card', () => {
   it('lists the three standing reminders with the schedules on the mock', async () => {
     const { status, body } = await api('GET', '')
     expect(status).toBe(200)
-    expect(body.to).toBe(CRYSTAL)
+    expect(body.to).toBe(HER_EMAIL)
     expect(body.reminders.map((r: any) => [r.title, r.schedule, r.enabled])).toEqual([
       ['Post on Instagram', 'Mon, Wed, Fri at 10 AM', true],
       ['Check new orders', 'Every day at 9 AM', true],

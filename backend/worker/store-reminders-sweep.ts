@@ -4,7 +4,7 @@
 //
 // Every few minutes: each switched-on reminder whose Eastern-time slot has
 // come (and isn't stale) is claimed, written fresh by her store assistant and
-// emailed to her store's inbox. services/store-reminders.ts does the writing
+// emailed to her. services/store-reminders.ts does the writing
 // and sending; this file only decides what is due and who sends it.
 //
 // Shape follows worker/delivery-tracking-sweep.ts: injectable deps, one log
@@ -165,7 +165,7 @@ export function startStoreRemindersSweep(): void {
   console.log(
     `[store-reminders] ⏰ checking seller reminders every ${REMINDER_SWEEP_MINUTES}m ` +
       `(Eastern time, a slot more than ${REMINDER_GRACE_MINUTES}m old is let go) — ` +
-      'her store assistant writes each one and emails it to her store inbox'
+      'her store assistant writes each one and emails it to her'
   )
 
   setInterval(() => { void runReminderSweep() }, REMINDER_SWEEP_MINUTES * 60 * 1000)
