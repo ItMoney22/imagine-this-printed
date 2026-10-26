@@ -20,7 +20,7 @@ const dollars = (v: string) => Math.round(Number(v.replace(/[^0-9.]/g, '')) * 10
 
 export default function StoreManager() {
   const { slug = '' } = useParams()
-  const [search] = useSearchParams()
+  const [search, setSearch] = useSearchParams()
   const [data, setData] = useState<ManageData | null>(null)
   const [error, setError] = useState('')
   const [toast, setToast] = useState('')
@@ -32,7 +32,17 @@ export default function StoreManager() {
     setTimeout(() => document.getElementById('design')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50)
   }
   // The assistant sits docked beside the page on a wide screen; on a phone it opens from the floating button.
-  const [assistantOpen, setAssistantOpen] = useState(() => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches)
+  const wide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 1280px)').matches
+  const [assistantOpen, setAssistantOpen] = useState(wide)
+  // The assistant's Make it a product: her design is in the Step Flow, so Create a design opens on it (the phone's
+  // assistant sheet steps aside so she sees it).
+  const openDesignOn = (productId: string) => {
+    const next = new URLSearchParams(search)
+    next.set('productId', productId)
+    setSearch(next)
+    if (!wide()) setAssistantOpen(false)
+    openDesign()
+  }
 
   const load = useCallback(() => {
     vendorStoreApi.load(slug).then(setData).catch(e => setError(/403/.test(e.message) ? 'This isn’t your store.' : /404/.test(e.message) ? 'No store here.' : 'The store didn’t load.'))
@@ -237,7 +247,8 @@ export default function StoreManager() {
           {isAdmin && <AdminPanel data={data} slug={slug} save={save} />}
         </main>
 
-        <StoreAssistant slug={slug} ownerFirst={t.ownerFirst || store.name.split(/[’']/)[0]} open={assistantOpen} onClose={() => setAssistantOpen(false)} />
+        <StoreAssistant slug={slug} ownerFirst={t.ownerFirst || store.name.split(/[’']/)[0]} faceUrl={t.assistant} open={assistantOpen} onClose={() => setAssistantOpen(false)}
+          onMakeProduct={openDesignOn} onNeedStudio={openDesign} />
       </div>
 
       {!assistantOpen && (

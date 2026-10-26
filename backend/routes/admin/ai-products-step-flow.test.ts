@@ -1238,3 +1238,73 @@ describe('POST /:id/step/publish — re-slugs a product named from its file (tas
     expect(product.metadata.replaces).toBeUndefined()
   })
 })
+
+// ---------------------------------------------------------------------------
+// A store seller uploads her own finished design on the CUSTOMER lane (task
+// 44f16c24, David 2026-10-26: her store assistant's "Make it a product").
+// Shoppers stay shut out; her upload is stamped hers so her own /:id/step calls
+// (adopt first) pass routes/studio-flow.ts's ownership guard.
+// ---------------------------------------------------------------------------
+describe('POST /step/upload on the customer lane — store sellers only (task 44f16c24)', () => {
+  beforeEach(() => resetDb())
+
+  async function customerUpload(uid: string) {
+    const sharp = (await import('sharp')).default
+    const png = await sharp({ create: { width: 8, height: 8, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } }).png().toBuffer()
+    db.product_categories = [{ id: 'cat-tees', slug: 't-shirts' }]
+    const res = makeRes()
+    await getRouteHandler('post', '/step/upload')(
+      {
+        body: { image: `data:image/png;base64,${png.toString('base64')}`, kind: 'tshirt', filename: 'dragon.png' },
+        user: { id: uid, sub: uid },
+        studioLane: 'customer',
+        log: undefined,
+      },
+      res
+    )
+    return res
+  }
+
+  it('refuses a shopper with no store', async () => {
+    db.user_profiles = [{ id: 'shopper', role: 'customer' }]
+    const res = await customerUpload('shopper')
+    expect(res.statusCode).toBe(403)
+    expect(db.products).toHaveLength(0)
+  })
+
+  it('takes a store owner’s design and stamps it hers', async () => {
+    db.user_profiles = [{ id: 'crystal', role: 'vendor' }]
+    db.vendor_storefronts = [{ id: 'store-1', slug: 'crystal', owner_user_id: 'crystal' }]
+    const res = await customerUpload('crystal')
+    expect(res.statusCode).toBe(200)
+    const row = db.products.find((p) => p.id === res.body.productId)!
+    expect(row.created_by_user_id).toBe('crystal')
+    expect(row.is_user_generated).toBe(true)
+    expect(row.is_active).toBe(false)
+    expect(row.status).toBe('draft')
+    expect(row.metadata).toMatchObject({ creator_studio: true, creator_id: 'crystal', import_source: 'upload' })
+  })
+
+  it('lets staff through when they run the customer lane as a seller', async () => {
+    db.user_profiles = [{ id: 'david', role: 'admin' }]
+    const res = await customerUpload('david')
+    expect(res.statusCode).toBe(200)
+    expect(db.products[0].created_by_user_id).toBe('david')
+  })
+
+  it('leaves the staff lane’s uploads unstamped, as before', async () => {
+    const res = await customerUpload('ignored')
+    expect(res.statusCode).toBe(403) // no profile, no store: still refused on the customer lane
+    const staff = makeRes()
+    const sharp = (await import('sharp')).default
+    const png = await sharp({ create: { width: 8, height: 8, channels: 3, background: { r: 9, g: 9, b: 9 } } }).png().toBuffer()
+    await getRouteHandler('post', '/step/upload')(
+      { body: { image: `data:image/png;base64,${png.toString('base64')}`, kind: 'tshirt' }, user: { id: 'u1', sub: 'u1' }, log: undefined },
+      staff
+    )
+    expect(staff.statusCode).toBe(200)
+    const row = db.products.find((p) => p.id === staff.body.productId)!
+    expect(row.created_by_user_id).toBeUndefined()
+    expect(row.metadata.creator_id).toBeUndefined()
+  })
+})
