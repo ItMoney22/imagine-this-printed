@@ -1279,7 +1279,8 @@ async function claimAndReverseRefundedOrder(
         `loyalty ITC: ${report.loyaltyItc.ok ? 'ok' : report.loyaltyItc.reason}; ` +
         `referral bonus: ${report.referralBonus.ok ? 'ok' : report.referralBonus.reason}; ` +
         `coupon usage: ${report.couponUsage.ok ? 'ok' : report.couponUsage.reason}; ` +
-        `store referral cut: ${report.storeReferralCut.ok ? 'ok' : report.storeReferralCut.reason}`
+        `store referral cut: ${report.storeReferralCut.ok ? 'ok' : report.storeReferralCut.reason}; ` +
+        `shipping labels: ${report.shippingLabels.ok ? 'ok' : report.shippingLabels.reason}`
     })
     if (notifErr) {
       req.log?.error({ err: notifErr, orderId }, '[refund] Failed to raise reversal-failure notification')

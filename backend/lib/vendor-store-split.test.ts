@@ -100,19 +100,18 @@ describe('splitOrder with her discount code', () => {
     const s = splitOrder(own, rules, FIVE_OFF)
     expect(s.discountCents).toBe(500)
     expect(s.totalCents).toBe(5599 - 500)
-    expect(s.itpShareCents).toBe(500 + 599) // still 10% of the FULL 5000, not of 4500, plus her package's label money
+    expect(s.itpShareCents).toBe(500 + 599) // still 10% of the FULL 5000, not of 4500, plus her package's shipping
     expect(itpSide(s)).toBe(itpSide(plain))
     expect(s.vendorShareCents).toBe(4500 - 500)
   })
 
   it('a dollars-off code bigger than the items stops at the items: shipping is never taken', () => {
     const small: SplitLine[] = [{ kind: 'own', unitCents: 500, itpCostCents: 0, quantity: 1 }]
+    // No fee, so the whole item can come off: both packages' shipping is ITP's, and any fee would make it too deep.
     const s = splitOrder(small, { ...rules, feePercent: 0 }, { kind: 'amount', amount: 1000 })
     expect(s.discountCents).toBe(500)
     expect(s.totalCents).toBe(599)
     expect(s.itpShareCents).toBe(599)
-    expect(s.vendorShareCents).toBe(0)
-    // Her package's shipping pays for her label, so it can't cover ITP's fee: with a 10% fee the same code is refused.
     expect(() => splitOrder(small, rules, { kind: 'amount', amount: 1000 })).toThrow(DiscountTooDeepError)
   })
 

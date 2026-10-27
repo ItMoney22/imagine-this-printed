@@ -385,17 +385,17 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [shipTo, setShipTo] = useShipTo(slug)
+  // Shipping is priced for this cart and this address (real carrier rates); any change prices it again.
+  const [quote, setQuote] = useState<{ state: 'idle' | 'loading' | 'ready' | 'error'; options: ShippingOption[]; startedAt: number; error?: string }>({ state: 'idle', options: [], startedAt: 0 })
+  const [picked, setPicked] = useState<string | null>(null)
+  const [requote, setRequote] = useState(0)
   // Her discount code: typed, then applied (the server says what it takes off this cart).
   const [codeOpen, setCodeOpen] = useState(false)
   const [typed, setTyped] = useState('')
   const [applied, setApplied] = useState<AppliedCode | null>(null)
   const [codeError, setCodeError] = useState('')
   const [checking, setChecking] = useState(false)
-  const [shipTo, setShipTo] = useShipTo(slug)
-  // Shipping is priced for this cart and this address (real carrier rates); any change prices it again.
-  const [quote, setQuote] = useState<{ state: 'idle' | 'loading' | 'ready' | 'error'; options: ShippingOption[]; startedAt: number; error?: string }>({ state: 'idle', options: [], startedAt: 0 })
-  const [picked, setPicked] = useState<string | null>(null)
-  const [requote, setRequote] = useState(0)
   // A line whose item came off the store since it was added is dropped from the total and the checkout.
   const lines = cart.lines.map((l, index) => ({ ...l, index, item: byId.get(l.itemId) })).filter(l => l.item)
   const subtotal = lines.reduce((n, l) => n + l.item!.priceCents * l.quantity, 0)
@@ -447,7 +447,6 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cartLines])
 
-  // Shipping prices are asked again when the cart or the address changes (a code never changes shipping).
   const cartKey = JSON.stringify(cartLines)
   const ready = addressReady(shipTo)
   const addressKey = JSON.stringify({ ...shipTo, phone: '' })

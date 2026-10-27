@@ -129,7 +129,6 @@ beforeEach(() => {
   transfers = 'active'
   sessions.length = 0
   writes.length = 0
-  role = null
   shippoCalls.length = 0
   tables = {
     vendor_storefronts: [store()],
@@ -361,6 +360,18 @@ describe('her Print label', () => {
     expect(shippoCalls).toHaveLength(0)
   })
 
+  it('a refunded order’s label is cancelled: no download, no new label (task 86fda980)', async () => {
+    asOwner()
+    const label = { transaction_id: 'tx_1', label_url: 'https://deliver.goshippo.com/tx_1.pdf', tracking_number: '9400111', refund: { status: 'QUEUED' } }
+    const refunded = paidOrder({ payment_status: 'refunded' })
+    tables.orders = [{ ...refunded, metadata: { ...refunded.metadata, vendor_store: { ...refunded.metadata.vendor_store, label } } }]
+    const pdf = await fetch(`${base}/api/vendor-store/manage/crystal/orders/ITP-9/label.pdf`)
+    expect(pdf.status).toBe(410)
+    expect((await pdf.json()).error).toMatch(/refunded, so don’t ship it/)
+    expect((await print()).status).toBe(404)
+    expect(shippoCalls).toHaveLength(0)
+  })
+
   it('is hers alone: another seller can’t print or download it', async () => {
     role = 'vendor'
     tables.vendor_storefronts = [store({ owner_user_id: 'someone-else' })]
@@ -380,8 +391,8 @@ describe('her Print label', () => {
     const noPhone = await patch({ name: 'Crystal', street1: '12 Craft Ln', city: 'Cartersville', state: 'GA', zip: '30120' })
     expect(noPhone.status).toBe(400)
     expect((await patch({ name: ' Crystal ', street1: '12 Craft Ln', city: 'Cartersville', state: 'ga', zip: '30120', phone: '(770) 555-1234' })).status).toBe(200)
-    // (The manager GET also writes her store's referral code, so pick the address save by what it wrote.)
-    expect(writes.find(w => w.table === 'vendor_storefronts' && w.op === 'update' && 'ship_from' in w.payload)!.payload.ship_from)
+    // Opening her manager also saves her referral code, so look for the update that carries the address.
+    expect(writes.find(w => w.table === 'vendor_storefronts' && w.op === 'update' && w.payload.ship_from)!.payload.ship_from)
       .toEqual({ name: 'Crystal', street1: '12 Craft Ln', street2: '', city: 'Cartersville', state: 'GA', zip: '30120', phone: '(770) 555-1234' })
   })
 })

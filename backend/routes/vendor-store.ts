@@ -41,8 +41,8 @@ import {
 // the { orderId, orderNumber } metadata, like routes/storefront.ts.
 //
 //   GET  /api/vendor-store/:slug                 public store + live items
-//   POST /api/vendor-store/:slug/shipping-rates   real Shippo rates for the cart (services/vendor-store-shipping.ts)
 //   POST /api/vendor-store/:slug/discount         what her code takes off this cart (the cart's Apply)
+//   POST /api/vendor-store/:slug/shipping-rates   real Shippo rates for the cart (services/vendor-store-shipping.ts)
 //   POST /api/vendor-store/:slug/checkout         Stripe Checkout URL (with her code, if the buyer has one)
 //   /api/vendor-store/manage/...                  the seller (owner) and ITP admins
 const router = Router()
@@ -254,7 +254,7 @@ router.get('/:slug', async (req: Request, res: Response): Promise<any> => {
   })
 })
 
-type CartLine = SplitLine & { item: ItemRow; size?: string; color?: string; stand?: QrStandFields }
+type CartLine = SplitLine &{ item: ItemRow; size?: string; color?: string; stand?: QrStandFields }
 
 /**
  * The buyer's cart read against the store's own rows (prices come from the rows, never the browser): the lines to
@@ -325,21 +325,18 @@ async function findStoreCode(store: StoreRow, typed: unknown): Promise<{ row: Di
 
 /**
  * The order's split with her code. A code that would reach into ITP's share is refused, in words for the buyer.
- * shipping = the checkout's signed quote. The cart's Apply has no quote yet and uses the store's flat numbers: shipping
- * sits on both sides of the too-deep check, so it never changes what a code takes off or whether it fits.
+ * Shipping is the signed quote's at checkout; the cart's Apply has none yet, and none is needed: both packages'
+ * shipping sits on ITP's side and in the total alike, so it never changes whether a code fits.
  */
 function splitWithCode(
   store: StoreRow,
   lines: CartLine[],
   code: DiscountCodeRow | null,
-  shipping?: Omit<SplitRules, 'feePercent'>
+  shipping: Omit<SplitRules, 'feePercent'> = { ownShippingCents: 0, itpShippingCents: 0 }
 ): { split: OrderSplit } | { error: string } {
   try {
     return {
-      split: splitOrder(lines, {
-        feePercent: Number(store.fee_percent),
-        ...(shipping ?? { ownShippingCents: store.own_shipping_cents, itpShippingCents: store.itp_shipping_cents })
-      }, code)
+      split: splitOrder(lines, { feePercent: Number(store.fee_percent), ...shipping }, code)
     }
   } catch (e) {
     if (e instanceof DiscountTooDeepError) return { error: `${code!.code} takes off more than this order allows, so it can’t be used here. You can still check out without it.` }
@@ -1313,6 +1310,8 @@ router.get('/manage/:slug/orders/:orderNumber/label.pdf', requireAuth, requireSt
   const order = await loadStoreOrder(store, req.params.orderNumber)
   const url = order?.metadata?.vendor_store?.label?.label_url
   if (!order || !isShippoLabelUrl(url)) return res.status(404).json({ error: 'No label for this order yet' })
+  // A refunded order hands its label back to Shippo (services/order-refunds.ts), which voids it: nothing to ship.
+  if (order.payment_status === 'refunded') return res.status(410).json({ error: 'This order was refunded, so don’t ship it. Its label is cancelled.' })
   const file = await fetch(url)
   if (!file.ok) return res.status(502).json({ error: 'Shippo didn’t send the label file. Try again.' })
   const pdf = Buffer.from(await file.arrayBuffer())

@@ -72,6 +72,37 @@ Decisions:
   tests 6; three deliberate breaks of the rule each turned tests red. Real Stripe (live key, no money, sessions
   expired, coupons deleted): amount_total = split total to the cent with and without a code, shipping untouched.
 
+## Current request (2026-10-26) — refund Crystal's Shippo label when her store order is refunded (task 86fda980, dr-dill)
+
+Mia's Print label (9c113f5, task 41551288) buys her package's label on ITP's Shippo account. A refunded order whose box
+never shipped kept that label paid. Built on 9c113f5 (fast-forward).
+
+Decisions:
+- A FULL refund (the one path that runs reverseOrderSideEffects: admin refund + charge.refunded) asks Shippo to refund
+  every label on the order that the carrier hasn't scanned: hers (metadata.vendor_store.label) and ITP's own
+  (metadata.shipping_label), same rule for both. A partial refund moves money only, like every other reversal here.
+- "Not scanned" = the transaction's tracking_status is UNKNOWN / PRE_TRANSIT (or Shippo can't say: Shippo itself refuses
+  a used label). TRANSIT / DELIVERED / RETURNED / FAILURE = the box is with the carrier, no request.
+- The result is stamped on the label itself (label.refund: status, Shippo refund id, tracking status, time), which is
+  also the idempotency guard; a request that never reached Shippo is stamped 'failed' and retried on a re-run.
+- Her label download refuses a refunded label (the label is void once Shippo takes the refund).
+
+### File shortlist (approved scope — 2026-10-26 label refund)
+- `backend/services/shippo.ts` (+ test): labelTrackingStatus + refundLabel
+- `backend/services/order-refunds.ts` (+ test): refundShippingLabels step in reverseOrderSideEffects
+- `backend/routes/stripe.ts`: one line in the reversal-failure alert
+- `backend/routes/vendor-store.ts` (+ test): label.pdf refuses a refunded label
+- `src/pages/OrderManagement.tsx`: one line in the refund result panel
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (dr-dill): shippo.ts labelTrackingStatus (GET /transactions/<id>) + refundLabel (POST /refunds/);
+  order-refunds.ts step 7 refundShippingLabels (both labels, scanned left alone, stamp = guard, FAILED retried) in
+  reverseOrderSideEffects; alert line + admin panel row; her label.pdf 410 on a refunded order. Tests: order-refunds 45,
+  shippo 13, vendor-store 19; 5 mutations each turned a test red. Live no-money check on ITP's Shippo: a DELIVERED
+  label stamped SCANNED with no refund asked; an unknown transaction got Shippo's real 400, stamped FAILED.
+  Full vitest 188 files / 2602, tsc -b 0, backend tsc only the 6 known TS2742.
+
 ## Current request (2026-10-26) — Crystal's store assistant: memory, her face, picture review, Make it a product (task 44f16c24, sal-moretti)
 
 David 10/26: the assistant "needs a image and likeness, needs to have memory built in" and "she should be able to upload
@@ -5415,6 +5446,7 @@ one 390px row without shrinking the tap targets, and the class keeps md+ exactly
   768 and 1400 still 112px. Walk = built site + local API on prod data, signed in as David; shots in
   E:/memory/watchtower/projects/imagine-this-printed/2026-10-26-123ab6ca-store-menu-jump/. vitest src/pages/store 5/5.
 
+
 ## Current request (2026-10-26) — Crystal's store: real Shippo shipping at checkout, she prints her own labels (task 41551288, mia-potts)
 
 David 10/26: "use ITP's same GoShippo flow (real rates at checkout like the main site; ITP keeps its usual cut of
@@ -5463,6 +5495,11 @@ on a ship. This branch = batch tip 90c6a373 (reminders, referral cut, discount c
   code box + ship-to/rates; Total = items - code + shipping. Admin panel: her link's cut stays, flat shipping boxes
   stay gone. Discount route tests now check out through /shipping-rates like the real cart. vitest 196 files / 2663
   pass, tsc -b 0, backend tsc only the known TS2742.
+- 2026-10-27 (cole-iverson): Amelia shipped the same merge for David on 2351db82 (SHIP 00ec10dc: + dr-dill's label
+  refunds 87b7d85), which no longer fast-forwarded from main 421018e5 (Etsy craft type). Folded it in, taking HER side
+  in every store/money file (same resolution as mine bar wording; her Apply prices shipping at 0), then main, then one
+  test fix: the shipping-rates leak check failed ~1 run in 4 because the token's random signature/expiry digits could
+  spell 743/558; it now reads the claims without them.
 
 ## Current request (2026-10-13) — Etsy craft type for ITP products (task 1e178492, marcus-wolfe)
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { buyLabel, estimateCarrierRates, labelCentsOf, quoteRates, withMarkup } from './shippo.js'
+import { buyLabel, estimateCarrierRates, labelCentsOf, labelTrackingStatus, quoteRates, refundLabel, withMarkup } from './shippo.js'
 
 // The one Shippo client (services/shippo.ts): the main site's quote, the admin label and a store seller's label all
 // call it, so a quote and the label it pays for follow the same rules. Shippo itself is faked at fetch.
@@ -10,7 +10,7 @@ const to = { name: 'Pat Buyer', street1: '1 Main St', city: 'Atlanta', state: 'G
 const rate = (provider: string, token: string, name: string, amount: string, days = 4) =>
   ({ object_id: `rate_${token}`, provider, servicelevel: { token, name }, amount, currency: 'USD', estimated_days: days })
 
-let calls: Array<{ url: string; body: any }> = []
+let calls: Array<{ url: string; body: any; method?: string }> = []
 let reply: (url: string, body: any) => { status: number; json: any } = () => ({ status: 200, json: {} })
 const realFetch = globalThis.fetch
 
@@ -20,6 +20,7 @@ beforeEach(() => {
   globalThis.fetch = vi.fn(async (url: any, init: any) => {
     const body = init?.body ? JSON.parse(init.body) : null
     calls.push({ url: String(url), body })
+    calls[calls.length - 1].method = init?.method || 'GET'
     const r = reply(String(url), body)
     return new Response(JSON.stringify(r.json), { status: r.status, headers: { 'Content-Type': 'application/json' } })
   }) as any
@@ -86,5 +87,41 @@ describe('buyLabel', () => {
   it('says what Shippo said when the purchase fails', async () => {
     reply = () => ({ status: 201, json: { status: 'ERROR', messages: [{ text: 'Address not found' }] } })
     expect(await buyLabel('rate_x')).toEqual({ ok: false, status: 201, error: 'Address not found' })
+  })
+})
+
+// A refunded order hands its unused labels back (services/order-refunds.ts). Shapes from ITP's live account 2026-10-26:
+// GET /transactions/<id> carries tracking_status; POST /refunds/ answers { object_id, status, transaction }.
+describe('labelTrackingStatus', () => {
+  it('reads the transaction’s tracking status with a GET (free)', async () => {
+    reply = () => ({ status: 200, json: { object_id: 'tx_1', status: 'SUCCESS', tracking_status: 'pre_transit' } })
+    expect(await labelTrackingStatus('tx_1')).toBe('PRE_TRANSIT')
+    expect(calls[0]).toMatchObject({ url: 'https://api.goshippo.com/transactions/tx_1', method: 'GET', body: null })
+  })
+
+  it('is null when Shippo can’t say', async () => {
+    reply = () => ({ status: 404, json: { detail: 'Not found.' } })
+    expect(await labelTrackingStatus('tx_gone')).toBeNull()
+    reply = () => ({ status: 200, json: { object_id: 'tx_1' } })
+    expect(await labelTrackingStatus('tx_1')).toBeNull()
+    globalThis.fetch = vi.fn(async () => { throw new Error('offline') }) as any
+    expect(await labelTrackingStatus('tx_1')).toBeNull()
+  })
+})
+
+describe('refundLabel', () => {
+  it('asks Shippo to refund the one label and hands back its answer', async () => {
+    reply = () => ({ status: 201, json: { object_id: 'rf_1', status: 'QUEUED', transaction: 'tx_1', test: false } })
+    expect(await refundLabel('tx_1')).toEqual({ ok: true, refund: { id: 'rf_1', status: 'QUEUED' } })
+    expect(calls[0]).toMatchObject({ url: 'https://api.goshippo.com/refunds/', method: 'POST', body: { transaction: 'tx_1', async: false } })
+  })
+
+  it('says what Shippo said when it won’t take the request, and survives a network failure', async () => {
+    reply = () => ({ status: 400, json: { transaction: ['Transaction has already been refunded.'] } })
+    expect(await refundLabel('tx_1')).toEqual({ ok: false, status: 400, error: 'Transaction has already been refunded.' })
+    reply = () => ({ status: 500, json: {} })
+    expect(await refundLabel('tx_1')).toEqual({ ok: false, status: 500, error: 'Shippo could not refund the label (500)' })
+    globalThis.fetch = vi.fn(async () => { throw new Error('offline') }) as any
+    expect(await refundLabel('tx_1')).toEqual({ ok: false, status: 0, error: 'Shippo refund request failed: offline' })
   })
 })

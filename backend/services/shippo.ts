@@ -1,6 +1,7 @@
 // The one Shippo client (SHIPPO_API_TOKEN, server-only). Every ITP path that rates a parcel or buys a label goes
 // through here: the main checkout's quote (routes/shipping.ts), an admin's order label (routes/orders.ts) and a store
-// seller's own label (routes/vendor-store.ts), so a quote and the label it pays for follow the same rules.
+// seller's own label (routes/vendor-store.ts), so a quote and the label it pays for follow the same rules. A refunded
+// order hands its unscanned labels back through here too (services/order-refunds.ts).
 
 export const SHIPPO_BASE_URL = 'https://api.goshippo.com'
 
@@ -94,6 +95,49 @@ export async function buyLabel(rateId: string, metadata?: string):
     return { ok: false, status: res.status, error: messages || `Shippo could not purchase the label (${res.status})` }
   }
   return { ok: true, transaction }
+}
+
+/**
+ * A label's latest tracking status (Shippo's tracking_status on the transaction: UNKNOWN or PRE_TRANSIT until the
+ * carrier scans the box, then TRANSIT / DELIVERED / RETURNED / FAILURE), or null when Shippo can't say. Free.
+ */
+export async function labelTrackingStatus(transactionId: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${SHIPPO_BASE_URL}/transactions/${encodeURIComponent(transactionId)}`, {
+      headers: { 'Authorization': `ShippoToken ${shippoToken()}` }
+    })
+    if (!res.ok) return null
+    const transaction = await res.json().catch(() => null) as any
+    return typeof transaction?.tracking_status === 'string' ? transaction.tracking_status.toUpperCase() : null
+  } catch {
+    return null
+  }
+}
+
+/** Tracking statuses that mean the carrier has had the box: Shippo refuses the refund and the box is gone. */
+export const SCANNED_TRACKING_STATUSES = new Set(['TRANSIT', 'DELIVERED', 'RETURNED', 'FAILURE'])
+
+/**
+ * Asks Shippo to refund an unused label (one per request). Shippo answers QUEUED / PENDING (waits up to 14 days on
+ * the carrier's tracking) / SUCCESS / ERROR (the label was used); the money comes back as a credit on ITP's next
+ * Shippo invoice and the label is void from the moment the refund is asked for.
+ */
+export async function refundLabel(transactionId: string):
+  Promise<{ ok: true; refund: { id: string | null; status: string } } | { ok: false; status: number; error: string }> {
+  try {
+    const res = await shippoFetch('/refunds/', { transaction: transactionId, async: false })
+    const refund = await res.json().catch(() => ({})) as any
+    if (!res.ok || typeof refund?.status !== 'string') {
+      const detail = typeof refund?.detail === 'string' ? refund.detail
+        : Array.isArray(refund?.transaction) ? refund.transaction.join('; ')
+        : Array.isArray(refund?.__all__) ? refund.__all__.join('; ')
+        : ''
+      return { ok: false, status: res.status, error: detail || `Shippo could not refund the label (${res.status})` }
+    }
+    return { ok: true, refund: { id: refund.object_id || null, status: refund.status.toUpperCase() } }
+  } catch (err) {
+    return { ok: false, status: 0, error: `Shippo refund request failed: ${(err as Error)?.message || String(err)}` }
+  }
 }
 
 const toQuoted = (rate: any): QuotedRate => ({
