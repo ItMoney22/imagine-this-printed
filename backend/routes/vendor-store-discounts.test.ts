@@ -99,6 +99,25 @@ vi.mock('stripe', () => ({
   },
 }))
 
+// Shippo at the network edge, the same fake as vendor-store.test.ts: her ZIP (30120) and Rockmart's (30153) get fixed
+// carrier rates, so the checkout prices shipping the way the real cart does.
+process.env.SHIPPO_API_TOKEN = 'shippo_test_fake'
+const CARRIER_RATES: Record<string, Array<[string, string, string, string]>> = {
+  '30120': [['USPS', 'usps_ground_advantage', 'Ground Advantage', '7.43']],
+  '30153': [['USPS', 'usps_ground_advantage', 'Ground Advantage', '5.58']],
+}
+const realFetch = globalThis.fetch
+globalThis.fetch = (async (url: any, init: any) => {
+  const u = String(url)
+  if (u.startsWith('https://api.goshippo.com/') && u.endsWith('/shipments/')) {
+    const from = JSON.parse(init.body).address_from.zip
+    return new Response(JSON.stringify({ rates: (CARRIER_RATES[from] || []).map(([provider, token, name, amount]) =>
+      ({ object_id: `rate_${from}_${token}`, provider, servicelevel: { token, name }, amount, currency: 'USD', estimated_days: 3 })) }),
+    { status: 201, headers: { 'Content-Type': 'application/json' } })
+  }
+  return realFetch(url, init)
+}) as any
+
 const { default: router } = await import('./vendor-store.js')
 
 let base = ''
@@ -110,7 +129,7 @@ beforeAll(async () => {
   await new Promise<void>(resolve => { server = app.listen(0, () => resolve()) })
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
-afterAll(() => { server?.close() })
+afterAll(() => { server?.close(); globalThis.fetch = realFetch })
 
 const yesterday = () => new Date(Date.now() - 2 * 86400000).toISOString().slice(0, 10)
 const nextMonth = () => new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10)
@@ -130,6 +149,7 @@ beforeEach(() => {
       id: STORE_ID, slug: 'crystal', name: 'Crystal’s Shirts and More', status: 'live', fee_percent: 10, theme: {},
       own_shipping_cents: 599, itp_shipping_cents: 699, stripe_account_id: 'acct_crystal',
       owner_user_id: CRYSTAL, owner_email: 'crystal@imaginethisprinted.com',
+      ship_from: { name: 'Crystal Trinidad', street1: '12 Craft Ln', street2: '', city: 'Cartersville', state: 'GA', zip: '30120', phone: '7705551234' },
     }],
     vendor_store_items: [
       { id: 'tee', storefront_id: STORE_ID, product_id: null, name: 'Craft Queen Tee', images: [], sizes: ['M'], colors: [], price_cents: 2500, itp_cost_cents: 0, active: true },
@@ -153,10 +173,17 @@ const manage = (user: string, path = '', init: RequestInit = {}) =>
   })
 const send = (user: string, method: string, body: any, path = '') => manage(user, path, { method, body: JSON.stringify(body) })
 
-// Two Craft Queen Tees (hers) and one candle holder (ours): 7600 of items, both shippings (1298).
+// Two Craft Queen Tees (hers) and one candle holder (ours): 7600 of items; shipping her box 7.43 -> 7.80 and ITP's
+// 5.58 -> 5.86 with ITP's 5% (1366).
 const CART = [{ itemId: 'tee', quantity: 2, size: 'M' }, { itemId: 'candle', quantity: 1 }]
-const buy = (body: Record<string, any>) =>
-  fetch(`${base}/api/vendor-store/crystal/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: CART, ...body }) })
+const SHIP_TO = { name: 'Pat Buyer', street1: '1 Main St', city: 'Atlanta', state: 'GA', zip: '30303', phone: '4045550100' }
+const post = (path: string, body: any) =>
+  fetch(`${base}/api/vendor-store/crystal${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+/** The cart's way through: price shipping for the address, take the cheapest choice, check out with it. */
+const buy = async (body: Record<string, any>, items: any[] = CART) => {
+  const quote = (await (await post('/shipping-rates', { items, shipTo: SHIP_TO })).json()).options?.[0]?.token
+  return post('/checkout', { items, shipTo: SHIP_TO, shippingQuote: quote, ...body })
+}
 const check = (body: Record<string, any>) =>
   fetch(`${base}/api/vendor-store/crystal/discount`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: CART, ...body }) })
 
@@ -226,17 +253,17 @@ describe('a buyer using her code', () => {
     expect((await buy({ code: 'FIVEOFF' })).status).toBe(200)
     const [plain, pct, dollars] = sessions
 
-    // ITP: 10% of her 5000 (500) + our candle price 1400 + our shipping 699 = 2599, every time.
-    expect(plain.payment_intent_data.application_fee_amount).toBe(2599)
+    // ITP: 10% of her 5000 (500) + our candle price 1400 + both packages' shipping 1366 = 3266, every time.
+    expect(plain.payment_intent_data.application_fee_amount).toBe(3266)
     expect(pct.payment_intent_data.application_fee_amount).toBe(plain.payment_intent_data.application_fee_amount)
     expect(dollars.payment_intent_data.application_fee_amount).toBe(plain.payment_intent_data.application_fee_amount)
     expect(pct.payment_intent_data.transfer_data).toEqual({ destination: 'acct_crystal' })
 
-    // The buyer: 7600 + 1298 = 8898 without a code; 20% of the items (1520) off; $5 off.
+    // The buyer: 7600 + 1366 = 8966 without a code; 20% of the items (1520) off; $5 off.
     expect(plain.discounts).toBeUndefined()
-    expect(charged(plain)).toBe(8898)
-    expect(charged(pct)).toBe(8898 - 1520)
-    expect(charged(dollars)).toBe(8898 - 500)
+    expect(charged(plain)).toBe(8966)
+    expect(charged(pct)).toBe(8966 - 1520)
+    expect(charged(dollars)).toBe(8966 - 500)
     // Same items at the same prices, same shipping: the code is its own line on Stripe's page.
     expect(pct.line_items).toEqual(plain.line_items)
     expect(pct.shipping_options).toEqual(plain.shipping_options)
@@ -247,7 +274,7 @@ describe('a buyer using her code', () => {
 
     // The order rows: what the buyer pays, and her share (the only number the code moved).
     const [o0, o1, o2] = orderInserts()
-    expect([o0.total, o1.total, o2.total]).toEqual([88.98, 73.78, 83.98])
+    expect([o0.total, o1.total, o2.total]).toEqual([89.66, 74.46, 84.66])
     expect([o0.discount_amount, o1.discount_amount, o2.discount_amount]).toEqual([0, 15.2, 5])
     expect(o1.metadata.vendor_store.split.itpShareCents).toBe(o0.metadata.vendor_store.split.itpShareCents)
     expect(o1.metadata.vendor_store.split.vendorShareCents).toBe(o0.metadata.vendor_store.split.vendorShareCents - 1520)
@@ -267,11 +294,8 @@ describe('a buyer using her code', () => {
       expect(res.status).toBe(400)
       expect((await res.json()).error).toMatch(why)
     }
-    // One candle holder: ITP's share 1400 + 699 = 2099 of 3299, she keeps 1200. Half off (1300) needs our money.
-    const res = await fetch(`${base}/api/vendor-store/crystal/checkout`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: [{ itemId: 'candle', quantity: 1 }], code: 'HALFOFF' }),
-    })
+    // One candle holder: ITP's share 1400 + 586 = 1986 of 3186, she keeps 1200. Half off (1300) needs our money.
+    const res = await buy({ code: 'HALFOFF' }, [{ itemId: 'candle', quantity: 1 }])
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/takes off more than this order allows/)
     expect(sessions).toHaveLength(0)

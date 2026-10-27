@@ -93,3 +93,31 @@ html:has(.vstore) body { overflow-x: clip; }
 @media (prefers-reduced-motion: reduce) {
   .vstore *, .vstore *::before, .vstore *::after { animation: none !important; transition: none !important; }
 }
+
+/* Her sign-up flow (/start/:slug, StoreStart.tsx), built to page_mockup_approvals b1bef451: her logo character on a
+   purple-to-pink stage, one white card with a gold stepper. Stacks on a phone: stage on top, card below. */
+.vs-start { display: grid; grid-template-columns: 1fr; background: linear-gradient(135deg, #f6ecfb, #fde6ef 55%, #fff1df); }
+.vs-start-hero { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 3.5rem 1rem 0; min-height: 0; background: radial-gradient(ellipse at 50% 30%, rgba(255, 255, 255, 0.18), transparent 60%), linear-gradient(165deg, #3a1352, var(--vs-primary) 45%, var(--vs-pink)); }
+.vs-start-character { position: relative; z-index: 1; width: min(30rem, 92%); max-height: 19rem; object-fit: contain; }
+.vs-start-bubble { position: relative; z-index: 2; align-self: flex-start; max-width: 17rem; display: flex; gap: .6rem; align-items: center; margin-bottom: .75rem; padding: .7rem .9rem; border-radius: 1.25rem 1.25rem 1.25rem .3rem; background: #fff; color: var(--vs-text); box-shadow: 0 12px 30px rgba(20, 9, 28, 0.3); font-size: .9rem; line-height: 1.3; animation: vs-float 7s ease-in-out infinite; }
+.vs-start-panel { display: grid; place-items: start center; padding: 1.25rem 1rem 2.5rem; }
+.vs-start-card { width: 100%; max-width: 34rem; margin-top: -1.5rem; position: relative; z-index: 3; border-radius: 1.75rem; background: #fff; padding: 1.5rem 1.25rem 1.75rem; box-shadow: 0 24px 60px rgba(112, 42, 143, 0.22); }
+.vs-stepper { display: flex; justify-content: space-between; gap: .25rem; margin-bottom: 1.75rem; position: relative; }
+.vs-stepper::before { content: ''; position: absolute; left: 10%; right: 10%; top: 1rem; height: 2px; background: var(--vs-gold); opacity: .55; }
+.vs-step { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: .4rem; text-align: center; }
+.vs-step-dot { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 999px; background: var(--vs-gold); color: #fff; font-weight: 700; font-size: .85rem; box-shadow: 0 0 0 4px #fff; }
+.vs-step-label { font-size: .68rem; line-height: 1.15; color: var(--vs-muted); max-width: 4.5rem; }
+.vs-step.is-current .vs-step-dot { background: var(--vs-primary); box-shadow: 0 0 0 4px #fff, 0 0 0 7px rgba(242, 179, 61, 0.55), 0 0 22px rgba(242, 179, 61, 0.8); }
+.vs-step.is-current .vs-step-label { color: var(--vs-primary); font-weight: 700; }
+.vs-step.is-done .vs-step-dot { background: var(--vs-green); }
+.vs-start-body { animation: vs-rise .35s ease both; }
+@media (min-width: 1024px) {
+  .vs-start { grid-template-columns: 1.05fr 1fr; min-height: 100vh; }
+  .vs-start-hero { min-height: 100vh; justify-content: center; padding: 2rem; }
+  .vs-start-character { width: min(36rem, 100%); max-height: 70vh; }
+  .vs-start-bubble { position: absolute; top: 7%; left: 8%; max-width: 19rem; font-size: 1rem; }
+  .vs-start-panel { place-items: center; padding: 2rem; background: radial-gradient(ellipse at 80% 90%, rgba(242, 179, 61, 0.25), transparent 55%); }
+  .vs-start-card { margin-top: 0; padding: 2rem 2.25rem 2.25rem; }
+  .vs-step-label { font-size: .75rem; max-width: 5.5rem; }
+}
+@media (prefers-reduced-motion: reduce) { .vs-start-bubble, .vs-start-body, .vs-character, .vs-sparkle { animation: none !important; } }
