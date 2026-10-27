@@ -89,6 +89,7 @@ const MyOrders = lazy(() => import('./pages/MyOrders'))
 const OrderStatus = lazy(() => import('./pages/OrderStatus'))
 const ClaimAccount = lazy(() => import('./pages/ClaimAccount'))
 const AdminVoiceSettings = lazy(() => import('./pages/admin/VoiceSettings').then(m => ({ default: m.AdminVoiceSettings })))
+const AdminEtsyBagCard = lazy(() => import('./pages/admin/EtsyBagCardPage'))
 const AdminTeamTemplatesIndex = lazy(() => import('./pages/AdminTeamTemplatesIndex'))
 // The Step Flow builder (how David makes products). The 10/7 admin redo pointed it at
 // /imagination-station, the customer design studio, and every "continue in Step Flow"
@@ -319,6 +320,7 @@ function App() {
                   <Route path="/admin/ai/products/create" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminAIProductBuilder /></AdminShell></RoleRoute>} />
                   <Route path="/admin/voice-settings" element={<RoleRoute allowedRoles={['admin']}><AdminVoiceSettings /></RoleRoute>} />
                   <Route path="/admin/imagination-products" element={<Navigate to="/admin?tab=pricing" replace />} />
+                  <Route path="/admin/etsy-bag-card" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminEtsyBagCard /></AdminShell></RoleRoute>} />
                   <Route path="/admin/email-templates" element={<RoleRoute allowedRoles={['admin', 'manager']}><AdminShell><AdminEmailTemplates /></AdminShell></RoleRoute>} />
 
                   {/* Imagination Station Routes */}
