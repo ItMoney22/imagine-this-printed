@@ -28,6 +28,14 @@ db push`/`db reset` was run, nothing was written to the live database.
   Rollback = `drop table public.vendor_store_discount_codes;` (no other table references it; checkout orders keep
   the code they used in `orders.metadata.vendor_store.discount`).
 
+## 2026-10-26 — store ship-from address: `vendor_storefronts.ship_from` APPLIED + TRACKED (Mia Potts, Watchtower `41551288`)
+
+- `20261026230000_vendor_store_ship_from.sql` — **APPLIED LIVE** 2026-10-26, dry-run in a rolled-back transaction
+  first, then one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`. Adds the
+  nullable `vendor_storefronts.ship_from jsonb` (where a store seller ships her own items from: her package is rated
+  from it at checkout and her Print label buys from it). Additive and unread by the live code, so applying ahead of
+  the ship is harmless; 0 rows set. Rollback = `alter table vendor_storefronts drop column ship_from;`.
+
 ## 2026-10-26 — store inbox: `vendor_storefronts.inbox_mailbox_id` + crystal@ mailbox APPLIED + TRACKED (Dr. Dill, Watchtower `f4a337b0`)
 
 - `20261026210000_vendor_store_inbox.sql` — **APPLIED LIVE** 2026-10-26 15:43Z, dry-run in a rolled-back

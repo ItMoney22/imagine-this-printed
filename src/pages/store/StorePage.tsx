@@ -1,10 +1,15 @@
 // A seller's own storefront: crystal.imaginethisprinted.com (and /store/:slug on ITP itself).
 // Built to David's approved mock (page_mockup_approvals 0074b39b, 2026-10-26). Buyers check out
 // through ITP's Stripe; the seller is paid by destination charge (backend/routes/vendor-store.ts).
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { CandlestickChart, CupSoda, Gift, Instagram, Lock, MessageCircle, Minus, Plus, ShieldCheck, Shirt, ShoppingCart, Sparkles, TicketPercent, Trash2, Truck, X, Flame } from 'lucide-react'
-import { applyCode, fetchStore, money, startCheckout, useStoreCart, type AppliedCode, type CartLine, type StoreInfo, type StoreItem } from '../../lib/vendor-store'
+import {
+  addressReady, applyCode, emptyAddress, fetchStore, money, quoteShipping, startCheckout, useStoreCart,
+  type AppliedCode, type CartLine, type ShipAddress, type ShippingOption, type StoreInfo, type StoreItem
+} from '../../lib/vendor-store'
+import ProgressBar from '../../components/studio/ProgressBar'
+import StoreAddressFields from './StoreAddressFields'
 import StoreStandFields, { type StandChoice } from './StoreStandFields'
 import './store.css'
 
@@ -351,6 +356,26 @@ function ItemSheet({ item, ownerFirst, onClose, onAdd }: {
   )
 }
 
+/** The buyer's ship-to, remembered on this device for the next visit (never sent anywhere until they check out). */
+function useShipTo(slug: string) {
+  const key = `vstore-shipto:${slug}`
+  const [shipTo, setShipTo] = useState<ShipAddress>(() => {
+    try {
+      return { ...emptyAddress(), ...JSON.parse(localStorage.getItem(key) || '{}') }
+    } catch {
+      return emptyAddress()
+    }
+  })
+  useEffect(() => {
+    try {
+      localStorage.setItem(key, JSON.stringify(shipTo))
+    } catch {
+      /* private mode: the address still works for this visit */
+    }
+  }, [key, shipTo])
+  return [shipTo, setShipTo] as const
+}
+
 function CartDrawer({ slug, store, byId, cart, onClose }: {
   slug: string
   store: StoreInfo
@@ -366,6 +391,11 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
   const [applied, setApplied] = useState<AppliedCode | null>(null)
   const [codeError, setCodeError] = useState('')
   const [checking, setChecking] = useState(false)
+  const [shipTo, setShipTo] = useShipTo(slug)
+  // Shipping is priced for this cart and this address (real carrier rates); any change prices it again.
+  const [quote, setQuote] = useState<{ state: 'idle' | 'loading' | 'ready' | 'error'; options: ShippingOption[]; startedAt: number; error?: string }>({ state: 'idle', options: [], startedAt: 0 })
+  const [picked, setPicked] = useState<string | null>(null)
+  const [requote, setRequote] = useState(0)
   // A line whose item came off the store since it was added is dropped from the total and the checkout.
   const lines = cart.lines.map((l, index) => ({ ...l, index, item: byId.get(l.itemId) })).filter(l => l.item)
   const subtotal = lines.reduce((n, l) => n + l.item!.priceCents * l.quantity, 0)
@@ -417,16 +447,50 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cartLines])
 
+  // Shipping prices are asked again when the cart or the address changes (a code never changes shipping).
+  const cartKey = JSON.stringify(cartLines)
+  const ready = addressReady(shipTo)
+  const addressKey = JSON.stringify({ ...shipTo, phone: '' })
+  const option = quote.options.find(o => o.id === picked) || null
+  const wanted = useRef(picked)
+  wanted.current = picked
+
+  useEffect(() => {
+    if (!ready || !cartLines.length) {
+      setQuote({ state: 'idle', options: [], startedAt: 0 })
+      return
+    }
+    let alive = true
+    const timer = setTimeout(() => {
+      setQuote(q => ({ state: 'loading', options: q.options, startedAt: Date.now() }))
+      quoteShipping(slug, cartLines, shipTo)
+        .then(options => {
+          if (!alive) return
+          setQuote({ state: 'ready', options, startedAt: 0 })
+          // Keep the buyer's pick when it is still offered; otherwise the cheapest.
+          setPicked(options.some(o => o.id === wanted.current) ? wanted.current : options[0]?.id ?? null)
+        })
+        .catch(e => alive && setQuote({ state: 'error', options: [], startedAt: 0, error: e.message }))
+    }, 500)
+    return () => { alive = false; clearTimeout(timer) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, cartKey, addressKey, ready, requote])
+
   const checkout = async () => {
+    if (!option) return
     setBusy(true)
     setError('')
     try {
-      window.location.href = await startCheckout(slug, cartLines, applied?.code)
+      window.location.href = await startCheckout(slug, cartLines, shipTo, option.token, applied?.code)
     } catch (e: any) {
       setError(e.message)
       setBusy(false)
+      // A price that went stale (15 minutes) or a cart that changed is priced again right away.
+      if (/Pick a shipping option again/.test(e.message)) setRequote(n => n + 1)
     }
   }
+
+  const days = (o: ShippingOption) => (o.days <= 1 ? 'about 1 business day' : `about ${o.days} business days`)
 
   return (
     <>
@@ -455,8 +519,40 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
               <p className="font-semibold">{money(l.item!.priceCents * l.quantity)}</p>
             </div>
           ))}
+
+          {lines.length > 0 && (
+            <section className="rounded-2xl border border-[var(--vs-line)] p-4 flex flex-col gap-3" aria-label="Shipping">
+              <p className="font-semibold flex items-center gap-2"><Truck className="w-5 h-5 text-[var(--vs-primary)]" /> Ship to</p>
+              <StoreAddressFields value={shipTo} onChange={setShipTo} section="shipping" phoneLabel="Phone (optional, for the carrier)" />
+              {!ready && <p className="text-xs text-[var(--vs-muted)]">Add your address to see shipping prices.</p>}
+              {quote.state === 'loading' && quote.options.length === 0 && (
+                <ProgressBar label="Finding shipping prices" startedAt={quote.startedAt} expectedMs={2500} />
+              )}
+              {quote.state === 'error' && (
+                <p className="text-sm text-red-600">{quote.error} <button className="underline" onClick={() => setRequote(n => n + 1)}>Try again</button></p>
+              )}
+              {quote.options.length > 0 && (
+                <div className={`flex flex-col gap-2 ${quote.state === 'loading' ? 'opacity-60' : ''}`} role="radiogroup" aria-label="Shipping speed">
+                  {quote.options.map(o => (
+                    <button key={o.id} role="radio" aria-checked={o.id === picked} onClick={() => setPicked(o.id)}
+                      className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${o.id === picked ? 'border-[var(--vs-primary)] bg-[var(--vs-page)]' : 'border-[var(--vs-line)] hover:border-[var(--vs-primary)]'}`}>
+                      <span className={`w-4 h-4 rounded-full border-2 shrink-0 ${o.id === picked ? 'border-[var(--vs-primary)] bg-[var(--vs-primary)] shadow-[inset_0_0_0_3px_var(--vs-card)]' : 'border-[var(--vs-line)]'}`} />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-sm font-medium">{o.name}</span>
+                        <span className="block text-xs text-[var(--vs-muted)]">{days(o)}{o.packages > 1 ? ' · ships in 2 packages' : ''}</span>
+                      </span>
+                      <span className="font-semibold text-sm">{money(o.amountCents)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {option && option.packages > 1 && (
+                <p className="text-xs text-[var(--vs-muted)]">Things {store.theme?.ownerFirst || 'she'} makes ship from her, and Imagine This Printed items ship from our shop, so they come in two boxes.</p>
+              )}
+            </section>
+          )}
         </div>
-        <div className="border-t border-[var(--vs-line)] p-5 flex flex-col gap-3">
+        <div className="border-t border-[var(--vs-line)] p-5 flex flex-col gap-2">
           {lines.length > 0 && (applied ? (
             <div className="flex items-center gap-2 text-sm">
               <TicketPercent className="w-4 h-4 text-[var(--vs-green)]" />
@@ -482,17 +578,19 @@ function CartDrawer({ slug, store, byId, cart, onClose }: {
               <TicketPercent className="w-4 h-4" /> Have a discount code?
             </button>
           ))}
-          <div className="flex justify-between font-semibold text-lg"><span>Subtotal</span>
-            <span>{applied ? <><s className="text-[var(--vs-muted)] font-normal text-base mr-2">{money(subtotal)}</s>{money(subtotal - applied.discountCents)}</> : money(subtotal)}</span>
+          <div className="flex justify-between text-sm"><span>Subtotal</span>
+            <span>{applied ? <><s className="text-[var(--vs-muted)] mr-2">{money(subtotal)}</s>{money(subtotal - applied.discountCents)}</> : money(subtotal)}</span>
           </div>
-          <p className="text-xs text-[var(--vs-muted)]">Shipping is added at checkout. 2XL and up on Imagine This Printed shirts cost a little more.</p>
+          <div className="flex justify-between text-sm"><span>Shipping</span><span>{option ? money(option.amountCents) : <span className="text-[var(--vs-muted)]">{ready ? '…' : 'Add your address'}</span>}</span></div>
+          <div className="flex justify-between font-semibold text-lg"><span>Total</span><span>{money(subtotal - (applied?.discountCents ?? 0) + (option?.amountCents ?? 0))}</span></div>
+          <p className="text-xs text-[var(--vs-muted)]">2XL and up on Imagine This Printed shirts cost a little more.</p>
           {error && <p className="text-sm text-red-600">{error}</p>}
           <button
-            disabled={!lines.length || busy || !store.open}
+            disabled={!lines.length || busy || !store.open || !option || quote.state === 'loading'}
             onClick={checkout}
             className="vs-btn-pink rounded-xl h-12 font-semibold flex items-center justify-center gap-2"
           >
-            <Lock className="w-4 h-4" /> {store.open ? (busy ? 'Opening checkout…' : 'Check out securely') : 'Checkout opens soon'}
+            <Lock className="w-4 h-4" /> {!store.open ? 'Checkout opens soon' : busy ? 'Opening checkout…' : option ? 'Check out securely' : 'Add your address to check out'}
           </button>
           <p className="text-[11px] text-center text-[var(--vs-muted)]">Secure checkout by Imagine This Printed</p>
         </div>

@@ -102,6 +102,7 @@ const CreatorStudio = lazy(() => import('./pages/CreatorStudio'))
 const CreatorStudioVoice = lazy(() => import('./pages/CreatorStudioVoice'))
 const StorePage = lazy(() => import('./pages/store/StorePage'))
 const StoreManager = lazy(() => import('./pages/store/StoreManager'))
+const StoreStart = lazy(() => import('./pages/store/StoreStart'))
 const MyStoreRedirect = lazy(() => import('./pages/store/StoreManager').then(m => ({ default: m.MyStoreRedirect })))
 
 // Team templates moved into Imagination Station (Team Studio, 2026-09-24).
@@ -113,7 +114,7 @@ function TeamTemplateRedirect() {
 
 // Routes that should hide the sidebar for full-screen experience
 const FULL_SCREEN_ROUTES = ['/imagination-station', '/order-success', '/kiosk', '/ar/']
-const STORE_ROUTES = ['/store/', '/vendor/store']
+const STORE_ROUTES = ['/store/', '/vendor/store', '/start/']
 
 // <slug>.imaginethisprinted.com is a seller's own store and shows nothing else (David 2026-10-26).
 const HOST_STORE = storeSlugFromHost(window.location.hostname)
@@ -286,6 +287,8 @@ function App() {
                   {/* Vendor Routes */}
                   {/* A seller's own store (also on <slug>.imaginethisprinted.com) and where she runs it. */}
                   <Route path="/store/:slug" element={<StorePage />} />
+                  {/* Her first-time sign-up: account, ship-from address, payouts. */}
+                  <Route path="/start/:slug" element={<StoreStart />} />
                   <Route path="/vendor/store" element={<ProtectedRoute><MyStoreRedirect /></ProtectedRoute>} />
                   <Route path="/vendor/store/:slug" element={<ProtectedRoute><StoreManager /></ProtectedRoute>} />
                   <Route path="/vendor/dashboard" element={<VendorDashboard />} />

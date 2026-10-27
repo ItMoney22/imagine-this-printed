@@ -5414,3 +5414,52 @@ one 390px row without shrinking the tap targets, and the class keeps md+ exactly
   land with the section top at 176px and the title at 193-201px at 360, 390 and 414 (seller + admin views); 600 too;
   768 and 1400 still 112px. Walk = built site + local API on prod data, signed in as David; shots in
   E:/memory/watchtower/projects/imagine-this-printed/2026-10-26-123ab6ca-store-menu-jump/. vitest src/pages/store 5/5.
+
+## Current request (2026-10-26) — Crystal's store: real Shippo shipping at checkout, she prints her own labels (task 41551288, mia-potts)
+
+David 10/26: "use ITP's same GoShippo flow (real rates at checkout like the main site; ITP keeps its usual cut of
+shipping). Her own items ship from HER: give her the Shippo label to print from her store manager. ITP items (candle
+holder, QR stand) ship from ITP through the normal order flow." Built on Sal's superset f0da3ee (store + assistant +
+inbox). One Shippo client for every path: the main site's quote and admin label now call the same helper.
+
+### File shortlist (approved scope — 2026-10-26 store shipping)
+- new `backend/services/shippo.ts` (+ test): the one Shippo client (rate a parcel, buy a label, estimates fallback)
+- `backend/routes/shipping.ts`, `backend/routes/orders.ts`: use the helper (same behaviour); ITP's label weighs only ITP lines
+- `backend/services/shipping-quote.ts`: signed store quote (both packages in one token)
+- `backend/lib/vendor-store-split.ts` (+ test): per-package shipping, ITP's 5% cut, her label paid from her package's shipping
+- `backend/routes/vendor-store.ts` (+ test): rates, checkout on the signed quote, ship-from, Print label + PDF
+- `backend/services/vendor-store-orders.ts`: keep the address the cart quoted; seller email points at Print label
+- `supabase/migrations/20261026230000_vendor_store_ship_from.sql` (new), `supabase/migrations/MIGRATION_LEDGER.md`
+- `vitest.hermetic-env.ts`: strip SHIPPO_API_TOKEN too (the list had only SHIPPO_API_KEY, which ITP never uses)
+- `src/lib/vendor-store.ts`, `src/pages/store/StorePage.tsx` (cart: ship to + real rates), `src/pages/store/StoreManager.tsx`
+  (Print label, ship-from address; flat shipping boxes removed), new `src/pages/store/StoreAddressFields.tsx` (the one
+  address form: buyer ship-to, seller ship-from), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (mia-potts): flat $5.99/side gone. Cart takes the address and shows live Shippo rates for both boxes (hers
+  from her ship-from, ITP's from Rockmart, ITP's 5% on each); checkout charges the signed two-package quote only; split
+  records each package (charge, label, cut) on its own side; Print label in her manager buys once on ITP's Shippo from
+  her ship-from and downloads the PDF. Migration 20261026230000 applied live. vitest 188 files / 2586 pass, tsc -b 0,
+  backend tsc clean. Live: real rates (QA store, Atlanta + LA), real checkout row with split (Stripe faked, no test
+  key), fleet-browser walks 1400 + 390 of cart and manager; QA rows deleted. Real label PDF waits on APPROVE d5a1eb28.
+
+## Current request (2026-10-27) — /start/crystal onto the 10/27 Crystal batch (task eaebd7c7, cole-iverson)
+
+David 10/27: "https://www.imaginethisprinted.com/start/crystal what happen to this page?" Cole's sign-up flow 4acd1e5
+(branch earth/cole-iverson/crystal-opal-onboarding: StoreStart + Rico persona + Mia's 9c113f5 shipping) was never put
+on a ship. This branch = batch tip 90c6a373 (reminders, referral cut, discount codes, 123ab6ca menu-jump fix) + a
+--no-ff merge of 4acd1e5, keeping both sides.
+
+### File shortlist (approved scope — 2026-10-27 merge)
+- the 8 conflicted files: `TASK_NOTES.md`, `supabase/migrations/MIGRATION_LEDGER.md`, `backend/lib/vendor-store-split.ts`,
+  `backend/routes/vendor-store.ts` (+ test), `src/lib/vendor-store.ts`, `src/pages/store/StoreManager.tsx`, `StorePage.tsx`
+- tests the merged money rules changed: `backend/lib/vendor-store-split.test.ts`, `backend/routes/vendor-store-discounts.test.ts`
+
+### Work log (append-only)
+- 2026-10-27 (cole-iverson): resolved keep-both. Split: discount comes off her share AND both packages' shipping sit on
+  ITP's side (Mia), so her shipping no longer cushions a code (a code taking her items to $0 at a 10% fee is now refused
+  as too deep). Checkout: readCart + the signed Shippo quote, then her code, then splitWithCode with the quote's
+  shipping (the cart's Apply keeps the store's flat numbers: shipping is on both sides of the too-deep check). Cart:
+  code box + ship-to/rates; Total = items - code + shipping. Admin panel: her link's cut stays, flat shipping boxes
+  stay gone. Discount route tests now check out through /shipping-rates like the real cart. vitest 196 files / 2663
+  pass, tsc -b 0, backend tsc only the known TS2742.

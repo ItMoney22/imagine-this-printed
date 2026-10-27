@@ -44,9 +44,11 @@ function timeOf(iso?: string): string {
   return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`
 }
 
-export default function StoreAssistant({ slug, ownerFirst, faceUrl, open, onClose, onMakeProduct, onNeedStudio }: {
+export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUrl, open, onClose, onMakeProduct, onNeedStudio }: {
   slug: string
   ownerFirst: string
+  /** Her first name (the store theme's assistantName). Without one she is just "Your store assistant". */
+  assistantName?: string
   /** The assistant's face: the store theme's `assistant` art, else /stores/<slug>/assistant.webp. */
   faceUrl?: string
   open: boolean
@@ -225,10 +227,13 @@ export default function StoreAssistant({ slug, ownerFirst, faceUrl, open, onClos
 
   if (!open) return null
   return (
-    <aside className="vs-assistant fixed inset-x-0 bottom-0 z-50 h-[85vh] rounded-t-3xl xl:static xl:h-[calc(100vh-7rem)] xl:sticky xl:top-24 xl:rounded-3xl bg-white border border-[var(--vs-line)] shadow-2xl xl:shadow-none flex flex-col" aria-label="Your store assistant">
+    <aside className="vs-assistant fixed inset-x-0 bottom-0 z-50 h-[85vh] rounded-t-3xl xl:static xl:h-[calc(100vh-7rem)] xl:sticky xl:top-24 xl:rounded-3xl bg-white border border-[var(--vs-line)] shadow-2xl xl:shadow-none flex flex-col" aria-label={assistantName ? `${assistantName}, your store assistant` : 'Your store assistant'}>
       <div className="flex items-center gap-3 px-4 pt-4">
         {faceIcon(48)}
-        <p className="vs-display text-xl flex-1">Your store assistant</p>
+        <div className="flex-1 min-w-0">
+          <p className="vs-display text-xl leading-tight">{assistantName || 'Your store assistant'}</p>
+          {assistantName && <p className="text-xs text-[var(--vs-muted)]">Your store assistant</p>}
+        </div>
         <button onClick={onClose} aria-label="Close the assistant"><X className="w-5 h-5" /></button>
       </div>
       <button onClick={() => { setSpeakOn(!speakOn); if (speakOn) audio.current?.pause() }} className="self-start mx-4 mt-2 flex items-center gap-2 text-sm text-[var(--vs-muted)]" aria-pressed={speakOn}>
@@ -240,7 +245,7 @@ export default function StoreAssistant({ slug, ownerFirst, faceUrl, open, onClos
           <div className="flex items-start gap-2">
             {faceIcon(32)}
             <div className="rounded-2xl rounded-tl-md bg-[var(--vs-page)] p-4 text-sm">
-              Hi {ownerFirst}! Ask me anything about your store, or tap the mic and just talk. I write descriptions and Instagram captions and tell you how your sales are doing. Attach a picture of a design with the paperclip and I’ll tell you how it will print, and help you make it a product.
+              {assistantName ? `¡Hola ${ownerFirst}! Soy ${assistantName}, your store assistant.` : `Hi ${ownerFirst}!`} Ask me anything about your store, or tap the mic and just talk. I write descriptions and Instagram captions and tell you how your sales are doing. Attach a picture of a design with the paperclip and I’ll tell you how it will print, and help you make it a product.
             </div>
           </div>
         )}

@@ -153,10 +153,22 @@ const manage = (user: string, path = '', init: RequestInit = {}) =>
   })
 const send = (user: string, method: string, body: any, path = '') => manage(user, path, { method, body: JSON.stringify(body) })
 
-// Two Craft Queen Tees (hers) and one candle holder (ours): 7600 of items, both shippings (1298).
+// Two Craft Queen Tees (hers) and one candle holder (ours): 7600 of items, plus both packages' shipping.
 const CART = [{ itemId: 'tee', quantity: 2, size: 'M' }, { itemId: 'candle', quantity: 1 }]
-const buy = (body: Record<string, any>) =>
-  fetch(`${base}/api/vendor-store/crystal/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: CART, ...body }) })
+const SHIP_TO = { name: 'Pat Buyer', street1: '1 Main St', city: 'Atlanta', state: 'GA', zip: '30303', phone: '4045550100' }
+/**
+ * The cart's way through (Mia's shipping, task 41551288): price shipping for the address, take the cheapest choice,
+ * check out with its signed quote. No Shippo key in tests, so the quote is the weight-aware estimate.
+ */
+const buy = async (body: Record<string, any>, items: any[] = CART) => {
+  const rated = await fetch(`${base}/api/vendor-store/crystal/shipping-rates`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, shipTo: SHIP_TO }),
+  })
+  const shippingQuote = (await rated.json()).options?.[0]?.token
+  return fetch(`${base}/api/vendor-store/crystal/checkout`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, shipTo: SHIP_TO, shippingQuote, ...body }),
+  })
+}
 const check = (body: Record<string, any>) =>
   fetch(`${base}/api/vendor-store/crystal/discount`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: CART, ...body }) })
 
@@ -226,17 +238,20 @@ describe('a buyer using her code', () => {
     expect((await buy({ code: 'FIVEOFF' })).status).toBe(200)
     const [plain, pct, dollars] = sessions
 
-    // ITP: 10% of her 5000 (500) + our candle price 1400 + our shipping 699 = 2599, every time.
-    expect(plain.payment_intent_data.application_fee_amount).toBe(2599)
+    // ITP: 10% of her 5000 (500) + our candle price 1400 + both packages' shipping (ITP's Shippo buys both labels),
+    // every time.
+    const shipping = plain.shipping_options[0].shipping_rate_data.fixed_amount.amount
+    expect(shipping).toBeGreaterThan(0)
+    expect(plain.payment_intent_data.application_fee_amount).toBe(500 + 1400 + shipping)
     expect(pct.payment_intent_data.application_fee_amount).toBe(plain.payment_intent_data.application_fee_amount)
     expect(dollars.payment_intent_data.application_fee_amount).toBe(plain.payment_intent_data.application_fee_amount)
     expect(pct.payment_intent_data.transfer_data).toEqual({ destination: 'acct_crystal' })
 
-    // The buyer: 7600 + 1298 = 8898 without a code; 20% of the items (1520) off; $5 off.
+    // The buyer: 7600 + shipping without a code; 20% of the items (1520) off; $5 off. Shipping is never discounted.
     expect(plain.discounts).toBeUndefined()
-    expect(charged(plain)).toBe(8898)
-    expect(charged(pct)).toBe(8898 - 1520)
-    expect(charged(dollars)).toBe(8898 - 500)
+    expect(charged(plain)).toBe(7600 + shipping)
+    expect(charged(pct)).toBe(7600 + shipping - 1520)
+    expect(charged(dollars)).toBe(7600 + shipping - 500)
     // Same items at the same prices, same shipping: the code is its own line on Stripe's page.
     expect(pct.line_items).toEqual(plain.line_items)
     expect(pct.shipping_options).toEqual(plain.shipping_options)
@@ -247,7 +262,7 @@ describe('a buyer using her code', () => {
 
     // The order rows: what the buyer pays, and her share (the only number the code moved).
     const [o0, o1, o2] = orderInserts()
-    expect([o0.total, o1.total, o2.total]).toEqual([88.98, 73.78, 83.98])
+    expect([o0.total, o1.total, o2.total]).toEqual([7600 + shipping, 7600 + shipping - 1520, 7600 + shipping - 500].map(c => c / 100))
     expect([o0.discount_amount, o1.discount_amount, o2.discount_amount]).toEqual([0, 15.2, 5])
     expect(o1.metadata.vendor_store.split.itpShareCents).toBe(o0.metadata.vendor_store.split.itpShareCents)
     expect(o1.metadata.vendor_store.split.vendorShareCents).toBe(o0.metadata.vendor_store.split.vendorShareCents - 1520)
@@ -267,11 +282,8 @@ describe('a buyer using her code', () => {
       expect(res.status).toBe(400)
       expect((await res.json()).error).toMatch(why)
     }
-    // One candle holder: ITP's share 1400 + 699 = 2099 of 3299, she keeps 1200. Half off (1300) needs our money.
-    const res = await fetch(`${base}/api/vendor-store/crystal/checkout`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: [{ itemId: 'candle', quantity: 1 }], code: 'HALFOFF' }),
-    })
+    // One candle holder: ITP's share is 1400 + our shipping, she keeps 1200. Half off (1300) needs our money.
+    const res = await buy({ code: 'HALFOFF' }, [{ itemId: 'candle', quantity: 1 }])
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/takes off more than this order allows/)
     expect(sessions).toHaveLength(0)

@@ -75,6 +75,32 @@ vi.mock('stripe', () => ({
   },
 }))
 
+// Shippo is faked at the network edge (services/shippo.ts is the real client): a shipment from her ZIP (30120) or
+// Rockmart's (30153) gets fixed carrier rates, a transaction is a bought label, and the label file is a tiny PDF.
+process.env.SHIPPO_API_TOKEN = 'shippo_test_fake'
+const shippoCalls: Array<{ url: string; body: any }> = []
+const CARRIER_RATES: Record<string, Array<[string, string, string, string]>> = {
+  '30120': [['USPS', 'usps_ground_advantage', 'Ground Advantage', '7.43'], ['USPS', 'usps_priority', 'Priority Mail', '9.33']],
+  '30153': [['USPS', 'usps_ground_advantage', 'Ground Advantage', '5.58'], ['USPS', 'usps_priority', 'Priority Mail', '8.95'], ['UPS', 'ups_ground', 'Ground', '11.20']],
+}
+const asJson = (json: any, status = 201) => new Response(JSON.stringify(json), { status, headers: { 'Content-Type': 'application/json' } })
+const realFetch = globalThis.fetch
+globalThis.fetch = (async (url: any, init: any) => {
+  const u = String(url)
+  if (u.startsWith('https://api.goshippo.com/')) {
+    const body = JSON.parse(init.body)
+    shippoCalls.push({ url: u, body })
+    if (u.endsWith('/shipments/')) {
+      const from = body.address_from.zip
+      return asJson({ rates: (CARRIER_RATES[from] || []).map(([provider, token, name, amount]) =>
+        ({ object_id: `rate_${from}_${token}`, provider, servicelevel: { token, name }, amount, currency: 'USD', estimated_days: 3 })) })
+    }
+    return asJson({ object_id: 'tx_1', status: 'SUCCESS', label_url: 'https://deliver.goshippo.com/tx_1.pdf', tracking_number: '9400111', tracking_url_provider: 'https://tools.usps.com/t/9400111' })
+  }
+  if (u === 'https://deliver.goshippo.com/tx_1.pdf') return new Response(Buffer.from('%PDF-1.4 shippo label'), { status: 200, headers: { 'Content-Type': 'application/pdf' } })
+  return realFetch(url, init)
+}) as any
+
 const { default: router } = await import('./vendor-store.js')
 
 let base = ''
@@ -87,11 +113,13 @@ beforeAll(async () => {
   await new Promise<void>(resolve => { server = app.listen(0, () => resolve()) })
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
 })
-afterAll(() => { server?.close() })
+afterAll(() => { server?.close(); globalThis.fetch = realFetch })
 
 const store = (over: Record<string, any> = {}) => ({
   id: STORE_ID, slug: 'crystal', name: 'Crystal’s Shirts and More', status: 'live', fee_percent: 10,
-  own_shipping_cents: 599, itp_shipping_cents: 699, stripe_account_id: 'acct_crystal', theme: {}, ...over,
+  own_shipping_cents: 599, itp_shipping_cents: 699, stripe_account_id: 'acct_crystal', theme: {},
+  ship_from: { name: 'Crystal Trinidad', street1: '12 Craft Ln', street2: '', city: 'Cartersville', state: 'GA', zip: '30120', phone: '7705551234' },
+  ...over,
 })
 
 beforeEach(() => {
@@ -102,6 +130,7 @@ beforeEach(() => {
   sessions.length = 0
   writes.length = 0
   role = null
+  shippoCalls.length = 0
   tables = {
     vendor_storefronts: [store()],
     vendor_store_items: [
@@ -112,8 +141,16 @@ beforeEach(() => {
   }
 })
 
-const buy = (items: any[]) =>
-  fetch(`${base}/api/vendor-store/crystal/checkout`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) })
+const SHIP_TO = { name: 'Pat Buyer', street1: '1 Main St', city: 'Atlanta', state: 'GA', zip: '30303', phone: '4045550100' }
+const post = (path: string, body: any) =>
+  fetch(`${base}/api/vendor-store/crystal${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+const rates = (items: any[], shipTo: any = SHIP_TO) => post('/shipping-rates', { items, shipTo })
+/** The cart's way through: price shipping for the address, take the cheapest choice, check out with it. */
+const buy = async (items: any[], opts: { token?: string | null; shipTo?: any } = {}) => {
+  let token = opts.token
+  if (token === undefined) token = (await (await rates(items, opts.shipTo || SHIP_TO)).json()).options?.[0]?.token
+  return post('/checkout', { items, shipTo: opts.shipTo || SHIP_TO, shippingQuote: token })
+}
 
 describe('vendor store checkout', () => {
   it('pays her account by destination charge and keeps ITP’s share as the fee', async () => {
@@ -123,17 +160,71 @@ describe('vendor store checkout', () => {
     const s = sessions[0]
     // Prices come from the rows: the browser's priceCents: 1 is ignored.
     expect(s.line_items.map((l: any) => l.price_data.unit_amount)).toEqual([2500, 2600])
-    expect(s.shipping_options[0].shipping_rate_data.fixed_amount.amount).toBe(599 + 699)
-    // ITP: 10% of 5000 (500) + candle cost 1400 + ITP shipping 699.
-    expect(s.payment_intent_data.application_fee_amount).toBe(500 + 1400 + 699)
+    // Real rates with ITP's 5%: her box 7.43 -> 7.80 from Cartersville, ITP's 5.58 -> 5.86 from Rockmart.
+    expect(s.shipping_options[0].shipping_rate_data.fixed_amount.amount).toBe(780 + 586)
+    expect(s.shipping_options[0].shipping_rate_data.display_name).toBe('USPS Ground Advantage (ships in two packages)')
+    // ITP: 10% of 5000 (500) + candle cost 1400 + both packages' shipping (both labels bought on ITP's Shippo).
+    expect(s.payment_intent_data.application_fee_amount).toBe(500 + 1400 + 586 + 780)
     expect(s.payment_intent_data.transfer_data).toEqual({ destination: 'acct_crystal' })
     expect(s.payment_intent_data.metadata.orderId).toBe('order-1')
+    // The address the rate was quoted for goes to Stripe; Stripe doesn't ask for another.
+    expect(s.shipping_address_collection).toBeUndefined()
+    expect(s.payment_intent_data.shipping).toEqual({ name: 'Pat Buyer', phone: '4045550100', address: { line1: '1 Main St', city: 'Atlanta', state: 'GA', postal_code: '30303', country: 'US' } })
     const order = writes.find(w => w.table === 'orders' && w.op === 'insert')!.payload
     expect(order.source).toBe('store:crystal')
-    expect(order.total).toBe((5000 + 2600 + 1298) / 100)
-    expect(order.metadata.vendor_store.split.vendorShareCents).toBe(5000 + 2600 + 1298 - 2599)
+    expect(order.total).toBe((5000 + 2600 + 780 + 586) / 100)
+    expect(order.shipping_amount).toBe((780 + 586) / 100)
+    expect(order.shipping_address).toMatchObject({ firstName: 'Pat', lastName: 'Buyer', address: '1 Main St', city: 'Atlanta', state: 'GA', zipCode: '30303' })
+    const split = order.metadata.vendor_store.split
+    // Her package on her side, ITP's on ours, each with the label it pays for and ITP's usual cut.
+    expect([split.ownShippingCents, split.ownLabelCents, split.ownShippingCutCents]).toEqual([780, 743, 37])
+    expect([split.itpShippingCents, split.itpLabelCents, split.itpShippingCutCents]).toEqual([586, 558, 28])
+    expect(split.vendorShareCents).toBe(4500 + 1200)
+    expect(order.metadata.vendor_store.shipping.own).toMatchObject({ chargeCents: 780, service: 'usps_ground_advantage', weightLb: 1, source: 'shippo' })
+    expect(order.metadata.vendor_store.shipping.itp).toMatchObject({ chargeCents: 586, service: 'usps_ground_advantage', weightLb: 0.5 })
+    // Her box was rated from her ship-from address, ITP's from the warehouse.
+    expect(shippoCalls.filter(c => c.url.endsWith('/shipments/')).map(c => [c.body.address_from.zip, c.body.address_to.zip, c.body.parcels[0].weight]).sort())
+      .toEqual([['30120', '30303', '1.00'], ['30153', '30303', '0.50']])
     const items = writes.find(w => w.table === 'order_items')!.payload
     expect(items.map((i: any) => i.metadata.maker)).toEqual(['vendor', 'itp'])
+  })
+
+  it('the cart gets one choice per service both boxes can ship by, and never sees her address or the label cost', async () => {
+    const res = await rates([{ itemId: 'tee', quantity: 2, size: 'M' }, { itemId: 'candle', quantity: 1 }])
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.source).toBe('shippo')
+    expect(body.options.map((o: any) => [o.name, o.amountCents, o.packages])).toEqual([['USPS Ground Advantage', 780 + 586, 2], ['USPS Priority Mail', 980 + 940, 2]])
+    const text = JSON.stringify(body) + JSON.stringify(body.options.map((o: any) => Buffer.from(o.token.split('.')[0], 'base64url').toString('utf8')))
+    expect(text).not.toMatch(/Craft Ln|Cartersville|30120|743|558/)
+    expect(JSON.stringify(await (await fetch(`${base}/api/vendor-store/crystal`)).json())).not.toMatch(/Craft Ln|30120/)
+  })
+
+  it('charges the signed quote only: an edited, missing, stale-cart or other-address quote is refused', async () => {
+    const cart = [{ itemId: 'tee', quantity: 1, size: 'M' }]
+    const token: string = (await (await rates(cart)).json()).options[0].token
+    const [payload, sig] = token.split('.')
+    const claims = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'))
+    claims.own.chargeCents = 1
+    const edited = `${Buffer.from(JSON.stringify(claims)).toString('base64url')}.${sig}`
+    for (const r of [
+      await buy(cart, { token: edited }),
+      await buy(cart, { token: null }),
+      await buy([{ itemId: 'tee', quantity: 3, size: 'M' }], { token }),
+      await buy(cart, { token, shipTo: { ...SHIP_TO, zip: '10001' } }),
+      await buy(cart, { token, shipTo: { ...SHIP_TO, state: 'Georgia' } }),
+    ]) expect(r.status).toBe(400)
+    expect(sessions).toHaveLength(0)
+    expect((await buy(cart, { token })).status).toBe(200)
+  })
+
+  it('a store with no ship-from address yet prices her box from the main site’s estimates, never a flat rate', async () => {
+    tables.vendor_storefronts = [store({ ship_from: null })]
+    const body = await (await rates([{ itemId: 'tee', quantity: 1, size: 'M' }])).json()
+    expect(body.source).toBe('estimate')
+    // USPS Ground Advantage estimate for 0.5 lb: (6.49 + 0.55 x 0.5) x 1.05 = 7.10.
+    expect(body.options[0]).toMatchObject({ name: 'USPS Ground Advantage', amountCents: 710, packages: 1 })
+    expect(shippoCalls).toHaveLength(0)
   })
 
   it('sells the QR stand as an ITP line that carries the buyer’s link, words and logo for the builder', async () => {
@@ -141,7 +232,7 @@ describe('vendor store checkout', () => {
     expect((await buy([{ itemId: 'stand', quantity: 1, personalization: { qr_caption: 'Pay Here' } }])).status).toBe(400)
     const res = await buy([{ itemId: 'stand', quantity: 2, personalization: { qr_link: 'crystal.imaginethisprinted.com', qr_caption: 'Shop My Store' } }])
     expect(res.status).toBe(200)
-    expect(sessions[0].payment_intent_data.application_fee_amount).toBe(1795 * 2 + 699)
+    expect(sessions[0].payment_intent_data.application_fee_amount).toBe(1795 * 2 + 586)
     const line = writes.find(w => w.table === 'order_items')!.payload[0]
     expect(line.metadata.maker).toBe('itp')
     expect(line.metadata.qr_stand).toEqual({ line_index: 0, link: 'https://crystal.imaginethisprinted.com', caption: 'Shop My Store', logo_path: null })
@@ -196,6 +287,96 @@ describe('store manager: her link', () => {
     tables.vendor_storefronts = [store({ owner_user_id: 'crystal-user' })]
     expect((await manage({ method: 'PATCH', body: JSON.stringify({ referralPercent: 50 }) })).status).toBe(400)
     expect(writes.some(w => w.payload?.referral_percent !== undefined)).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Her labels (task 41551288, David 2026-10-26: "her own items ship from HER: give her the Shippo label to print from
+// her store manager"). Bought on ITP's Shippo account from her ship-from address, once per order, downloaded as a PDF.
+// ---------------------------------------------------------------------------
+describe('her Print label', () => {
+  const paidOrder = (over: Record<string, any> = {}) => ({
+    id: 'order-9', order_number: 'ITP-9', source: 'store:crystal', payment_status: 'paid',
+    customer_email: 'pat@example.com', customer_name: 'Pat Buyer',
+    shipping_address: { firstName: 'Pat', lastName: 'Buyer', address: '1 Main St', address2: '', city: 'Atlanta', state: 'GA', zipCode: '30303', country: 'US', phone: '' },
+    metadata: {
+      items: [{ maker: 'vendor', quantity: 2, name: 'Craft Queen Tee' }, { maker: 'itp', quantity: 1, name: 'Ghost Face Candle Holder' }],
+      vendor_store: { split: { vendorShareCents: 5700 }, shipping: { own: { chargeCents: 980, carrier: 'USPS', service: 'usps_priority', name: 'USPS Priority Mail', weightLb: 1, source: 'shippo' } } }
+    },
+    ...over,
+  })
+  const asOwner = () => {
+    role = 'vendor'
+    tables.vendor_storefronts = [store({ owner_user_id: 'crystal-user' })]
+  }
+  const print = () => fetch(`${base}/api/vendor-store/manage/crystal/orders/ITP-9/label`, { method: 'POST' })
+
+  it('buys her label from her address on the service the buyer paid for, saves it, and never buys twice', async () => {
+    asOwner()
+    tables.orders = [paidOrder()]
+    const res = await print()
+    expect(res.status).toBe(200)
+    expect((await res.json()).label).toMatchObject({ trackingNumber: '9400111', carrier: 'USPS', service: 'Priority Mail' })
+    const [shipment, tx] = shippoCalls
+    expect([shipment.body.address_from.zip, shipment.body.address_from.phone, shipment.body.address_to.zip, shipment.body.parcels[0].weight]).toEqual(['30120', '7705551234', '30303', '1.00'])
+    expect(tx.body).toMatchObject({ rate: 'rate_30120_usps_priority', label_file_type: 'PDF', metadata: 'ITP-9 crystal' })
+    const saved = writes.find(w => w.table === 'orders' && w.op === 'update')!.payload
+    expect(saved.metadata.vendor_store.label).toMatchObject({ label_url: 'https://deliver.goshippo.com/tx_1.pdf', tracking_number: '9400111', cost_cents: 933 })
+    // The rest of the order's record is kept, and ITP's own package isn't marked shipped.
+    expect(saved.metadata.vendor_store.shipping.own.service).toBe('usps_priority')
+    expect(saved.status).toBeUndefined()
+
+    tables.orders = [paidOrder({ metadata: saved.metadata })]
+    shippoCalls.length = 0
+    const again = await (await print()).json()
+    expect(again.alreadyPurchased).toBe(true)
+    expect(shippoCalls).toHaveLength(0)
+
+    const pdf = await fetch(`${base}/api/vendor-store/manage/crystal/orders/ITP-9/label.pdf`)
+    expect(pdf.status).toBe(200)
+    expect(pdf.headers.get('content-type')).toBe('application/pdf')
+    expect(pdf.headers.get('content-disposition')).toBe('attachment; filename="label-ITP-9.pdf"')
+    expect((await pdf.text()).startsWith('%PDF')).toBe(true)
+  })
+
+  it('asks for her ship-from address first, and has no label for an order ITP ships alone or one not paid', async () => {
+    role = 'vendor'
+    tables.vendor_storefronts = [store({ owner_user_id: 'crystal-user', ship_from: null })]
+    tables.orders = [paidOrder()]
+    const res = await print()
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('ship_from')
+    asOwner()
+    tables.orders = [paidOrder({ metadata: { items: [{ maker: 'itp', quantity: 1 }], vendor_store: {} } })]
+    expect((await print()).status).toBe(400)
+    tables.orders = [paidOrder({ payment_status: 'pending' })]
+    expect((await print()).status).toBe(404)
+    expect((await fetch(`${base}/api/vendor-store/manage/crystal/orders/ITP-9/label.pdf`)).status).toBe(404)
+    expect(shippoCalls).toHaveLength(0)
+  })
+
+  it('is hers alone: another seller can’t print or download it', async () => {
+    role = 'vendor'
+    tables.vendor_storefronts = [store({ owner_user_id: 'someone-else' })]
+    tables.orders = [paidOrder()]
+    expect((await print()).status).toBe(403)
+    expect((await fetch(`${base}/api/vendor-store/manage/crystal/orders/ITP-9/label.pdf`)).status).toBe(403)
+    expect(shippoCalls).toHaveLength(0)
+  })
+
+  it('her manager shows her ship-from address and each order’s label; she saves the address with a phone', async () => {
+    asOwner()
+    tables.orders = [paidOrder()]
+    const data = await (await fetch(`${base}/api/vendor-store/manage/crystal`)).json()
+    expect(data.store.shipFrom).toMatchObject({ zip: '30120' })
+    expect(data.orders[0]).toMatchObject({ orderNumber: 'ITP-9', shipping: { chargeCents: 980, service: 'USPS Priority Mail' }, label: null })
+    const patch = (shipFrom: any) => fetch(`${base}/api/vendor-store/manage/crystal`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ shipFrom }) })
+    const noPhone = await patch({ name: 'Crystal', street1: '12 Craft Ln', city: 'Cartersville', state: 'GA', zip: '30120' })
+    expect(noPhone.status).toBe(400)
+    expect((await patch({ name: ' Crystal ', street1: '12 Craft Ln', city: 'Cartersville', state: 'ga', zip: '30120', phone: '(770) 555-1234' })).status).toBe(200)
+    // (The manager GET also writes her store's referral code, so pick the address save by what it wrote.)
+    expect(writes.find(w => w.table === 'vendor_storefronts' && w.op === 'update' && 'ship_from' in w.payload)!.payload.ship_from)
+      .toEqual({ name: 'Crystal', street1: '12 Craft Ln', street2: '', city: 'Cartersville', state: 'GA', zip: '30120', phone: '(770) 555-1234' })
   })
 })
 
