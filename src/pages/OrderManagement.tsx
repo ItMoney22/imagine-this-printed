@@ -1775,6 +1775,7 @@ const OrderManagement: React.FC = () => {
                           {renderReversalStep("Loyalty ITC Bonus", refundResponse.reversal.loyaltyItc)}
                           {renderReversalStep("Referral First Purchase Bonus", refundResponse.reversal.referralBonus)}
                           {renderReversalStep("Coupon Usage Count", refundResponse.reversal.couponUsage)}
+                          {renderReversalStep("Shipping Labels", refundResponse.reversal.shippingLabels)}
                         </div>
                       )}
 

@@ -354,6 +354,18 @@ describe('her Print label', () => {
     expect(shippoCalls).toHaveLength(0)
   })
 
+  it('a refunded order’s label is cancelled: no download, no new label (task 86fda980)', async () => {
+    asOwner()
+    const label = { transaction_id: 'tx_1', label_url: 'https://deliver.goshippo.com/tx_1.pdf', tracking_number: '9400111', refund: { status: 'QUEUED' } }
+    const refunded = paidOrder({ payment_status: 'refunded' })
+    tables.orders = [{ ...refunded, metadata: { ...refunded.metadata, vendor_store: { ...refunded.metadata.vendor_store, label } } }]
+    const pdf = await fetch(`${base}/api/vendor-store/manage/crystal/orders/ITP-9/label.pdf`)
+    expect(pdf.status).toBe(410)
+    expect((await pdf.json()).error).toMatch(/refunded, so don’t ship it/)
+    expect((await print()).status).toBe(404)
+    expect(shippoCalls).toHaveLength(0)
+  })
+
   it('is hers alone: another seller can’t print or download it', async () => {
     role = 'vendor'
     tables.vendor_storefronts = [store({ owner_user_id: 'someone-else' })]
