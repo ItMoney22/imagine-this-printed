@@ -20,6 +20,15 @@ describe('Rico, the store assistant', () => {
     expect(p).toContain('WHAT YOU REMEMBER ABOUT HER\n- Her best customers are teachers.')
     expect(systemPrompt(facts)).not.toContain('WHAT YOU REMEMBER')
   })
+  // David 2026-10-27 "is he fully equipped": the 10/27 batch gave her Print label, a ship-from address, label refunds
+  // and discount codes, so Rico has to know where each lives on her page.
+  it('knows how she ships her orders and makes discount codes', () => {
+    const p = systemPrompt(facts)
+    expect(p).toMatch(/Where you ship from/)
+    expect(p).toMatch(/Print label/)
+    expect(p).toMatch(/refunded/)
+    expect(p).toMatch(/Discount codes card/)
+  })
   it('speaks in his Gemini voice, Achird', () => {
     expect(PERSONAS['store-assistant'].voice).toBe('Achird')
     expect(PERSONAS['store-assistant'].style).toMatch(/Spanish/)
