@@ -5474,3 +5474,23 @@ inbox). One Shippo client for every path: the main site's quote and admin label 
   her ship-from and downloads the PDF. Migration 20261026230000 applied live. vitest 188 files / 2586 pass, tsc -b 0,
   backend tsc clean. Live: real rates (QA store, Atlanta + LA), real checkout row with split (Stripe faked, no test
   key), fleet-browser walks 1400 + 390 of cart and manager; QA rows deleted. Real label PDF waits on APPROVE d5a1eb28.
+
+## Current request (2026-10-13) — Etsy craft type for ITP products (task 1e178492, marcus-wolfe)
+
+Christina 8/22: "the created products require a 'craft type' as a mandatory field ... none of them fit what we do".
+Craft type is ETSY's attribute (property 47626759760), required on 6617 Image Transfers (DTF tier) and 6844 Clip Art
+& Image Files (PNG tier); Etsy owns the value list, so it can be neither skipped nor extended. Fix = the publisher
+fills it with the closest real values so nobody has to pick. No ITP form or schema has a craft type field.
+
+### File shortlist (approved scope — 2026-10-13 craft type)
+- `backend/services/etsy-required-attributes.ts` (+ `.test.ts`) — new: planner + writer, no Supabase import
+- `backend/services/etsy.ts` — publish + update call it; `backend/services/etsy-update.test.ts`
+- `backend/scripts/etsy-fill-required-attributes.ts` — new: backfill blank required attributes on existing listings
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-13 (marcus-wolfe): Craft type now written on every new DTF (Sewing + Party & gifting) and PNG (Card making &
+  stationery, Scrapbooking, Collage) draft; update path fills it only when blank. Backfilled the 6 live drafts
+  (4 DTF, 2 PNG) and re-read each from Etsy. tsc -b 0; vitest 146 files / 2215 pass.
+- 2026-10-27 (zero-nine, task 86181075): eabbc5a merged onto the 10/27 Crystal batch 90c6a373 so one train carries both;
+  only conflict was this file (kept both sides). Backfill + DTF/PNG property re-read run after the ship.

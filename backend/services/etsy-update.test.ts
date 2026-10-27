@@ -45,15 +45,31 @@ vi.mock('../lib/supabase.js', () => {
   return { supabase: { from: (t: string) => builder(t) } }
 })
 
-const { updateEtsyListing, resolveListingCopy } = await import('./etsy.js')
+const { updateEtsyListing, resolveListingCopy, publishProductToEtsy } = await import('./etsy.js')
 
 // --- Etsy stub -------------------------------------------------------------
 type Call = { method: string; path: string; body: any }
 let calls: Call[] = []
 let listingState = 'active'
 let listingMissing = false
+let listingTaxonomy = 482
+let listingType = 'physical'
+let listingProps: any[] = []
 
 const SIZE_PROPERTY_ID = 62809790533
+// Etsy's "Craft type" on 6617 Image Transfers, read live 2026-10-13 (see
+// etsy-required-attributes.test.ts for the full value list).
+const CRAFT_TYPE_ID = 47626759760
+const CRAFT_TYPE_6617 = {
+  property_id: CRAFT_TYPE_ID, name: 'Craft type', display_name: 'Craft type', is_required: true,
+  is_multivalued: true, max_values_allowed: 5, supports_variations: false,
+  possible_values: [{ value_id: 550, name: 'Embroidery' }, { value_id: 577, name: 'Party & gifting' }, { value_id: 743, name: 'Sewing' }]
+}
+// The same property on 6844 Clip Art & Image Files (the PNG tier).
+const CRAFT_TYPE_6844 = {
+  ...CRAFT_TYPE_6617,
+  possible_values: [{ value_id: 538, name: 'Card making & stationery' }, { value_id: 541, name: 'Collage' }, { value_id: 562, name: "Kids' crafts" }, { value_id: 584, name: 'Scrapbooking' }]
+}
 
 function etsyStub() {
   return vi.fn(async (url: string, init: any = {}) => {
@@ -70,7 +86,19 @@ function etsyStub() {
       if (listingMissing) {
         return { ok: false, status: 404, json: async () => ({ error: 'not found' }), headers: new Map() } as any
       }
-      return ok({ listing_id: 4544388862, state: listingState, taxonomy_id: 482, title: 'Live Title', price: { amount: 2500, divisor: 100, currency_code: 'USD' } })
+      return ok({ listing_id: 4544388862, shop_id: 67055923, state: listingState, taxonomy_id: listingTaxonomy, listing_type: listingType, title: 'Live Title', price: { amount: 2500, divisor: 100, currency_code: 'USD' } })
+    }
+    if (method === 'POST' && /^\/application\/shops\/\d+\/listings$/.test(path)) {
+      return ok({ listing_id: 777, state: 'draft' })
+    }
+    if (method === 'GET' && /^\/application\/shops\/\d+\/listings\/\d+\/properties$/.test(path)) {
+      return ok({ count: listingProps.length, results: listingProps })
+    }
+    if (method === 'GET' && /\/seller-taxonomy\/nodes\/6617\/properties$/.test(path)) {
+      return ok({ results: [CRAFT_TYPE_6617] })
+    }
+    if (method === 'GET' && /\/seller-taxonomy\/nodes\/6844\/properties$/.test(path)) {
+      return ok({ results: [CRAFT_TYPE_6844] })
     }
     if (method === 'GET' && /inventory$/.test(path)) {
       return ok({
@@ -104,6 +132,9 @@ beforeEach(() => {
   writes.length = 0
   listingState = 'active'
   listingMissing = false
+  listingTaxonomy = 482
+  listingType = 'physical'
+  listingProps = []
   db.products = { id: 'p1', name: 'Alien Directive Tee', description: 'd', price: 25, images: [], category: 't-shirts', metadata: { product_type: 'tshirt', etsy_pack: { price: 25, title: 'Pack Title', description: 'Pack desc', tags: ['alien'], colors: ['Black'] } } }
   db.etsy_listings = { listing_id: 4544388862, state: 'active' }
   db.etsy_connection = { access_token: 'tok', refresh_token: 'r', access_token_expires_at: new Date(Date.now() + 3600_000).toISOString(), shop_id: 67055923 }
@@ -111,6 +142,7 @@ beforeEach(() => {
 })
 
 const put = () => calls.find(c => c.method === 'PUT' && /inventory$/.test(c.path))
+const craftPut = () => calls.find(c => c.method === 'PUT' && c.path.endsWith(`/properties/${CRAFT_TYPE_ID}`))
 const patch = () => calls.find(c => c.method === 'PATCH')
 
 describe('updateEtsyListing', () => {
@@ -245,6 +277,67 @@ describe('updateEtsyListing', () => {
     const synced = writes.find(w => w.table === 'etsy_listings' && w.values.last_synced_at)
     expect(synced).toBeTruthy()
     expect(synced!.values.last_error).toBeNull()
+  })
+})
+
+// Christina 2026-08-22: Etsy demands a "Craft type" on the DTF and PNG nodes
+// and none of its values fit ITP. The publisher fills it; the update path is
+// how drafts made before that get it.
+describe('Etsy-required Craft type', () => {
+  it('fills a blank Craft type on an existing DTF draft', async () => {
+    listingState = 'draft'
+    listingTaxonomy = 6617
+    const r = await updateEtsyListing('p1', { tier: 'transfer', variations: false })
+    expect(r.ok).toBe(true)
+    expect(craftPut()!.path).toBe(`/application/shops/67055923/listings/4544388862/properties/${CRAFT_TYPE_ID}`)
+    expect(craftPut()!.body).toEqual({ value_ids: [743, 577], values: ['Sewing', 'Party & gifting'] })
+    expect(r.attributes).toEqual({ planned: ['Craft type'], filled: ['Craft type'], unfilled: [] })
+  })
+
+  it('reads a download listing kind from Etsy listing_type, not the tier', async () => {
+    // Etsy's GET returns `listing_type`; there is no `type` on the read.
+    // Reading the wrong key silently filed a PNG draft as a transfer.
+    listingTaxonomy = 6844
+    listingType = 'download'
+    // tier 'primary' says physical, so only listing_type can make this a PNG.
+    const r = await updateEtsyListing('p1', { tier: 'primary', variations: false })
+    expect(r.ok).toBe(true)
+    expect(r.attributes!.unfilled).toEqual([])
+    expect(craftPut()!.body.values).toEqual(['Card making & stationery', 'Scrapbooking', 'Collage'])
+  })
+
+  it('leaves a Craft type someone set in Shop Manager alone', async () => {
+    listingTaxonomy = 6617
+    listingProps = [{ property_id: CRAFT_TYPE_ID, value_ids: [550], values: ['Embroidery'] }]
+    const r = await updateEtsyListing('p1', { tier: 'transfer', variations: false })
+    expect(r.ok).toBe(true)
+    expect(craftPut()).toBeUndefined()
+  })
+
+  it('dry run plans the Craft type and writes nothing', async () => {
+    listingTaxonomy = 6617
+    const r = await updateEtsyListing('p1', { tier: 'transfer', dryRun: true })
+    expect(r.attributes!.planned).toEqual(['Craft type'])
+    expect(r.attributes!.filled).toEqual([])
+    expect(calls.some(c => c.method === 'PUT')).toBe(false)
+  })
+
+  it('writes no attribute on a tee — that node requires none', async () => {
+    const r = await updateEtsyListing('p1')
+    expect(r.ok).toBe(true)
+    expect(calls.some(c => c.method === 'PUT' && /\/properties\/\d+$/.test(c.path))).toBe(false)
+  })
+
+  it('publishing a DTF transfer writes Craft type onto the new draft', async () => {
+    db.etsy_listings = null
+    const r = await publishProductToEtsy('p1', { tier: 'transfer' })
+    expect(r.ok).toBe(true)
+    expect(r.listingId).toBe(777)
+    expect(r.attributes).toEqual({ filled: ['Craft type'], unfilled: [] })
+    expect(craftPut()!.path).toBe(`/application/shops/67055923/listings/777/properties/${CRAFT_TYPE_ID}`)
+    expect(craftPut()!.body.values).toEqual(['Sewing', 'Party & gifting'])
+    // A brand-new draft has nothing set, so the listing is never read first.
+    expect(calls.some(c => c.method === 'GET' && c.path.endsWith('/listings/777/properties'))).toBe(false)
   })
 })
 
