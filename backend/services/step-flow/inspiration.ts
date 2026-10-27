@@ -77,6 +77,10 @@ const DATA_URL_RE = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/
 // InspirationValidationError, never a silent pass-through).
 // ---------------------------------------------------------------------------
 
+const BROWSER_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+export const BLOCKED_LINK_MESSAGE = 'That site won’t let us download the picture. Right-click the picture, choose Copy image, then press Ctrl+V on this page (or save it and drop the file in).'
+export const PAGE_LINK_MESSAGE = 'That link is a web page, not a picture. Right-click the picture, choose Copy image, then press Ctrl+V on this page.'
+
 export async function decodeInspirationImage(image: unknown): Promise<{ buffer: Buffer; contentType: string }> {
   if (typeof image !== 'string' || !image.trim()) {
     throw new InspirationValidationError('image is required')
@@ -98,8 +102,13 @@ export async function decodeInspirationImage(image: unknown): Promise<{ buffer: 
   }
 
   if (/^https:\/\//i.test(trimmed)) {
-    const res = await fetch(trimmed)
+    // Ask like a browser asking for a picture: some image CDNs turn away a bare server fetch.
+    const res = await fetch(trimmed, { headers: { 'User-Agent': BROWSER_UA, Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8' } })
+    // Marketplaces like Etsy block downloads from servers (David 2026-10-27: an Etsy link failed with a 403 while
+    // Crystal watched). Say what to do instead of a status code.
+    if (res.status === 401 || res.status === 403) throw new InspirationValidationError(BLOCKED_LINK_MESSAGE)
     if (!res.ok) throw new InspirationValidationError(`Failed to fetch reference image: ${res.status} ${res.statusText}`)
+    if ((res.headers.get('content-type') || '').startsWith('text/html')) throw new InspirationValidationError(PAGE_LINK_MESSAGE)
     const declaredLength = Number(res.headers.get('content-length') || 0)
     if (declaredLength > MAX_BYTES) throw new InspirationValidationError('image is too large; max is 8MB')
     const buffer = Buffer.from(await res.arrayBuffer())

@@ -6,7 +6,7 @@
 // upload a photo of a design mrs imagine will anaylze it and ask what we
 // like if we want the same just ours or if we want diff words diff subject
 // she basically breaks down the whole design."
-import React, { useRef, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { AlertTriangle, ChevronDown, ChevronUp, ImagePlus, RefreshCw, Sparkles, X } from 'lucide-react'
 import { useStudioLane } from './lane'
 import type { InspirationBreakdown, InspirationChoices, InspirationQuestion, SelectedInspiration } from './types'
@@ -224,8 +224,26 @@ const InspirationPanel: React.FC<InspirationPanelProps> = ({ inspiration, onIdea
     e.preventDefault()
     setDragOver(false)
     const file = e.dataTransfer.files?.[0]
-    if (file) handleFile(file)
+    if (file) return handleFile(file)
+    // A picture dragged straight from another tab arrives as its address, not a file.
+    const url = e.dataTransfer.getData('text/uri-list').split('\n').find((l) => /^https?:\/\//i.test(l.trim()))
+    if (url) analyze(url.trim())
   }
+
+  // A copied picture (right-click → Copy image, then Ctrl+V anywhere on the page) works like a dropped file, so a
+  // marketplace that blocks downloads (Etsy answered 403 on 10/27) never has to be asked for it.
+  const idle = !result && !analyzing
+  useEffect(() => {
+    if (!open || !idle) return
+    const onPaste = (e: ClipboardEvent) => {
+      const file = Array.from(e.clipboardData?.files || []).find((f) => f.type.startsWith('image/'))
+      if (!file) return
+      e.preventDefault()
+      handleFile(file)
+    }
+    window.addEventListener('paste', onPaste)
+    return () => window.removeEventListener('paste', onPaste)
+  })
 
   const setAnswer = (key: string, value: string) => {
     setAnswers((prev) => ({ ...prev, [key]: value }))
@@ -354,7 +372,7 @@ const InspirationPanel: React.FC<InspirationPanelProps> = ({ inspiration, onIdea
                   <ImagePlus className="w-6 h-6 text-muted" />
                 )}
                 <p className="text-xs text-muted text-center">
-                  Drop a design photo, or <span className="text-primary font-medium">click to choose a file</span>
+                  Drop a design photo, paste a copied picture (Ctrl+V), or <span className="text-primary font-medium">click to choose a file</span>
                 </p>
                 <p className="text-[10px] text-muted">PNG, JPG, or WEBP — up to 8MB</p>
               </div>

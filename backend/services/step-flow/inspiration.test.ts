@@ -121,6 +121,30 @@ describe('decodeInspirationImage', () => {
     ;(globalThis as any).fetch = vi.fn().mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' })
     await expect(decodeInspirationImage('https://example.com/missing.png')).rejects.toThrow(/Failed to fetch/i)
   })
+
+  // David 2026-10-27: an Etsy link answered 403 while Crystal watched. Say what to do, never a bare status code.
+  it('tells her to copy and paste the picture when a site blocks the download', async () => {
+    ;(globalThis as any).fetch = vi.fn().mockResolvedValue({ ok: false, status: 403, statusText: 'Forbidden' })
+    await expect(decodeInspirationImage('https://www.etsy.com/listing/123')).rejects.toThrow(/Copy image, then press Ctrl\+V/)
+  })
+
+  it('tells her a page link is not a picture', async () => {
+    ;(globalThis as any).fetch = vi.fn().mockResolvedValue({
+      ok: true, status: 200, statusText: 'OK',
+      headers: { get: (k: string) => (k.toLowerCase() === 'content-type' ? 'text/html; charset=utf-8' : null) },
+      arrayBuffer: async () => new ArrayBuffer(0),
+    })
+    await expect(decodeInspirationImage('https://shop.example/listing/9')).rejects.toThrow(/web page, not a picture/)
+  })
+
+  it('asks for the picture like a browser does', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404, statusText: 'Not Found' })
+    ;(globalThis as any).fetch = fetchMock
+    await decodeInspirationImage('https://cdn.example/a.png').catch(() => undefined)
+    const headers = fetchMock.mock.calls[0][1].headers
+    expect(headers['User-Agent']).toMatch(/Mozilla\/5\.0/)
+    expect(headers.Accept).toMatch(/^image\//)
+  })
 })
 
 describe('measureInspirationStats', () => {
