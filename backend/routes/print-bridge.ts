@@ -64,23 +64,39 @@ const CUSTOMER_STATUSES = [
 // PRINT_WORKER_EMAILS (comma-separated); falls back to the company mailbox.
 const WORKER_NOTIFY_STATUSES = new Set(['insert_pause', 'ready_for_packing'])
 
+// The queue walks orders.paid_at, the moment an order became paid (a DB
+// trigger stamps it: supabase/migrations/20261028220000_orders_paid_at.sql).
+// It used to walk created_at, but checkout writes the row as pending before
+// the customer pays, so an order opened first and paid second sat behind a
+// cursor a newer, faster order had already moved past, and was never pulled
+// (Watchtower task b17dc9f6).
+//
+// A stamp is only visible once its payment's write commits, so a row stamped
+// a moment before another can show up a moment after it. The queue only walks
+// stamps older than this, so the cursor never passes one still in flight.
+// Watchtower pulls every 5 minutes; a minute's wait costs nothing.
+export const PAID_SETTLE_MS = 60_000
+
 /**
  * GET /api/print-bridge/queue
- * Paid orders (payment_status='paid') created after `since`, that contain a
- * 3D-print line item, mapped to the bridge order shape Watchtower expects.
+ * Paid orders that became paid after `since` (orders.paid_at), oldest payment
+ * first, that contain a 3D-print line item, mapped to the bridge order shape
+ * Watchtower expects. `cursor` is the paid_at of the last order scanned.
  */
 router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const since = (req.query.since as string) || ''
     const limit = Math.min(Number(req.query.limit) || 50, 100)
+    const settledBefore = new Date(Date.now() - PAID_SETTLE_MS).toISOString()
 
     let q = supabase
       .from('orders')
-      .select('id, order_number, customer_email, customer_name, total, created_at, payment_status, metadata')
+      .select('id, order_number, customer_email, customer_name, total, created_at, paid_at, payment_status, metadata')
       .eq('payment_status', 'paid')
-      .order('created_at', { ascending: true })
+      .lte('paid_at', settledBefore)
+      .order('paid_at', { ascending: true })
       .limit(limit)
-    if (since) q = q.gt('created_at', since)
+    if (since) q = q.gt('paid_at', since)
 
     const { data: orders, error } = await q
     if (error) return res.status(500).json({ error: error.message })
@@ -88,7 +104,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
     const out: any[] = []
     let cursor = since
     for (const o of orders || []) {
-      cursor = o.created_at // advance past every scanned order, 3D or not
+      cursor = o.paid_at // advance past every scanned order, 3D or not
 
       // Production order_items columns are (product_id uuid, product_name,
       // quantity, unit_price, subtotal, metadata) — NOT price/total. And a

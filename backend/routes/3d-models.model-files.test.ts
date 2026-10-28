@@ -39,6 +39,7 @@ function builder(table: string) {
     eq: (c: string, v: any) => { filters.push([c, v]); return b },
     in: (c: string, v: any[]) => { filters.push([c, v]); return b },
     gt: () => b,
+    lte: () => b,
     order: () => b,
     range: () => b,
     limit: () => b,
@@ -159,7 +160,7 @@ describe('owner reads carry no file to keep', () => {
 
 describe('GET /api/print-bridge/queue — the print floor still gets fetchable files', () => {
   it('signs fresh 12-hour links for a custom mini and a catalog toy', async () => {
-    tables.orders = [{ id: 'order-1', order_number: 'ITP-1', customer_email: 'a@b.test', customer_name: 'A', total: 50, created_at: '2026-10-07T20:00:00Z', payment_status: 'paid', metadata: {} }]
+    tables.orders = [{ id: 'order-1', order_number: 'ITP-1', customer_email: 'a@b.test', customer_name: 'A', total: 50, created_at: '2026-10-07T20:00:00Z', paid_at: '2026-10-07T20:01:00Z', payment_status: 'paid', metadata: {} }]
     tables.order_items = [
       { order_id: 'order-1', product_id: null, product_name: 'Custom Figurine', quantity: 1, unit_price: 25, subtotal: 25, metadata: { client_product_id: `3d-print-${UNLICENSED}` } },
       { order_id: 'order-1', product_id: TOY_PRODUCT, product_name: 'Toy: Robo Rascal', quantity: 1, unit_price: 25, subtotal: 25, metadata: {} },

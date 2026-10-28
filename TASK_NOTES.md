@@ -5510,3 +5510,20 @@ Holder $20.00" above the code-built table (Subtotal $40.00). Enforce in code, li
 - 2026-10-28 (rico-fernandez): aiCopyRestatesMoney() ($ figure in any spelling, or a <table>) sends an order_confirmation
   to generateFallbackEmail; a priced subject gets the standard one; the writer is no longer handed prices for this
   email. vitest emailAI + email-totals + email-blocks 19/19; turning the guard off fails 2, showing prices fails 1.
+
+## Current request (2026-10-28) — print bridge cursor walks the paid time, not created_at (task b17dc9f6, zero-pluto)
+
+GET /api/print-bridge/queue walked created_at, but checkout writes the order pending before the customer pays, so an
+order opened first and paid second was skipped forever once a newer order's pull moved the cursor. Fix (a), ITP side:
+a DB trigger stamps orders.paid_at, the queue orders, filters and cursors on it, and only walks stamps over a minute old.
+
+### File shortlist (approved scope — 2026-10-28 print bridge cursor)
+- `backend/routes/print-bridge.ts` (GET /queue only), `backend/routes/print-bridge.queue.test.ts` (new)
+- `backend/routes/3d-models.model-files.test.ts` (its fake DB learns `.lte()` + the fixture gets paid_at)
+- `supabase/migrations/20261028220000_orders_paid_at.sql` (new, applied live), `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (zero-pluto): new A/B test red on the old route (second pull empty), green after; migration dry-run in a
+  rolled-back transaction then applied + tracked live; vitest 199 files / 2716 tests green; backend tsc only the 6
+  worktree-path TS2742 notes in middleware/rate-limits.ts.
