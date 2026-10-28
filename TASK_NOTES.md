@@ -5510,3 +5510,19 @@ Holder $20.00" above the code-built table (Subtotal $40.00). Enforce in code, li
 - 2026-10-28 (rico-fernandez): aiCopyRestatesMoney() ($ figure in any spelling, or a <table>) sends an order_confirmation
   to generateFallbackEmail; a priced subject gets the standard one; the writer is no longer handed prices for this
   email. vitest emailAI + email-totals + email-blocks 19/19; turning the guard off fails 2, showing prices fails 1.
+
+## Current request (2026-10-28) — ITP local orders: Google profile + team/event shirt quotes (task 8af55c3c, mia-potts)
+
+Prep only (Rico's c47c3e66 move 4). Nothing customer-facing before David's yes on APPROVE 525d19e3 line 8.
+
+### File shortlist (approved scope — 2026-10-28 local orders)
+- `docs/sales/2026-10-28-local-orders/*` (new: README pack, flyer.html/.png, QR svg, logo copy, rockmart-groups.md/.json)
+- `TASK_NOTES.md`
+- Read-only: `src/utils/shipping-calculator.ts`, `src/lib/help-facts.ts`, `src/config/business-info.ts`, `src/pages/Contact.tsx`,
+  `backend/routes/support.ts`, `backend/routes/wholesale.ts`, `backend/lib/jev-triage.ts`, `backend/utils/email.ts`
+
+### Work log (append-only)
+- 2026-10-28 (mia-potts): Maps (fleet browser, logged out): no Google profile for ITP; our address's only pin is an
+  unclaimed "Living Kolors Vinyl TShirts & More LLC". Quote path: /contact?topic=custom works (390 + 1400), Jev files
+  team asks as bulk_quote/high (5/5), but alerts go to wecare@ -> Christina only; fix card 71164456. Flyer rendered from
+  site prices only (QR decodes to the quote form). Post-yes send card c0c2180b.
