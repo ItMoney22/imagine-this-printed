@@ -275,6 +275,11 @@ export async function requestPrint(id: string): Promise<{ ok: true; build: Build
   const build = row as BuildRow | null
   if (!build) return { ok: false, error: 'No print file found.' }
   if (build.status !== 'ready' || build.scan_ok !== true) return { ok: false, error: 'Rebuild the print file first: only a file that scans can print.' }
+  // A cancelled or refunded order is never printed (task 14ce738b: a refund on the shop that sold it cancels it here).
+  const { data: order } = await supabase.from('orders').select('status').eq('id', build.order_id).maybeSingle()
+  if (order && (order.status === 'cancelled' || order.status === 'refunded')) {
+    return { ok: false, error: `This order is ${order.status}: it must not be printed.` }
+  }
   // Only the NEWEST file for a stand may print: an older one says whatever the
   // stand said before the last edit.
   const newest = (await latestBuilds(build.order_id)).get(build.line_index)

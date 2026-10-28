@@ -9,8 +9,16 @@ const uploads: string[] = []
 vi.mock('../lib/supabase.js', () => {
   const from = (table: string) => {
     const filters: Array<(r: any) => boolean> = []
+    let patch: any = null
+    // A read, or an update applied to every matching row (returned as written).
+    const run = () => {
+      const hit = tables[table].filter((r) => filters.every((f) => f(r)))
+      if (patch) for (const r of hit) Object.assign(r, JSON.parse(JSON.stringify(patch)))
+      return hit.map((r) => JSON.parse(JSON.stringify(r)))
+    }
     const q: any = {
       select: () => q,
+      update: (p: any) => { patch = p; return q },
       eq: (col: string, val: any) => {
         filters.push((r) => {
           if (col.startsWith('metadata->>')) return String(r.metadata?.[col.slice(11)]) === String(val)
@@ -18,8 +26,11 @@ vi.mock('../lib/supabase.js', () => {
         })
         return q
       },
+      is: (col: string, val: any) => { filters.push((r) => (r[col] ?? null) === val); return q },
       order: () => q,
-      limit: async () => ({ data: tables[table].filter((r) => filters.every((f) => f(r))), error: null }),
+      limit: async () => ({ data: run(), error: null }),
+      single: async () => { const d = run(); return { data: d[0] ?? null, error: d[0] ? null : { message: 'no rows' } } },
+      maybeSingle: async () => ({ data: run()[0] ?? null, error: null }),
       insert: (rows: any) => {
         const list = (Array.isArray(rows) ? rows : [rows]).map((r) => ({ id: `${table}-${tables[table].length + 1}`, created_at: 'now', ...r }))
         tables[table].push(...list)
@@ -27,7 +38,7 @@ vi.mock('../lib/supabase.js', () => {
         return { select: () => ({ single: async () => ({ data: list[0], error: null }) }), then: (ok: any) => ok(res) }
       },
       delete: () => ({ eq: async (col: string, val: any) => { tables[table] = tables[table].filter((r) => r[col] !== val); return { error: null } } }),
-      then: (ok: any) => ok({ data: tables[table].filter((r) => filters.every((f) => f(r))), error: null }),
+      then: (ok: any) => ok({ data: run(), error: null }),
     }
     return q
   }
@@ -44,7 +55,8 @@ process.env.SUPABASE_URL ||= 'http://localhost:54321'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 
 const { priceVendorOrder, vendorPricingRules, itpUnitCents } = await import('../shared/vendor-order-pricing.js')
-const { createPrepaidVendorOrder, PrepaidOrderError } = await import('./vendor-prepaid-orders.js')
+const { createPrepaidVendorOrder, cancelPrepaidVendorOrder, PrepaidOrderError } = await import('./vendor-prepaid-orders.js')
+const { requestPrint } = await import('./qr-stand-builds.js')
 
 // A real 1x1 PNG, so the stand logo goes through sharp for real.
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -197,5 +209,104 @@ describe('POST /api/storefront/orders (createPrepaidVendorOrder)', () => {
     expect((await createPrepaidVendorOrder({ vendor: 'zentress', body: body(jpeg, { itpShareCents: 1300 }) }).catch((e) => e)).message).toMatch(/must be a PNG/)
     const noBack = [shirt({ backPrint: true })]
     expect((await createPrepaidVendorOrder({ vendor: 'zentress', body: body(noBack, { itpShareCents: 2000 }) }).catch((e) => e)).message).toMatch(/back print is required/)
+  })
+})
+
+// Task 14ce738b: the site refunded its buyer, so the order must never reach the press or the post.
+describe('POST /api/storefront/orders/:externalRef/cancel (cancelPrepaidVendorOrder)', () => {
+  const REFUND = { reason: 'refunded', refund: { chargeId: 'ch_1', amountRefundedCents: 99999 } }
+
+  async function placeSpaOrder(lines = [shirt(), stand()]) {
+    const res = await createPrepaidVendorOrder({ vendor: 'zentress', body: body(lines, { itpShareCents: share(lines, 'spa') }) })
+    // The table's default for a new build.
+    for (const b of tables.qr_stand_builds) b.status ??= 'queued'
+    return res
+  }
+
+  it('cancels a processing order: status cancelled, payment refunded, the refund on record', async () => {
+    const placed = await placeSpaOrder()
+    const res = await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'zt-order-1', body: REFUND })
+    expect(res).toEqual({ orderId: placed.orderId, orderNumber: placed.orderNumber, status: 'cancelled', alreadyCancelled: false })
+    const order = tables.orders[0]
+    expect(order).toMatchObject({ status: 'cancelled', payment_status: 'refunded' })
+    expect(order.metadata.cancellation).toMatchObject({ by: 'zentress', reason: 'refunded', refund: { charge_id: 'ch_1', amount_refunded_cents: 99999 } })
+    // What the order was is kept: the site's reference and ITP's share.
+    expect(order.metadata.external_ref).toBe('zt-order-1')
+    expect(order.metadata.itp_share.total_cents).toBe(share([shirt(), stand()], 'spa'))
+  })
+
+  it('a cancelled order\'s QR stand is not built and cannot be sent to the printers', async () => {
+    await placeSpaOrder()
+    await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'zt-order-1', body: REFUND })
+    expect(tables.qr_stand_builds[0]).toMatchObject({ status: 'failed', error: 'Order cancelled' })
+
+    // Even a print file that finished building before the cancel stays off the printers.
+    Object.assign(tables.qr_stand_builds[0], { status: 'ready', scan_ok: true, print_status: null })
+    const print = await requestPrint(tables.qr_stand_builds[0].id)
+    expect(print).toEqual({ ok: false, error: 'This order is cancelled: it must not be printed.' })
+    expect(tables.qr_stand_builds[0].print_status).toBeNull()
+  })
+
+  it('a print already asked for is called off', async () => {
+    await placeSpaOrder()
+    Object.assign(tables.qr_stand_builds[0], { status: 'ready', scan_ok: true, print_status: 'requested' })
+    await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'zt-order-1', body: REFUND })
+    expect(tables.qr_stand_builds[0]).toMatchObject({ print_status: 'failed', print_error: 'Order cancelled: do not print' })
+  })
+
+  it('a stand on an order that is still live prints as before', async () => {
+    await placeSpaOrder()
+    Object.assign(tables.qr_stand_builds[0], { status: 'ready', scan_ok: true, print_status: null })
+    const print = await requestPrint(tables.qr_stand_builds[0].id)
+    expect(print.ok).toBe(true)
+  })
+
+  it('refuses once the order has shipped, says so, and changes nothing', async () => {
+    for (const shipped of [{ status: 'shipped' }, { status: 'delivered' }, { status: 'completed' }, { status: 'processing', fulfillment_status: 'fulfilled' }]) {
+      tables.orders = []
+      tables.order_items = []
+      tables.qr_stand_builds = []
+      await placeSpaOrder([mug()])
+      Object.assign(tables.orders[0], shipped)
+      const before = JSON.stringify(tables.orders[0])
+      const err = await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'zt-order-1', body: REFUND }).catch((e) => e)
+      expect(err).toBeInstanceOf(PrepaidOrderError)
+      expect(err.status).toBe(409)
+      expect(err.message).toMatch(/^Order ITP-.+ has already shipped and can no longer be cancelled$/)
+      expect(err.detail).toMatchObject({ shipped: true, status: shipped.status })
+      expect(JSON.stringify(tables.orders[0])).toBe(before)
+    }
+  })
+
+  it('cancelling twice is one cancel', async () => {
+    await placeSpaOrder([mug()])
+    await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'zt-order-1', body: REFUND })
+    const at = tables.orders[0].metadata.cancellation.at
+    const again = await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'zt-order-1', body: REFUND })
+    expect(again).toMatchObject({ status: 'cancelled', alreadyCancelled: true })
+    expect(tables.orders[0].metadata.cancellation.at).toBe(at)
+  })
+
+  it('an order ITP itself refunded is not dragged into cancelled', async () => {
+    await placeSpaOrder([mug()])
+    tables.orders[0].status = 'refunded'
+    const err = await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'zt-order-1', body: REFUND }).catch((e) => e)
+    expect(err.status).toBe(409)
+    expect(tables.orders[0].status).toBe('refunded')
+  })
+
+  it('a key reaches only its own vendor\'s orders, and only vendors switched on may cancel', async () => {
+    await placeSpaOrder([mug()])
+    process.env.STOREFRONT_PREPAID_VENDORS = 'zentress,other'
+    const other = await cancelPrepaidVendorOrder({ vendor: 'other', externalRef: 'zt-order-1', body: REFUND }).catch((e) => e)
+    expect(other.status).toBe(404)
+    const off = await cancelPrepaidVendorOrder({ vendor: 'darrell', externalRef: 'zt-order-1', body: REFUND }).catch((e) => e)
+    expect(off.status).toBe(403)
+    expect(tables.orders[0].status).toBe('processing')
+  })
+
+  it('an unknown reference is a 404', async () => {
+    const err = await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'nope', body: REFUND }).catch((e) => e)
+    expect(err.status).toBe(404)
   })
 })

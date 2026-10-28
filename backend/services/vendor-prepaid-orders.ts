@@ -18,6 +18,11 @@
  * order id, and a Stripe TEST-mode payment is refused unless
  * STOREFRONT_ACCEPT_TEST_ORDERS=1, so a site still on test keys can never put a
  * free order on the press.
+ *
+ * When the site refunds its buyer it cancels here too
+ * (POST /api/storefront/orders/:externalRef/cancel, task 14ce738b), so a
+ * refunded order can never be printed or shipped for free. Once the order has
+ * shipped the cancel is refused (409) and the order is left exactly as it was.
  */
 import { randomUUID } from 'crypto'
 import sharp from 'sharp'
@@ -26,6 +31,7 @@ import { supabase } from '../lib/supabase.js'
 import { uploadImageFromBuffer } from './google-cloud-storage.js'
 import { PRINT_FILES_BUCKET, storePrintFile, type PrintFileRefs } from './print-files.js'
 import { onQrStandOrderPaid } from './qr-stand-builds.js'
+import { checkOrderTransition } from '../lib/order-status.js'
 import {
   QR_LOGO_PREFIX,
   QR_STAND,
@@ -314,4 +320,104 @@ export async function createPrepaidVendorOrder(input: PrepaidOrderInput, log?: L
   await onQrStandOrderPaid({ id: order.id, order_number: order.order_number }, log)
   log?.info?.({ orderId: order.id, vendor, externalRef, itpShareCents: pricing.itpShareCents, test: !payment.livemode }, 'prepaid vendor order received')
   return { duplicate: false, orderId: order.id, orderNumber: order.order_number, itpShareCents: pricing.itpShareCents }
+}
+
+/** Past this point the box has left the building: a cancel can no longer stop it. */
+const SHIPPED_STATUSES = new Set(['shipped', 'delivered', 'completed'])
+const SHIPPED_FULFILLMENT = new Set(['fulfilled', 'partially_fulfilled', 'shipped', 'delivered'])
+
+export interface CancelPrepaidOrderInput {
+  vendor: string
+  externalRef: string
+  body: any
+}
+
+/**
+ * The vendor site refunded (or called off) an order it sent here: cancel it so
+ * it never reaches the press or the post. Idempotent; refuses (409) once the
+ * order has shipped and leaves it untouched.
+ */
+export async function cancelPrepaidVendorOrder(input: CancelPrepaidOrderInput, log?: Logger) {
+  const vendor = input.vendor.toLowerCase()
+  if (!prepaidVendors().has(vendor)) {
+    throw new PrepaidOrderError(403, 'This storefront key may not cancel prepaid orders')
+  }
+  const externalRef = typeof input.externalRef === 'string' ? input.externalRef.trim() : ''
+  if (!externalRef || externalRef.length > 100) throw new PrepaidOrderError(400, 'externalRef is required')
+  const b = input.body || {}
+  const reason = typeof b.reason === 'string' && b.reason.trim() ? b.reason.trim().slice(0, 40) : 'cancelled'
+  const refund = b.refund && typeof b.refund === 'object'
+    ? {
+        charge_id: typeof b.refund.chargeId === 'string' ? b.refund.chargeId.slice(0, 64) : null,
+        amount_refunded_cents: Number.isInteger(b.refund.amountRefundedCents) ? b.refund.amountRefundedCents : null,
+      }
+    : null
+
+  // Two tries: if the order moves under us (staff marking it shipped), decide again on what it is now.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('id, order_number, status, payment_status, fulfillment_status, metadata')
+      .eq('source', vendor)
+      .eq('metadata->>external_ref', externalRef)
+      .limit(1)
+    if (error) throw new Error(`prepaid lookup: ${error.message}`)
+    const order = data?.[0]
+    if (!order) throw new PrepaidOrderError(404, 'No order with that reference')
+
+    const done = { orderId: order.id, orderNumber: order.order_number, status: 'cancelled' }
+    if (order.status === 'cancelled') return { ...done, alreadyCancelled: true }
+    if (SHIPPED_STATUSES.has(order.status) || SHIPPED_FULFILLMENT.has(order.fulfillment_status)) {
+      throw new PrepaidOrderError(409, `Order ${order.order_number} has already shipped and can no longer be cancelled`, {
+        orderNumber: order.order_number,
+        status: order.status,
+        shipped: true,
+      })
+    }
+    const move = checkOrderTransition(order.status, 'cancelled')
+    if (!move.ok) {
+      throw new PrepaidOrderError(409, `Order ${order.order_number} cannot be cancelled: ${move.reason}`, {
+        orderNumber: order.order_number,
+        status: order.status,
+      })
+    }
+
+    const now = new Date().toISOString()
+    let claim = supabase
+      .from('orders')
+      .update({
+        status: 'cancelled',
+        // The buyer's money went back to them: nothing on this order is paid any more.
+        ...(reason === 'refunded' ? { payment_status: 'refunded' } : {}),
+        metadata: { ...(order.metadata || {}), cancellation: { by: vendor, reason, at: now, refund } },
+        updated_at: now,
+      })
+      .eq('id', order.id)
+    claim = order.status == null ? claim.is('status', null) : claim.eq('status', order.status)
+    const { data: claimed, error: claimError } = await claim.select('id')
+    if (claimError) throw new Error(`prepaid cancel: ${claimError.message}`)
+    if (!claimed?.length) continue
+
+    await stopStandBuilds(order.id, log)
+    log?.info?.({ orderId: order.id, vendor, externalRef, from: order.status, reason }, 'prepaid vendor order cancelled')
+    return { ...done, alreadyCancelled: false }
+  }
+  throw new PrepaidOrderError(409, 'The order changed while it was being cancelled; try again')
+}
+
+/** A cancelled order's QR stands: a build not started never starts, and a print not yet sent never goes. */
+async function stopStandBuilds(orderId: string, log?: Logger) {
+  const now = new Date().toISOString()
+  const queued = await supabase
+    .from('qr_stand_builds')
+    .update({ status: 'failed', error: 'Order cancelled', updated_at: now })
+    .eq('order_id', orderId)
+    .eq('status', 'queued')
+  const printing = await supabase
+    .from('qr_stand_builds')
+    .update({ print_status: 'failed', print_error: 'Order cancelled: do not print', updated_at: now })
+    .eq('order_id', orderId)
+    .eq('print_status', 'requested')
+  const err = queued.error || printing.error
+  if (err) log?.error?.({ err, orderId }, '[qr-stand] could not stop the stand builds of a cancelled order')
 }

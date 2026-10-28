@@ -19,7 +19,7 @@ import {
 } from '../services/print-files.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { plusSizeUpchargeCents, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
-import { createPrepaidVendorOrder, PrepaidOrderError } from '../services/vendor-prepaid-orders.js'
+import { cancelPrepaidVendorOrder, createPrepaidVendorOrder, PrepaidOrderError } from '../services/vendor-prepaid-orders.js'
 
 // Headless checkout API for external storefronts (earth019.com). A trusted
 // storefront server POSTs a mixed cart; ITP resolves catalog prices server-side,
@@ -923,6 +923,30 @@ router.post('/orders', requireStorefrontSecret, async (req: Request, res: Respon
     }
     req.log?.error({ err: error }, 'storefront prepaid order failed')
     return res.status(500).json({ error: 'Failed to record order' })
+  }
+})
+
+// POST /api/storefront/orders/:externalRef/cancel — the vendor site refunded its
+// buyer (task 14ce738b): cancel the prepaid order so it is never printed or
+// shipped for free. Same storefront key as POST /orders; a key only reaches its
+// own vendor's orders. Refuses with 409 { shipped: true } once the order has
+// shipped, and changes nothing then. Repeating a cancel is harmless.
+//
+// Body (optional): { reason?: 'refunded', refund?: { chargeId?, amountRefundedCents? } }
+// Reply: { orderId, orderNumber, status: 'cancelled', alreadyCancelled }
+router.post('/orders/:externalRef/cancel', requireStorefrontSecret, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await cancelPrepaidVendorOrder(
+      { vendor: req.storefront?.vendor || '', externalRef: req.params.externalRef, body: req.body },
+      req.log
+    )
+    return res.json(result)
+  } catch (error: any) {
+    if (error instanceof PrepaidOrderError) {
+      return res.status(error.status).json({ error: error.message, ...(error.detail || {}) })
+    }
+    req.log?.error({ err: error }, 'storefront prepaid cancel failed')
+    return res.status(500).json({ error: 'Failed to cancel order' })
   }
 })
 
