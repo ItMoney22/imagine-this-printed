@@ -329,9 +329,11 @@ export const sendNewSupportTicketEmail = async (
   description: string,
   priority: string,
   category: string,
-  userEmail?: string
+  userEmail?: string,
+  /** Another inbox for the same alert (a bulk quote also goes to David, task 71164456). */
+  to?: string
 ): Promise<boolean> => {
-  const supportEmail = process.env.SUPPORT_EMAIL || 'wecare@imaginethisprinted.com'
+  const supportEmail = to || process.env.SUPPORT_EMAIL || 'wecare@imaginethisprinted.com'
 
   const priorityColors: Record<string, string> = {
     urgent: '#ef4444',

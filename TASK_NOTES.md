@@ -4772,3 +4772,13 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-28) — ITP bulk quotes also email David (task 71164456, mia-potts)
+Rationale: a 12+ shirt quote (Jev bulk_quote) alerted only wecare@, which forwards only to Christina.
+
+### File shortlist (approved scope — 2026-10-28 bulk quote alert)
+- `backend/routes/support.ts` (POST /tickets: bulk_quote -> also BULK_QUOTE_ALERT_EMAIL), `backend/utils/email.ts` (optional recipient on sendNewSupportTicketEmail)
+- `backend/routes/support-bulk-quote.test.ts` (new), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (mia-potts): bulk_quote tickets from /contact now also send the same alert to BULK_QUOTE_ALERT_EMAIL (comma list, default davidt@, support inbox never doubled), best-effort per recipient. Live-chat hand-off and Mr. Imagine's ticket tool never produce bulk_quote (hard-coded general / no bulk enum), so unchanged. Route test 5/5, backend routes+utils vitest 174/174, tsc clean on touched files.
