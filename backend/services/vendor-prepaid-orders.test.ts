@@ -44,7 +44,7 @@ process.env.SUPABASE_URL ||= 'http://localhost:54321'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
 
 const { priceVendorOrder, vendorPricingRules, itpUnitCents } = await import('../shared/vendor-order-pricing.js')
-const { createPrepaidVendorOrder, PrepaidOrderError } = await import('./vendor-prepaid-orders.js')
+const { createPrepaidVendorOrder, readPrepaidVendorOrder, vendorOrderStage, vendorTrackingUrl, PrepaidOrderError } = await import('./vendor-prepaid-orders.js')
 
 // A real 1x1 PNG, so the stand logo goes through sharp for real.
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -197,5 +197,72 @@ describe('POST /api/storefront/orders (createPrepaidVendorOrder)', () => {
     expect((await createPrepaidVendorOrder({ vendor: 'zentress', body: body(jpeg, { itpShareCents: 1300 }) }).catch((e) => e)).message).toMatch(/must be a PNG/)
     const noBack = [shirt({ backPrint: true })]
     expect((await createPrepaidVendorOrder({ vendor: 'zentress', body: body(noBack, { itpShareCents: 2000 }) }).catch((e) => e)).message).toMatch(/back print is required/)
+  })
+})
+
+// Task cb187ff5: the vendor site reads its order back, so its own row moves
+// from "submitted" on its own: ITP's stage, and tracking only when it is real.
+describe('reading a prepaid order back', () => {
+  const place = async (vendorRef = 'zt-order-1') => {
+    const lines = [mug()]
+    const placed = await createPrepaidVendorOrder({ vendor: 'zentress', body: body(lines, { externalRef: vendorRef, itpShareCents: share(lines, 'spa') }) })
+    return tables.orders.find((o) => o.id === placed.orderId)!
+  }
+
+  it('collapses ITP statuses to the stages a site shows', () => {
+    const stage = (status: string | null, extra: Record<string, any> = {}) => vendorOrderStage({ status, ...extra })
+    expect(stage('processing')).toBe('received')
+    expect(stage('paid')).toBe('received')
+    expect(stage('printed')).toBe('in_production')
+    expect(stage('processing', { printStatus: 'printing' })).toBe('in_production')
+    expect(stage('processing', { standPrintSent: true })).toBe('in_production')
+    expect(stage('shipped')).toBe('shipped')
+    expect(stage('delivered')).toBe('delivered')
+    expect(stage('completed')).toBe('delivered')
+    expect(stage('cancelled')).toBe('cancelled')
+    expect(stage('refunded')).toBe('cancelled')
+    expect(stage('on_hold')).toBe('on_hold')
+  })
+
+  it('a new order reads back as received, with no tracking', async () => {
+    const order = await place()
+    const read = await readPrepaidVendorOrder('zentress', 'zt-order-1')
+    expect(read).toMatchObject({ orderId: order.id, orderNumber: order.order_number, externalRef: 'zt-order-1', stage: 'received', status: 'processing' })
+    expect(read).toMatchObject({ trackingNumber: null, carrier: null, trackingUrl: null })
+  })
+
+  it('a shipped order reads back with its tracking and the carrier\'s own link', async () => {
+    const order = await place()
+    Object.assign(order, { status: 'shipped', tracking_number: ' 9400111899223197428490 ', tracking_company: 'USPS', shipped_at: '2026-10-28T12:00:00Z' })
+    const read = await readPrepaidVendorOrder('zentress', 'zt-order-1')
+    expect(read).toMatchObject({ stage: 'shipped', trackingNumber: '9400111899223197428490', carrier: 'USPS', shippedAt: '2026-10-28T12:00:00Z' })
+    expect(read!.trackingUrl).toMatch(/^https:\/\/tools\.usps\.com\/.*9400111899223197428490/)
+  })
+
+  it('a bought label\'s own tracking link wins', () => {
+    const url = vendorTrackingUrl({ tracking_number: '1Z999AA10123456784', tracking_company: 'UPS', metadata: { shipping_label: { tracking_url: 'https://track.goshippo.com/x' } } })
+    expect(url).toBe('https://track.goshippo.com/x')
+  })
+
+  it('never hands back a search link for a carrier ITP cannot name', async () => {
+    const order = await place()
+    Object.assign(order, { status: 'shipped', tracking_number: 'ABC123', tracking_company: "Bob's Courier" })
+    const read = await readPrepaidVendorOrder('zentress', 'zt-order-1')
+    expect(read).toMatchObject({ trackingNumber: 'ABC123', carrier: "Bob's Courier", trackingUrl: null })
+  })
+
+  it('a stand sent to the 3D printer reads as in production', async () => {
+    const order = await place()
+    tables.qr_stand_builds.push({ id: 'b1', order_id: order.id, line_index: 0, print_status: 'sent', created_at: '2026-10-28' })
+    expect((await readPrepaidVendorOrder('zentress', 'zt-order-1'))!.stage).toBe('in_production')
+  })
+
+  it('only the vendor that sent the order can read it, and an unknown order is null', async () => {
+    await place()
+    expect(await readPrepaidVendorOrder('zentress', 'zt-nope')).toBeNull()
+    expect((await readPrepaidVendorOrder('darrell', 'zt-order-1').catch((e) => e)).status).toBe(403)
+    process.env.STOREFRONT_PREPAID_VENDORS = 'zentress,darrell'
+    expect(await readPrepaidVendorOrder('darrell', 'zt-order-1')).toBeNull()
+    expect((await readPrepaidVendorOrder('zentress', '  ').catch((e) => e)).status).toBe(400)
   })
 })

@@ -25,7 +25,8 @@ import { nanoid } from 'nanoid'
 import { supabase } from '../lib/supabase.js'
 import { uploadImageFromBuffer } from './google-cloud-storage.js'
 import { PRINT_FILES_BUCKET, storePrintFile, type PrintFileRefs } from './print-files.js'
-import { onQrStandOrderPaid } from './qr-stand-builds.js'
+import { latestBuilds, onQrStandOrderPaid } from './qr-stand-builds.js'
+import { resolveCarrier } from '../utils/carrier-tracking.js'
 import {
   QR_LOGO_PREFIX,
   QR_STAND,
@@ -314,4 +315,86 @@ export async function createPrepaidVendorOrder(input: PrepaidOrderInput, log?: L
   await onQrStandOrderPaid({ id: order.id, order_number: order.order_number }, log)
   log?.info?.({ orderId: order.id, vendor, externalRef, itpShareCents: pricing.itpShareCents, test: !payment.livemode }, 'prepaid vendor order received')
   return { duplicate: false, orderId: order.id, orderNumber: order.order_number, itpShareCents: pricing.itpShareCents }
+}
+
+// ── Reading an order back (task cb187ff5) ─────────────────────────────────────
+//
+// The vendor site polls GET /api/storefront/orders/:externalRef so its own order
+// row shows where ITP has the order, with no one typing it in. ITP's statuses
+// collapse to a few stages the site can show as they are (the same idea as
+// GET /products/status), and tracking comes back only when it is real: a link
+// ITP can't name a carrier for is left out, not guessed.
+
+export type VendorOrderStage = 'received' | 'in_production' | 'shipped' | 'delivered' | 'cancelled' | 'on_hold'
+
+/** Print-bridge stages (routes/print-bridge.ts) that mean the press has the order. */
+const PRINT_UNDERWAY = new Set(['in_production', 'printing', 'insert_pause', 'ready_for_packing', 'shipped_soon'])
+
+export function vendorOrderStage(input: { status: string | null; printStatus?: string | null; standPrintSent?: boolean }): VendorOrderStage {
+  switch (input.status) {
+    case 'cancelled':
+    case 'refunded':
+      return 'cancelled'
+    case 'delivered':
+    case 'completed':
+      return 'delivered'
+    case 'shipped':
+      return 'shipped'
+    case 'on_hold':
+      return 'on_hold'
+    case 'printed':
+      return 'in_production'
+  }
+  return PRINT_UNDERWAY.has(input.printStatus ?? '') || input.standPrintSent ? 'in_production' : 'received'
+}
+
+/** The carrier's own tracking page, or null when ITP can't name the carrier. */
+export function vendorTrackingUrl(order: { tracking_number?: string | null; tracking_company?: string | null; metadata?: any }): string | null {
+  const labelUrl = order.metadata?.shipping_label?.tracking_url
+  if (typeof labelUrl === 'string' && labelUrl.startsWith('https://')) return labelUrl
+  const number = (order.tracking_number || '').trim()
+  if (!number) return null
+  const carrier = resolveCarrier(number, order.tracking_company)
+  return carrier.resolved ? carrier.trackingUrl : null
+}
+
+export async function readPrepaidVendorOrder(vendorRaw: string, externalRefRaw: string) {
+  const vendor = vendorRaw.toLowerCase()
+  if (!prepaidVendors().has(vendor)) {
+    throw new PrepaidOrderError(403, 'This storefront key may not read prepaid orders')
+  }
+  const externalRef = typeof externalRefRaw === 'string' ? externalRefRaw.trim() : ''
+  if (!externalRef || externalRef.length > 100) throw new PrepaidOrderError(400, 'externalRef is required')
+
+  const { data, error } = await supabase
+    .from('orders')
+    .select('id, order_number, status, tracking_number, tracking_company, shipped_at, delivered_at, updated_at, metadata')
+    .eq('source', vendor)
+    .eq('metadata->>external_ref', externalRef)
+    .limit(1)
+  if (error) throw new Error(`prepaid read: ${error.message}`)
+  const order = data?.[0] as any
+  if (!order) return null
+
+  let stage = vendorOrderStage({ status: order.status, printStatus: order.metadata?.print?.status })
+  if (stage === 'received') {
+    // A QR stand goes to the 3D printer on its own build row, not the order's status.
+    const builds = await latestBuilds(order.id)
+    if ([...builds.values()].some((b) => b.print_status === 'sent')) stage = 'in_production'
+  }
+  const trackingNumber = typeof order.tracking_number === 'string' && order.tracking_number.trim() ? order.tracking_number.trim() : null
+  const carrier = trackingNumber ? resolveCarrier(trackingNumber, order.tracking_company) : null
+  return {
+    orderId: order.id,
+    orderNumber: order.order_number,
+    externalRef,
+    stage,
+    status: order.status ?? null,
+    trackingNumber,
+    carrier: carrier?.resolved ? carrier.name : (order.tracking_company || '').trim() || null,
+    trackingUrl: vendorTrackingUrl(order),
+    shippedAt: order.shipped_at ?? null,
+    deliveredAt: order.delivered_at ?? null,
+    updatedAt: order.updated_at ?? null,
+  }
 }

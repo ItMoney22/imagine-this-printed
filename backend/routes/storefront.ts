@@ -19,7 +19,7 @@ import {
 } from '../services/print-files.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { plusSizeUpchargeCents, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
-import { createPrepaidVendorOrder, PrepaidOrderError } from '../services/vendor-prepaid-orders.js'
+import { createPrepaidVendorOrder, readPrepaidVendorOrder, PrepaidOrderError } from '../services/vendor-prepaid-orders.js'
 
 // Headless checkout API for external storefronts (earth019.com). A trusted
 // storefront server POSTs a mixed cart; ITP resolves catalog prices server-side,
@@ -923,6 +923,25 @@ router.post('/orders', requireStorefrontSecret, async (req: Request, res: Respon
     }
     req.log?.error({ err: error }, 'storefront prepaid order failed')
     return res.status(500).json({ error: 'Failed to record order' })
+  }
+})
+
+// GET /api/storefront/orders/:externalRef — where ITP has a prepaid order the
+// vendor sent (task cb187ff5), so the vendor's own order row moves on its own.
+// Scoped to the key's vendor: one site can never read another's orders.
+// Reply: { orderId, orderNumber, externalRef, stage, status, trackingNumber,
+//          carrier, trackingUrl, shippedAt, deliveredAt, updatedAt }
+//   stage: received | in_production | shipped | delivered | cancelled | on_hold
+//   trackingUrl is null unless ITP knows the carrier (never a search link).
+router.get('/orders/:externalRef', requireStorefrontSecret, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const order = await readPrepaidVendorOrder(req.storefront?.vendor || '', req.params.externalRef)
+    if (!order) return res.status(404).json({ error: 'Order not found' })
+    return res.json(order)
+  } catch (error: any) {
+    if (error instanceof PrepaidOrderError) return res.status(error.status).json({ error: error.message })
+    req.log?.error({ err: error }, 'storefront prepaid order read failed')
+    return res.status(500).json({ error: 'Failed to read order' })
   }
 })
 
