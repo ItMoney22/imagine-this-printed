@@ -930,7 +930,9 @@ router.post('/orders', requireStorefrontSecret, async (req: Request, res: Respon
 // buyer (task 14ce738b): cancel the prepaid order so it is never printed or
 // shipped for free. Same storefront key as POST /orders; a key only reaches its
 // own vendor's orders. Refuses with 409 { shipped: true } once the order has
-// shipped, and changes nothing then. Repeating a cancel is harmless.
+// shipped, and changes nothing then. Repeating a cancel is harmless. No order
+// under that reference is 404 { notFound: true }, so a site can tell it from a
+// route that is not deployed yet.
 //
 // Body (optional): { reason?: 'refunded', refund?: { chargeId?, amountRefundedCents? } }
 // Reply: { orderId, orderNumber, status: 'cancelled', alreadyCancelled }

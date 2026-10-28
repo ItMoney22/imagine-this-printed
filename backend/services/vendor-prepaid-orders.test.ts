@@ -305,8 +305,9 @@ describe('POST /api/storefront/orders/:externalRef/cancel (cancelPrepaidVendorOr
     expect(tables.orders[0].status).toBe('processing')
   })
 
-  it('an unknown reference is a 404', async () => {
+  it('an unknown reference is a 404 that says so (notFound), unlike a route that is not there', async () => {
     const err = await cancelPrepaidVendorOrder({ vendor: 'zentress', externalRef: 'nope', body: REFUND }).catch((e) => e)
     expect(err.status).toBe(404)
+    expect(err.detail).toEqual({ notFound: true })
   })
 })

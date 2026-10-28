@@ -363,7 +363,8 @@ export async function cancelPrepaidVendorOrder(input: CancelPrepaidOrderInput, l
       .limit(1)
     if (error) throw new Error(`prepaid lookup: ${error.message}`)
     const order = data?.[0]
-    if (!order) throw new PrepaidOrderError(404, 'No order with that reference')
+    // notFound tells the site this is a real answer, not a route that isn't deployed yet.
+    if (!order) throw new PrepaidOrderError(404, 'No order with that reference', { notFound: true })
 
     const done = { orderId: order.id, orderNumber: order.order_number, status: 'cancelled' }
     if (order.status === 'cancelled') return { ...done, alreadyCancelled: true }
