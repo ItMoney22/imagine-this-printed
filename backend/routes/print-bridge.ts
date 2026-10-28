@@ -8,6 +8,9 @@ import { uploadImageFromUrl } from '../services/google-cloud-storage.js'
 import { signOwnModelFile, meshLinkFor } from '../services/model-files.js'
 import { PRINT_FILE_LINK_TTL_MINUTES } from '../services/print-files.js'
 import { randomUUID } from 'crypto'
+import { parseNamePrint } from '../shared/name-print.js'
+import { SHAPES as NAME_SHAPES } from '../services/name-print/geometry.js'
+import { signNamePrint } from '../services/name-print/store.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -198,24 +201,33 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
       // reference image + (often) a finished mesh, same as a "send a photo, we
       // print it" job, so it rides the 'custom-toy' line rather than a bespoke
       // (and unregistered) 'catalog-toy' id. Watchtower task ffe7c108.
-      const catalogCandidates = new Map<string, { product_id: string; product_name?: string; quantity: number; total?: number }>()
+      //
+      // A personalized line (a name ornament, task bf353160) is keyed by its
+      // own print file too: "Emma" and "Noah" on the same ornament are two
+      // prints, and deduping by product id alone would drop the second name.
+      const catalogCandidates = new Map<string, { product_id: string; product_name?: string; quantity: number; total?: number; row?: any }>()
+      const seenProducts = new Set<string>()
       for (const it of lineItems) {
         const pid = it.product_id
-        if (typeof pid === 'string' && UUID_RE.test(pid) && !catalogCandidates.has(pid)) {
-          catalogCandidates.set(pid, { product_id: pid, product_name: it.product_name, quantity: it.quantity || 1, total: it.subtotal })
+        if (typeof pid !== 'string' || !UUID_RE.test(pid)) continue
+        const key = `${pid}|${(it as any).metadata?.print_file_path ?? ''}`
+        seenProducts.add(pid)
+        if (!catalogCandidates.has(key)) {
+          catalogCandidates.set(key, { product_id: pid, product_name: it.product_name, quantity: it.quantity || 1, total: it.subtotal, row: it })
         }
       }
       for (const m of metaItems) {
         const pid = m?.id
-        if (typeof pid === 'string' && UUID_RE.test(pid) && !catalogCandidates.has(pid)) {
-          catalogCandidates.set(pid, { product_id: pid, product_name: m.name, quantity: m.quantity || 1, total: (m.price || 0) * (m.quantity || 1) })
+        if (typeof pid === 'string' && UUID_RE.test(pid) && !seenProducts.has(pid)) {
+          seenProducts.add(pid)
+          catalogCandidates.set(`${pid}|`, { product_id: pid, product_name: m.name, quantity: m.quantity || 1, total: (m.price || 0) * (m.quantity || 1) })
         }
       }
       if (catalogCandidates.size > 0) {
         const { data: prods } = await supabase
           .from('products')
           .select('id, name, category, images, metadata')
-          .in('id', Array.from(catalogCandidates.keys()))
+          .in('id', Array.from(seenProducts))
         const printable = new Map(
           (prods || [])
             .filter((p: any) => p.category === '3d-prints' || p?.metadata?.print3d?.enabled === true)
@@ -235,7 +247,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
 
           // Add-ons purchased with this toy (paint kit / magnet-mount weapon or
           // pet packs). Lives in order_items.metadata.addons via checkout.
-          const itemRow: any = lineItems.find((li: any) => li.product_id === it.product_id)
+          const itemRow: any = it.row ?? lineItems.find((li: any) => li.product_id === it.product_id)
           const catalogAddons: { id: string; name: string; price: number }[] =
             Array.isArray(itemRow?.metadata?.addons) ? itemRow.metadata.addons : []
           const catalogPaintKit = catalogAddons.some(a => a?.id === 'toy_paint_kit')
@@ -252,16 +264,37 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
               ? await matchMaterials(catalogPalette, 'paint')
               : null
 
+          // A name gift prints THIS line's file — the customer's name — and
+          // never the product's static mesh, which has no name on it. No file
+          // (the build failed at checkout) means no stlUrl: the floor sees the
+          // line, the name and the error instead of printing a blank plate.
+          const nameTemplate = parseNamePrint(p.metadata)
+          const namePath: string | null =
+            nameTemplate && typeof itemRow?.metadata?.print_file_path === 'string' && itemRow.metadata.print_file_path.endsWith('.stl')
+              ? itemRow.metadata.print_file_path
+              : null
+          const nameStlUrl = namePath ? await signNamePrint(namePath).catch(() => undefined) : undefined
+
           out.push({
             itpOrderId: o.id,
-            lineItemId: it.product_id,
+            lineItemId: namePath ? `${it.product_id}:${namePath.split('/').pop()!.replace(/\.stl$/, '')}` : it.product_id,
             line: 'custom-toy',
             title: it.product_name || p.name || 'Catalog 3D print',
             concept: p.name || it.product_name || 'Catalog 3D print',
             glbUrl: await meshLinkFor(p.metadata?.print3d?.glb_url || p.metadata?.glb_url, PRINT_FILE_LINK_TTL_MINUTES),
-            stlUrl: await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
+            stlUrl: nameTemplate ? nameStlUrl : await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
             referenceUrl: Array.isArray(p.images) && p.images[0] ? p.images[0] : undefined,
             quantity: it.quantity || 1,
+            ...(nameTemplate
+              ? {
+                  personalization: itemRow?.metadata?.personalization ?? null,
+                  printFileError: itemRow?.metadata?.print_file_error ?? (namePath ? undefined : 'no print file on this line'),
+                  // Plate in one colour, the raised name in the other: one
+                  // filament change at the top of the plate.
+                  nameColours: { plate: nameTemplate.colours.plate.name, letters: nameTemplate.colours.letters.name },
+                  colourChangeAtMm: NAME_SHAPES[nameTemplate.shape].plate,
+                }
+              : {}),
             material: p.metadata?.print3d?.material || 'PLA',
             colorMode: catalogColorMode,
             magnetSockets: catalogMagnetSockets,

@@ -5529,3 +5529,44 @@ the one-row line back. This adds a test that fails on exactly that.
   1f5916b's ("Remove is not inside a column that can shrink"). vite build + preview walked with the fleet browser at
   390 + 1400 (seeded cart of 3 live products): total, - / + and Remove on-screen; + and Remove tapped at 390 and worked.
   Evidence E:/memory/watchtower/assets/1434d8c5/.
+
+## Current request (2026-10-28) — ITP Christmas 3D name gifts: name ornament + name keychain (task bf353160, zero-pluto)
+
+Two draft products whose print file is a 3D model with the customer's typed name raised on the plate. Rides the
+existing personalization lane: cart `personalization` values -> checkout re-reads the template from the DB,
+re-sanitizes, renders the print file server-side -> `order_items.metadata.personalization / print_file_path /
+print_file_status / personalization_flags`. The team-template zone editor draws shirt art with an image model, so the
+3D template is a sibling key (`products.metadata.name_print`) with geometry in code, not a GPT edit.
+Printers: Batman answers SSDP at .29 (cloud mode) but MQTT says "Not authorized" with the stored code; Leviosa silent.
+
+### File shortlist (approved scope — 2026-10-28 name gifts)
+- new `backend/shared/name-print.ts` (+ test): template contract, parse, sanitize, cache key
+- new `backend/services/name-print/geometry.ts` (+ test): font outline -> plate + raised name -> binary STL + SVG preview
+- new `backend/services/name-print/store.ts`: render-or-get-cached STL in GCS (deterministic path)
+- new `backend/routes/name-print.ts` + mount in `backend/index.ts`: public, free, rate-limited preview
+- `backend/routes/stripe.ts` (personalizationForItems: name_print lines) + `backend/routes/stripe.personalization.test.ts`
+- `backend/routes/print-bridge.ts`: a name line prints its own STL, not the product's static one
+- new `src/components/NamePrintPanel.tsx`, `src/pages/ProductPage.tsx` (render the panel, gate Add to Cart)
+- new `scripts/name-gifts/*` (seed the two DRAFT products, render images, slice proof)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (zero-pluto): scope added; printer probe done (neither can print from Earth now).
+- 2026-10-28 (zero-pluto): built name-print geometry (Pacifico raised name on ornament/keychain plate -> STL + SVG preview), free preview route, checkout STL per line, print bridge per-line STL, product page panel, cart name line + own-name thumb + 2-line description clamp; seeded drafts e91d3fe4 (ornament) + 45c30f25 (keychain). Scope additions: backend/services/team-plate/review-flags.ts (type-only widening), src/pages/Cart.tsx, new backend/routes/stripe.name-print.test.ts + print-bridge.name-print.test.ts, backend/scripts/name-gifts-seed.ts. vitest 2220/2220, app tsc 0, sliced 4 STLs on the A1 profile, walked 390 + 1400.
+
+## Current request (2026-10-29) — MERGE PREP: name gifts 3f76ee3 onto origin/main f4ac1ae (task 97fded00, zero-pluto)
+
+3f76ee3 was cut from local main 1f5916b, 138 commits behind production. Rebased (cherry-picked) onto sal-moretti
+ded6d2b (origin/main f4ac1ae + the phone cart guard test) so it lands as one commit on main. Cart.tsx keeps
+production's redone cart (e9ca8ab, task b9656cc9); only the own-name thumbnail is ported.
+
+### File shortlist (approved scope — 2026-10-29 merge prep)
+- `src/pages/Cart.tsx` (keep main's layout; NamePrintThumb in the picture Link; name gift chip reads "Name: ...")
+- `src/pages/ProductPage.tsx` (main's layout; NamePrintPanel under the team panel; main button gated on it)
+- `backend/routes/print-bridge.ts` (main's signed mesh links; a name line still sends its own STL)
+- `backend/routes/print-bridge.name-print.test.ts` (fake gets `.lte()` + order `paid_at`, so it passes before or after 2270793)
+- `src/pages/Cart.phone-layout.test.tsx` (from ded6d2b, read only), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-29 (zero-pluto): cherry-picked 3f76ee3 onto ded6d2b; resolved Cart.tsx, ProductPage.tsx, print-bridge.ts,
+  TASK_NOTES.md (union). No conflict markers left.

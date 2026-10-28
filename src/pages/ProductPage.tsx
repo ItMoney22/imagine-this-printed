@@ -22,6 +22,8 @@ import { YouMayAlsoLike } from '../components/product/YouMayAlsoLike'
 import { ProductSocialProof } from '../components/reviews/RealReviews'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
+import NamePrintPanel from '../components/NamePrintPanel'
+import { parseNamePrint, sanitizeNameValues } from '../../backend/shared/name-print'
 import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
 import { DEFAULT_GARMENT_TIER_ID, garmentTierUpcharge, garmentTiersFor } from '../lib/garment-tiers'
@@ -397,8 +399,17 @@ const ProductPage: React.FC = () => {
     !personalizeUnsupported && rawTemplate && Array.isArray(rawTemplate.fields) && rawTemplate.fields.length > 0
       ? { version: rawTemplate.version, fields: rawTemplate.fields, upcharge: rawTemplate.upcharge }
       : null
+  // A 3D name gift (ornament / keychain, task bf353160): products.metadata.name_print.
+  // Same personalization values and the same checkout lane as a team shirt.
+  const namePrint = parseNamePrint((product as any)?.metadata)
+  const namedValues = namePrint ? sanitizeNameValues(namePrint, personalization) : null
   const personalizationComplete =
-    !teamTemplate || teamTemplate.fields.every((f: any) => (personalization[f.key] ?? '').length > 0)
+    (!teamTemplate || teamTemplate.fields.every((f: any) => (personalization[f.key] ?? '').length > 0)) &&
+    (!namePrint || (namedValues![namePrint.field.key] ?? '').length > 0)
+  const cartPersonalization = teamTemplate ? personalization : namedValues ?? undefined
+  const missingPersonalization = teamTemplate
+    ? teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')
+    : 'name'
 
   // Blank garment pricing — per size + colour group off the product's own
   // table (backend/shared/blank-pricing.ts). products.price is only the
@@ -539,12 +550,12 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a print placement')
       return
     }
-    if (teamTemplate && !personalizationComplete) {
-      toast.warning('Selection required', `Please enter the ${teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')}`)
+    if (!personalizationComplete) {
+      toast.warning('Selection required', `Please enter the ${missingPersonalization}`)
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, colorChoices.length ? selectedColor : undefined, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, cartPrintLocation, cartTier, teamTemplate ? personalization : undefined)
+      addToCart(product, quantity, selectedSize, colorChoices.length ? selectedColor : undefined, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, cartPrintLocation, cartTier, cartPersonalization)
       trackCartForTryOn(attribution)
       toast.success('Added to cart', product.name)
     }
@@ -565,12 +576,12 @@ const ProductPage: React.FC = () => {
       toast.warning('Selection required', 'Please select a print placement')
       return
     }
-    if (teamTemplate && !personalizationComplete) {
-      toast.warning('Selection required', `Please enter the ${teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')}`)
+    if (!personalizationComplete) {
+      toast.warning('Selection required', `Please enter the ${missingPersonalization}`)
       return
     }
     if (product) {
-      addToCart(product, quantity, selectedSize, colorChoices.length ? selectedColor : undefined, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, cartPrintLocation, cartTier, teamTemplate ? personalization : undefined)
+      addToCart(product, quantity, selectedSize, colorChoices.length ? selectedColor : undefined, undefined, undefined, undefined, selectedAddons.length ? selectedAddons : undefined, cartPrintLocation, cartTier, cartPersonalization)
       // Buy Now still puts the item in the cart, so it counts in the funnel.
       trackCartForTryOn()
       navigate('/checkout')
@@ -1064,6 +1075,15 @@ const ProductPage: React.FC = () => {
               />
             )}
 
+            {namePrint && (
+              <NamePrintPanel
+                productId={product.id}
+                template={namePrint}
+                values={personalization}
+                onChange={setPersonalization}
+              />
+            )}
+
             {/* Quantity + the ONE main button. */}
             <div>
               <span className={optionLabel}>Quantity</span>
@@ -1087,7 +1107,7 @@ const ProductPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() => handleAddToCart()}
-                  disabled={!product.inStock || (teamTemplate ? !personalizationComplete : false)}
+                  disabled={!product.inStock || !personalizationComplete}
                   className="flex-1 btn-primary !py-3 !px-4 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <ShoppingCart className="w-5 h-5" />
