@@ -5510,3 +5510,22 @@ Holder $20.00" above the code-built table (Subtotal $40.00). Enforce in code, li
 - 2026-10-28 (rico-fernandez): aiCopyRestatesMoney() ($ figure in any spelling, or a <table>) sends an order_confirmation
   to generateFallbackEmail; a priced subject gets the standard one; the writer is no longer handed prices for this
   email. vitest emailAI + email-totals + email-blocks 19/19; turning the guard off fails 2, showing prices fails 1.
+
+## Current request (2026-10-28) — cart line on phones: total and Remove on-screen at 390 px (task 1434d8c5, sal-moretti)
+
+Seen on the 10/28 name-gifts walk (bf353160): each cart line was one row and ran off a 390 px screen. That walk built
+branch 3f76ee3, cut from local main 1f5916b, 138 commits behind origin/main. Production's cart (Amelia's redo e9ca8ab,
+task b9656cc9) already keeps the total beside the name and - / + / Remove under it, so Cart.tsx needs no change. The risk
+is the name-gifts ship (c026572f): 3f76ee3 conflicts with origin/main in Cart.tsx, so a merge that keeps its side brings
+the one-row line back. This adds a test that fails on exactly that.
+
+### File shortlist (approved scope — 2026-10-28 cart on phones)
+- `src/pages/Cart.phone-layout.test.tsx` (new) — guard only; `src/pages/Cart.tsx` read, not changed
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (sal-moretti): fast-forwarded the branch to origin/main f4ac1ae. New test: every line's total, - / + and
+  Remove sit inside the min-w-0 column, with only the picture (shrink-0) beside it. Green on f4ac1ae's Cart.tsx, red on
+  1f5916b's ("Remove is not inside a column that can shrink"). vite build + preview walked with the fleet browser at
+  390 + 1400 (seeded cart of 3 live products): total, - / + and Remove on-screen; + and Remove tapped at 390 and worked.
+  Evidence E:/memory/watchtower/assets/1434d8c5/.
