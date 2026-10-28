@@ -5494,3 +5494,19 @@ fills it with the closest real values so nobody has to pick. No ITP form or sche
   (4 DTF, 2 PNG) and re-read each from Etsy. tsc -b 0; vitest 146 files / 2215 pass.
 - 2026-10-27 (zero-nine, task 86181075): eabbc5a merged onto the 10/27 Crystal batch 90c6a373 so one train carries both;
   only conflict was this file (kept both sides). Backfill + DTF/PNG property re-read run after the ship.
+
+## Current request (2026-10-28) — order confirmation AI copy never restates prices (task 4cd45b3c, rico-fernandez)
+
+Live replay 10/28 (395ee408) of ITP-MTYGMM4V-UQ5X: the AI body added "Itemized totals: 2x Gothic Ghost Face Candle
+Holder $20.00" above the code-built table (Subtotal $40.00). Enforce in code, like subjectClaimsShipped. email-blocks.ts
+(the totals table) is NOT touched.
+
+### File shortlist (approved scope — 2026-10-28 order confirmation prices)
+- `backend/services/emailAI.ts` — guard on AI greeting/mainContent/closing + subject; no prices in the writer's context
+- `backend/services/emailAI.test.ts` — new: the exact live AI output
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (rico-fernandez): aiCopyRestatesMoney() ($ figure in any spelling, or a <table>) sends an order_confirmation
+  to generateFallbackEmail; a priced subject gets the standard one; the writer is no longer handed prices for this
+  email. vitest emailAI + email-totals + email-blocks 19/19; turning the guard off fails 2, showing prices fails 1.
