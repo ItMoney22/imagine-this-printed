@@ -4772,3 +4772,18 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-28) — ITP social: 15 holiday posts from the unposted drafts (task 78677af0, mason-blaze)
+
+Data-only task: the 15 posts were written into prod `social_outbox` with a service-role script (kept with the evidence
+in E:/memory/watchtower/projects/imagine-this-printed/2026-10-28-78677af0-social-holiday/scripts/). No app code changed.
+
+### File shortlist (approved scope — 2026-10-28 holiday social batch)
+- `docs/reports/2026-10-28-holiday-social-batch.md` (new: the 15 posts, how they were picked, accounts, push-back)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (mason-blaze): replaced 15 July drafts with Christmas gift drafts (status draft, release 7 PM ET Nov 3 -
+  Dec 5, UTM utm_campaign = row id, 5 hashtags, gallery-order images). Verify script: 15 OK, 0 failed, 125 rows all draft,
+  Draft lane opens on the 15 in posting order. Accounts: TikTok exists (bio link is plain text), IG + Pinterest none,
+  Facebook behind a login (Sifu). Filed APPROVE 42264b2f (TikTok bio link) + posting card 5b95feca.
