@@ -7,6 +7,14 @@ import { getColorName } from '../utils/color-presets'
 import { addonsUnitTotal, lineBasePrice } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { lineUnitBasePrice } from '../../backend/shared/blank-pricing'
+import { parseNamePrint } from '../../backend/shared/name-print'
+import { NamePrintThumb } from '../components/NamePrintPanel'
+
+/** The name a shopper typed for a 3D name gift line, or null for any other line. */
+function giftName(item: { product: { metadata?: unknown }; personalization?: Record<string, string> }): string | null {
+  const template = parseNamePrint(item.product.metadata)
+  return (template && item.personalization?.[template.field.key]) || null
+}
 
 const Cart: React.FC = () => {
   const { state, removeFromCart, updateQuantity } = useCart()
@@ -61,6 +69,14 @@ const Cart: React.FC = () => {
             <div className="divide-y divide-gray-200">
               {state.items.map((item) => (
                 <div key={item.id} className="p-6 flex items-center space-x-4">
+                  {giftName(item) ? (
+                    <NamePrintThumb
+                      productId={item.product.id}
+                      name={giftName(item)!}
+                      fallback={item.product.images?.[0] || ''}
+                      className="w-20 h-20 shrink-0 object-contain rounded-md bg-bg"
+                    />
+                  ) : (
                   <img
                     src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'}
                     alt={item.product.name}
@@ -69,15 +85,21 @@ const Cart: React.FC = () => {
                       (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
                     }}
                   />
+                  )}
 
                   <div className="flex-1">
                     <h3 className="text-lg font-semibold text-text">{item.product.name}</h3>
-                    <p className="text-muted">{item.product.description}</p>
+                    <p className="text-muted line-clamp-2">{item.product.description}</p>
                     {item.selectedSize && (
                       <p className="text-sm text-muted mt-1">Size: <span className="font-medium text-text">{item.selectedSize}</span></p>
                     )}
                     {item.selectedColor && (
                       <p className="text-sm text-muted mt-1">Color: <span className="font-medium text-text">{getColorName(item.selectedColor)}</span></p>
+                    )}
+                    {item.personalization && Object.values(item.personalization).some(Boolean) && (
+                      // What gets printed (a name gift's name, a team shirt's name and
+                      // number) — the last place to catch a typo before paying.
+                      <p className="text-sm text-muted mt-1">Personalized: <span className="font-medium text-text">{Object.values(item.personalization).filter(Boolean).join(' · ')}</span></p>
                     )}
                     {item.selectedTier && getGarmentTier(item.selectedTier) && (
                       <p className="text-sm text-muted mt-1">

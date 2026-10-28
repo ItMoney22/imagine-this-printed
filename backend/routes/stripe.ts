@@ -19,6 +19,8 @@ import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../sh
 import { parseTeamTemplate, sanitizeValues } from '../shared/team-template.js'
 import { renderOrGetCached, pressPlatePath } from '../services/team-plate/plate-store.js'
 import { reviewFlags } from '../services/team-plate/review-flags.js'
+import { parseNamePrint, sanitizeNameValues, type NamePrintTemplate } from '../shared/name-print.js'
+import { storeNamePrint } from '../services/name-print/store.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
 // margins → merch ledger) lives in this service so the hourly payment
@@ -324,11 +326,20 @@ async function personalizationForItems(
     return out
   }
   const templates = new Map<string, ReturnType<typeof parseTeamTemplate>>()
-  for (const row of data ?? []) templates.set(String(row.id), parseTeamTemplate(row.metadata))
+  const nameTemplates = new Map<string, NamePrintTemplate | null>()
+  for (const row of data ?? []) {
+    templates.set(String(row.id), parseTeamTemplate(row.metadata))
+    nameTemplates.set(String(row.id), parseNamePrint(row.metadata))
+  }
 
   await Promise.all(
     items.map(async (item: any, index: number) => {
       const id = item?.product?.id != null ? String(item.product.id) : null
+      const nameTemplate = id ? nameTemplates.get(id) : null
+      if (nameTemplate) {
+        out.set(index, await namePrintForLine(nameTemplate, item?.personalization, id!, req))
+        return
+      }
       const template = id ? templates.get(id) : null
       if (!template) return
       const values = sanitizeValues(template, item?.personalization)
@@ -366,6 +377,37 @@ async function personalizationForItems(
     })
   )
   return out
+}
+
+/**
+ * A 3D name gift line (products.metadata.name_print, task bf353160): the STL
+ * with the customer's name raised on the plate. Same posture as a team shirt —
+ * the template comes from the DATABASE, the name is re-sanitized here, and the
+ * file is built here — but no time budget is needed: the geometry takes
+ * milliseconds and the upload one round trip. A failure is recorded on the
+ * line, never thrown: money is already moving.
+ */
+async function namePrintForLine(
+  template: NamePrintTemplate,
+  raw: unknown,
+  productId: string,
+  req: Request
+): Promise<LinePersonalization> {
+  const values = sanitizeNameValues(template, raw)
+  const flags = reviewFlags({ fields: [{ key: template.field.key }] }, values)
+  const name = values[template.field.key]
+  if (!name) {
+    // The product page will not add one to the cart without a name; a crafted
+    // cart can. Record it so the team asks instead of printing a blank plate.
+    return { values, path: null, status: 'failed', error: 'No name was typed for this line', flags }
+  }
+  try {
+    const stored = await storeNamePrint(template, name)
+    return { values, path: stored.path, status: 'ready', flags }
+  } catch (err: any) {
+    req.log?.error({ err, productId }, 'name-print: print file failed at checkout')
+    return { values, path: null, status: 'failed', error: err?.message ?? 'print file failed', flags }
+  }
 }
 
 // Exported for unit testing: this is where a client-supplied print file URL

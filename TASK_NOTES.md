@@ -4772,3 +4772,27 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-28) — ITP Christmas 3D name gifts: name ornament + name keychain (task bf353160, zero-pluto)
+
+Two draft products whose print file is a 3D model with the customer's typed name raised on the plate. Rides the
+existing personalization lane: cart `personalization` values -> checkout re-reads the template from the DB,
+re-sanitizes, renders the print file server-side -> `order_items.metadata.personalization / print_file_path /
+print_file_status / personalization_flags`. The team-template zone editor draws shirt art with an image model, so the
+3D template is a sibling key (`products.metadata.name_print`) with geometry in code, not a GPT edit.
+Printers: Batman answers SSDP at .29 (cloud mode) but MQTT says "Not authorized" with the stored code; Leviosa silent.
+
+### File shortlist (approved scope — 2026-10-28 name gifts)
+- new `backend/shared/name-print.ts` (+ test): template contract, parse, sanitize, cache key
+- new `backend/services/name-print/geometry.ts` (+ test): font outline -> plate + raised name -> binary STL + SVG preview
+- new `backend/services/name-print/store.ts`: render-or-get-cached STL in GCS (deterministic path)
+- new `backend/routes/name-print.ts` + mount in `backend/index.ts`: public, free, rate-limited preview
+- `backend/routes/stripe.ts` (personalizationForItems: name_print lines) + `backend/routes/stripe.personalization.test.ts`
+- `backend/routes/print-bridge.ts`: a name line prints its own STL, not the product's static one
+- new `src/components/NamePrintPanel.tsx`, `src/pages/ProductPage.tsx` (render the panel, gate Add to Cart)
+- new `scripts/name-gifts/*` (seed the two DRAFT products, render images, slice proof)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (zero-pluto): scope added; printer probe done (neither can print from Earth now).
+- 2026-10-28 (zero-pluto): built name-print geometry (Pacifico raised name on ornament/keychain plate -> STL + SVG preview), free preview route, checkout STL per line, print bridge per-line STL, product page panel, cart name line + own-name thumb + 2-line description clamp; seeded drafts e91d3fe4 (ornament) + 45c30f25 (keychain). Scope additions: backend/services/team-plate/review-flags.ts (type-only widening), src/pages/Cart.tsx, new backend/routes/stripe.name-print.test.ts + print-bridge.name-print.test.ts, backend/scripts/name-gifts-seed.ts. vitest 2220/2220, app tsc 0, sliced 4 STLs on the A1 profile, walked 390 + 1400.
