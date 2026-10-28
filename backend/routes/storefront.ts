@@ -19,6 +19,7 @@ import {
 } from '../services/print-files.js'
 import { slugify, generateUniqueSlug } from '../utils/slugify.js'
 import { plusSizeUpchargeCents, PLUS_SIZE_UPCHARGE_CENTS } from '../shared/catalog-capability.js'
+import { createPrepaidVendorOrder, PrepaidOrderError } from '../services/vendor-prepaid-orders.js'
 
 // Headless checkout API for external storefronts (earth019.com). A trusted
 // storefront server POSTs a mixed cart; ITP resolves catalog prices server-side,
@@ -896,6 +897,32 @@ router.get('/products/status', requireStorefrontSecret, async (req: Request, res
   } catch (error: any) {
     req.log?.error({ err: error }, 'storefront: product status report failed')
     return res.status(500).json({ error: 'Failed to load product statuses', message: error.message })
+  }
+})
+
+// POST /api/storefront/orders — an order a vendor site ALREADY took payment for
+// (ZenTress Head Spa, task d2e4d280: its own Stripe platform charged the buyer,
+// ITP's share as the application fee). Lands paid in normal order management
+// with its print files, and a QR stand line queues the Earth builder. ITP
+// re-prices every line and refuses a share that is not its own number
+// (services/vendor-prepaid-orders.ts). Only vendors in STOREFRONT_PREPAID_VENDORS.
+//
+// Body: { externalRef, orderType: 'store' | 'spa', itpShareCents, shippingCents,
+//         payment: { paymentIntentId, chargeId?, account?, livemode, amountCents },
+//         customer: { name, email, shipping },
+//         lines: [{ kind: 'shirt' | 'mug' | 'qr-stand', name?, quantity, size?, color?,
+//                   backPrint?, printLocation?, retailCents?, frontPng?, backPng?, qr?: { link, caption, logoPng? } }] }
+// Reply: { orderId, orderNumber, itpShareCents, duplicate }
+router.post('/orders', requireStorefrontSecret, async (req: Request, res: Response): Promise<any> => {
+  try {
+    const result = await createPrepaidVendorOrder({ vendor: req.storefront?.vendor || '', body: req.body }, req.log)
+    return res.status(result.duplicate ? 200 : 201).json(result)
+  } catch (error: any) {
+    if (error instanceof PrepaidOrderError) {
+      return res.status(error.status).json({ error: error.message, ...(error.detail || {}) })
+    }
+    req.log?.error({ err: error }, 'storefront prepaid order failed')
+    return res.status(500).json({ error: 'Failed to record order' })
   }
 })
 
