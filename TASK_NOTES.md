@@ -4772,3 +4772,14 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-28) — ITP Etsy holiday relaunch (task a8946dbf, rico-fernandez)
+Etsy work through the Open API only (drafts; nothing live before David's yes on APPROVE 525d19e3). No product code changes.
+
+### File shortlist (approved scope — 2026-10-28 Etsy holiday relaunch)
+- `docs/sales/2026-10-28-etsy-holiday-review-sheet.md` (new: the review sheet for APPROVE lines 3 + 7)
+- `TASK_NOTES.md`
+- Scripts + raw reads live outside the repo: `E:/memory/watchtower/projects/imagine-this-printed/2026-10-28-a8946dbf-etsy-holiday/`
+
+### Work log (append-only)
+- 2026-10-28 (rico-fernandez): 3 toy drafts created (4605156955, 4605177426, 4605177446, Figurines 1799, new 3-5 day readiness 1528318098291); 5 PNG/DTF drafts fixed (Beam + Gnome DTF now really sell 3 sheet sizes; Lion DTF return policy + 2 film cards + house copy; titles); etsy_listings ledger rows written. API read-back: 14 live tees unchanged. Review sheet + tee-apply.cjs dry run (61 calls, 0 written). Price correction: "$22" is the youth price, adult is $25.
