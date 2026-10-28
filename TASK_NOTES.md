@@ -5526,3 +5526,6 @@ Prep only (Rico's c47c3e66 move 4). Nothing customer-facing before David's yes o
   unclaimed "Living Kolors Vinyl TShirts & More LLC". Quote path: /contact?topic=custom works (390 + 1400), Jev files
   team asks as bulk_quote/high (5/5), but alerts go to wecare@ -> Christina only; fix card 71164456. Flyer rendered from
   site prices only (QR decodes to the quote form). Post-yes send card c0c2180b.
+- 2026-10-28 (mia-potts): 30-group list added (school sports 7, youth leagues 3, churches 9, reunion/event 5, business/civic 6;
+  28 verified, 1 stale, 1 unverified; public org contacts only, each with its source page). 5 contacts spot-checked
+  against their own pages, 5/5 present. Line 8 of APPROVE 525d19e3 carries the summary + flyer.
