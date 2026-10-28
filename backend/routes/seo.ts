@@ -14,10 +14,10 @@ const STATIC_PATHS = ['', '/catalog', '/community', '/imagination-station', '/co
 // Deriving these from DISTINCT products.category instead would emit URLs the
 // UI has no filter for — /catalog/:category only renders for these ids.
 //
-// Vendor storefronts are deliberately NOT listed: /vendor/storefront/:vendorId
-// still renders hardcoded mock data ("Premium Apparel Co.", see
-// src/pages/VendorStorefront.tsx:43), so every such URL would be a duplicate
-// fake page. Add them here when the page is wired to a real vendor table.
+// Vendor storefronts are deliberately NOT listed: the /vendor/storefront/:vendorId
+// page was hardcoded mock data (a fake vendor with 127 invented reviews) and was
+// removed 2026-10-13 (task 36222110). Add storefronts here when one is built on a
+// real vendor table.
 const CATEGORY_PATHS = ['dtf-transfers', 'shirts', 'tumblers', 'hoodies', '3d-prints', 'metal-art']
 
 const xmlEscape = (s: string) =>

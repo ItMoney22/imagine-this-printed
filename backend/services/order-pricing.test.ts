@@ -103,11 +103,13 @@ describe('computeLineItemCents — blank garments', () => {
   it('is never bundle-eligible, whatever the cart metadata claims', () => {
     const { subtotalCents, errors } = computeSubtotalCents(
       [
-        { productId: PRODUCT_A, quantity: 2, selectedSize: 'M', selectedColor: 'Black', isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } }
+        { productId: PRODUCT_A, quantity: 2, selectedSize: 'M', selectedColor: 'Black' }
       ],
       priceMap,
       new Map(),
-      blankMap
+      blankMap,
+      new Set(),
+      new Set([PRODUCT_A]) // even if the DB row said eligible, a blank never is
     )
     expect(errors).toEqual([])
     expect(subtotalCents).toBe(658) // 2 × $3.29, not the $25 bundle
@@ -194,6 +196,12 @@ describe('computeLineItemCents', () => {
     const map = new Map([[PRODUCT_A, 20]])
     const { cents } = computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: '2XL' }, map)
     expect(cents).toBe(2000 + 250)
+  })
+
+  it('charges a 4XL $3.25, not the flat $2.50 (David 2026-10-16)', () => {
+    const map = new Map([[PRODUCT_A, 20]])
+    expect(computeLineItemCents({ productId: PRODUCT_A, quantity: 2, selectedSize: '4XL' }, map).cents).toBe((2000 + 325) * 2)
+    expect(computeLineItemCents({ productId: PRODUCT_A, quantity: 1, selectedSize: '3XL' }, map).cents).toBe(2000 + 250)
   })
 
   describe('youth-size discount (David 2026-09-07 — shirts and hoodies sell youth on the same listing)', () => {
@@ -394,19 +402,26 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   // charge (see order-pricing.ts comment) — every case here uses a
   // deliberately weird price ($9.00) to prove that.
   const eligibleMap = new Map([[PRODUCT_A, 9], [PRODUCT_B, 9]])
+  // `ids` = the products rows the DB flags for the deal (deps.fetchBundleEligibleIds).
+  const subtotal = (
+    items: Parameters<typeof computeSubtotalCents>[0],
+    prices: Map<string, number>,
+    ids: string[] = [PRODUCT_A, 'not-a-real-id']
+  ) => computeSubtotalCents(items, prices, new Map(), new Map(), new Set(), new Set(ids))
 
   it('charges nothing extra for zero eligible items — a plain non-eligible cart prices as before', () => {
-    const { subtotalCents, errors } = computeSubtotalCents(
+    const { subtotalCents, errors } = subtotal(
       [{ productId: PRODUCT_A, quantity: 2 }],
-      new Map([[PRODUCT_A, 20]])
+      new Map([[PRODUCT_A, 20]]),
+      []
     )
     expect(errors).toEqual([])
     expect(subtotalCents).toBe(4000)
   })
 
   it('charges a single eligible item the full $25, same as CartContext', () => {
-    const { subtotalCents, errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 1, isThreeForTwentyFive: true }],
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 1 }],
       eligibleMap
     )
     expect(errors).toEqual([])
@@ -414,8 +429,8 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   })
 
   it('charges exactly $25 for 2 eligible units', () => {
-    const { subtotalCents, errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 2 }],
       eligibleMap
     )
     expect(errors).toEqual([])
@@ -423,8 +438,8 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   })
 
   it('charges one bundle plus one full-price leftover for 3 eligible units', () => {
-    const { subtotalCents, errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 3, isThreeForTwentyFive: true }],
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 3 }],
       eligibleMap
     )
     expect(errors).toEqual([])
@@ -432,8 +447,8 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   })
 
   it('charges two full bundles for 4 eligible units', () => {
-    const { subtotalCents, errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 4, isThreeForTwentyFive: true }],
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 4 }],
       eligibleMap
     )
     expect(errors).toEqual([])
@@ -443,12 +458,13 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   it('pools eligible quantity ACROSS separate cart lines, not per line', () => {
     // 1 + 1 across two different products = 2 pooled units = one $25 bundle,
     // not two separate $25 singles ($50). This is the exact bug GAP 4 closes.
-    const { subtotalCents, errors } = computeSubtotalCents(
+    const { subtotalCents, errors } = subtotal(
       [
-        { productId: PRODUCT_A, quantity: 1, isThreeForTwentyFive: true },
-        { productId: PRODUCT_B, quantity: 1, metadata: { isThreeForTwentyFive: true } }
+        { productId: PRODUCT_A, quantity: 1 },
+        { productId: PRODUCT_B, quantity: 1 }
       ],
-      eligibleMap
+      eligibleMap,
+      [PRODUCT_A, PRODUCT_B]
     )
     expect(errors).toEqual([])
     expect(subtotalCents).toBe(2500)
@@ -456,9 +472,9 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
 
   it('prices a mixed cart: bundle-eligible items pooled, non-eligible items priced normally', () => {
     const map = new Map([[PRODUCT_A, 9], [PRODUCT_B, 40]])
-    const { subtotalCents, errors } = computeSubtotalCents(
+    const { subtotalCents, errors } = subtotal(
       [
-        { productId: PRODUCT_A, quantity: 3, isThreeForTwentyFive: true }, // pooled: $50
+        { productId: PRODUCT_A, quantity: 3 }, // pooled: $50
         { productId: PRODUCT_B, quantity: 1 } // normal: $40.00
       ],
       map
@@ -468,8 +484,8 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   })
 
   it('still applies plus-size/tier/add-on extras per unit on top of the pooled bundle base', () => {
-    const { subtotalCents, errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true, selectedSize: '2XL', selectedTier: 'premium' }],
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 2, selectedSize: '2XL', selectedTier: 'premium' }],
       eligibleMap
     )
     expect(errors).toEqual([])
@@ -480,8 +496,8 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   it('does NOT stack the youth discount on top of the flat 2-for-$25 bundle price', () => {
     // The bundle IS the discount — it ignores the product's own price entirely
     // — so a second $3 markdown would sell a bundled youth tee at $9.50.
-    const { subtotalCents, errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true, selectedSize: 'YM' }],
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 2, selectedSize: 'YM' }],
       eligibleMap
     )
     expect(errors).toEqual([])
@@ -489,36 +505,47 @@ describe('computeSubtotalCents — "2 for $25" bundle (GAP 4, mirrors CartContex
   })
 
   it('still applies the plus-size UPCHARGE inside a bundle (a 3XL really does cost more)', () => {
-    const { subtotalCents } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true, selectedSize: '3XL' }],
+    const { subtotalCents } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 2, selectedSize: '3XL' }],
       eligibleMap
     )
     expect(subtotalCents).toBe(2500 + 250 * 2)
   })
 
   it('errors on a bundle-eligible id that does not resolve to a real catalog product', () => {
-    const { errors } = computeSubtotalCents(
-      [{ productId: 'not-a-real-id', quantity: 2, isThreeForTwentyFive: true }],
+    const { errors } = subtotal(
+      [{ productId: 'not-a-real-id', quantity: 2 }],
       new Map()
     )
     expect(errors[0]).toMatch(/Unrecognized product id/)
   })
 
   it('errors on a bundle-eligible UUID missing from the price map, same as a normal item', () => {
-    const { errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+    const { errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 2 }],
       new Map() // PRODUCT_A not in the map
     )
     expect(errors[0]).toMatch(/not found/)
   })
 
-  it('is eligible via metadata.isThreeForTwentyFive alone, same as the top-level flag', () => {
-    const { subtotalCents, errors } = computeSubtotalCents(
-      [{ productId: PRODUCT_A, quantity: 2, metadata: { isThreeForTwentyFive: true } }],
+  it('is eligible when the DB row flags it, whatever the cart item carries', () => {
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_A, quantity: 2 }],
       eligibleMap
     )
     expect(errors).toEqual([])
     expect(subtotalCents).toBe(2500)
+  })
+
+  it('IGNORES a forged flag on the cart item: the DB row is the only judge', () => {
+    // Probe B 2026-10-12: 2 hoodies ($40, DB flag null) with the flag in the body bought for $25.
+    const { subtotalCents, errors } = subtotal(
+      [{ productId: PRODUCT_B, quantity: 2, isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } } as any],
+      new Map([[PRODUCT_B, 40]]),
+      [] // DB flags nothing
+    )
+    expect(errors).toEqual([])
+    expect(subtotalCents).toBe(8000)
   })
 })
 
@@ -683,6 +710,23 @@ describe('computeDiscountFromCoupon', () => {
     expect(result.error).toMatch(/expired/)
   })
 
+  it('SPOOKY20 (live row 769835fc) takes 20% off a 2-for-$25 cart until Oct 31 11:59pm ET, nothing after', () => {
+    const spooky = { ...baseCoupon, code: 'SPOOKY20', value: 20, expires_at: '2026-11-01T03:59:00Z' }
+    const { subtotalCents } = computeSubtotalCents(
+      [{ productId: PRODUCT_A, quantity: 2 }],
+      new Map([[PRODUCT_A, 9]]),
+      new Map(),
+      new Map(),
+      new Set(),
+      new Set([PRODUCT_A])
+    )
+    expect(subtotalCents).toBe(2500)
+    expect(computeDiscountFromCoupon(spooky, subtotalCents, 0, new Date('2026-11-01T03:58:00Z')).discountCents).toBe(500)
+    const after = computeDiscountFromCoupon(spooky, subtotalCents, 0, new Date('2026-11-01T04:00:00Z'))
+    expect(after.discountCents).toBe(0)
+    expect(after.error).toMatch(/expired/)
+  })
+
   it('rejects a coupon below its minimum order amount', () => {
     const result = computeDiscountFromCoupon({ ...baseCoupon, min_order_amount: 100 }, 5000, 0)
     expect(result.error).toMatch(/Minimum order amount/)
@@ -725,6 +769,61 @@ describe('evaluateCheckoutAmount', () => {
 })
 
 describe('calculateOrderPricing (end-to-end, injected deps)', () => {
+  describe('SPOOKY20 takes 20% off Halloween designs only (David 2026-10-16)', () => {
+    const SPOOKY20: PricingDiscountCodeRow = {
+      id: 'coupon-spooky', code: 'SPOOKY20', type: 'percentage', value: 20, is_active: true,
+      expires_at: null, max_uses: null, current_uses: null, min_order_amount: null,
+      max_discount_amount: null, per_user_limit: null
+    }
+    // PRODUCT_A is the Halloween design, PRODUCT_B the Folgers racing tee.
+    const deps = makeFakeDeps({
+      fetchProductPrices: async () => new Map([[PRODUCT_A, 25], [PRODUCT_B, 25]]),
+      fetchDiscountCode: async code => (code === 'SPOOKY20' ? SPOOKY20 : null),
+      fetchOfferThemedIds: async (ids, theme) => new Set(theme === 'halloween' ? ids.filter(id => id === PRODUCT_A) : []),
+      // 2-for-$25 eligibility comes from the products row, never the cart.
+      fetchBundleEligibleIds: async ids => new Set(bundleRows.filter(id => ids.includes(id)))
+    })
+    let bundleRows: string[] = []
+    const price = (items: any[]) =>
+      calculateOrderPricing({ items, shipping: { type: 'pickup', clientAmountCents: 0 }, couponCode: 'SPOOKY20', userId: null }, deps)
+
+    it('a mixed cart only gets 20% off the Halloween line', async () => {
+      const r = await price([{ productId: PRODUCT_A, quantity: 1 }, { productId: PRODUCT_B, quantity: 1 }])
+      expect(r.productSubtotalCents).toBe(5000)
+      expect(r.couponDiscountCents).toBe(500)
+      expect(r.couponError).toBeUndefined()
+    })
+
+    it('a cart with no Halloween design gets nothing, and says why', async () => {
+      const r = await price([{ productId: PRODUCT_B, quantity: 1, selectedSize: '4XL' }])
+      expect(r.couponDiscountCents).toBe(0)
+      expect(r.couponError).toMatch(/Halloween designs/)
+    })
+
+    it('splits a 2-for-$25 bundle evenly per unit', async () => {
+      bundleRows = [PRODUCT_A, PRODUCT_B]
+      try {
+        const r = await price([{ productId: PRODUCT_A, quantity: 1 }, { productId: PRODUCT_B, quantity: 1 }])
+        expect(r.productSubtotalCents).toBe(2500)
+        expect(r.couponDiscountCents).toBe(250) // 20% of the Halloween tee's $12.50 half
+      } finally {
+        bundleRows = []
+      }
+    })
+
+    it('a plain code still covers the whole order', async () => {
+      const plain = makeFakeDeps({
+        fetchProductPrices: async () => new Map([[PRODUCT_A, 25], [PRODUCT_B, 25]]),
+        fetchDiscountCode: async () => ({ ...SPOOKY20, code: 'SAVE20' })
+      })
+      const r = await calculateOrderPricing(
+        { items: [{ productId: PRODUCT_A, quantity: 1 }, { productId: PRODUCT_B, quantity: 1 }], shipping: { type: 'pickup', clientAmountCents: 0 }, couponCode: 'SAVE20', userId: null },
+        plain
+      )
+      expect(r.couponDiscountCents).toBe(1000)
+    })
+  })
+
   it('prices a legitimate cart correctly end-to-end', async () => {
     const deps = makeFakeDeps({
       fetchProductPrices: async () =>
@@ -1075,12 +1174,16 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
   // what CartContext.tsx advertised. These prove the server total now
   // matches what the cart itself would compute for the same cart, for the
   // full 1/2/3/4-eligible + mixed matrix.
-  const deps = makeFakeDeps({ fetchProductPrices: async () => new Map([[PRODUCT_A, 9], [PRODUCT_B, 40]]) })
+  const deps = makeFakeDeps({
+    fetchProductPrices: async () => new Map([[PRODUCT_A, 9], [PRODUCT_B, 40]]),
+    // The DB flags only PRODUCT_A for the deal.
+    fetchBundleEligibleIds: async () => new Set([PRODUCT_A])
+  })
 
   it('1 eligible tee: full $25, matches CartContext', async () => {
     const result = await calculateOrderPricing(
       {
-        items: [{ productId: PRODUCT_A, quantity: 1, isThreeForTwentyFive: true }],
+        items: [{ productId: PRODUCT_A, quantity: 1 }],
         shippingAddress: { state: 'OR' },
         shipping: { type: 'pickup', clientAmountCents: 0 },
         userId: null
@@ -1094,7 +1197,7 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
   it('2 eligible tees: one bundle, $25 total', async () => {
     const result = await calculateOrderPricing(
       {
-        items: [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+        items: [{ productId: PRODUCT_A, quantity: 2 }],
         shippingAddress: { state: 'OR' },
         shipping: { type: 'pickup', clientAmountCents: 0 },
         userId: null
@@ -1108,7 +1211,7 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
   it('3 eligible tees: one bundle + one full-price single, $50 total', async () => {
     const result = await calculateOrderPricing(
       {
-        items: [{ productId: PRODUCT_A, quantity: 3, isThreeForTwentyFive: true }],
+        items: [{ productId: PRODUCT_A, quantity: 3 }],
         shippingAddress: { state: 'OR' },
         shipping: { type: 'pickup', clientAmountCents: 0 },
         userId: null
@@ -1122,7 +1225,7 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
   it('4 eligible tees: two bundles, $50 total', async () => {
     const result = await calculateOrderPricing(
       {
-        items: [{ productId: PRODUCT_A, quantity: 4, isThreeForTwentyFive: true }],
+        items: [{ productId: PRODUCT_A, quantity: 4 }],
         shippingAddress: { state: 'OR' },
         shipping: { type: 'pickup', clientAmountCents: 0 },
         userId: null
@@ -1137,7 +1240,7 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
     const result = await calculateOrderPricing(
       {
         items: [
-          { productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true },
+          { productId: PRODUCT_A, quantity: 2 },
           { productId: PRODUCT_B, quantity: 1 }
         ],
         shippingAddress: { state: 'OR' },
@@ -1154,7 +1257,7 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
   it('the anti-tampering gate still catches a client total that ignores the bundle discount', async () => {
     const result = await calculateOrderPricing(
       {
-        items: [{ productId: PRODUCT_A, quantity: 2, isThreeForTwentyFive: true }],
+        items: [{ productId: PRODUCT_A, quantity: 2 }],
         shippingAddress: { state: 'OR' }, // 0% tax, keeps the math simple
         shipping: { type: 'pickup', clientAmountCents: 0 },
         userId: null
@@ -1168,6 +1271,36 @@ describe('calculateOrderPricing — "2 for $25" bundle end-to-end (GAP 4, Watcht
     // the server total, same posture as any other mismatch.
     const check = evaluateCheckoutAmount(1800, result.totalCents)
     expect(check.ok).toBe(false)
+  })
+
+  it('forged flag in the body: 2 non-eligible items price at full catalog price', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [{ productId: PRODUCT_B, quantity: 2, isThreeForTwentyFive: true, metadata: { isThreeForTwentyFive: true } } as any],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.errors).toEqual([])
+    expect(result.productSubtotalCents).toBe(8000)
+  })
+
+  it('parity with CartContext/Checkout: 2 eligible + 1 ineligible = $25 + ineligible price', async () => {
+    const result = await calculateOrderPricing(
+      {
+        items: [
+          { productId: PRODUCT_A, quantity: 2 },
+          { productId: PRODUCT_B, quantity: 1 }
+        ],
+        shippingAddress: { state: 'OR' },
+        shipping: { type: 'pickup', clientAmountCents: 0 },
+        userId: null
+      },
+      deps
+    )
+    expect(result.productSubtotalCents).toBe(2500 + 4000)
   })
 })
 
@@ -1268,5 +1401,25 @@ describe('calculateOrderPricing — fetchMetalProductIds wires size pricing end-
     )
     expect(result.errors).toEqual([])
     expect(result.productSubtotalCents).toBe(2500)
+  })
+})
+
+describe('computeLineItemCents — custom QR counter stand', () => {
+  it('charges the stand\'s own price per unit, never the cart\'s copy', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: 'qr-stand-1700000000', quantity: 2, clientUnitPriceDollars: 0.01 },
+      new Map()
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(2 * 1795)
+  })
+
+  it('ignores sizes, tiers and add-ons a tampered cart puts on the line', () => {
+    const { cents, errors } = computeLineItemCents(
+      { productId: 'qr-stand', quantity: 1, selectedSize: 'YS', selectedTier: 'premium', selectedAddonIds: ['nope'] },
+      new Map()
+    )
+    expect(errors).toEqual([])
+    expect(cents).toBe(1795)
   })
 })

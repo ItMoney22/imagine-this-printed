@@ -57,6 +57,20 @@ function loadCreatorKeys(): Record<string, CreatorKeyEntry> {
   return out
 }
 
+/**
+ * A creator storefront's shared key, for signing what ITP and that site send
+ * each other outside a Bearer call (the QR stand's reseller ref and sale event,
+ * backend/services/qr-stand-reseller.ts). null when the vendor has no key.
+ */
+export function storefrontKeyFor(vendor: string): string | null {
+  return loadCreatorKeys()[vendor]?.key ?? null
+}
+
+/** Test seam: env is read once per process, so tests that set it must reset. */
+export function resetStorefrontKeyCache(): void {
+  creatorKeysCache = null
+}
+
 function safeEqual(provided: string, expected: string): boolean {
   const a = Buffer.from(provided)
   const b = Buffer.from(expected)

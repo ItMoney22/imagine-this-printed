@@ -200,18 +200,30 @@ export function buildCollectionPageJsonLd({ name, description, url, items = [], 
 /**
  * Title/description/canonical/OG/Twitter block. Returns raw HTML — every
  * interpolated value goes through escapeHtml first.
+ *
+ * `cardTitle` is what a link preview shows (og:/twitter:title) when it should
+ * differ from the search <title> — a product card carries its price there,
+ * because iMessage and Messenger show the title and nothing else.
  */
 export function buildMetaTags({
   title,
+  cardTitle,
   description,
   canonical,
   image,
+  imageWidth,
+  imageHeight,
+  imageAlt,
+  price,
   type = 'website',
   keywords,
   noindex = false,
   siteUrl = SITE_URL
 }) {
   const img = absolute(image || LOGO_PATH, siteUrl)
+  const card = cardTitle || title
+  const amount = Number(price)
+  const hasPrice = Number.isFinite(amount) && amount > 0
   return [
     `<title>${escapeHtml(title)}</title>`,
     `<meta name="description" content="${escapeHtml(description)}" />`,
@@ -220,12 +232,17 @@ export function buildMetaTags({
     `<link rel="canonical" href="${escapeHtml(canonical)}" />`,
     `<meta property="og:type" content="${escapeHtml(type)}" />`,
     `<meta property="og:site_name" content="${escapeHtml(SITE_NAME)}" />`,
-    `<meta property="og:title" content="${escapeHtml(title)}" />`,
+    `<meta property="og:title" content="${escapeHtml(card)}" />`,
     `<meta property="og:description" content="${escapeHtml(description)}" />`,
     `<meta property="og:image" content="${escapeHtml(img)}" />`,
+    imageWidth && imageHeight ? `<meta property="og:image:width" content="${Number(imageWidth)}" />` : '',
+    imageWidth && imageHeight ? `<meta property="og:image:height" content="${Number(imageHeight)}" />` : '',
+    imageAlt ? `<meta property="og:image:alt" content="${escapeHtml(imageAlt)}" />` : '',
     `<meta property="og:url" content="${escapeHtml(canonical)}" />`,
+    hasPrice ? `<meta property="product:price:amount" content="${amount.toFixed(2)}" />` : '',
+    hasPrice ? `<meta property="product:price:currency" content="USD" />` : '',
     `<meta name="twitter:card" content="summary_large_image" />`,
-    `<meta name="twitter:title" content="${escapeHtml(title)}" />`,
+    `<meta name="twitter:title" content="${escapeHtml(card)}" />`,
     `<meta name="twitter:description" content="${escapeHtml(description)}" />`,
     `<meta name="twitter:image" content="${escapeHtml(img)}" />`
   ]

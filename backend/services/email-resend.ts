@@ -28,6 +28,11 @@ export interface SendEmailParams {
   text?: string;
   headers?: Record<string, string>;
   attachments?: { filename: string; content: string }[]; // base64 content
+  /**
+   * Sent as Resend's Idempotency-Key header, never in the body. Resend keeps a key for 24 hours: a retry with the
+   * same key and the same message returns the first send's id instead of mailing it again (1-256 characters).
+   */
+  idempotencyKey?: string;
 }
 
 export interface SendEmailResult {
@@ -35,13 +40,15 @@ export interface SendEmailResult {
 }
 
 export async function sendViaResend(params: SendEmailParams): Promise<SendEmailResult> {
+  const { idempotencyKey, ...message } = params;
   const res = await fetch(`${RESEND_API_BASE}/emails`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey()}`,
       'Content-Type': 'application/json',
+      ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
     },
-    body: JSON.stringify(params),
+    body: JSON.stringify(message),
   });
 
   const body: any = await res.json().catch(() => ({}));

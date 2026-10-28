@@ -30,8 +30,18 @@
  *      discount_codes.current_uses. Reversal decrements current_uses and
  *      marks the usage row reversed (coupon_usage.reversed_at, added by
  *      supabase/migrations/20260728_refund_reward_reversal.sql).
+ *   7. Store referral cut — payStoreReferralCut() (services/store-referral.ts)
+ *      transferred a store owner her share of an order that came through her
+ *      link. Reversal reverses that Stripe transfer (or cancels a cut that was
+ *      still waiting), keyed on the order.
+ *   8. Shipping labels — bought on ITP's Shippo account after payment: a
+ *      store seller's own package (orders.metadata.vendor_store.label, her
+ *      Print label in routes/vendor-store.ts) and ITP's package
+ *      (orders.metadata.shipping_label, routes/orders.ts). Reversal asks
+ *      Shippo to refund each one the carrier hasn't scanned and stamps the
+ *      answer on the label (label.refund). See refundShippingLabels().
  *
- * (Item 7, the Stripe charge itself, isn't reversed here — that's the caller's
+ * (Item 9, the Stripe charge itself, isn't reversed here — that's the caller's
  * job via stripe.refunds.create(); this module only undoes ITP's own bookkeeping.)
  *
  * ─── Idempotency ──────────────────────────────────────────────────────────
@@ -52,6 +62,8 @@
 
 import { supabase as realSupabase } from '../lib/supabase.js'
 import { addBalance } from '../lib/webhook-helpers.js'
+import { reverseStoreReferralCut } from './store-referral.js'
+import { labelTrackingStatus, refundLabel, shippoConfigured, SCANNED_TRACKING_STATUSES } from './shippo.js'
 
 /** Minimal structural type of the Supabase client bits this module uses. */
 export type RefundDb = {
@@ -111,6 +123,8 @@ export interface ReversalReport {
   loyaltyItc: StepResult
   referralBonus: StepResult
   couponUsage: StepResult
+  storeReferralCut: StepResult
+  shippingLabels: StepResult
   reversedAt: string
 }
 
@@ -130,8 +144,9 @@ const REWARD_REVERSED_STATUS = 'reversed'
 // actually paid" — used to find the order that triggered a referral bonus.
 // Excludes 'pending' (never paid) so an abandoned/cancelled order never
 // outranks the real first purchase. See reverseReferralBonus() for why this
-// ranking exists at all.
-const EVER_PAID_STATUSES = new Set(['paid', 'refunded', 'partially_refunded', 'disputed'])
+// ranking exists at all. Also read by referral-service.ts: an account with an
+// ever-paid order is not a new customer and cannot join through a referral.
+export const EVER_PAID_STATUSES = new Set(['paid', 'refunded', 'partially_refunded', 'disputed'])
 
 // Marker written on the compensating inventory movement when the atomic
 // reverse_blank_sale RPC is unavailable (migration not yet applied). Used both
@@ -919,8 +934,118 @@ export async function reverseCouponUsage(
   }
 }
 
+/** The Shippo calls the label step makes (services/shippo.ts); tests pass a fake. */
+export type LabelRefunder = {
+  configured: () => boolean
+  trackingStatus: (transactionId: string) => Promise<string | null>
+  refund: typeof refundLabel
+}
+const realLabelRefunder: LabelRefunder = { configured: shippoConfigured, trackingStatus: labelTrackingStatus, refund: refundLabel }
+
+/** What the label step stamps on a label as label.refund. */
+export interface LabelRefundStamp {
+  /**
+   * Shippo's answer (QUEUED / PENDING / SUCCESS / ERROR), or ours: SCANNED (not asked: the carrier already has the
+   * box) or FAILED (the request didn't go through; a re-run asks again).
+   */
+  status: string
+  shippo_refund_id: string | null
+  tracking_status: string | null
+  reason?: string
+  at: string
+}
+
+// A stamp that means Shippo has the request, has answered it, or the box is gone: never ask twice.
+const LABEL_REFUND_SETTLED = new Set(['QUEUED', 'PENDING', 'SUCCESS', 'ERROR', 'SCANNED'])
+
 /**
- * Run all six reversals for a fully-refunded order. Never throws.
+ * Hands the order's unused shipping labels back to Shippo. Both labels ITP pays
+ * for are covered: the store seller's (metadata.vendor_store.label) and ITP's
+ * own (metadata.shipping_label). A label whose tracking says the carrier has
+ * scanned it (TRANSIT / DELIVERED / RETURNED / FAILURE) is left alone: the box
+ * shipped and Shippo would refuse. UNKNOWN / PRE_TRANSIT, or a tracking
+ * lookup that fails, asks for the refund: Shippo refuses a used label itself.
+ *
+ * Guard: label.refund. A settled stamp is never asked again; FAILED is retried.
+ * The request goes first and the stamp after (a second request for the same
+ * label is refused by Shippo, so a crash in between costs nothing).
+ */
+export async function refundShippingLabels(
+  orderId: string,
+  log?: Logger,
+  db: RefundDb = realSupabase as unknown as RefundDb,
+  shippo: LabelRefunder = realLabelRefunder
+): Promise<StepResult> {
+  try {
+    const { data: order, error: orderErr } = await db.from('orders').select('metadata').eq('id', orderId).maybeSingle()
+    if (orderErr) {
+      return { ok: false, skipped: false, reason: `order lookup failed: ${errMessage(orderErr)}` }
+    }
+    const metadata = order?.metadata && typeof order.metadata === 'object' ? order.metadata : {}
+    const labels = ([
+      { slot: 'seller', label: metadata.vendor_store?.label },
+      { slot: 'itp', label: metadata.shipping_label }
+    ] as const).filter(l => typeof l.label?.transaction_id === 'string' && l.label.transaction_id)
+    if (labels.length === 0) {
+      return { ok: true, skipped: true, reason: 'no shipping label was bought for this order' }
+    }
+    const open = labels.filter(l => !LABEL_REFUND_SETTLED.has(String(l.label.refund?.status || '').toUpperCase()))
+    if (open.length === 0) {
+      return { ok: true, skipped: true, reason: 'already handed back to Shippo' }
+    }
+    const transactions = open.map(l => ({ label: l.slot, transactionId: l.label.transaction_id as string }))
+    if (!shippo.configured()) {
+      return { ok: false, skipped: false, reason: 'SHIPPO_API_TOKEN is not set: refund the label in Shippo by hand', details: { transactions } }
+    }
+
+    const stamps: Partial<Record<'seller' | 'itp', LabelRefundStamp>> = {}
+    for (const { slot, label } of open) {
+      const transactionId = label.transaction_id as string
+      const tracking = await shippo.trackingStatus(transactionId)
+      const at = new Date().toISOString()
+      if (tracking && SCANNED_TRACKING_STATUSES.has(tracking)) {
+        stamps[slot] = { status: 'SCANNED', shippo_refund_id: null, tracking_status: tracking, at }
+        continue
+      }
+      const asked = await shippo.refund(transactionId)
+      stamps[slot] = asked.ok
+        ? { status: asked.refund.status, shippo_refund_id: asked.refund.id, tracking_status: tracking, at }
+        : { status: 'FAILED', shippo_refund_id: null, tracking_status: tracking, reason: asked.error, at }
+    }
+
+    // Stamp each answer on its label, reading the row fresh so a write in the meantime isn't lost.
+    const { data: fresh } = await db.from('orders').select('metadata').eq('id', orderId).maybeSingle()
+    const next: Record<string, any> = { ...(fresh?.metadata && typeof fresh.metadata === 'object' ? fresh.metadata : metadata) }
+    if (stamps.seller) next.vendor_store = { ...next.vendor_store, label: { ...next.vendor_store?.label, refund: stamps.seller } }
+    if (stamps.itp) next.shipping_label = { ...next.shipping_label, refund: stamps.itp }
+    const { error: stampErr } = await db
+      .from('orders')
+      .update({ metadata: next, updated_at: new Date().toISOString() })
+      .eq('id', orderId)
+
+    const summary = (Object.entries(stamps) as Array<[string, LabelRefundStamp]>)
+      .map(([slot, s]) => `${slot === 'seller' ? 'seller label' : 'ITP label'} ${s.status}${s.tracking_status ? ` (${s.tracking_status})` : ''}`)
+      .join('; ')
+    const details = { labels: stamps }
+    if (stampErr) {
+      log?.error?.({ orderId, stamps, err: stampErr }, '[order-refunds] label refund asked but not saved on the order')
+      return { ok: false, skipped: false, reason: `${summary}; not saved on the order: ${errMessage(stampErr)}`, details }
+    }
+    const failed = Object.values(stamps).filter(s => s?.status === 'FAILED')
+    if (failed.length > 0) {
+      log?.error?.({ orderId, stamps }, '[order-refunds] shipping label refund failed')
+      return { ok: false, skipped: false, reason: `${summary}: ${failed.map(s => s!.reason).join('; ')}`, details }
+    }
+    const asked = Object.values(stamps).some(s => s?.status !== 'SCANNED')
+    log?.info?.({ orderId, stamps }, '[order-refunds] shipping labels handed back')
+    return { ok: true, skipped: !asked, reason: asked ? summary : `the carrier already has the box: ${summary}`, details }
+  } catch (err: unknown) {
+    return { ok: false, skipped: false, reason: `unexpected error: ${errMessage(err)}` }
+  }
+}
+
+/**
+ * Run all seven reversals for a fully-refunded order. Never throws.
  * Steps run sequentially so the report reads in a stable order and a wallet
  * write can't race its own ledger insert, and so the referral-bonus step's
  * "is this the buyer's earliest paid order" query sees a consistent world.
@@ -928,7 +1053,8 @@ export async function reverseCouponUsage(
 export async function reverseOrderSideEffects(
   orderId: string,
   log?: Logger,
-  db: RefundDb = realSupabase as unknown as RefundDb
+  db: RefundDb = realSupabase as unknown as RefundDb,
+  shippo: LabelRefunder = realLabelRefunder
 ): Promise<ReversalReport> {
   const itcStoreCredit = await reverseItcStoreCredit(orderId, log, db)
   const inventory = await reverseBlankInventory(orderId, log, db)
@@ -936,15 +1062,19 @@ export async function reverseOrderSideEffects(
   const loyaltyItc = await reverseOrderRewards(orderId, log, db)
   const referralBonus = await reverseReferralBonus(orderId, log, db)
   const couponUsage = await reverseCouponUsage(orderId, log, db)
+  const storeReferralCut = await reverseStoreReferralCut(orderId, log, { db })
+  const shippingLabels = await refundShippingLabels(orderId, log, db, shippo)
 
   const report: ReversalReport = {
-    ok: itcStoreCredit.ok && inventory.ok && creatorMargins.ok && loyaltyItc.ok && referralBonus.ok && couponUsage.ok,
+    ok: itcStoreCredit.ok && inventory.ok && creatorMargins.ok && loyaltyItc.ok && referralBonus.ok && couponUsage.ok && storeReferralCut.ok && shippingLabels.ok,
     itcStoreCredit,
     inventory,
     creatorMargins,
     loyaltyItc,
     referralBonus,
     couponUsage,
+    storeReferralCut,
+    shippingLabels,
     reversedAt: new Date().toISOString()
   }
 

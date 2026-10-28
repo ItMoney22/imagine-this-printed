@@ -7,9 +7,10 @@
 //
 // I/O lives here; the shapes live in ./structured-data.mjs (pure + tested).
 //
-// Coverage: /product/:idOrSlug, /catalog, /catalog/:category, /community,
-// /imagination-station, /wholesale, /contact + the site root. Anything else
-// returns null and the caller serves the untouched shell.
+// Coverage: /product/:idOrSlug, /p/:shortCode (the Share link), /catalog,
+// /catalog/:category, /community, /imagination-station, /wholesale, /contact +
+// the site root. Anything else returns null and the caller serves the untouched
+// shell.
 
 import {
   SITE_NAME,
@@ -24,8 +25,7 @@ import {
   buildWebSiteJsonLd,
   buildCollectionPageJsonLd
 } from './structured-data.mjs'
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+import { lookupPlan, shareCardUrl, shareImageFor, shareName, shareTitleFor } from './share-link.mjs'
 
 // Adds the LLM fetchers to the original list — they unfurl links too, and an
 // empty shell is what teaches an assistant this store has no products.
@@ -38,8 +38,12 @@ export const isBotUserAgent = (ua) => BOT_UA_RE.test(String(ua || ''))
 // columns PostgREST answers 400 and we retry with the guaranteed-present set —
 // degraded meta beats no meta.
 const PRODUCT_COLUMNS =
-  'id,slug,name,description,price,images,category,sku,in_stock,stock_quantity,track_inventory,allow_backorder,is_digital,meta_title,meta_description,search_keywords'
-const PRODUCT_COLUMNS_MINIMAL = 'id,slug,name,description,price,images,category,meta_title,meta_description'
+  'id,slug,name,description,price,images,category,metadata,sku,in_stock,stock_quantity,track_inventory,allow_backorder,is_digital,meta_title,meta_description,search_keywords'
+const PRODUCT_COLUMNS_MINIMAL = 'id,slug,name,description,price,images,category,metadata,meta_title,meta_description'
+
+// The card image api/share-card.mjs renders (Facebook's recommended link size).
+const CARD_WIDTH = 1200
+const CARD_HEIGHT = 630
 
 let warnedMissingKey = false
 
@@ -158,6 +162,10 @@ export async function resolveHeadForPath(pathname, { supabaseUrl, anonKey, siteU
     return renderProduct(decodeURIComponent(path.slice('/product/'.length)), cfg, org)
   }
 
+  if (path.startsWith('/p/')) {
+    return renderProduct(decodeURIComponent(path.slice('/p/'.length)), cfg, org, { short: true })
+  }
+
   if (path === '/catalog' || path.startsWith('/catalog/')) {
     return renderCatalog(path, cfg, org)
   }
@@ -182,27 +190,54 @@ export async function resolveHeadForPath(pathname, { supabaseUrl, anonKey, siteU
   return null
 }
 
-async function renderProduct(idOrSlug, cfg, org) {
+/** PostgREST filter for one lookupPlan() step. */
+function restFilter(step) {
+  if (step.kind === 'idRange') return `id=gte.${step.lo}&id=lte.${step.hi}`
+  if (step.kind === 'id') return `id=eq.${encodeURIComponent(step.id)}`
+  if (step.kind === 'slug') return `slug=eq.${encodeURIComponent(step.slug)}`
+  return `metadata=cs.${encodeURIComponent(JSON.stringify({ replaces: [step.value] }))}`
+}
+
+/**
+ * Walk the shared lookup plan (short id -> id -> slug -> replacement). A
+ * UUID-shaped key that is really a slug used to stop at the id lookup, which
+ * is how a shared Folgers link unfurled as the logo card. `unavailable` = no
+ * key or a failed read: "gone" and "unknown" look the same, so stay generic.
+ */
+async function findProduct(key, cfg, { short }) {
+  for (const step of lookupPlan(key, { short })) {
+    const rows = await supabaseSelect(
+      cfg,
+      'products',
+      `${restFilter(step)}&status=eq.active&order=created_at.desc&limit=1`,
+      PRODUCT_COLUMNS,
+      PRODUCT_COLUMNS_MINIMAL
+    )
+    if (rows === null) return { unavailable: true }
+    if (rows[0]) return { product: rows[0] }
+  }
+  return {}
+}
+
+async function renderProduct(key, cfg, org, { short = false } = {}) {
   const { siteUrl } = cfg
-  if (!idOrSlug) return null
+  if (!key) return null
 
-  const filter = UUID_RE.test(idOrSlug)
-    ? `id=eq.${encodeURIComponent(idOrSlug)}`
-    : `slug=eq.${encodeURIComponent(idOrSlug)}`
-  const rows = await supabaseSelect(
-    cfg,
-    'products',
-    `${filter}&status=eq.active&limit=1`,
-    PRODUCT_COLUMNS,
-    PRODUCT_COLUMNS_MINIMAL
-  )
-  const product = rows?.[0]
+  const { product, unavailable } = await findProduct(key, cfg, { short })
 
-  // No row (or no key): still beat the generic site card with catalog-level
+  if (!product && !unavailable) {
+    // Removed or never published: unfurl as the shop, with a real product
+    // photo, not a logo card. ProductPage sends people to the catalog too, so
+    // the card and the landing agree.
+    console.error(`[bot-meta] no published product for "${key}" — serving the catalog card`)
+    return renderCatalog('/catalog', cfg, org, { noindex: true })
+  }
+
+  // No key / failed read: still beat the generic site card with catalog-level
   // meta so the link at least unfurls as a shop page, and say so in the log.
   if (!product) {
-    console.error(`[bot-meta] no active product for "${idOrSlug}" — serving catalog fallback meta`)
-    const canonical = `${siteUrl}/product/${encodeURIComponent(idOrSlug)}`
+    console.error(`[bot-meta] product lookup unavailable for "${key}" — serving catalog fallback meta`)
+    const canonical = `${siteUrl}/${short ? 'p' : 'product'}/${encodeURIComponent(key)}`
     return [
       buildMetaTags({
         title: `Custom Printed Designs | ${SITE_NAME}`,
@@ -219,7 +254,12 @@ async function renderProduct(idOrSlug, cfg, org) {
   const canonical = `${siteUrl}/product/${product.slug || product.id}`
   const title = product.meta_title || `${product.name} | ${SITE_NAME}`
   const description = clip(product.meta_description || product.description || product.name, 155)
-  const productLd = buildProductJsonLd(product, { canonical, description, siteUrl })
+  // The page's main photo leads everywhere: the card, and the JSON-LD image
+  // list (images[0] can be the transparent print file, not a product photo).
+  const photo = shareImageFor(product)
+  const ordered = photo ? { ...product, images: [photo, ...(product.images || []).filter((u) => u !== photo)] } : product
+  const productLd = buildProductJsonLd(ordered, { canonical, description, siteUrl })
+  const card = shareCardUrl(product, siteUrl)
 
   const crumbs = [HOME_CRUMB, { name: 'Catalog', url: '/catalog' }]
   if (product.category) {
@@ -230,9 +270,14 @@ async function renderProduct(idOrSlug, cfg, org) {
   return [
     buildMetaTags({
       title,
+      cardTitle: shareTitleFor(product),
       description,
       canonical,
-      image: productLd.image[0],
+      image: card || productLd.image[0],
+      imageWidth: card ? CARD_WIDTH : undefined,
+      imageHeight: card ? CARD_HEIGHT : undefined,
+      imageAlt: shareName(product.name),
+      price: product.price,
       type: 'product',
       keywords: product.search_keywords || undefined,
       siteUrl
@@ -243,15 +288,21 @@ async function renderProduct(idOrSlug, cfg, org) {
   ].join('\n    ')
 }
 
-async function renderCatalog(path, cfg, org) {
+async function renderCatalog(path, cfg, org, { noindex = false } = {}) {
   const { siteUrl } = cfg
   const category = path.startsWith('/catalog/') ? decodeURIComponent(path.slice('/catalog/'.length)) : null
   const canonical = `${siteUrl}${category ? `/catalog/${encodeURIComponent(category)}` : '/catalog'}`
   const label = category ? titleCase(category) : 'Catalog'
 
   const filter = category ? `category=eq.${encodeURIComponent(category)}&status=eq.active` : 'status=eq.active'
+  // Only the metadata keys the main-photo pick reads; whole rows run to tens of KB.
   const rows =
-    (await supabaseSelect(cfg, 'products', `${filter}&order=updated_at.desc&limit=24`, 'id,slug,name,images')) || []
+    (await supabaseSelect(
+      cfg,
+      'products',
+      `${filter}&order=updated_at.desc&limit=24`,
+      'id,slug,name,images,assets:metadata->assets,mockup_url:metadata->>mockup_url,source:metadata->>source'
+    )) || []
 
   const title = category
     ? `${label} — Custom Printed ${label} | ${SITE_NAME}`
@@ -263,10 +314,23 @@ async function renderCatalog(path, cfg, org) {
   const crumbs = [HOME_CRUMB, { name: 'Catalog', url: '/catalog' }]
   if (category) crumbs.push({ name: label, url: canonical })
 
-  const firstImage = rows.find((p) => Array.isArray(p.images) && p.images[0])?.images[0]
+  // images[0] can be a transparent print file; lead with a real product photo card.
+  const lead = rows
+    .map((p) => ({ id: p.id, images: p.images, metadata: { assets: p.assets, mockup_url: p.mockup_url, source: p.source } }))
+    .find((p) => shareImageFor(p))
+  const card = lead ? shareCardUrl(lead, siteUrl) : null
 
   return [
-    buildMetaTags({ title, description, canonical, image: firstImage || LOGO_PATH, siteUrl }),
+    buildMetaTags({
+      title,
+      description,
+      canonical,
+      image: card || LOGO_PATH,
+      imageWidth: card ? CARD_WIDTH : undefined,
+      imageHeight: card ? CARD_HEIGHT : undefined,
+      noindex,
+      siteUrl
+    }),
     jsonLdScript(
       buildCollectionPageJsonLd({
         name: title,

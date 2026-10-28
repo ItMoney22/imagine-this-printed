@@ -181,6 +181,14 @@ Make it personal, creative, and memorable. This should feel like it came from a 
         console.warn('[EmailAI] order_confirmation body claimed shipping, using fallback copy')
         return generateFallbackEmail(context)
       }
+      // Same idea for money: on ITP-MTYGMM4V-UQ5X the writer added its own
+      // "Itemized totals: 2x Gothic Ghost Face Candle Holder $20.00" table right
+      // above the real one (Subtotal $40.00). The code-built totals table is the
+      // only place a price may appear.
+      if (aiCopyRestatesMoney(`${parsed.greeting || ''} ${parsed.mainContent || ''} ${parsed.closing || ''}`)) {
+        console.warn('[EmailAI] order_confirmation body restated prices, using fallback copy')
+        return generateFallbackEmail(context)
+      }
     }
 
     // Build the final HTML email
@@ -223,16 +231,20 @@ Make it personal, creative, and memorable. This should feel like it came from a 
  */
 function buildContextDescription(context: EmailContext): string {
   const lines: string[] = []
+  // A confirmation's prices live only in the code-built totals table. Shown the
+  // unit price, the writer repeated it as if it were the line total ($20.00 for
+  // 2x), so it is never handed a price for this email.
+  const showMoney = context.templateKey !== 'order_confirmation'
 
   if (context.customerName) lines.push(`Customer Name: ${context.customerName}`)
   if (context.orderNumber) lines.push(`Order Number: ${context.orderNumber}`)
   if (context.items?.length) {
     lines.push(`Items Ordered:`)
     context.items.forEach(item => {
-      lines.push(`  - ${item.quantity}x ${item.name} ($${item.price.toFixed(2)})`)
+      lines.push(`  - ${item.quantity}x ${item.name}${showMoney ? ` ($${item.price.toFixed(2)})` : ''}`)
     })
   }
-  if (context.total) lines.push(`Total: $${context.total.toFixed(2)}`)
+  if (showMoney && context.total) lines.push(`Total: $${context.total.toFixed(2)}`)
   if (context.trackingNumber) lines.push(`Tracking: ${context.trackingNumber}`)
   if (context.carrier) lines.push(`Carrier: ${context.carrier}`)
   if (context.productName) lines.push(`Product Name: ${context.productName}`)
@@ -435,9 +447,18 @@ function getCtaUrl(templateKey: string, context: EmailContext): string {
  */
 const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+/**
+ * True when AI copy carries a dollar figure ($20.00, $ 20, &#36;20) or its own
+ * <table>. Prices belong to the code-built totals table alone.
+ */
+export function aiCopyRestatesMoney(text: string): boolean {
+  const s = String(text || '')
+  return /(?:\$|&#0*36;|&#x0*24;|&dollar;)(?:\s|&nbsp;)?\d/i.test(s) || /<table\b/i.test(s)
+}
+
 function confirmationSubject(subject: unknown, context: EmailContext): string {
   const s = typeof subject === 'string' ? subject.trim() : ''
-  if (s && !subjectClaimsShipped(s) && /confirm|receiv|got your order|thank/i.test(s)) return s
+  if (s && !subjectClaimsShipped(s) && !aiCopyRestatesMoney(s) && /confirm|receiv|got your order|thank/i.test(s)) return s
   return `🎉 Order Confirmed - ${context.orderNumber || 'Your Order'}`
 }
 
