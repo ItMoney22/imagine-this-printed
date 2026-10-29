@@ -1214,7 +1214,7 @@ async function settleStaleMockup(storeId: string, row: MessageRow): Promise<Mess
   if (m.status !== 'rendering' || !m.startedAt || Date.now() - Date.parse(m.startedAt) < MOCKUP_STALE_MS) return row
   const failed: StoredMockup = { ...m, status: 'failed', stage: undefined, error: 'That one didn’t finish. Your credits are back: press it again.' }
   if (await moveOffer(row, 'rendering', failed)) {
-    if (m.paidBy && m.priceItc) await pricingService.refundITC(m.paidBy, m.priceItc, 'store_mockup_stalled').catch(() => undefined)
+    if (m.paidBy && m.priceItc) await pricingService.refundITC(m.paidBy, m.priceItc, 'assistant_mockup_stalled').catch(() => undefined)
     return { ...row, mockup: failed }
   }
   return (await readOffer(storeId, row.id)) ?? row
@@ -1261,7 +1261,7 @@ async function finishMockup(store: StoreRow, row: MessageRow, rendering: StoredM
         : 'That one didn’t come out. Your credits are back: press it again.',
     }
     if (await moveOffer(row, 'rendering', failed) && rendering.paidBy && rendering.priceItc) {
-      await pricingService.refundITC(rendering.paidBy, rendering.priceItc, 'store_mockup_failed').catch(() => undefined)
+      await pricingService.refundITC(rendering.paidBy, rendering.priceItc, 'assistant_mockup_failed').catch(() => undefined)
     }
   }
 }
@@ -1293,7 +1293,7 @@ router.post('/manage/:slug/assistant/mockup/:messageId', requireAuth, requireSto
     return res.json({ message: publicMessage(now ?? row) })
   }
   try {
-    await pricingService.deductITC(uid, m.priceItc, `store_mockup:${store.slug}`)
+    await pricingService.deductITC(uid, m.priceItc, 'assistant_mockup')
   } catch (error: any) {
     await moveOffer(row, 'rendering', { ...m, paidBy: undefined })
     const short = /insufficient/i.test(String(error?.message))

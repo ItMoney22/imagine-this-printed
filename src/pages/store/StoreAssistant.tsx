@@ -366,7 +366,8 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
                 {m.id && m.mockup?.status === 'result' && m.imageUrl && (
                   <button onClick={() => setViewing(m.id!)} aria-label={`See your picture on the ${m.mockup.label} big`}
                     className="self-start rounded-2xl overflow-hidden border border-[var(--vs-line)] bg-[var(--vs-page)] transition-transform hover:scale-[1.02] active:scale-[0.98]">
-                    <img src={m.imageUrl} alt={`Your picture on a ${m.mockup.label}`} className="block w-56 max-w-full aspect-square object-cover" />
+                    <img src={m.imageUrl} alt={`Your picture on a ${m.mockup.label}`} className="block w-56 max-w-full aspect-square object-cover"
+                      onLoad={() => list.current?.scrollTo({ top: list.current.scrollHeight, behavior: 'smooth' })} />
                   </button>
                 )}
                 <span className="text-[11px] text-[var(--vs-muted)]">{timeOf(m.createdAt)}</span>

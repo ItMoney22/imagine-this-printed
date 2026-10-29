@@ -5534,9 +5534,14 @@ it runs; the viewer is the existing `src/components/admin/ImageLightbox.tsx` (th
 - `backend/services/store-mockup.ts` + `store-mockup-choice.ts` (new, + tests), `backend/services/store-assistant.ts`
 - `backend/routes/vendor-store.ts` (turn offer + POST/GET `/assistant/mockup/:id`, Credits line), `backend/routes/vendor-store-mockup.test.ts` (new)
 - `src/pages/store/StoreAssistant.tsx` (+ test), `src/lib/vendor-store.ts`
+- `src/components/admin/ImageLightbox.tsx` (added after the walk: its `bg-bg/95` / `bg-card/90` compiled to nothing, so the reused viewer had no backdrop)
 - `supabase/migrations/20261029200000_vendor_store_assistant_mockups.sql` + `MIGRATION_LEDGER.md` (applied live 2026-10-29)
 - `TASK_NOTES.md`
 
 ### Work log (append-only)
 - 2026-10-29 (zero-earth019): built offer -> press -> background render -> poll -> lightbox; migration applied live (dry run
   first, ledger row in the same transaction). vitest 80/80 across the store suites, tsc -b 0, backend tsc TS2742 only.
+- 2026-10-29 (zero-earth019): fleet-browser walk on a vite build + my API (4219), signed in as David's admin on
+  /vendor/store/crystal: desktop 1400 (tee) and phone 390 (hoodie), real renders, both opened in the lightbox. Fixed the
+  lightbox backdrop (token color-mix), the Credits "Recent use" reason (assistant mockup) and the thumbnail scroll.
+  Test rows removed from her chat (6 messages + 1 memory fact). Full vitest 2738/2738.

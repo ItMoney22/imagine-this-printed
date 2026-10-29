@@ -183,7 +183,7 @@ describe('store assistant: Make the mockup', () => {
     expect((await res.json()).message.mockup).toMatchObject({ status: 'rendering', stage: 'Getting it ready…', label: 'black tee' })
     // A second tap while it renders is the same mockup, not a second charge.
     expect((await (await press()).json()).message.mockup.status).toBe('rendering')
-    expect(ledger).toEqual([{ kind: 'deduct', uid: 'crystal-user', amount: 15, reason: 'store_mockup:crystal' }])
+    expect(ledger).toEqual([{ kind: 'deduct', uid: 'crystal-user', amount: 15, reason: 'assistant_mockup' }])
     expect(renders).toHaveLength(1)
     expect(renders[0]).toMatchObject({ slug: 'crystal', designUrl: PICTURE, choice: { product: 'tshirt', color: 'black', size: null } })
 
@@ -236,7 +236,7 @@ describe('store assistant: Make the mockup', () => {
     const first = await (await manage('/assistant/mockup/offer-1')).json()
     expect(first.message.mockup.status).toBe('failed')
     await manage('/assistant/mockup/offer-1')
-    expect(ledger).toEqual([{ kind: 'refund', uid: 'crystal-user', amount: 15, reason: 'store_mockup_stalled' }])
+    expect(ledger).toEqual([{ kind: 'refund', uid: 'crystal-user', amount: 15, reason: 'assistant_mockup_stalled' }])
   })
 
   it('the picture service out of credit: nothing is charged', async () => {

@@ -4,6 +4,9 @@
 // and delete. Delete used to be hidden unless the image had a product_assets
 // row (`assetId`), which silently made Etsy model shots and hand-uploaded
 // listing images undeletable; the owner of the gallery decides now.
+// Also the viewer for her store assistant's mockups (src/pages/store/StoreAssistant.tsx). The backdrop and the pills mix
+// the bg/card tokens by hand: those tokens are plain CSS variables, so Tailwind's `bg-bg/95` opacity form compiled to
+// nothing and the viewer had no backdrop at all (seen on the mockup walk, task 820ff916).
 import React, { useEffect, useRef, useState } from 'react'
 import { X, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Download, Star, Trash2 } from 'lucide-react'
 import { CHECKERBOARD_BG } from '../imagination/checkerboard'
@@ -82,7 +85,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[60] bg-bg/95 backdrop-blur-sm flex items-center justify-center p-4"
+      className="fixed inset-0 z-[60] bg-[color-mix(in_srgb,var(--bg)_95%,transparent)] backdrop-blur-sm flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-label={current.label}
@@ -91,7 +94,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
       <button
         type="button"
         onClick={(e) => { e.stopPropagation(); onClose() }}
-        className="absolute top-4 right-4 p-2 rounded-full bg-card/90 border border-white/10 text-text hover:bg-white/10 transition-colors"
+        className="absolute top-4 right-4 p-2 rounded-full bg-[color-mix(in_srgb,var(--card)_90%,transparent)] border border-white/10 text-text hover:bg-white/10 transition-colors"
         aria-label="Close"
       >
         <X className="w-5 h-5" />
@@ -102,7 +105,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onIndexChange((index - 1 + images.length) % images.length) }}
-            className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 p-2 rounded-full bg-card/90 border border-white/10 text-text hover:bg-white/10 transition-colors"
+            className="absolute left-3 sm:left-6 top-1/2 -translate-y-1/2 p-2 rounded-full bg-[color-mix(in_srgb,var(--card)_90%,transparent)] border border-white/10 text-text hover:bg-white/10 transition-colors"
             aria-label="Previous image"
           >
             <ChevronLeft className="w-6 h-6" />
@@ -110,7 +113,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onIndexChange((index + 1) % images.length) }}
-            className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 p-2 rounded-full bg-card/90 border border-white/10 text-text hover:bg-white/10 transition-colors"
+            className="absolute right-3 sm:right-6 top-1/2 -translate-y-1/2 p-2 rounded-full bg-[color-mix(in_srgb,var(--card)_90%,transparent)] border border-white/10 text-text hover:bg-white/10 transition-colors"
             aria-label="Next image"
           >
             <ChevronRight className="w-6 h-6" />
@@ -136,11 +139,11 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
         className="absolute bottom-4 left-1/2 -translate-x-1/2 w-full max-w-3xl px-4 flex flex-wrap items-center justify-center gap-2"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="text-xs text-muted bg-card/90 border border-white/10 rounded-full px-3 py-1.5">
+        <span className="text-xs text-muted bg-[color-mix(in_srgb,var(--card)_90%,transparent)] border border-white/10 rounded-full px-3 py-1.5">
           {current.label} · {index + 1}/{images.length}
         </span>
 
-        <div className="flex items-center gap-0.5 bg-card/90 border border-white/10 rounded-full px-1 py-1">
+        <div className="flex items-center gap-0.5 bg-[color-mix(in_srgb,var(--card)_90%,transparent)] border border-white/10 rounded-full px-1 py-1">
           <button
             type="button"
             onClick={() => setZoom(z => clampZoom(z - ZOOM_STEP))}
@@ -167,7 +170,7 @@ export const ImageLightbox: React.FC<ImageLightboxProps> = ({
           download
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-card/90 border border-white/10 text-text hover:bg-white/10 transition-colors"
+          className="flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-[color-mix(in_srgb,var(--card)_90%,transparent)] border border-white/10 text-text hover:bg-white/10 transition-colors"
         >
           <Download className="w-3.5 h-3.5" />
           Download
