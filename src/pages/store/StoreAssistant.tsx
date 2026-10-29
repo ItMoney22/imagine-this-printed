@@ -7,17 +7,26 @@
 // The chat lives on the server (/assistant/history), so it follows her to any device and the assistant remembers her
 // between chats. Replies are read out in the assistant's own Gemini voice when "Read replies out loud" is on. Docked on
 // wide screens, a sheet on a phone. Approved mocks: itp-crystal-store-manager-extras + -inbox round 1.
+// Mockups (David 2026-10-29: "crystal gives him a image says mock this on a shirt he does it he comes up in a
+// lightbox"): a reply that offers one carries Make the mockup with its price; pressing it charges that and the server
+// renders it, this panel polls until the picture lands as its own reply, then opens it in the admin ImageLightbox.
 import { useEffect, useRef, useState } from 'react'
-import { Mic, Paperclip, Send, Shirt, Sparkles, Square, Volume2, VolumeX, X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Image as ImageIcon, Mic, Paperclip, Send, Shirt, Sparkles, Square, Volume2, VolumeX, X } from 'lucide-react'
 import { vendorStoreApi, type AssistantMessage } from '../../lib/vendor-store'
 import { customerStepFlow } from '../../lib/api'
 import ProgressBar from '../../components/studio/ProgressBar'
+import { ImageLightbox } from '../../components/admin/ImageLightbox'
 
 const SUGGESTIONS = ['Write a description for my new shirt', 'Caption for Instagram', 'How did I do this week?']
 const PICTURE_TYPES = ['image/png', 'image/jpeg', 'image/webp']
 const PICTURE_MAX_BYTES = 15 * 1024 * 1024
 // Upload plus adopt: quick for print-ready art, about half a minute when a small file is enlarged first.
 const MAKE_EXPECTED_MS = 25000
+// One product shot plus its check against her picture: usually under a minute.
+const MOCKUP_EXPECTED_MS = 45000
+const MOCKUP_POLL_MS = 2500
+const cleanError = (e: any) => String(e?.message || e).replace(/^HTTP \d+: /, '').replace(/^\{"error":"(.*?)".*\}$/, '$1')
 
 /** A message as the panel shows it: `localImage` is her own copy of a picture she just sent, shown at once. */
 type ChatMessage = AssistantMessage & { localImage?: string }
@@ -67,6 +76,11 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
   const [error, setError] = useState('')
   const [making, setMaking] = useState<{ key: string; stage: string; startedAt: number } | null>(null)
   const [makeError, setMakeError] = useState<{ key: string; text: string } | null>(null)
+  const [mockupError, setMockupError] = useState<{ id: string; text: string } | null>(null)
+  // The mockup open in the lightbox, by its reply's id.
+  const [viewing, setViewing] = useState<string | null>(null)
+  const watching = useRef(new Set<string>())
+  const alive = useRef(true)
   const [faceOk, setFaceOk] = useState(true)
   const [speakOn, setSpeakOn] = useState(() => { try { return localStorage.getItem('vstore-assistant-speak') !== 'off' } catch { return true } })
   const [recording, setRecording] = useState(false)
@@ -80,10 +94,55 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
   const files = useRef(new Map<string, File>())
   const face = faceUrl || `/stores/${slug}/assistant.webp`
 
+  // A reply's new state from the server (a mockup offer moving along), merged in place.
+  const mergeMessage = (next: AssistantMessage) => setMessages(ms => ms.map(x => (x.id && x.id === next.id ? { ...x, ...next } : x)))
+
+  /** Polls a mockup until it is done or failed; when its picture lands, it joins the chat and opens in the lightbox. */
+  const watchMockup = (id: string) => {
+    if (watching.current.has(id)) return
+    watching.current.add(id)
+    let misses = 0
+    const tick = async () => {
+      if (!alive.current) return
+      try {
+        const { message, result } = await vendorStoreApi.mockupStatus(slug, id)
+        misses = 0
+        mergeMessage(message)
+        if (message.mockup?.status === 'rendering') return void setTimeout(tick, MOCKUP_POLL_MS)
+        watching.current.delete(id)
+        if (result?.id) {
+          setMessages(ms => (ms.some(x => x.id === result.id) ? ms : [...ms, result]))
+          setViewing(result.id)
+        }
+      } catch {
+        if (++misses > 5) return void watching.current.delete(id)
+        setTimeout(tick, MOCKUP_POLL_MS * 2)
+      }
+    }
+    setTimeout(tick, MOCKUP_POLL_MS)
+  }
+  useEffect(() => { alive.current = true; return () => { alive.current = false } }, [])
+
+  const makeMockup = async (m: ChatMessage) => {
+    if (!m.id) return
+    setMockupError(null)
+    try {
+      const { message } = await vendorStoreApi.makeMockup(slug, m.id)
+      mergeMessage(message)
+      if (message.mockup?.status === 'rendering') watchMockup(m.id)
+    } catch (e) {
+      setMockupError({ id: m.id, text: cleanError(e) })
+    }
+  }
+
   useEffect(() => {
     if (!open || loaded) return
     vendorStoreApi.history(slug)
-      .then(({ messages: saved }) => setMessages(m => [...saved, ...m]))
+      .then(({ messages: saved }) => {
+        setMessages(m => [...saved, ...m])
+        // A mockup still being made when she left picks up where it was.
+        saved.forEach(x => x.id && x.mockup?.status === 'rendering' && watchMockup(x.id))
+      })
       .catch(() => setError('Your earlier chat didn’t load.'))
       .finally(() => setLoaded(true))
   }, [open, loaded, slug])
@@ -221,6 +280,10 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
     }
   }
 
+  // Every mockup in the chat, so the lightbox steps through them all.
+  const shots = messages.filter(m => m.id && m.mockup?.status === 'result' && m.imageUrl)
+  const viewIndex = viewing ? shots.findIndex(m => m.id === viewing) : -1
+
   const faceIcon = (size: number) => faceOk
     ? <img src={face} alt="" width={size} height={size} onError={() => setFaceOk(false)} className="rounded-full object-cover shrink-0 bg-[var(--vs-page)]" style={{ width: size, height: size }} />
     : <span className="rounded-full grid place-items-center text-white shrink-0" style={{ width: size, height: size, background: 'var(--vs-primary)' }}><Sparkles className="w-1/2 h-1/2" /></span>
@@ -245,7 +308,7 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
           <div className="flex items-start gap-2">
             {faceIcon(32)}
             <div className="rounded-2xl rounded-tl-md bg-[var(--vs-page)] p-4 text-sm">
-              {assistantName ? `¡Hola ${ownerFirst}! Soy ${assistantName}, your store assistant.` : `Hi ${ownerFirst}!`} Ask me anything about your store, or tap the mic and just talk. I write descriptions and Instagram captions and tell you how your sales are doing. Attach a picture of a design with the paperclip and I’ll tell you how it will print, and help you make it a product.
+              {assistantName ? `¡Hola ${ownerFirst}! Soy ${assistantName}, your store assistant.` : `Hi ${ownerFirst}!`} Ask me anything about your store, or tap the mic and just talk. I write descriptions and Instagram captions and tell you how your sales are doing. Attach a picture of a design with the paperclip and I’ll tell you how it will print, show it to you on a shirt, and help you make it a product.
             </div>
           </div>
         )}
@@ -277,6 +340,34 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
                     )}
                     {makeError?.key === key && <p className="text-sm text-red-600">{makeError.text}</p>}
                   </div>
+                )}
+                {m.id && m.mockup && m.mockup.status !== 'result' && m.mockup.status !== 'done' && (
+                  <div className="flex flex-col gap-2 mt-1">
+                    {m.mockup.status === 'rendering' ? (
+                      <ProgressBar
+                        label={m.mockup.stage || 'Making your mockup…'}
+                        startedAt={m.mockup.startedAt ? Date.parse(m.mockup.startedAt) : undefined}
+                        expectedMs={MOCKUP_EXPECTED_MS}
+                      />
+                    ) : (
+                      <button onClick={() => makeMockup(m)} className="vs-btn-pink self-start rounded-xl px-4 h-10 text-sm font-semibold flex items-center gap-2">
+                        <ImageIcon className="w-4 h-4" /> {m.mockup.status === 'failed' ? 'Try again' : 'Make the mockup'}{m.mockup.priceItc ? ` · ${m.mockup.priceItc} ITC` : ''}
+                      </button>
+                    )}
+                    {m.mockup.status === 'failed' && m.mockup.error && mockupError?.id !== m.id && <p className="text-sm text-red-600">{m.mockup.error}</p>}
+                    {mockupError?.id === m.id && (
+                      <p className="text-sm text-red-600">
+                        {mockupError.text}
+                        {/Buy credits/.test(mockupError.text) && <> <a href="/wallet" className="font-semibold underline text-[var(--vs-primary)]">Buy credits</a></>}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {m.id && m.mockup?.status === 'result' && m.imageUrl && (
+                  <button onClick={() => setViewing(m.id!)} aria-label={`See your picture on the ${m.mockup.label} big`}
+                    className="self-start rounded-2xl overflow-hidden border border-[var(--vs-line)] bg-[var(--vs-page)] transition-transform hover:scale-[1.02] active:scale-[0.98]">
+                    <img src={m.imageUrl} alt={`Your picture on a ${m.mockup.label}`} className="block w-56 max-w-full aspect-square object-cover" />
+                  </button>
                 )}
                 <span className="text-[11px] text-[var(--vs-muted)]">{timeOf(m.createdAt)}</span>
               </div>
@@ -314,7 +405,7 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
             <button type="button" onClick={() => pictureInput.current?.click()} disabled={busy === 'thinking'} aria-label="Attach a picture of a design" className="w-9 h-9 grid place-items-center rounded-lg text-[var(--vs-primary)] hover:bg-[var(--vs-page)] disabled:opacity-50">
               <Paperclip className="w-5 h-5" />
             </button>
-            <input className="flex-1 min-w-0 px-2 h-11 outline-none text-sm bg-transparent" placeholder={picture ? 'Ask about this design (optional)…' : 'Type your message…'} value={text} onChange={e => setText(e.target.value)} />
+            <input className="flex-1 min-w-0 px-2 h-11 outline-none text-sm bg-transparent" placeholder={picture ? 'Ask about it, or say “mock this on a shirt”…' : 'Type your message…'} value={text} onChange={e => setText(e.target.value)} />
           </div>
           <input ref={pictureInput} type="file" accept={PICTURE_TYPES.join(',')} className="hidden" onChange={e => { attach(e.target.files?.[0]); e.target.value = '' }} />
           <button type="submit" disabled={(!text.trim() && !picture) || busy === 'thinking'} className="w-11 h-11 rounded-xl grid place-items-center text-white disabled:opacity-50" style={{ background: 'var(--vs-primary)' }} aria-label="Send"><Send className="w-5 h-5" /></button>
@@ -326,6 +417,15 @@ export default function StoreAssistant({ slug, ownerFirst, assistantName, faceUr
         </button>
         <p className="text-xs text-[var(--vs-muted)] -mt-1">{recording ? `Listening… ${seconds}s. Tap to send.` : busy === 'speaking' ? 'Speaking…' : 'Tap the mic to talk'}</p>
       </div>
+      {viewIndex >= 0 && createPortal(
+        <ImageLightbox
+          images={shots.map(m => ({ url: m.imageUrl!, label: `Your picture on a ${m.mockup!.label}` }))}
+          index={viewIndex}
+          onIndexChange={i => setViewing(shots[i]?.id ?? null)}
+          onClose={() => setViewing(null)}
+        />,
+        document.body
+      )}
     </aside>
   )
 }

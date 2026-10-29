@@ -5520,3 +5520,23 @@ Rationale: a 12+ shirt quote (Jev bulk_quote) alerted only wecare@, which forwar
 
 ### Work log (append-only)
 - 2026-10-28 (mia-potts): bulk_quote tickets from /contact now also send the same alert to BULK_QUOTE_ALERT_EMAIL (comma list, default davidt@, support inbox never doubled), best-effort per recipient. Live-chat hand-off and Mr. Imagine's ticket tool never produce bulk_quote (hard-coded general / no bulk enum), so unchanged. Route test 5/5, backend routes+utils vitest 174/174, tsc clean on touched files.
+
+## Current request (2026-10-29) — Rico mockups: Crystal sends a picture, "mock this on a shirt", it opens in a lightbox (task 820ff916, zero-earth019)
+
+David 10/29: "crystal agent rico should handle mockups too. crystal gives him a image says mock this on a shirt he does it he
+comes up in a lightbox". Decisions: the render is the builder's own `runImageFlowMockup` + `verifyWithOneRetry` (no second
+engine); targets are what ITP makes (tee, hoodie, kids tee from catalog-capability GARMENTS, plus metal prints; polo/tank
+are NOT_OFFERED); price = one picture at the Imagination 'generate' rate (15 ITC live), the per-picture rate her Create a
+design flow pays, charged to whoever is signed in like routes/studio-flow.ts, stated in the reply and on the button before
+it runs; the viewer is the existing `src/components/admin/ImageLightbox.tsx` (the store has no lightbox of its own).
+
+### File shortlist (approved scope — 2026-10-29 Rico mockups)
+- `backend/services/store-mockup.ts` + `store-mockup-choice.ts` (new, + tests), `backend/services/store-assistant.ts`
+- `backend/routes/vendor-store.ts` (turn offer + POST/GET `/assistant/mockup/:id`, Credits line), `backend/routes/vendor-store-mockup.test.ts` (new)
+- `src/pages/store/StoreAssistant.tsx` (+ test), `src/lib/vendor-store.ts`
+- `supabase/migrations/20261029200000_vendor_store_assistant_mockups.sql` + `MIGRATION_LEDGER.md` (applied live 2026-10-29)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-29 (zero-earth019): built offer -> press -> background render -> poll -> lightbox; migration applied live (dry run
+  first, ledger row in the same transaction). vitest 80/80 across the store suites, tsc -b 0, backend tsc TS2742 only.

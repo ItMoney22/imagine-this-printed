@@ -229,6 +229,12 @@ export const vendorStoreApi = {
   design: (slug: string, messageId: string): Promise<{ image: string; filename: string }> =>
     apiFetch(manage(slug, `/assistant/design/${encodeURIComponent(messageId)}`)),
   history: (slug: string): Promise<{ messages: AssistantMessage[] }> => apiFetch(manage(slug, '/assistant/history')),
+  /** Make the mockup a reply offered: charges its stated price, then renders (poll mockupStatus until it lands). */
+  makeMockup: (slug: string, messageId: string): Promise<{ message: AssistantMessage }> =>
+    apiFetch(manage(slug, `/assistant/mockup/${encodeURIComponent(messageId)}`), { method: 'POST' }),
+  /** Where a mockup is; `result` is the reply carrying the picture once it is done. */
+  mockupStatus: (slug: string, messageId: string): Promise<{ message: AssistantMessage; result: AssistantMessage | null }> =>
+    apiFetch(manage(slug, `/assistant/mockup/${encodeURIComponent(messageId)}`)),
   /** One assistant turn: what she typed, her voice note when she talked, a picture of a design. The server reads the
    *  chat so far itself and answers with both turns as saved. */
   ask(slug: string, turn: { text?: string; audio?: Blob; image?: File }): Promise<AssistantAnswer> {
@@ -269,6 +275,18 @@ export type AssistantMessage = {
   imageUrl?: string | null
   makeProduct?: boolean
   createdAt?: string
+  /** A mockup this reply offers (offered / rendering / done / failed), or 'result': this reply IS the mockup (imageUrl). */
+  mockup?: AssistantMockup
+}
+export type AssistantMockup = {
+  status: 'offered' | 'rendering' | 'done' | 'failed' | 'result'
+  /** "black tee", "8 x 10 metal print". */
+  label: string
+  priceItc?: number
+  stage?: string
+  startedAt?: string
+  error?: string
+  resultId?: string
 }
 export type AssistantAnswer = { heard: string | null; reply: string; makeProduct: boolean; imageUrl: string | null; messages: AssistantMessage[] }
 export type StoreCredits = {

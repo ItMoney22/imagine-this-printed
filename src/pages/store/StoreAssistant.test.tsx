@@ -13,9 +13,11 @@ const api = vi.hoisted(() => ({
   upload: vi.fn(),
   adopt: vi.fn(),
   discardDraft: vi.fn(),
+  makeMockup: vi.fn(),
+  mockupStatus: vi.fn(),
 }))
 vi.mock('../../lib/vendor-store', () => ({
-  vendorStoreApi: { history: api.history, ask: api.ask, design: api.design, speak: api.speak },
+  vendorStoreApi: { history: api.history, ask: api.ask, design: api.design, speak: api.speak, makeMockup: api.makeMockup, mockupStatus: api.mockupStatus },
 }))
 vi.mock('../../lib/api', () => ({
   customerStepFlow: { upload: api.upload, adopt: api.adopt, discardDraft: api.discardDraft },
@@ -78,7 +80,7 @@ describe('StoreAssistant', () => {
     const file = new File([new Uint8Array([137, 80, 78, 71])], 'nurse.png', { type: 'image/png' })
     fireEvent.change(container.querySelector('input[type=file]')!, { target: { files: [file] } })
     expect(screen.getByText('nurse.png')).toBeTruthy()
-    fireEvent.change(screen.getByPlaceholderText(/Ask about this design/), { target: { value: 'Can this be a shirt?' } })
+    fireEvent.change(screen.getByPlaceholderText(/Ask about it, or say/), { target: { value: 'Can this be a shirt?' } })
     fireEvent.click(screen.getByLabelText('Send'))
 
     await screen.findByText(/Great on a light tee/)
@@ -130,5 +132,37 @@ describe('StoreAssistant', () => {
     expect(await screen.findByText('This design is too small to print')).toBeTruthy()
     expect(api.discardDraft).toHaveBeenCalledWith('prod-x')
     expect(props.onMakeProduct).not.toHaveBeenCalled()
+  })
+
+  // Task 820ff916: "mock this on a shirt" -> Make the mockup with its price -> the picture opens in the lightbox.
+  it('makes the mockup a reply offered at its stated price, and opens it in the lightbox when it lands', async () => {
+    const offer = { id: 'o1', role: 'assistant', text: 'A mockup on a tee is 15 ITC.', mockup: { status: 'offered', label: 'tee', priceItc: 15 } }
+    api.history.mockResolvedValue({ messages: [{ id: 'u1', role: 'user', text: 'mock this on a shirt', imageUrl: 'https://api.test/media/d.png' }, offer] })
+    api.makeMockup.mockResolvedValue({ message: { ...offer, mockup: { status: 'rendering', label: 'tee', priceItc: 15, stage: 'Putting your picture on it…', startedAt: new Date().toISOString() } } })
+    const result = { id: 'r9', role: 'assistant', text: 'Mira, Crystal, here it is on a black tee. Tap it to see it big.', imageUrl: 'https://api.test/media/mock.png', makeProduct: false, mockup: { status: 'result', label: 'black tee' } }
+    api.mockupStatus.mockResolvedValue({ message: { ...offer, mockup: { status: 'done', label: 'tee', priceItc: 15, resultId: 'r9' } }, result })
+    panel()
+    fireEvent.click(await screen.findByRole('button', { name: 'Make the mockup · 15 ITC' }))
+    expect(await screen.findByText('Putting your picture on it…')).toBeTruthy()
+    expect(api.makeMockup).toHaveBeenCalledWith('crystal', 'o1')
+
+    const lightbox = await screen.findByRole('dialog', { name: 'Your picture on a black tee' }, { timeout: 6000 })
+    expect(lightbox.querySelector('img')!.getAttribute('src')).toBe('https://api.test/media/mock.png')
+    expect(api.mockupStatus).toHaveBeenCalledWith('crystal', 'o1')
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
+    // The mockup stays in the chat; a tap opens it again.
+    fireEvent.click(screen.getByRole('button', { name: 'See your picture on the black tee big' }))
+    expect(screen.getByRole('dialog', { name: 'Your picture on a black tee' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Make the mockup/ })).toBeNull()
+  }, 10_000)
+
+  it('says plainly when her credits are short, with a way to buy more', async () => {
+    api.history.mockResolvedValue({ messages: [{ id: 'o1', role: 'assistant', text: 'Dale!', mockup: { status: 'offered', label: 'hoodie', priceItc: 15 } }] })
+    api.makeMockup.mockRejectedValue(new Error('HTTP 402: {"error":"A mockup is 15 ITC and you have 0. Buy credits, then press it again.","needed":15,"balance":0}'))
+    panel()
+    fireEvent.click(await screen.findByRole('button', { name: 'Make the mockup · 15 ITC' }))
+    expect(await screen.findByText(/A mockup is 15 ITC and you have 0/)).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'Buy credits' }).getAttribute('href')).toBe('/wallet')
   })
 })

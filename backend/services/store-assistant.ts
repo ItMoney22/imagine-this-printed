@@ -3,8 +3,10 @@
 // the assistant can assess the design to create a product out of it"). Gemini 3.8 Flash straight to Google on
 // GOOGLE_API_KEY (ITP's own key, the same one voiceGenerator.ts speaks with); never OpenRouter. A voice note or a picture
 // goes in as inline data, so one call hears or sees her and answers: the reply comes back as JSON
-// { heard, reply, remember, makeProduct }. Speaking the reply is voiceGenerator's 'store-assistant' persona. Called from
-// routes/vendor-store.ts with facts read from her store and what it remembered, so it never guesses.
+// { heard, reply, remember, makeProduct, mockup }. Speaking the reply is voiceGenerator's 'store-assistant' persona. Called
+// from routes/vendor-store.ts with facts read from her store and what it remembered, so it never guesses. A mockup it
+// asks for is only offered here; the route states its price and renders it when she presses (services/store-mockup.ts).
+import { COLOR_IDS, mockupChoice, type MockupChoice } from './store-mockup-choice.js'
 
 export const STORE_ASSISTANT_MODEL = process.env.STORE_ASSISTANT_MODEL || 'gemini-3.8-flash'
 
@@ -22,6 +24,8 @@ export type StoreFacts = {
   orders: Array<{ createdAt: string; totalCents: number; shareCents: number | null }>
   /** What the assistant chose to remember about her in earlier chats, newest first. */
   memories?: string[]
+  /** Seeing a picture on a product: its price, the signed-in account's ITC (it pays), and whether a picture is in the chat. */
+  mockup?: { priceItc: number; balanceItc: number | null; picture: boolean }
 }
 
 /** A picture she attached: what Gemini sees, plus the facts a printer cares about. */
@@ -42,6 +46,13 @@ export function storeBrief(f: StoreFacts): string {
     ...f.items.filter(i => i.kind === 'own').map(i => `- ${i.name}: ${usd(i.priceCents)}${i.active ? '' : ' (switched off)'}`),
     'Imagine This Printed products she can sell (ITP makes and ships them):',
     ...f.items.filter(i => i.kind === 'itp').map(i => `- ${i.name}: her price ${usd(i.priceCents)}, ITP's price to her ${usd(i.itpCostCents)}, she earns ${usd(i.priceCents - i.itpCostCents)}${i.active ? '' : ' (not on her store)'}`),
+    ...(f.mockup
+      ? [
+          `Mockups: ${f.mockup.priceItc} ITC each from her credits${f.mockup.balanceItc == null ? '' : ` (she has ${Math.floor(f.mockup.balanceItc)} ITC)`}. ${
+            f.mockup.picture ? 'There is a picture in this chat to mock up.' : 'No picture in this chat yet: she attaches one with the paperclip.'
+          }`,
+        ]
+      : []),
   ]
   return lines.join('\n')
 }
@@ -58,6 +69,7 @@ export function systemPrompt(f: StoreFacts): string {
     'HER PAGE, card by card (point her to the right one): Home is her overview. My link is her own friend link to Imagine This Printed: when someone buys through it, her cut goes to her payouts, so she shares it on Instagram and with friends. Products holds Your products (her own, where she changes a price or turns one off), Imagine This Printed products you can sell, and Add a product (a photo and a price for something she makes). Discount codes and Orders work as above. Inbox is her store email: she reads and replies there, and junk is kept out in its own tab. Reminders are emails you write her when one is due (like a nudge to post); the switch on each one stops it. Credits shows her ITC balance and what each design step costs; Buy credits tops it up. Create a design has Design a shirt and Make an image. Payouts is where she presses Set up payouts so Stripe can pay her. Settings has Where you ship from, her Instagram and her store details.',
     'TURNING A PICTURE INTO A SHIRT, two ways, and say which fits: (1) if her picture already is the design (her artwork or logo), set makeProduct so the Make it a product button shows under your reply; it puts that exact picture on a shirt and the design studio takes her through mockups, photos and the listing. (2) If she wants a NEW shirt design made from a photo (her dog, a place, a vibe), send her to Create a design, Design a shirt, Start from inspiration: she uploads the same picture there (PNG, JPG or WEBP up to 8 MB), says what she wants under What do you want to make?, and Imagination draws shirt designs from it. Every drawing and every photo step costs ITC credits from her Credits card, shown before she presses; if her balance is low, tell her to Buy credits first. Help her write what to ask for: the style, the words on the shirt, the colours.',
     'When she sends a picture of a design, look it over like a print shop would: what it is, whether it will print well (its size in pixels, a clear background, bold colours, nothing cut off), what it would sell well on, a product name and a price idea. If it could become a product, set makeProduct to true: she then presses Make it a product and the design studio takes it from there (mockups, photos and the listing; each step costs a few ITC credits).',
+    `MOCKUPS: when she asks to see a picture on a product ("mock this on a shirt", "put it on a hoodie", "show me it on a metal print", "ponlo en una camisa"), set mockup. product: tshirt for a shirt or tee, hoodie, youth-tshirt for a kids or youth tee, metal for a metal print (a sign or wall art). color only when she names one (${COLOR_IDS.join(', ')}); otherwise leave it out and the colour her picture shows best on is picked. For metal, size 4x6 or 8x10 when she says, else leave it out. It uses the picture she just sent, or the last one she sent in this chat. In your reply say what you will make and its price from the facts, and that she presses Make the mockup under your reply: it shows up right here in the chat and she taps it to see it big. If she has fewer ITC than the price, say so and send her to Buy credits in her Credits card. Imagine This Printed makes tees, hoodies, kids tees and metal prints, not polos, tank tops, mugs or hats: for those say so, offer a tee, and leave mockup out. With no picture in the chat yet, ask her to attach one with the paperclip and leave mockup out. A mockup only shows the picture on the product; to sell it she presses Make it a product.`,
     'Use only the facts below for numbers. Never invent sales, orders, prices or buyers. If something is not in the facts, say you do not see it.',
     'You cannot change anything yourself. When she wants to change a price, add a product, set up payouts, print a label or make a discount code, tell her which card on this page does it.',
     "FEATURE REQUESTS: when she asks for something her store or page does not do yet (a new option, a new section, a change to how the store looks or works) and no card on her page already does it, set requestFeature with a short title and the details in plain English from what she said. It goes straight onto the Imagine This Printed team's board. Tell her it is on the board and that she will hear when it is done; never promise a date. Do not set it for questions, for things she can do herself, or for the same request twice.",
@@ -106,6 +118,15 @@ export function assistantBody(f: StoreFacts, turns: AssistantTurn[], audio?: { m
           remember: { type: 'ARRAY', items: { type: 'STRING' } },
           makeProduct: { type: 'BOOLEAN' },
           requestFeature: { type: 'OBJECT', properties: { title: { type: 'STRING' }, details: { type: 'STRING' } }, required: ['title', 'details'] },
+          mockup: {
+            type: 'OBJECT',
+            properties: {
+              product: { type: 'STRING', enum: ['tshirt', 'hoodie', 'youth-tshirt', 'metal'] },
+              color: { type: 'STRING', enum: COLOR_IDS },
+              size: { type: 'STRING', enum: ['4x6', '8x10'] },
+            },
+            required: ['product'],
+          },
         },
         required: ['reply'],
       },
@@ -113,7 +134,16 @@ export function assistantBody(f: StoreFacts, turns: AssistantTurn[], audio?: { m
   }
 }
 
-export type AssistantAnswer = { heard: string | null; reply: string; remember: string[]; makeProduct: boolean; request: { title: string; details: string } | null; usage: unknown }
+export type AssistantAnswer = {
+  heard: string | null
+  reply: string
+  remember: string[]
+  makeProduct: boolean
+  request: { title: string; details: string } | null
+  /** A picture she asked to see on a product (only offered; the route prices it and renders it when she presses). */
+  mockup: MockupChoice | null
+  usage: unknown
+}
 
 /** One assistant turn. `heard` is what she said in a voice note (null for a typed message). */
 export async function askStoreAssistant(
@@ -133,7 +163,7 @@ export async function askStoreAssistant(
   if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 200)}`)
   const j = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[]; usageMetadata?: unknown }
   const raw = (j.candidates?.[0]?.content?.parts ?? []).map(p => p.text ?? '').join('').trim()
-  let out: { heard?: string; reply?: string; remember?: unknown; makeProduct?: unknown; requestFeature?: { title?: unknown; details?: unknown } } = {}
+  let out: { heard?: string; reply?: string; remember?: unknown; makeProduct?: unknown; requestFeature?: { title?: unknown; details?: unknown }; mockup?: { product?: unknown; color?: unknown; size?: unknown } } = {}
   try {
     out = JSON.parse(raw)
   } catch {
@@ -150,6 +180,7 @@ export async function askStoreAssistant(
     remember,
     makeProduct: !!image && out.makeProduct === true,
     request: featureRequest(out.requestFeature),
+    mockup: mockupChoice(out.mockup),
     usage: j.usageMetadata ?? null,
   }
 }

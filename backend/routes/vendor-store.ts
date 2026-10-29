@@ -15,6 +15,11 @@ import storeDiscountsRouter from './vendor-store-discounts.js'
 import { pickMemories, type MemoryFact } from '../services/store-assistant-memory.js'
 import { fileStoreRequest } from '../services/store-requests.js'
 import { askStoreAssistant, type AssistantImage, type AssistantTurn } from '../services/store-assistant.js'
+import { mockupAsk, mockupLabel, type MockupChoice } from '../services/store-mockup-choice.js'
+import { mockupPriceItc, renderStoreMockup } from '../services/store-mockup.js'
+import { pricingService } from '../services/imagination-pricing.js'
+import { readOpenOutages } from '../services/image-credit-outage.js'
+import { creditProviderOf } from '../services/provider-credit.js'
 import { generateVoiceResponse } from '../services/voiceGenerator.js'
 import { QR_STAND, readQrStandFields, type QrStandFields } from '../shared/qr-stand.js'
 import { ensureStoreReferralCode, settleWaitingStoreReferrals, storeReferralOrders } from '../services/store-referral.js'
@@ -907,15 +912,43 @@ router.use('/manage/:slug/discounts', requireAuth, requireStoreManager, storeDis
 const HISTORY_TURNS = 16
 // Everything she has had it keep (a few hundred short facts at most); pickMemories chooses which ones ride along.
 const MEMORY_FACTS = 300
-type MessageRow = { id: string; role: 'user' | 'assistant'; text: string; image_url: string | null; created_at: string }
-// An assistant row's image_url is the design that reply offers to make into a product (her Make it a product button).
+// A mockup on an assistant row (David 2026-10-29: "crystal gives him a image says mock this on a shirt he does it he
+// comes up in a lightbox"). The reply that offers one carries it as 'offered' with the price it stated; her press makes it
+// 'rendering', then 'done' (or 'failed', credits back), and the picture lands as its own reply row marked 'result'.
+type StoredMockup = MockupChoice & {
+  status: 'offered' | 'rendering' | 'done' | 'failed' | 'result'
+  /** The picture she sent that it puts on the product. */
+  sourceUrl?: string
+  priceItc?: number
+  stage?: string
+  startedAt?: string
+  error?: string
+  /** Server only: who pressed and paid, so a failed or stalled render hands their credits back. */
+  paidBy?: string
+  resultId?: string
+  offerId?: string
+}
+type MessageRow = { id: string; role: 'user' | 'assistant'; text: string; image_url: string | null; created_at: string; mockup?: StoredMockup | null }
+const MESSAGE_COLUMNS = 'id, role, text, image_url, created_at, mockup'
+const publicMockup = (m: StoredMockup) => ({
+  status: m.status,
+  label: mockupLabel(m),
+  ...(m.priceItc != null ? { priceItc: m.priceItc } : {}),
+  ...(m.stage ? { stage: m.stage } : {}),
+  ...(m.startedAt ? { startedAt: m.startedAt } : {}),
+  ...(m.error ? { error: m.error } : {}),
+  ...(m.resultId ? { resultId: m.resultId } : {}),
+})
+// An assistant row's image_url is the design that reply offers to make into a product (her Make it a product button),
+// or on a mockup result row, the mockup itself.
 const publicMessage = (m: MessageRow) => ({
   id: m.id,
   role: m.role,
   text: m.text,
   imageUrl: m.image_url,
-  makeProduct: m.role === 'assistant' && !!m.image_url,
-  createdAt: m.created_at
+  makeProduct: m.role === 'assistant' && !!m.image_url && !m.mockup,
+  createdAt: m.created_at,
+  ...(m.mockup ? { mockup: publicMockup(m.mockup) } : {})
 })
 
 /** Her last turns (newest first, as read) the way the model takes them: oldest first, opening on her, one per speaker. */
@@ -936,7 +969,7 @@ router.get('/manage/:slug/assistant/history', requireAuth, requireStoreManager, 
   const { store } = req.vendorStore!
   const { data, error } = await supabase
     .from('vendor_store_assistant_messages')
-    .select('id, role, text, image_url, created_at')
+    .select(MESSAGE_COLUMNS)
     .eq('storefront_id', store.id)
     .order('created_at', { ascending: false })
     .limit(60)
@@ -990,13 +1023,13 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
   if (!assistantTurnAllowed(store.slug)) return res.status(429).json({ error: 'The assistant has done a lot today. It’s back tomorrow.' })
 
   try {
-    const [{ data: items }, { data: orders }, payouts, { data: past }, { data: memory }] = await Promise.all([
+    const [{ data: items }, { data: orders }, payouts, { data: past }, { data: memory }, { data: wallet }, priceItc] = await Promise.all([
       supabase.from('vendor_store_items').select('*').eq('storefront_id', store.id),
       supabase.from('orders').select('created_at, total, metadata').eq('source', sourceOf(store.slug)).eq('payment_status', 'paid').limit(500),
       payoutsReady(store.stripe_account_id),
       supabase
         .from('vendor_store_assistant_messages')
-        .select('id, role, text, image_url, created_at')
+        .select(MESSAGE_COLUMNS)
         .eq('storefront_id', store.id)
         .order('created_at', { ascending: false })
         .limit(HISTORY_TURNS),
@@ -1005,8 +1038,13 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
         .select('fact, created_at')
         .eq('storefront_id', store.id)
         .order('created_at', { ascending: false })
-        .limit(MEMORY_FACTS)
+        .limit(MEMORY_FACTS),
+      // A mockup is paid by whoever is signed in, the way her Create a design steps are (routes/studio-flow.ts).
+      supabase.from('user_wallets').select('itc_balance').eq('user_id', req.user!.sub).maybeSingle(),
+      mockupPriceItc()
     ])
+    // The last picture she sent in this chat, for "now do it on a hoodie" with nothing attached.
+    const lastPicture = ((past || []) as MessageRow[]).find(r => r.role === 'user' && r.image_url)?.image_url || null
     const turns = chatTurns((past || []) as MessageRow[])
     if (text) {
       const last = turns[turns.length - 1]
@@ -1043,7 +1081,8 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
           instagram: store.instagram,
           items: ((items || []) as ItemRow[]).map(i => ({ name: i.name, kind: isItp(i) ? 'itp' : 'own', priceCents: i.price_cents, itpCostCents: i.itp_cost_cents, active: i.active })),
           orders: (orders || []).map((o: any) => ({ createdAt: o.created_at, totalCents: Math.round(Number(o.total) * 100), shareCents: o.metadata?.vendor_store?.split?.vendorShareCents ?? null })),
-          memories
+          memories,
+          mockup: { priceItc, balanceItc: wallet ? Number(wallet.itc_balance) : null, picture: !!(picture || lastPicture) }
         },
         turns,
         voice ? { mimeType: voice.mimetype.replace(/;.*$/, '').replace('x-wav', 'wav'), data: voice.buffer.toString('base64') } : undefined,
@@ -1053,7 +1092,7 @@ router.post('/manage/:slug/assistant', requireAuth, requireStoreManager, takeAss
       ),
       savePicture()
     ])
-    const { heard, reply: said, remember, makeProduct, usage, request } = answer
+    const { heard, reply: said, remember, usage, request } = answer
     // She asked for something her store doesn't do yet: Rico puts it straight on the board, and says so either way.
     let reply = said
     let requestFiled: string | null = null
@@ -1071,15 +1110,28 @@ I couldn’t send that to the team just now. Ask me again in a little while, and
       }
     }
 
+    // A mockup she asked for, on the picture she just sent or the last one in the chat. Her words are read too, so "mock
+    // this on a shirt" never depends on the model noticing. It is only offered: the reply always states its price, and
+    // the render runs when she presses Make the mockup (POST /assistant/mockup/:id below).
+    const sourceUrl = imageUrl || lastPicture
+    const choice = sourceUrl ? answer.mockup ?? mockupAsk(heard || text) : null
+    const offer: StoredMockup | null = choice ? { ...choice, status: 'offered', sourceUrl: sourceUrl!, priceItc } : null
+    if (offer && !reply.includes(`${priceItc} ITC`)) {
+      const label = mockupLabel(offer)
+      reply = `${reply}\n\nA mockup on ${/^[aeiou8]/i.test(label) ? 'an' : 'a'} ${label} is ${priceItc} ITC from your credits. Press Make the mockup when you’re ready.`
+    }
+    // One next button per reply: a mockup offer stands in for Make it a product.
+    const makeProduct = answer.makeProduct && !offer
+
     // Both turns, in order (the reply a millisecond after hers), then anything new worth remembering about her.
     const at = Date.now()
     const { data: saved, error: saveError } = await supabase
       .from('vendor_store_assistant_messages')
       .insert([
         { storefront_id: store.id, role: 'user', text: heard || text || (voice ? '(voice note)' : ''), image_url: imageUrl, created_at: new Date(at).toISOString() },
-        { storefront_id: store.id, role: 'assistant', text: reply, image_url: makeProduct ? imageUrl : null, created_at: new Date(at + 1).toISOString() }
+        { storefront_id: store.id, role: 'assistant', text: reply, image_url: makeProduct ? imageUrl : null, created_at: new Date(at + 1).toISOString(), ...(offer ? { mockup: offer } : {}) }
       ])
-      .select('id, role, text, image_url, created_at')
+      .select(MESSAGE_COLUMNS)
     if (saveError) req.log?.error({ err: saveError }, 'vendor-store assistant chat not saved')
     const known = new Set(memories.map(m => m.toLowerCase()))
     const fresh = remember.filter(r => !known.has(r.toLowerCase()))
@@ -1088,7 +1140,7 @@ I couldn’t send that to the team just now. Ask me again in a little while, and
       if (error) req.log?.error({ err: error }, 'vendor-store assistant memory not saved')
     }
 
-    req.log?.info({ slug: store.slug, voice: !!voice, picture: !!picture, remembered: fresh.length, makeProduct, requestFiled, usage }, 'vendor-store assistant turn')
+    req.log?.info({ slug: store.slug, voice: !!voice, picture: !!picture, remembered: fresh.length, makeProduct, mockup: offer ? mockupLabel(offer) : null, requestFiled, usage }, 'vendor-store assistant turn')
     return res.json({
       heard,
       reply,
@@ -1114,12 +1166,170 @@ router.post('/manage/:slug/assistant/speak', requireAuth, requireStoreManager, a
   }
 })
 
+// Make the mockup a reply offered: charge the price it stated to whoever pressed (her, signed in; an admin testing pays
+// from their own credits), then render it with the product builder's own mockup call (services/store-mockup.ts). The
+// render runs after this answers (a shot can take a minute and more, past a proxy's patience); the panel polls the GET
+// below and opens the picture in the lightbox when it lands. A failed or stalled render hands the credits back.
+const MOCKUP_DAILY = 40
+const MOCKUP_STALE_MS = 6 * 60_000
+const mockupUse = new Map<string, { day: string; count: number }>()
+function mockupAllowed(slug: string): boolean {
+  const day = new Date().toISOString().slice(0, 10)
+  const u = mockupUse.get(slug)
+  if (!u || u.day !== day) {
+    mockupUse.set(slug, { day, count: 1 })
+    return true
+  }
+  if (u.count >= MOCKUP_DAILY) return false
+  u.count++
+  return true
+}
+
+async function readOffer(storeId: string, id: string): Promise<MessageRow | null> {
+  const { data } = await supabase
+    .from('vendor_store_assistant_messages')
+    .select(MESSAGE_COLUMNS)
+    .eq('id', id)
+    .eq('storefront_id', storeId)
+    .eq('role', 'assistant')
+    .maybeSingle()
+  const row = data as MessageRow | null
+  return row?.mockup && row.mockup.status !== 'result' ? row : null
+}
+
+/** Writes the offer's mockup state, only while it is still in `from` (so two writers never both win). */
+async function moveOffer(row: MessageRow, from: StoredMockup['status'], next: StoredMockup): Promise<boolean> {
+  const { data } = await supabase
+    .from('vendor_store_assistant_messages')
+    .update({ mockup: next })
+    .eq('id', row.id)
+    .eq('mockup->>status', from)
+    .select('id')
+  return Array.isArray(data) ? data.length > 0 : !!data
+}
+
+/** A render this process lost (a restart mid-render): failed, credits back, once. */
+async function settleStaleMockup(storeId: string, row: MessageRow): Promise<MessageRow> {
+  const m = row.mockup!
+  if (m.status !== 'rendering' || !m.startedAt || Date.now() - Date.parse(m.startedAt) < MOCKUP_STALE_MS) return row
+  const failed: StoredMockup = { ...m, status: 'failed', stage: undefined, error: 'That one didn’t finish. Your credits are back: press it again.' }
+  if (await moveOffer(row, 'rendering', failed)) {
+    if (m.paidBy && m.priceItc) await pricingService.refundITC(m.paidBy, m.priceItc, 'store_mockup_stalled').catch(() => undefined)
+    return { ...row, mockup: failed }
+  }
+  return (await readOffer(storeId, row.id)) ?? row
+}
+
+async function finishMockup(store: StoreRow, row: MessageRow, rendering: StoredMockup, log: Request['log']): Promise<void> {
+  let current = rendering
+  try {
+    const result = await renderStoreMockup({
+      slug: store.slug,
+      designUrl: rendering.sourceUrl!,
+      choice: { product: rendering.product, color: rendering.color, size: rendering.size },
+      onStage: async (stage) => {
+        const next = { ...current, stage }
+        if (await moveOffer(row, 'rendering', next)) current = next
+      },
+    })
+    const made: StoredMockup = { product: rendering.product, color: result.color, size: rendering.size, status: 'result', offerId: row.id }
+    const ownerFirst = String((store.theme as any)?.ownerFirst || store.name.split(/[’']/)[0])
+    const { data: saved, error } = await supabase
+      .from('vendor_store_assistant_messages')
+      .insert({
+        storefront_id: store.id,
+        role: 'assistant',
+        text: `Mira, ${ownerFirst}, here it is on ${/^[aeiou8]/i.test(mockupLabel(made)) ? 'an' : 'a'} ${mockupLabel(made)}. Tap it to see it big.`,
+        image_url: `${MEDIA_BASE}/${result.path}`,
+        mockup: made,
+      })
+      .select('id')
+      .single()
+    if (error || !saved) throw new Error(`mockup reply not saved: ${error?.message || 'no row'}`)
+    await moveOffer(row, 'rendering', { ...current, status: 'done', stage: undefined, resultId: saved.id })
+    log?.info({ slug: store.slug, product: rendering.product, modelId: result.modelId, qaOk: result.qaOk }, 'vendor-store mockup made')
+  } catch (error: any) {
+    log?.error({ err: error, slug: store.slug }, 'vendor-store mockup failed')
+    // The picture service ran out of credit mid-render (services/provider-credit.ts reads its error).
+    const paused = !!creditProviderOf(error)
+    const failed: StoredMockup = {
+      ...current,
+      status: 'failed',
+      stage: undefined,
+      error: paused
+        ? 'Mockups are paused for a little while. Your credits are back.'
+        : 'That one didn’t come out. Your credits are back: press it again.',
+    }
+    if (await moveOffer(row, 'rendering', failed) && rendering.paidBy && rendering.priceItc) {
+      await pricingService.refundITC(rendering.paidBy, rendering.priceItc, 'store_mockup_failed').catch(() => undefined)
+    }
+  }
+}
+
+router.post('/manage/:slug/assistant/mockup/:messageId', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  const row = await readOffer(store.id, req.params.messageId)
+  if (!row) return res.status(404).json({ error: 'That mockup isn’t there any more. Ask me again.' })
+  const m = row.mockup!
+  if (m.status === 'rendering' || m.status === 'done') return res.json({ message: publicMessage(row) })
+  if (!m.sourceUrl || !m.priceItc) return res.status(404).json({ error: 'That mockup isn’t there any more. Ask me again.' })
+
+  // The picture service is out of credit: say so before anything is charged.
+  const outages = await readOpenOutages({ db: supabase }).catch(() => new Map())
+  if (outages.has('replicate')) return res.status(503).json({ error: 'Mockups are paused for a little while. Nothing was charged.' })
+
+  const uid = req.user!.sub
+  const { data: wallet } = await supabase.from('user_wallets').select('itc_balance').eq('user_id', uid).maybeSingle()
+  const balance = Math.floor(Number(wallet?.itc_balance ?? 0))
+  if (balance < m.priceItc) {
+    return res.status(402).json({ error: `A mockup is ${m.priceItc} ITC and you have ${balance}. Buy credits, then press it again.`, needed: m.priceItc, balance })
+  }
+  if (!mockupAllowed(store.slug)) return res.status(429).json({ error: 'That’s a lot of mockups for one day. More tomorrow.' })
+
+  // Claim it first, so a double tap can't charge twice; then charge exactly the price the reply stated.
+  const rendering: StoredMockup = { ...m, status: 'rendering', stage: 'Getting it ready…', startedAt: new Date().toISOString(), error: undefined, paidBy: uid }
+  if (!(await moveOffer(row, m.status, rendering))) {
+    const now = await readOffer(store.id, row.id)
+    return res.json({ message: publicMessage(now ?? row) })
+  }
+  try {
+    await pricingService.deductITC(uid, m.priceItc, `store_mockup:${store.slug}`)
+  } catch (error: any) {
+    await moveOffer(row, 'rendering', { ...m, paidBy: undefined })
+    const short = /insufficient/i.test(String(error?.message))
+    return res.status(short ? 402 : 500).json({ error: short ? `A mockup is ${m.priceItc} ITC. Buy credits, then press it again.` : 'That didn’t start. Try again.' })
+  }
+  void finishMockup(store, row, rendering, req.log)
+  return res.status(202).json({ message: publicMessage({ ...row, mockup: rendering }) })
+})
+
+// Where a mockup is: its stage while it renders, and the picture as its own reply once it lands.
+router.get('/manage/:slug/assistant/mockup/:messageId', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
+  const { store } = req.vendorStore!
+  let row = await readOffer(store.id, req.params.messageId)
+  if (!row) return res.status(404).json({ error: 'That mockup isn’t there any more.' })
+  row = await settleStaleMockup(store.id, row)
+  let result: MessageRow | null = null
+  if (row.mockup!.status === 'done' && row.mockup!.resultId) {
+    const { data } = await supabase
+      .from('vendor_store_assistant_messages')
+      .select(MESSAGE_COLUMNS)
+      .eq('id', row.mockup!.resultId)
+      .eq('storefront_id', store.id)
+      .maybeSingle()
+    result = data as MessageRow | null
+  }
+  return res.json({ message: publicMessage(row), result: result ? publicMessage(result) : null })
+})
+
 // Her ITC credits: the balance on her own ITP account, what the AI tools cost, and what she spent them on.
 // She buys more on /wallet; the tools (Imagination Station, the Creator Studio design flow) charge ITC themselves.
 const CREDIT_PRICES: Array<{ key: string; label: string }> = [
   { key: 'generate', label: 'Design a shirt with AI (per design)' },
   { key: 'generate', label: 'Make an image' },
   { key: 'bg_remove', label: 'Remove a background' },
+  // One picture, the rate services/store-mockup.ts charges when her assistant mocks a picture up on a product.
+  { key: 'generate', label: 'See a picture on a product (your assistant’s mockups)' },
 ]
 router.get('/manage/:slug/credits', requireAuth, requireStoreManager, async (req: Request, res: Response): Promise<any> => {
   const { store } = req.vendorStore!
