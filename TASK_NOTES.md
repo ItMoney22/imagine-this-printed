@@ -4772,3 +4772,19 @@ Stale scope above belongs to earlier tasks. Rationale: phone floating UI overlap
 ### Work log (append-only)
 - 2026-10-07 (dr-dill): phone header (menu/logo/search/cart) in Sidebar.tsx, cookie bar solid + in-flow, chat launcher in header band on phones + hidden on /product,/cart,/checkout, FloatingCart pill hidden on phones. Walked at 390px + desktop.
 - 2026-10-07 (dane-marsh): contact block component, per-page dates, shared SHIPPING_TRANSIT/PROCESSING_LINE in shipping-calculator used by Home, product box and Shipping policy; overnight row now Next-Day Air 1 business day transit from $34.99 (matches UPS Next Day Air Saver); pickup row added; royalty line removed; tsc + calculator tests green.
+
+## Current request (2026-10-29) — Vault: ITP hosts send the new CRON_SECRET as WATCHTOWER_INTERNAL_SECRET (task 5d50db79, sifu)
+
+Follow-up of the CRON_SECRET rotation e5295c9c. Operational (host env + deploy_only redeploys), no app code change.
+Scope rationale: the work needs one value-free host script; nothing under src/ or backend/ is touched.
+
+### File shortlist (approved scope — 2026-10-29 host secret)
+- `scripts/sifu-itp-host-secret.mjs` (new: names | set --expect <prefix> [--apply] | prove --expect <prefix>)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-29 (sifu): Render api + worker both held WATCHTOWER_INTERNAL_SECRET at the old value (sha-256 ca91e1df81); both moved to
+  cda69fb804 with a read-back, each redeployed deploy_only (same build 8290701b, no new code): api dep-dbhob9vf3r2c73ddrvk0 live
+  17:43:44Z then health 200, worker dep-dbhobkec6qcc73fuklug live 17:44:06Z ("AI Jobs Worker Starting"). Fly imagine-this-printed-api
+  (suspended, both machines stopped, card 4e42e490) staged only, digest equal to a probe of the new value, probe removed, release
+  still v8; Fly worker never held the name. davidtrinidad.com /api/tasks/internal?limit=1 with the new value = 200. Audit 606b1e69.
