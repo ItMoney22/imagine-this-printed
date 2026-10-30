@@ -5626,3 +5626,18 @@ Fix at the one chokepoint (`sendEmailWithTracking`) so all paths log, with error
 - 2026-10-12 (levi-james): scope added; live schema read-only inspected (20 cols, 6 rows, newest 2025-12-23).
 - 2026-10-12 (levi-james): shipped recorder `backend/services/email-log.ts`; `sendEmailWithTracking` now logs every send (sent/failed/suppressed/no-key) and 28 senders carry template keys; logEmail delegates; admin send-test no longer double-logs. 9 new vitest + live proof `backend/scripts/verify-email-logs.ts` (real Resend sink sends, rows read back via the admin query, cleaned up). Not deployed.
 - 2026-10-30 (zero-nine, ship 01e26f7c): rebuilt b7ee3be as one pick onto the 10/30 ITP train 418d060 (c026572f: origin/main 8290701b + Crystal + name gifts + rider c29e49f5); only TASK_NOTES.md conflicted (kept the train's copy, appended this block). Gates re-run on the pick; ships in the same promote as c026572f.
+
+## Current request (2026-10-30) — ITP phone number (470) 227-8666 on the shared voice bridge (task 20d54c05, zero-pluto)
+
+David 10/30: ITP needs to be the (470) 227-8666 number. Calls reach ITP through the shared bridge (Dial fallback to David's mobile),
+inbound texts land where ITP reads, Twilio friendly name reads Imagine This Printed, the site shows this number.
+
+### File shortlist (approved scope — 2026-10-30 phone line)
+- new `backend/lib/phone-agent-token.ts` (verbatim from Darrell V2), `backend/lib/phone-agent-persona.ts`, `backend/lib/phone-gemini.ts`, `backend/lib/phone-twilio.ts`
+- new `backend/services/phone-agent.ts`, `backend/routes/phone.ts` (+ `phone.test.ts`)
+- `backend/index.ts` (mount `/api/phone`), `backend/middleware/rate-limits.ts` (exempt `/api/phone`), `vitest.hermetic-env.ts` (strip the phone secrets)
+- new `supabase/migrations/20261030120000_phone_calls.sql` + `MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-30 (zero-pluto): built the phone line on the Express API (not Next): Twilio signature + TwiML by hand (no twilio package), Mr. Imagine persona from the help-page facts, take_message / transfer_to_shop, texts -> support tickets (Becky pings Christina), missed calls -> tickets, transcript onto the ticket at hangup. Migration applied live. vitest 207 files / 2772 tests green, tsc clean; voiced harness call through the real bridge code PASS (E:/memory/watchtower/assets/20d54c05/harness-run.txt).
