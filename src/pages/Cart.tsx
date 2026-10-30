@@ -10,6 +10,14 @@ import { addonsUnitTotal, lineBasePrice, printLocationLabel, sizePriceDelta, for
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import type { CartItem } from '../types'
 import { QR_FIELD, QR_STAND, isQrStandLineId } from '../../backend/shared/qr-stand'
+import { parseNamePrint } from '../../backend/shared/name-print'
+import { NamePrintThumb } from '../components/NamePrintPanel'
+
+/** The name a shopper typed for a 3D name gift line, or null for any other line. */
+function giftName(item: { product: { metadata?: unknown }; personalization?: Record<string, string> }): string | null {
+  const template = parseNamePrint(item.product.metadata)
+  return (template && item.personalization?.[template.field.key]) || null
+}
 
 const FALLBACK = 'https://images.unsplash.com/photo-1523381210434-271e8be1f52b?w=600&h=600&fit=crop'
 
@@ -44,7 +52,11 @@ function choiceChips(item: CartItem): string[] {
     chips.push(up > 0 ? `${tier.label} (+$${up.toFixed(2)})` : tier.label)
   }
   for (const addon of item.selectedAddons ?? []) chips.push(`+ ${addon.name} (+$${addon.price.toFixed(2)})`)
-  for (const [k, v] of Object.entries(item.personalization ?? {})) if (v) chips.push(`${k}: ${v}`)
+  // A name gift's one field is the name that prints, so its chip says so in a word ("Name: Grandma Rose").
+  const gift = parseNamePrint(item.product.metadata)
+  for (const [k, v] of Object.entries(item.personalization ?? {})) {
+    if (v) chips.push(`${gift && k === gift.field.key ? 'Name' : k}: ${v}`)
+  }
   if (item.designData?.mockupUrl) chips.push('Your design')
   else if (item.customDesign) chips.push('Your design included')
   return chips
@@ -102,17 +114,28 @@ const Cart: React.FC = () => {
             {state.items.map((item) => {
               const unit = lineBasePrice(item.product, item.selectedSize, item.selectedColor)
               const line = (unit + sizeUpcharge(item) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity
+              const gift = giftName(item)
               return (
                 <li key={item.id} className="bg-card rounded-2xl border border-border shadow-soft p-3 sm:p-4 flex gap-3 sm:gap-5">
                   <Link to={isQrStandLineId(item.product.id) ? QR_STAND.path : `/product/${item.product.slug || item.product.id}`} className="shrink-0">
-                    <img
-                      src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || FALLBACK}
-                      alt={item.product.name}
-                      className="w-24 h-24 sm:w-32 sm:h-32 object-contain rounded-xl bg-bg"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).src = FALLBACK
-                      }}
-                    />
+                    {gift ? (
+                      // A name gift shows the shopper's own name on the piece, not the product photo.
+                      <NamePrintThumb
+                        productId={item.product.id}
+                        name={gift}
+                        fallback={item.product.images?.[0] || FALLBACK}
+                        className="w-24 h-24 sm:w-32 sm:h-32 object-contain rounded-xl bg-bg"
+                      />
+                    ) : (
+                      <img
+                        src={item.designData?.mockupUrl || item.customDesign || item.product.images?.[0] || FALLBACK}
+                        alt={item.product.name}
+                        className="w-24 h-24 sm:w-32 sm:h-32 object-contain rounded-xl bg-bg"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = FALLBACK
+                        }}
+                      />
+                    )}
                   </Link>
 
                   <div className="flex-1 min-w-0 flex flex-col">
