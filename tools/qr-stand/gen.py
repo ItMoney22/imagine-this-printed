@@ -52,13 +52,15 @@ QR_SIZE, QR_TOP = 75.0, 7.5                # QR edge length, margin from top edg
 RAISE = 1.0                                # raised QR/text height
 TEXT_Y, TEXT_CAP = 16.0, 8.5               # caption centre from bottom, cap height
 BLANK_FRAC = 0.34                          # blank centre square, fraction of QR width (~1 inch)
-LEG_T = 4.0                                # leg thickness
+SLOT_W = 4.4                               # hook slot width in the plate (unchanged since 2026-10-18)
+LEG_T = 4.2                                # leg thickness: 0.1 mm a side in the slot (was 4.0, too loose)
 LEAN = 15.0                                # degrees the plate leans back
 LEG_LEN, LEG_TOP_W, LEG_FOOT = 113.5, 17.4, 69.3   # contact edge, flat top width, table edge
 HOOKS = [31.0, 61.0, 91.0]                 # stem bottoms up the contact edge (final, locked position)
 STEM_L, LIP_L = 12.0, 8.0                  # stem length along the edge, lip length past it
 LEDGE, HOOK_D = 2.0, 3.8                   # plate back skin the lip slides behind, total hook depth
 CLEAR = 0.2
+LIP_FIT = 0.1                              # lip to skin gap (was 2 x CLEAR = 0.4: the stand rocked on its leg)
 
 
 def rounded_rect(w, h, r):
@@ -91,22 +93,28 @@ def link_problem(url):
     return None
 
 
-def qr_geometry(url):
+def qr_geometry(url, size=QR_SIZE, top=QR_TOP, full=False):
+    """full=True: the whole code, no blank centre square (no logo, no sticker). With
+    nothing covering the middle it does not need level H, so it takes the smallest
+    version (biggest modules) and the strongest level that version still holds."""
     problem = link_problem(url)
     if problem:
         raise StandError(problem, 2)
     # mode="byte" pins the encoding the shop's preview uses, so both agree on the version.
-    qr = segno.make(url, error="h", mode="byte", boost_error=False, micro=False)
+    if full:
+        qr = segno.make(url, error="l", mode="byte", boost_error=True, micro=False)
+    else:
+        qr = segno.make(url, error="h", mode="byte", boost_error=False, micro=False)
     if qr.version > MAX_QR_VERSION:  # v7+ puts an alignment pattern dead centre, under the logo
         raise StandError(TOO_LONG, 2)
     mat = np.array([[bool(c) for c in row] for row in qr.matrix])
     n = mat.shape[0]
-    k = max(5, int(round(n * BLANK_FRAC)))
-    if (n - k) % 2: k += 1
+    k = 0 if full else max(5, int(round(n * BLANK_FRAC)))
+    if k and (n - k) % 2: k += 1
     lo = (n - k) // 2
     mat[lo:lo + k, lo:lo + k] = False
-    cell = QR_SIZE / n
-    x0, y0 = (PW - QR_SIZE) / 2, PH - QR_TOP - QR_SIZE
+    cell = size / n
+    x0, y0 = (PW - size) / 2, PH - top - size
     sq = [box(x0 + c * cell, y0 + (n - 1 - r) * cell, x0 + (c + 1) * cell, y0 + (n - r) * cell)
           for r in range(n) for c in range(n) if mat[r, c]]
     blank = (x0 + lo * cell, y0 + (n - lo - k) * cell, k * cell)
@@ -247,7 +255,7 @@ def hook_pockets():
     # Slot open on the back for the hook to drop in, plus a hidden channel above it
     # behind a LEDGE-thick skin. Slide the leg up LIP_L and the lips lock behind it;
     # standing on the table, the leg can't drop back down, so it stays locked.
-    cx, w = PW / 2, LEG_T + 2 * CLEAR
+    cx, w = PW / 2, SLOT_W
     out = []
     for a in HOOKS:
         lo = a - LIP_L - CLEAR
@@ -258,13 +266,21 @@ def hook_pockets():
     return m3d.Manifold.batch_boolean(out, m3d.OpType.Add)
 
 
-def build_plate(url, text, logo=None):
-    qr_poly, qr, blank, mat = qr_geometry(url)   # first: a refused link costs no geometry
+def build_plate(url, text, logo=None, size=QR_SIZE, top=QR_TOP, full=False, clear_bottom=0.0):
+    if full and logo:
+        raise StandError("a full code has no centre square for a logo", 1)
+    if size + top > PH:
+        raise StandError("the code does not fit on the plate", 1)
+    qr_poly, qr, blank, mat = qr_geometry(url, size, top, full)   # first: a refused link costs no geometry
     feats = qr_poly.union(text_geometry(text)) if text else qr_poly
     logo_share = None
     if logo:
-        logo_poly, logo_share = logo_geometry(logo, blank, QR_SIZE / mat.shape[0])
+        logo_poly, logo_share = logo_geometry(logo, blank, size / mat.shape[0])
         feats = feats.union(logo_poly)
+    if clear_bottom and feats.bounds[1] < clear_bottom:
+        # The bottom of the face is kept empty for something stuck on (a nameplate).
+        raise StandError(f"the face reaches {feats.bounds[1]:.1f} mm from the bottom; "
+                         f"{clear_bottom:.1f} mm must stay clear", 1)
     plate = soft_plate() - hook_pockets()
     plate = plate + to_manifold(feats, PT - 0.01, PT + RAISE)
     return plate, qr, blank, mat, logo_share
@@ -279,15 +295,17 @@ def build_leg():
     hooks = []
     for y in HOOKS:
         stem = box(-HOOK_D, y, 0.5, y + STEM_L)
-        lip = Polygon([(-HOOK_D, y + STEM_L - 0.1), (-(LEDGE + CLEAR), y + STEM_L - 0.1),
-                       (-(LEDGE + CLEAR), y + STEM_L + LIP_L - 1.0), (-(LEDGE + CLEAR) - 1.0, y + STEM_L + LIP_L),
+        # Only the leg changed when the fit was tightened (2026-10-30), so a new leg fits an older plate.
+        face = -(LEDGE - CLEAR + LIP_FIT)
+        lip = Polygon([(-HOOK_D, y + STEM_L - 0.1), (face, y + STEM_L - 0.1),
+                       (face, y + STEM_L + LIP_L - 1.0), (face - 1.0, y + STEM_L + LIP_L),
                        (-HOOK_D, y + STEM_L + LIP_L)])
         hooks += [stem, lip]
     return to_manifold(unary_union([body] + hooks), 0, LEG_T)
 
 
-def assemble(url, text, logo=None):
-    plate, qr, blank, mat, logo_share = build_plate(url, text, logo)
+def assemble(url, text, logo=None, **face):
+    plate, qr, blank, mat, logo_share = build_plate(url, text, logo, **face)
     leg = build_leg().translate([PW + 10 + HOOK_D, 2, 0])
     whole = plate + leg
     m = whole.to_mesh()
@@ -336,7 +354,7 @@ def project_settings():
     return json.dumps(s, indent=4)
 
 
-def write_3mf(V, F, black, out, title, paint=False):
+def write_3mf(V, F, black, out, title, paint=False, layers_xml=None):
     c = (V.min(0) + V.max(0)) / 2
     Vc = V - c
     ext = V.max(0) - V.min(0)
@@ -387,13 +405,14 @@ def write_3mf(V, F, black, out, title, paint=False):
         z.writestr("Metadata/project_settings.config", project_settings())
         with open(os.path.join(WRAPPER, "Metadata/slice_info.config"), encoding="utf-8") as f:
             z.writestr("Metadata/slice_info.config", re.sub(r"\d\d\.\d\d\.\d\d\.\d\d", APP_VERSION, f.read()))
-        z.writestr("Metadata/custom_gcode_per_layer.xml", face_change_xml())
+        z.writestr("Metadata/custom_gcode_per_layer.xml", layers_xml or face_change_xml())
     return ext
 
 
-def render_front(V, F, black, path, px=10):
+def render_front(V, F, black, path, px=10, w=PW, h=PH):
     """Top-down picture of the plate face (what a phone camera sees) for decode checks."""
     from PIL import Image, ImageDraw
+    PW, PH = w, h   # the keychain renders its own, smaller face
     img = Image.new("L", (int(PW * px) + 80, int(PH * px) + 80), 235)
     d = ImageDraw.Draw(img)
     tri = V[F]
@@ -431,12 +450,12 @@ def scan_check(png, url):
     return url in texts, texts
 
 
-def make(url, text, out, title="QR Stand", logo=None, check=True, paint=False):
-    V, F, black, qr, blank, mat, logo_share = assemble(url, text, logo)
+def make(url, text, out, title="QR Stand", logo=None, check=True, paint=False, **face):
+    V, F, black, qr, blank, mat, logo_share = assemble(url, text, logo, **face)
     mesh = trimesh.Trimesh(V, F, process=False)
     png = os.path.splitext(out)[0] + "-face.png"
     render_front(V, F, black, png)
-    result = {"qr_version": qr.version, "modules": mat.shape[0], "blank_mm": round(blank[2], 1),
+    result = {"qr_version": qr.version, "qr_error": qr.error, "modules": mat.shape[0], "blank_mm": round(blank[2], 1),
               "logo": "printed" if logo else "blank", "logo_share": round(logo_share, 3) if logo else None,
               "face_change_mm": face_change_z(), "watertight": bool(mesh.is_watertight),
               "volume_cm3": round(mesh.volume / 1000, 1), "face_png": png, "out": out}
@@ -460,9 +479,15 @@ if __name__ == "__main__":
     ap.add_argument("--logo", help="png/jpg printed in the centre square; omit to leave it blank for a sticker")
     ap.add_argument("--no-check", action="store_true", help="skip the scan-back (never for anything that prints)")
     ap.add_argument("--paint", action="store_true", help="also paint the triangles, for opening in the desktop app")
+    ap.add_argument("--full-qr", action="store_true", help="the whole code, no blank centre square (no logo)")
+    ap.add_argument("--qr-size", type=float, default=QR_SIZE, help="code edge length, mm")
+    ap.add_argument("--qr-top", type=float, default=QR_TOP, help="code margin from the top edge, mm")
+    ap.add_argument("--clear-bottom", type=float, default=0.0,
+                    help="mm at the bottom of the face that must stay empty (e.g. 50.8 for a nameplate)")
     a = ap.parse_args()
     try:
-        print(json.dumps(make(a.url, a.text, a.out, a.title, a.logo, check=not a.no_check, paint=a.paint)))
+        print(json.dumps(make(a.url, a.text, a.out, a.title, a.logo, check=not a.no_check, paint=a.paint,
+                              size=a.qr_size, top=a.qr_top, full=a.full_qr, clear_bottom=a.clear_bottom)))
     except StandError as e:
         print(json.dumps({"error": str(e), "code": e.code}))
         sys.exit(e.code)

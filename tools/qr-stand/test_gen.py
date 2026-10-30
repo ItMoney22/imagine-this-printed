@@ -75,6 +75,33 @@ class GenTest(unittest.TestCase):
             gen.make("https://davidtrinidad.com", "Scan Me", self.out(), logo=logo)
         self.assertEqual(e.exception.code, 4)
 
+    def test_full_code_no_words_leaves_the_bottom_clear_for_a_nameplate(self):
+        # Darrell's stand (2026-10-30): whole code, no centre square, no caption,
+        # 62 mm code 6 mm from the top, bottom 2 in empty for his 1.8 in nameplate.
+        r = gen.make("https://darrellmccutchen.com", "", self.out(), full=True, size=62, top=6, clear_bottom=50.8)
+        self.assertEqual(r["blank_mm"], 0.0)
+        self.assertTrue(r["scan_ok"])
+        self.assertTrue(r["watertight"])
+        V, F, black, *_ = gen.assemble("https://darrellmccutchen.com", "", full=True, size=62, top=6)
+        raised = V[F[black]].reshape(-1, 3)
+        self.assertGreaterEqual(raised[:, 1].min(), 50.8)
+        with self.assertRaises(gen.StandError):   # the default caption would sit in the nameplate's spot
+            gen.make("https://darrellmccutchen.com", "Scan Me", self.out(), full=True, size=62, top=6, clear_bottom=50.8)
+
+    def test_default_stand_keeps_its_blank_centre_square(self):
+        r = gen.make("https://davidtrinidad.com", "Scan Me", self.out())
+        self.assertGreater(r["blank_mm"], 20)
+        self.assertEqual(r["qr_error"], "H")
+
+    def test_nfc_keychain_pauses_before_the_layer_that_covers_the_pocket(self):
+        import keychain
+        r = keychain.make("https://darrellmccutchen.com", self.out("key.3mf"))
+        self.assertTrue(r["scan_ok"])
+        self.assertTrue(r["watertight"])
+        xml = zipfile.ZipFile(self.out("key.3mf")).read("Metadata/custom_gcode_per_layer.xml").decode()
+        self.assertIn('top_z="2.6" type="1"', xml)        # pocket is 0.8-2.4 mm: pause before 2.4-2.6
+        self.assertIn('top_z="3.8" type="2"', xml)        # face colour from the first raised layer
+
     def test_a_logo_with_nothing_in_it_is_refused(self):
         logo = os.path.join(self.dir, "blank.png")
         Image.new("RGB", (200, 200), "white").save(logo)
