@@ -5475,6 +5475,32 @@ inbox). One Shippo client for every path: the main site's quote and admin label 
   backend tsc clean. Live: real rates (QA store, Atlanta + LA), real checkout row with split (Stripe faked, no test
   key), fleet-browser walks 1400 + 390 of cart and manager; QA rows deleted. Real label PDF waits on APPROVE d5a1eb28.
 
+## Current request (2026-10-27) — /start/crystal onto the 10/27 Crystal batch (task eaebd7c7, cole-iverson)
+
+David 10/27: "https://www.imaginethisprinted.com/start/crystal what happen to this page?" Cole's sign-up flow 4acd1e5
+(branch earth/cole-iverson/crystal-opal-onboarding: StoreStart + Rico persona + Mia's 9c113f5 shipping) was never put
+on a ship. This branch = batch tip 90c6a373 (reminders, referral cut, discount codes, 123ab6ca menu-jump fix) + a
+--no-ff merge of 4acd1e5, keeping both sides.
+
+### File shortlist (approved scope — 2026-10-27 merge)
+- the 8 conflicted files: `TASK_NOTES.md`, `supabase/migrations/MIGRATION_LEDGER.md`, `backend/lib/vendor-store-split.ts`,
+  `backend/routes/vendor-store.ts` (+ test), `src/lib/vendor-store.ts`, `src/pages/store/StoreManager.tsx`, `StorePage.tsx`
+- tests the merged money rules changed: `backend/lib/vendor-store-split.test.ts`, `backend/routes/vendor-store-discounts.test.ts`
+
+### Work log (append-only)
+- 2026-10-27 (cole-iverson): resolved keep-both. Split: discount comes off her share AND both packages' shipping sit on
+  ITP's side (Mia), so her shipping no longer cushions a code (a code taking her items to $0 at a 10% fee is now refused
+  as too deep). Checkout: readCart + the signed Shippo quote, then her code, then splitWithCode with the quote's
+  shipping (the cart's Apply keeps the store's flat numbers: shipping is on both sides of the too-deep check). Cart:
+  code box + ship-to/rates; Total = items - code + shipping. Admin panel: her link's cut stays, flat shipping boxes
+  stay gone. Discount route tests now check out through /shipping-rates like the real cart. vitest 196 files / 2663
+  pass, tsc -b 0, backend tsc only the known TS2742.
+- 2026-10-27 (cole-iverson): Amelia shipped the same merge for David on 2351db82 (SHIP 00ec10dc: + dr-dill's label
+  refunds 87b7d85), which no longer fast-forwarded from main 421018e5 (Etsy craft type). Folded it in, taking HER side
+  in every store/money file (same resolution as mine bar wording; her Apply prices shipping at 0), then main, then one
+  test fix: the shipping-rates leak check failed ~1 run in 4 because the token's random signature/expiry digits could
+  spell 743/558; it now reads the claims without them.
+
 ## Current request (2026-10-13) — Etsy craft type for ITP products (task 1e178492, marcus-wolfe)
 
 Christina 8/22: "the created products require a 'craft type' as a mandatory field ... none of them fit what we do".

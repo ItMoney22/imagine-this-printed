@@ -194,7 +194,13 @@ describe('vendor store checkout', () => {
     const body = await res.json()
     expect(body.source).toBe('shippo')
     expect(body.options.map((o: any) => [o.name, o.amountCents, o.packages])).toEqual([['USPS Ground Advantage', 780 + 586, 2], ['USPS Priority Mail', 980 + 940, 2]])
-    const text = JSON.stringify(body) + JSON.stringify(body.options.map((o: any) => Buffer.from(o.token.split('.')[0], 'base64url').toString('utf8')))
+    // The token's signature (hex) and expiry (ms) are random digits that can spell 743 or 558 by chance, so the leak
+    // check reads the options and the signed claims without them.
+    const claims = body.options.map((o: any) => {
+      const { exp: _exp, ...rest } = JSON.parse(Buffer.from(o.token.split('.')[0], 'base64url').toString('utf8'))
+      return rest
+    })
+    const text = JSON.stringify({ ...body, options: body.options.map(({ token: _token, ...o }: any) => o) }) + JSON.stringify(claims)
     expect(text).not.toMatch(/Craft Ln|Cartersville|30120|743|558/)
     expect(JSON.stringify(await (await fetch(`${base}/api/vendor-store/crystal`)).json())).not.toMatch(/Craft Ln|30120/)
   })
