@@ -10,6 +10,7 @@
 
 import { sendViaResend } from '../services/email-resend.js'
 import { getSuppression } from '../services/email-suppression.js'
+import { recordEmailLog } from '../services/email-log.js'
 import { resolveCarrier } from './carrier-tracking.js'
 import { buildOrderStatusUrl } from './order-status-token.js'
 import { buildAccountClaimUrl } from './account-claim-token.js'
@@ -42,6 +43,14 @@ interface EmailOptions {
   subject: string
   htmlContent: string
   textContent?: string
+  /** email_logs.template_key — name the email so admin history can group it. */
+  templateKey?: string
+  /** True when the AI writer produced this copy, false for the static template. */
+  aiUsed?: boolean
+  /** orders.id for email_logs.order_id (non-uuid values are kept in metadata). */
+  orderId?: string
+  /** Extra context stored on the email_logs row. */
+  logMetadata?: Record<string, unknown>
 }
 
 export interface SendEmailResult {
@@ -91,6 +100,23 @@ export const sendEmail = async (options: EmailOptions): Promise<boolean> => {
  * Returns messageId when available (used by email-templates route for log correlation).
  */
 export const sendEmailWithTracking = async (options: EmailOptions): Promise<SendEmailResult> => {
+  // Every attempt — sent, suppressed or failed — is written to email_logs so the
+  // admin history shows what really went out (and what did not, and why). The
+  // recorder never throws: a logging problem must not turn a delivered email
+  // into a reported failure.
+  const log = (status: 'sent' | 'failed', messageId?: string, errorMessage?: string) =>
+    recordEmailLog({
+      templateKey: options.templateKey,
+      recipientEmail: options.to,
+      subject: options.subject,
+      aiUsed: options.aiUsed,
+      messageId,
+      status,
+      errorMessage,
+      orderId: options.orderId,
+      metadata: options.logMetadata
+    })
+
   // Suppression list first — an address that hard-bounced or filed a spam
   // complaint must never be mailed again. getSuppression fails OPEN, so a
   // database blip can't mute all mail.
@@ -100,6 +126,7 @@ export const sendEmailWithTracking = async (options: EmailOptions): Promise<Send
       `[Email] 🚫 Suppressed — not sending to ${options.to} (${suppression.reason}).`,
       'Subject:', options.subject
     )
+    await log('failed', undefined, `suppressed: ${suppression.reason}`)
     return { success: false, suppressed: true, suppressionReason: suppression.reason }
   }
 
@@ -109,13 +136,17 @@ export const sendEmailWithTracking = async (options: EmailOptions): Promise<Send
     // provider nobody monitors. Now it just doesn't send, and says so loudly.
     console.error('[Email] 🚨 NO EMAIL TRANSPORT CONFIGURED — RESEND_API_KEY is missing. Email NOT sent.')
     console.error('[Email] Would have sent to:', options.to, '| Subject:', options.subject)
+    await log('failed', undefined, 'RESEND_API_KEY missing — email not sent')
     return { success: false }
   }
 
   try {
-    return await sendViaResendTransport(options)
+    const result = await sendViaResendTransport(options)
+    await log('sent', result.messageId)
+    return result
   } catch (err) {
     console.error('[Email] Resend transport failed:', err)
+    await log('failed', undefined, err instanceof Error ? err.message : String(err))
     return { success: false }
   }
 }
@@ -154,6 +185,8 @@ export const sendLowStockAlertEmail = async (
         </tr>`).join('')
 
   return sendEmail({
+    templateKey: 'low_stock_alert',
+    aiUsed: false,
     to,
     subject: `🚨 Low blank stock: ${items.length} SKU${items.length === 1 ? '' : 's'} at/below reorder point`,
     htmlContent: `
@@ -203,6 +236,8 @@ export const sendProductApprovalEmail = async (
       })
 
       return sendEmail({
+        templateKey: 'design_approved',
+        aiUsed: true,
         to: email,
         subject: aiEmail.subject,
         htmlContent: aiEmail.htmlContent,
@@ -215,6 +250,8 @@ export const sendProductApprovalEmail = async (
 
   // Fallback to static template (the production copy — 15% royalty, /product/:id route)
   return sendEmail({
+    templateKey: 'design_approved',
+    aiUsed: false,
     to: email,
     subject: '🎉 Your Design Has Been Approved! - Imagine This Printed',
     htmlContent: `
@@ -275,6 +312,8 @@ export const sendProductRejectionEmail = async (
   reason: string
 ): Promise<boolean> => {
   return sendEmail({
+    templateKey: 'product_rejection',
+    aiUsed: false,
     to: email,
     subject: `Update on Your Design "${productName}"`,
     htmlContent: `
@@ -343,6 +382,8 @@ export const sendNewSupportTicketEmail = async (
   }
 
   return sendEmail({
+    templateKey: 'new_support_ticket',
+    aiUsed: false,
     to: supportEmail,
     subject: `🎫 New Support Ticket [${priority.toUpperCase()}]: ${subject}`,
     htmlContent: `
@@ -540,6 +581,8 @@ export const sendNewWholesaleApplicationEmail = async (
   const to = process.env.ADMIN_ALERT_EMAIL || process.env.SUPPORT_EMAIL || 'wecare@imaginethisprinted.com'
 
   return sendEmail({
+    templateKey: 'new_wholesale_application',
+    aiUsed: false,
     to,
     subject: `🏢 New Wholesale Application: ${companyName}`,
     htmlContent: `
@@ -593,6 +636,8 @@ export const sendTicketConfirmationEmail = async (
       })
 
       return sendEmail({
+        templateKey: 'ticket_confirmation',
+        aiUsed: true,
         to: email,
         subject: aiEmail.subject,
         htmlContent: aiEmail.htmlContent,
@@ -605,6 +650,8 @@ export const sendTicketConfirmationEmail = async (
 
   // Fallback to static template
   return sendEmail({
+    templateKey: 'ticket_confirmation',
+    aiUsed: false,
     to: email,
     subject: `✅ Your Support Request Has Been Received - ${subject}`,
     htmlContent: `
@@ -659,6 +706,8 @@ export const sendTicketReplyEmail = async (
 ): Promise<boolean> => {
   const reply = ticketReplyEmail({ ticketId, subject, agentMessageHtml: agentMessage, agentName, customerName })
   return sendEmail({
+    templateKey: 'ticket_reply',
+    aiUsed: false,
     to: email,
     subject: reply.subject,
     htmlContent: reply.html
@@ -677,6 +726,8 @@ export const sendTicketEscalationEmail = async (
   const supportEmail = process.env.SUPPORT_EMAIL || 'wecare@imaginethisprinted.com'
 
   return sendEmail({
+    templateKey: 'ticket_escalation',
+    aiUsed: false,
     to: supportEmail,
     subject: `🚨 [URGENT] Customer Waiting for Live Chat - ${subject}`,
     htmlContent: `
@@ -722,6 +773,8 @@ export const sendTicketResolvedEmail = async (
   subject: string
 ): Promise<boolean> => {
   return sendEmail({
+    templateKey: 'ticket_resolved',
+    aiUsed: false,
     to: email,
     subject: `✅ Your Support Request Has Been Resolved - ${subject}`,
     htmlContent: `
@@ -781,6 +834,8 @@ export const sendPayoutEmail = async (
   const formattedAmount = (amount / 100).toFixed(2)
 
   return sendEmail({
+    templateKey: 'payout',
+    aiUsed: false,
     to: email,
     subject: `💸 Your $${formattedAmount} Payout is on the Way!`,
     htmlContent: `
@@ -968,6 +1023,9 @@ export const sendOrderConfirmationEmail = async (
       })
 
       return sendEmail({
+        templateKey: 'order_confirmation',
+        aiUsed: true,
+        orderId: options.orderId,
         to: email,
         subject: aiEmail.subject,
         htmlContent: aiEmail.htmlContent,
@@ -989,6 +1047,9 @@ export const sendOrderConfirmationEmail = async (
   `).join('')
 
   return sendEmail({
+    templateKey: 'order_confirmation',
+    aiUsed: false,
+    orderId: options.orderId,
     to: email,
     subject: `🎉 Order Confirmed - ${orderRef}`,
     htmlContent: `
@@ -1094,6 +1155,9 @@ export const sendOrderShippedEmail = async (
       })
 
       return sendEmail({
+        templateKey: 'order_shipped',
+        aiUsed: true,
+        orderId: options.orderId,
         to: email,
         subject: aiEmail.subject,
         htmlContent: aiEmail.htmlContent,
@@ -1105,6 +1169,9 @@ export const sendOrderShippedEmail = async (
   }
 
   return sendEmail({
+    templateKey: 'order_shipped',
+    aiUsed: false,
+    orderId: options.orderId,
     to: email,
     subject: `📦 Your Order Has Shipped! - ${orderRef}`,
     htmlContent: `
@@ -1175,6 +1242,9 @@ export const sendOrderDeliveredEmail = async (
       })
 
       return sendEmail({
+        templateKey: 'order_delivered',
+        aiUsed: true,
+        orderId: options.orderId,
         to: email,
         subject: aiEmail.subject,
         htmlContent: aiEmail.htmlContent,
@@ -1186,6 +1256,9 @@ export const sendOrderDeliveredEmail = async (
   }
 
   return sendEmail({
+    templateKey: 'order_delivered',
+    aiUsed: false,
+    orderId: options.orderId,
     to: email,
     subject: `✅ Your Order Has Been Delivered! - ${orderRef}`,
     htmlContent: `
@@ -1265,6 +1338,8 @@ export const sendItcPurchaseEmail = async (
       })
 
       return sendEmail({
+        templateKey: 'itc_purchase',
+        aiUsed: true,
         to: email,
         subject: aiEmail.subject,
         htmlContent: aiEmail.htmlContent,
@@ -1277,6 +1352,8 @@ export const sendItcPurchaseEmail = async (
 
   // Fallback to static template
   return sendEmail({
+    templateKey: 'itc_purchase',
+    aiUsed: false,
     to: email,
     subject: `💰 ITC Purchase Confirmed - ${itcAmount} ITC Added!`,
     htmlContent: `
@@ -1338,6 +1415,8 @@ export const sendWelcomeEmail = async (
       })
 
       return sendEmail({
+        templateKey: 'welcome',
+        aiUsed: true,
         to: email,
         subject: aiEmail.subject,
         htmlContent: aiEmail.htmlContent,
@@ -1350,6 +1429,8 @@ export const sendWelcomeEmail = async (
 
   // Fallback to static template with Mr. Imagine branding
   return sendEmail({
+    templateKey: 'welcome',
+    aiUsed: false,
     to: email,
     subject: `🎨 Welcome to Imagine This Printed, ${username}!`,
     htmlContent: `
@@ -1432,6 +1513,8 @@ export const sendCustomJobSubmittedEmail = async (
   title: string
 ): Promise<boolean> => {
   return sendEmail({
+    templateKey: 'custom_job_submitted',
+    aiUsed: false,
     to: email,
     subject: `📋 Custom Job Request Received - ${title}`,
     htmlContent: `
@@ -1483,6 +1566,8 @@ export const sendCustomJobApprovedEmail = async (
   estimatedCost: number
 ): Promise<boolean> => {
   return sendEmail({
+    templateKey: 'custom_job_approved',
+    aiUsed: false,
     to: email,
     subject: `✅ Custom Job Approved - ${title}`,
     htmlContent: `
@@ -1534,6 +1619,8 @@ export const sendCustomJobCompletedEmail = async (
   title: string
 ): Promise<boolean> => {
   return sendEmail({
+    templateKey: 'custom_job_completed',
+    aiUsed: false,
     to: email,
     subject: `🎉 Your Custom Project is Ready! - ${title}`,
     htmlContent: `
@@ -1595,6 +1682,8 @@ export const sendDesignSubmittedEmail = async (
   const conceptPreview = designConcept.substring(0, 100)
 
   return sendEmail({
+    templateKey: 'design_submitted',
+    aiUsed: false,
     to: email,
     subject: `🎨 Design Submitted for Review!`,
     htmlContent: `
@@ -1702,6 +1791,8 @@ export const sendInvoiceEmail = async ({
   `).join('')
 
   return sendEmail({
+    templateKey: 'invoice',
+    aiUsed: false,
     to: clientEmail,
     subject: `Invoice from ${businessName} - $${formattedAmount} Due`,
     htmlContent: `
@@ -1817,6 +1908,8 @@ export async function sendGiftCardEmail({
   const greeting = recipientName ? `Hi ${recipientName}!` : 'Hello!'
 
   await sendEmail({
+    templateKey: 'gift_card',
+    aiUsed: false,
     to: recipientEmail,
     subject: `${senderName} sent you a gift! 🎁`,
     htmlContent: `

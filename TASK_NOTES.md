@@ -5606,3 +5606,23 @@ production's redone cart (e9ca8ab, task b9656cc9); only the own-name thumbnail i
 ### Work log (append-only)
 - 2026-10-29 (zero-pluto): cherry-picked 3f76ee3 onto ded6d2b; resolved Cart.tsx, ProductPage.tsx, print-bridge.ts,
   TASK_NOTES.md (union). No conflict markers left.
+
+## Current request (2026-10-12) — silent email_logs (task 6459a055, levi-james)
+
+Live `email_logs` has NO schema drift (message_id + tracking cols present, only NOT NULLs are template_key/recipient_email,
+service role bypasses RLS). Real cause: `logEmail` (emailAI.ts) is only called by the admin send-test route; every real
+send (AI or static fallback) calls sendEmail and never logs. Its insert also ignored the `{error}` PostgREST returns.
+Fix at the one chokepoint (`sendEmailWithTracking`) so all paths log, with errors surfaced.
+
+### File shortlist (approved scope — 2026-10-12 email_logs)
+- `backend/services/email-log.ts` (+ `.test.ts`) — new shared recorder, checks `{error}`
+- `backend/services/emailAI.ts` — `logEmail` delegates to the recorder
+- `backend/utils/email.ts` (+ test) — log every send in `sendEmailWithTracking`; tag template keys on main senders
+- `backend/routes/admin/email-templates.ts` — send-test passes template info instead of double-logging
+- `backend/scripts/verify-email-logs.ts` — live proof script (insert + read back via the admin query + cleanup)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (levi-james): scope added; live schema read-only inspected (20 cols, 6 rows, newest 2025-12-23).
+- 2026-10-12 (levi-james): shipped recorder `backend/services/email-log.ts`; `sendEmailWithTracking` now logs every send (sent/failed/suppressed/no-key) and 28 senders carry template keys; logEmail delegates; admin send-test no longer double-logs. 9 new vitest + live proof `backend/scripts/verify-email-logs.ts` (real Resend sink sends, rows read back via the admin query, cleaned up). Not deployed.
+- 2026-10-30 (zero-nine, ship 01e26f7c): rebuilt b7ee3be as one pick onto the 10/30 ITP train 418d060 (c026572f: origin/main 8290701b + Crystal + name gifts + rider c29e49f5); only TASK_NOTES.md conflicted (kept the train's copy, appended this block). Gates re-run on the pick; ships in the same promote as c026572f.

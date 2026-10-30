@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
+import { recordEmailLog } from './email-log.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
 import { buildOrderStatusUrl } from '../utils/order-status-token.js'
 import { buildAccountClaimUrl } from '../utils/account-claim-token.js'
@@ -557,7 +558,9 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Log email to database with optional Resend message ID for tracking
+ * Log email to database with optional Resend message ID for tracking.
+ * Delegates to the shared recorder, which reads the insert's `{ error }` and
+ * logs a descriptive failure instead of dropping the row silently.
  */
 export async function logEmail(
   templateKey: string,
@@ -566,32 +569,25 @@ export async function logEmail(
   aiUsed: boolean,
   context: EmailContext,
   messageId?: string
-): Promise<void> {
-  try {
-    await supabase.from('email_logs').insert({
-      template_key: templateKey,
-      recipient_email: recipientEmail,
-      subject_sent: subject,
-      ai_personalization_used: aiUsed,
-      message_id: messageId,
-      status: messageId ? 'sent' : 'pending',
-      // order_id is a uuid FK to orders.id, but EmailContext only carries the human
-      // order NUMBER (a string), not the uuid — so we leave it null here. Do NOT
-      // assign context.orderNumber: it would write a non-uuid string into a uuid
-      // column and the whole insert would throw (silently dropping the email log).
-      // Proper linkage = thread the real orders.id through EmailContext (TODO).
-      order_id: null,
-      metadata: {
-        items: context.items,
-        total: context.total,
-        product_name: context.productName
-      }
-    })
-    console.log('[EmailAI] Email logged with messageId:', messageId)
-  } catch (error) {
-    console.error('[EmailAI] Failed to log email:', error)
-    // Don't throw - logging failure shouldn't break email sending
-  }
+): Promise<boolean> {
+  return recordEmailLog({
+    templateKey,
+    recipientEmail,
+    subject,
+    aiUsed,
+    messageId,
+    status: messageId ? 'sent' : 'failed',
+    errorMessage: messageId ? undefined : 'no provider message id returned',
+    // EmailContext.orderId is the orders.id uuid when the caller threaded it;
+    // the recorder moves anything that is not a uuid into metadata.
+    orderId: context.orderId,
+    metadata: {
+      items: context.items,
+      total: context.total,
+      product_name: context.productName,
+      order_number: context.orderNumber
+    }
+  })
 }
 
 /**
