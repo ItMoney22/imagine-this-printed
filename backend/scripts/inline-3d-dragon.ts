@@ -4,7 +4,7 @@
 import '../load-env.js'
 import { createClient } from '@supabase/supabase-js'
 import { generateTripo3D, SIZE_TIERS, type PrintSizeTier } from '../services/tripo3d.js'
-import { uploadImageFromUrl, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { modelFilePath, storeModelFile, storeModelFileFromUrl } from '../services/model-files.js'
 import { convertGlbToStl } from '../services/glb-to-stl.js'
 
 const modelId = '8638333f-7bf1-4a71-bc94-4e18b4027f96'
@@ -33,23 +33,22 @@ async function main() {
   })
   console.log('[inline] ✅ Tripo3D mesh ready in', processingTimeSec.toFixed(1) + 's via', modelMetadata.provider)
 
-  const glbPath = `3d-models/${modelId}/model.glb`
-  const { publicUrl: glbPublicUrl } = await uploadImageFromUrl(tripoGlbUrl, glbPath)
-  console.log('[inline] ✅ GLB uploaded')
+  // Paid deliverables go to the PRIVATE bucket; rows keep gs:// refs (task 1417e863).
+  const glbRef = await storeModelFileFromUrl(tripoGlbUrl, modelFilePath(modelId, 'glb'), 'glb')
+  console.log('[inline] ✅ GLB saved')
 
-  const { stlBuffer, triangleCount, bboxMm } = await convertGlbToStl(glbPublicUrl, {
+  const { stlBuffer, triangleCount, bboxMm } = await convertGlbToStl(tripoGlbUrl, {
     targetHeightMm: tier.printHeightMm,
     yUpToZUp: true,
     centerAndGround: true,
   })
   if (bboxMm) console.log('[inline] STL bbox (mm):', bboxMm.x.toFixed(1), '×', bboxMm.y.toFixed(1), '×', bboxMm.z.toFixed(1))
-  const stlPath = `3d-models/${modelId}/model.stl`
-  const { publicUrl: stlPublicUrl } = await uploadImageFromBuffer(stlBuffer, stlPath, 'model/stl')
+  const stlRef = await storeModelFile(stlBuffer, modelFilePath(modelId, 'stl'), 'stl')
   console.log('[inline] ✅ STL ready —', triangleCount, 'triangles')
 
   const richUpdate = await sb.from('user_3d_models').update({
-    glb_url: glbPublicUrl,
-    stl_url: stlPublicUrl,
+    glb_url: glbRef,
+    stl_url: stlRef,
     status: 'ready',
     size_tier: sizeTier,
     print_height_mm: tier.printHeightMm,
@@ -72,8 +71,8 @@ async function main() {
   if (richUpdate.error) {
     console.warn('[inline] rich update failed, retrying minimal:', richUpdate.error.message)
     await sb.from('user_3d_models').update({
-      glb_url: glbPublicUrl,
-      stl_url: stlPublicUrl,
+      glb_url: glbRef,
+      stl_url: stlRef,
       status: 'ready',
       itc_charged: (model.itc_charged || 0) + tier.itcCost,
       updated_at: new Date().toISOString(),
@@ -96,8 +95,8 @@ async function main() {
 
   const totalS = Math.round((Date.now() - t0) / 1000)
   console.log(`[inline] 🎉 DONE in ${totalS}s`)
-  console.log(`[inline] glb: ${glbPublicUrl}`)
-  console.log(`[inline] stl: ${stlPublicUrl}`)
+  console.log(`[inline] glb: ${glbRef}`)
+  console.log(`[inline] stl: ${stlRef}`)
 }
 
 main().catch((e) => { console.error('[inline] ❌', e?.message ?? e); process.exit(1) })

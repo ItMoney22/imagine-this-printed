@@ -14,11 +14,13 @@ import {
   sendOrderDeliveredEmail,
   sendItcPurchaseEmail
 } from '../utils/email.js'
-import { calculateOrderPricing, evaluateCheckoutAmount, type PricingCartItem } from '../services/order-pricing.js'
+import { calculateOrderPricing, evaluateCheckoutAmount, pricingItemsFromCart, type PricingCartItem } from '../services/order-pricing.js'
 import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta } from '../shared/blank-pricing.js'
 import { parseTeamTemplate, sanitizeValues } from '../shared/team-template.js'
 import { renderOrGetCached, pressPlatePath } from '../services/team-plate/plate-store.js'
 import { reviewFlags } from '../services/team-plate/review-flags.js'
+import { parseNamePrint, sanitizeNameValues, type NamePrintTemplate } from '../shared/name-print.js'
+import { storeNamePrint } from '../services/name-print/store.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
 // margins → merch ledger) lives in this service so the hourly payment
@@ -32,6 +34,9 @@ import {
   refundedCentsFromMetadata
 } from '../services/order-refunds.js'
 import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
+import { QR_STAND, QR_FIELD, isQrStandLineId, readQrStandFields } from '../shared/qr-stand.js'
+import { verifyResellerRef } from '../services/qr-stand-reseller.js'
+import { resolveStoreReferral } from '../services/store-referral.js'
 
 const router = Router()
 
@@ -192,6 +197,8 @@ async function resolveMinDpiByPrintType(printTypes: string[]): Promise<Record<st
 // order-pricing.ts from the DB row, so a forged cart copy of the table can
 // only mislabel its own receipt, never underpay.
 function lineUnitPriceDollars(item: any): number {
+  // The QR stand's price is the server's constant, never the cart's copy.
+  if (isQrStandLineId(item?.product?.id)) return QR_STAND.priceCents / 100
   const base = Number(item?.product?.price) || 0
   if (!isBlankGarmentMeta(item?.product?.metadata)) return base
   const fromTable = blankUnitPriceDollars(blankPricingOf(item.product.metadata), item?.selectedSize, item?.selectedColor)
@@ -201,7 +208,7 @@ function lineUnitPriceDollars(item: any): number {
 // Durable cart snapshot stored on orders.metadata.items — what MyOrders and
 // the print bridge read for items that have no products row (custom items).
 function snapshotCartItems(items: any[] | undefined | null) {
-  return (items || []).map((i: any) => ({
+  return (items || []).map((i: any, index: number) => ({
     id: i.product?.id ?? null,
     name: i.product?.name ?? null,
     price: lineUnitPriceDollars(i),
@@ -225,8 +232,28 @@ function snapshotCartItems(items: any[] | undefined | null) {
     // worker email always said "matte grey" (Watchtower 2026-08-19 wave).
     color_mode: i.product?.metadata?.color_mode ?? i.product?.metadata?.print3d?.color_mode ?? null,
     include_paint_kit: i.product?.metadata?.include_paint_kit === true || null,
-    model_id: i.product?.metadata?.model_id ?? null
+    model_id: i.product?.metadata?.model_id ?? null,
+    qr_stand: isQrStandLineId(i.product?.id) ? qrStandLineMeta(i, index) : null
   }))
+}
+
+/**
+ * The QR counter stand's line, as the SERVER read it (task deebfdca): link and
+ * caption re-checked with the same rules the page used, the logo kept only as a
+ * path under our own upload prefix, and a reseller ref kept only if its
+ * signature checks out. Checkout has already refused a line whose fields fail
+ * (see the gate in /checkout-payment-intent), so this only shapes what passed.
+ */
+function qrStandLineMeta(item: any, lineIndex: number) {
+  const { fields } = readQrStandFields(item?.personalization)
+  const ref = verifyResellerRef(fields.ref)
+  return {
+    line_index: lineIndex,
+    link: fields.link,
+    caption: fields.caption,
+    logo_path: fields.logoPath,
+    reseller: ref ? { vendor: ref.vendor, client_ref: ref.clientRef } : null
+  }
 }
 
 // Re-sync order_items rows to the current cart (replace, not append — drafts
@@ -324,11 +351,20 @@ async function personalizationForItems(
     return out
   }
   const templates = new Map<string, ReturnType<typeof parseTeamTemplate>>()
-  for (const row of data ?? []) templates.set(String(row.id), parseTeamTemplate(row.metadata))
+  const nameTemplates = new Map<string, NamePrintTemplate | null>()
+  for (const row of data ?? []) {
+    templates.set(String(row.id), parseTeamTemplate(row.metadata))
+    nameTemplates.set(String(row.id), parseNamePrint(row.metadata))
+  }
 
   await Promise.all(
     items.map(async (item: any, index: number) => {
       const id = item?.product?.id != null ? String(item.product.id) : null
+      const nameTemplate = id ? nameTemplates.get(id) : null
+      if (nameTemplate) {
+        out.set(index, await namePrintForLine(nameTemplate, item?.personalization, id!, req))
+        return
+      }
       const template = id ? templates.get(id) : null
       if (!template) return
       const values = sanitizeValues(template, item?.personalization)
@@ -368,6 +404,37 @@ async function personalizationForItems(
   return out
 }
 
+/**
+ * A 3D name gift line (products.metadata.name_print, task bf353160): the STL
+ * with the customer's name raised on the plate. Same posture as a team shirt —
+ * the template comes from the DATABASE, the name is re-sanitized here, and the
+ * file is built here — but no time budget is needed: the geometry takes
+ * milliseconds and the upload one round trip. A failure is recorded on the
+ * line, never thrown: money is already moving.
+ */
+async function namePrintForLine(
+  template: NamePrintTemplate,
+  raw: unknown,
+  productId: string,
+  req: Request
+): Promise<LinePersonalization> {
+  const values = sanitizeNameValues(template, raw)
+  const flags = reviewFlags({ fields: [{ key: template.field.key }] }, values)
+  const name = values[template.field.key]
+  if (!name) {
+    // The product page will not add one to the cart without a name; a crafted
+    // cart can. Record it so the team asks instead of printing a blank plate.
+    return { values, path: null, status: 'failed', error: 'No name was typed for this line', flags }
+  }
+  try {
+    const stored = await storeNamePrint(template, name)
+    return { values, path: stored.path, status: 'ready', flags }
+  } catch (err: any) {
+    req.log?.error({ err, productId }, 'name-print: print file failed at checkout')
+    return { values, path: null, status: 'failed', error: err?.message ?? 'print file failed', flags }
+  }
+}
+
 // Exported for unit testing: this is where a client-supplied print file URL
 // has to be ignored and the press file re-rendered server-side.
 export async function replaceOrderItems(orderId: string, items: any[] | undefined | null, req: Request) {
@@ -379,10 +446,11 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
     const addonUnit = addonsUnitTotal(item)
     const hasAddons = Array.isArray(item.selectedAddons) && item.selectedAddons.length > 0
     const unitPrice = lineUnitPriceDollars(item)
+    const stand = isQrStandLineId(rawId) ? qrStandLineMeta(item, itemIndex) : null
     return {
       order_id: orderId,
       product_id: rawId && UUID_RE.test(rawId) ? rawId : null,
-      product_name: item.product?.name || 'Unknown Product',
+      product_name: stand ? QR_STAND.name : item.product?.name || 'Unknown Product',
       quantity: qty,
       unit_price: unitPrice,
       // Line subtotal includes per-unit add-ons so it reconciles with the
@@ -409,7 +477,11 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
         // Personalized team shirt. These are the SERVER's values and the
         // SERVER's file — print_file_path is the durable GCS path, because a
         // signed URL expires long before an order stops mattering.
-        personalization: personalized.get(itemIndex)?.values ?? null,
+        personalization: stand
+          ? { [QR_FIELD.link]: stand.link, [QR_FIELD.caption]: stand.caption }
+          : personalized.get(itemIndex)?.values ?? null,
+        // The QR counter stand's checked fields; the print file is built from these.
+        qr_stand: stand,
         print_file_path: personalized.get(itemIndex)?.path ?? null,
         print_file_error: personalized.get(itemIndex)?.error ?? null,
         print_file_status: personalized.get(itemIndex)?.status ?? null,
@@ -439,7 +511,7 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution, referralCode } = req.body
     // Landing UTMs captured client-side (src/utils/utm.ts) before checkout —
     // sanitized/allowlisted so an untrusted body can't inject arbitrary JSONB.
     // null means "nothing known this call", not "clear what's stored".
@@ -451,6 +523,10 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
     // caller we've actually authenticated via the JWT — never a body-supplied
     // guest id, which anyone could spoof to drain someone else's wallet.
     const trustedUserId = req.user?.sub ?? null
+    // A store owner's referral link (?ref=CRYSTAL, src/utils/referral-capture.ts): stamp the
+    // order so its paid hook pays her cut (services/store-referral.ts). A friend's personal
+    // code is not a store code and resolves to null here; that link is applied at sign-in.
+    const storeReferral = await resolveStoreReferral(referralCode, userId).catch(() => null)
 
     // Validate currency
     if (currency !== 'usd') {
@@ -481,6 +557,16 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
       }
     }
 
+    // QR counter stand (task deebfdca): the link, caption and logo are checked
+    // here with the page's own rules, so a stand that cannot be built (a link
+    // over QR version 6, a caption the stand cannot letter) never reaches a
+    // paid order.
+    for (const item of items || []) {
+      if (!isQrStandLineId(item?.product?.id)) continue
+      const { problem } = readQrStandFields(item?.personalization)
+      if (problem) return res.status(400).json({ error: problem, message: problem })
+    }
+
     // -----------------------------------------------------------------------
     // SECURITY (Watchtower task 9a8431d9): the client-supplied `amount`,
     // `tax`, `discount`, and `shippingCost` are NEVER trusted. The server
@@ -490,29 +576,7 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
     // backend/services/order-pricing.ts for the engine and its documented
     // scope/known gaps.
     // -----------------------------------------------------------------------
-    const pricingItems: PricingCartItem[] = (items || []).map((item: any) => ({
-      productId: item?.product?.id != null ? String(item.product.id) : null,
-      quantity: item?.quantity || 1,
-      selectedSize: item?.selectedSize ?? null,
-      // Colour NAME — only consulted for blank garments, whose DB price
-      // table is keyed by size + colour group (backend/shared/blank-pricing.ts).
-      selectedColor: item?.selectedColor ?? null,
-      selectedTier: item?.selectedTier ?? null,
-      selectedAddonIds: Array.isArray(item?.selectedAddons) ? item.selectedAddons.map((a: any) => a?.id) : [],
-      clientUnitPriceDollars: item?.product?.price != null ? Number(item.product.price) : null,
-      // weight feeds the signed shipping-quote verification (must match the
-      // parcel weight POST /api/shipping/rates quoted against); metadata
-      // carries 3d-print color_mode/include_paint_kit OPTIONS — never a
-      // trusted dollar amount. See order-pricing.ts GAP 1 / GAP 2.
-      weight: item?.product?.weight != null ? Number(item.product.weight) : null,
-      metadata: item?.product?.metadata ?? null,
-      // "2 for $25" bundle eligibility (GAP 4) — mirrors the top-level flag
-      // src/context/CartContext.tsx reads off product.isThreeForTwentyFive.
-      // metadata (above) already carries metadata.isThreeForTwentyFive, but
-      // that alone isn't the full eligibility rule the cart uses — see
-      // backend/shared/promos.ts isBundleEligible.
-      isThreeForTwentyFive: item?.product?.isThreeForTwentyFive ?? null
-    }))
+    const pricingItems: PricingCartItem[] = pricingItemsFromCart(items)
 
     let pricing
     try {
@@ -609,7 +673,9 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             shippingCents: pricing.shippingCents,
             rushFeeCents: pricing.rushFeeCents,
             freeShippingApplied: pricing.freeShippingApplied
-          })
+          }),
+          // Only set when THIS call carried a store link, like attribution below.
+          ...(storeReferral ? { store_referral: storeReferral } : {})
         }
 
         // Update the existing order
@@ -725,7 +791,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             shippingCents: pricing.shippingCents,
             rushFeeCents: pricing.rushFeeCents,
             freeShippingApplied: pricing.freeShippingApplied
-          })
+          }),
+          ...(storeReferral ? { store_referral: storeReferral } : {})
         }
       })
       .select()
@@ -772,7 +839,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
           ? String(shippingType).toLowerCase()
           : 'shipping',
         itcCreditAmount: itcCreditAmount?.toString() || '0',
-        itcCreditUSD: itcCreditUSD?.toString() || '0'
+        itcCreditUSD: itcCreditUSD?.toString() || '0',
+        storeReferral: storeReferral?.slug || ''
       },
       // Note: We don't set receipt_email - we send our own branded Mr. Imagine emails via Resend
       automatic_payment_methods: {
@@ -855,11 +923,13 @@ router.post('/create-payment-intent', requireAuth, async (req: Request, res: Res
       return res.status(400).json({ error: 'Only USD currency is supported' })
     }
 
-    // Get user email from user_profiles
+    // Get user email from user_profiles. Keyed on id (the auth user id):
+    // user_id is NULL on most live rows, so .eq('user_id') failed every ITC
+    // purchase except the admin's (task bdfa6939, proven live 2026-10-07).
     const { data: profile, error: profileError } = await supabase
       .from('user_profiles')
       .select('email')
-      .eq('user_id', userId)
+      .eq('id', userId)
       .single()
 
     if (profileError || !profile) {
@@ -1250,7 +1320,9 @@ async function claimAndReverseRefundedOrder(
         `creator margins: ${report.creatorMargins.ok ? 'ok' : report.creatorMargins.reason}; ` +
         `loyalty ITC: ${report.loyaltyItc.ok ? 'ok' : report.loyaltyItc.reason}; ` +
         `referral bonus: ${report.referralBonus.ok ? 'ok' : report.referralBonus.reason}; ` +
-        `coupon usage: ${report.couponUsage.ok ? 'ok' : report.couponUsage.reason}`
+        `coupon usage: ${report.couponUsage.ok ? 'ok' : report.couponUsage.reason}; ` +
+        `store referral cut: ${report.storeReferralCut.ok ? 'ok' : report.storeReferralCut.reason}; ` +
+        `shipping labels: ${report.shippingLabels.ok ? 'ok' : report.shippingLabels.reason}`
     })
     if (notifErr) {
       req.log?.error({ err: notifErr, orderId }, '[refund] Failed to raise reversal-failure notification')

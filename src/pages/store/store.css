@@ -1,0 +1,123 @@
+/* Vendor storefronts (crystal.imaginethisprinted.com). Colours come from the store's theme
+   (StorePage sets --vs-* on the root), so one stylesheet serves every seller. Built to David's
+   approved mock (page_mockup_approvals 0074b39b). ITP is a light-only site; the hero is dark on purpose. */
+
+.vstore {
+  --vs-primary: #702a8f;
+  --vs-green: #06af58;
+  --vs-pink: #e8407a;
+  --vs-gold: #f2b33d;
+  --vs-ink: #14091c;
+  --vs-page: #f7f3fb;
+  --vs-card: #ffffff;
+  --vs-text: #241530;
+  --vs-muted: #6b5d78;
+  --vs-line: #ebe3f2;
+  --vs-rainbow: linear-gradient(90deg, #7b2ff7, #e8407a, #ff8a00, #f2b33d, #06af58, #1e90ff, #7b2ff7);
+  min-height: 100vh;
+  background: var(--vs-page);
+  color: var(--vs-text);
+  font-family: 'DM Sans', system-ui, sans-serif;
+}
+.vstore .vs-display { font-family: 'Playfair Display', Georgia, serif; }
+
+/* index.css sets overflow-x: hidden on html AND body, which makes body a scroll container that never
+   scrolls, so position: sticky never sticks. On store pages only, clip does the same job without that. */
+html:has(.vstore),
+html:has(.vstore) body { overflow-x: clip; }
+
+/* Top bar */
+.vs-bar {
+  position: sticky; top: 0; z-index: 40;
+  background: linear-gradient(90deg, #3a1352, var(--vs-primary));
+  box-shadow: 0 2px 18px rgba(20, 9, 28, 0.35);
+}
+.vs-bar::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--vs-rainbow); background-size: 200% 100%; animation: vs-slide 12s linear infinite; }
+
+/* Hero */
+.vs-hero { position: relative; overflow: hidden; background: var(--vs-ink); color: #fff; isolation: isolate; }
+.vs-hero-bg { position: absolute; inset: -4%; background-size: cover; background-position: center; animation: vs-drift 28s ease-in-out infinite alternate; z-index: -2; }
+.vs-hero::before { content: ''; position: absolute; inset: 0; z-index: -1; background: radial-gradient(ellipse at 25% 55%, rgba(20, 9, 28, 0.55), transparent 60%), linear-gradient(0deg, rgba(20, 9, 28, 0.65), transparent 40%); }
+.vs-rainbow-text { background: var(--vs-rainbow); background-size: 200% 100%; -webkit-background-clip: text; background-clip: text; color: transparent; animation: vs-slide 9s linear infinite; filter: drop-shadow(0 4px 18px rgba(232, 64, 122, 0.35)); }
+.vs-character { animation: vs-float 6s ease-in-out infinite; filter: drop-shadow(0 24px 40px rgba(0, 0, 0, 0.55)); }
+.vs-sparkle { position: absolute; color: var(--vs-gold); animation: vs-twinkle 2.8s ease-in-out infinite; pointer-events: none; }
+.vs-eyebrow-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--vs-green); box-shadow: 0 0 0 0 rgba(6, 175, 88, 0.7); animation: vs-pulse 2s infinite; }
+
+.vs-btn-solid { background: var(--vs-primary); color: #fff; box-shadow: 0 10px 28px rgba(112, 42, 143, 0.45); transition: transform .2s, box-shadow .2s; }
+.vs-btn-solid:hover { transform: translateY(-2px); box-shadow: 0 14px 34px rgba(112, 42, 143, 0.6); }
+.vs-btn-ghost { border: 2px solid var(--vs-green); color: #b8f5d2; transition: background .2s; }
+.vs-btn-ghost:hover { background: rgba(6, 175, 88, 0.15); }
+.vs-btn-pink { background: var(--vs-pink); color: #fff; transition: filter .2s, transform .2s; }
+.vs-btn-pink:hover { filter: brightness(1.08); transform: translateY(-1px); }
+.vs-btn-pink:disabled { opacity: .55; transform: none; cursor: not-allowed; }
+
+/* Category chips */
+.vs-chip { transition: transform .2s; }
+.vs-chip:hover { transform: translateY(-3px); }
+.vs-chip-icon { width: 64px; height: 64px; border-radius: 999px; display: grid; place-items: center; color: #fff; box-shadow: 0 8px 22px rgba(36, 21, 48, 0.18); }
+.vs-chip[aria-pressed='true'] .vs-chip-icon { outline: 3px solid var(--vs-gold); outline-offset: 3px; }
+
+/* Product cards */
+.vs-card { background: var(--vs-card); border: 1px solid var(--vs-line); border-radius: 18px; overflow: hidden; transition: transform .25s, box-shadow .25s; animation: vs-rise .5s both; }
+.vs-card:hover { transform: translateY(-4px); box-shadow: 0 18px 40px rgba(112, 42, 143, 0.16); }
+.vs-card img { transition: transform .5s; }
+.vs-card:hover img { transform: scale(1.05); }
+.vs-tag { font-size: 11px; font-weight: 600; color: #fff; padding: 3px 8px; border-radius: 6px; }
+.vs-tag-own { background: var(--vs-pink); }
+.vs-tag-itp { background: var(--vs-primary); }
+
+/* Featured banner */
+.vs-feature { background: radial-gradient(ellipse at 30% 50%, rgba(242, 179, 61, 0.28), transparent 55%), linear-gradient(90deg, #2a1206, var(--vs-ink) 60%); color: #fff; border-radius: 20px; overflow: hidden; }
+
+/* Drawer + sheet */
+.vs-scrim { position: fixed; inset: 0; background: rgba(20, 9, 28, 0.55); z-index: 60; animation: vs-fade .2s both; }
+.vs-drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(420px, 100vw); background: #fff; z-index: 61; display: flex; flex-direction: column; animation: vs-in-right .25s both; }
+.vs-sheet { position: fixed; z-index: 61; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(880px, calc(100vw - 24px)); max-height: calc(100vh - 32px); overflow: auto; background: #fff; border-radius: 22px; animation: vs-fade .2s both; }
+.vs-size[aria-pressed='true'] { background: var(--vs-primary); color: #fff; border-color: var(--vs-primary); }
+
+/* Store assistant: the mic pulses while it listens; the floating button opens it. */
+.vs-recording { animation: vs-mic 1.2s ease-out infinite; }
+@keyframes vs-mic { 0% { box-shadow: 0 0 0 0 rgba(232, 64, 122, 0.55); } 100% { box-shadow: 0 0 0 18px rgba(232, 64, 122, 0); } }
+.vs-fab { position: fixed; right: 24px; bottom: 24px; z-index: 45; width: 64px; height: 64px; border-radius: 999px; color: #fff; display: grid; place-items: center; background: linear-gradient(135deg, var(--vs-primary), var(--vs-pink)); box-shadow: 0 14px 34px rgba(112, 42, 143, 0.45); transition: transform .2s; }
+.vs-fab:hover { transform: scale(1.07); }
+
+@keyframes vs-slide { to { background-position: 200% 0; } }
+@keyframes vs-drift { from { transform: scale(1.02) translate(0, 0); } to { transform: scale(1.08) translate(-1.5%, -1%); } }
+@keyframes vs-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+@keyframes vs-twinkle { 0%, 100% { opacity: .2; transform: scale(.7); } 50% { opacity: 1; transform: scale(1.1); } }
+@keyframes vs-pulse { 70% { box-shadow: 0 0 0 10px rgba(6, 175, 88, 0); } 100% { box-shadow: 0 0 0 0 rgba(6, 175, 88, 0); } }
+@keyframes vs-rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes vs-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes vs-in-right { from { transform: translateX(100%); } to { transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .vstore *, .vstore *::before, .vstore *::after { animation: none !important; transition: none !important; }
+}
+
+/* Her sign-up flow (/start/:slug, StoreStart.tsx), built to page_mockup_approvals b1bef451: her logo character on a
+   purple-to-pink stage, one white card with a gold stepper. Stacks on a phone: stage on top, card below. */
+.vs-start { display: grid; grid-template-columns: 1fr; background: linear-gradient(135deg, #f6ecfb, #fde6ef 55%, #fff1df); }
+.vs-start-hero { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 3.5rem 1rem 0; min-height: 0; background: radial-gradient(ellipse at 50% 30%, rgba(255, 255, 255, 0.18), transparent 60%), linear-gradient(165deg, #3a1352, var(--vs-primary) 45%, var(--vs-pink)); }
+.vs-start-character { position: relative; z-index: 1; width: min(30rem, 92%); max-height: 19rem; object-fit: contain; }
+.vs-start-bubble { position: relative; z-index: 2; align-self: flex-start; max-width: 17rem; display: flex; gap: .6rem; align-items: center; margin-bottom: .75rem; padding: .7rem .9rem; border-radius: 1.25rem 1.25rem 1.25rem .3rem; background: #fff; color: var(--vs-text); box-shadow: 0 12px 30px rgba(20, 9, 28, 0.3); font-size: .9rem; line-height: 1.3; animation: vs-float 7s ease-in-out infinite; }
+.vs-start-panel { display: grid; place-items: start center; padding: 1.25rem 1rem 2.5rem; }
+.vs-start-card { width: 100%; max-width: 34rem; margin-top: -1.5rem; position: relative; z-index: 3; border-radius: 1.75rem; background: #fff; padding: 1.5rem 1.25rem 1.75rem; box-shadow: 0 24px 60px rgba(112, 42, 143, 0.22); }
+.vs-stepper { display: flex; justify-content: space-between; gap: .25rem; margin-bottom: 1.75rem; position: relative; }
+.vs-stepper::before { content: ''; position: absolute; left: 10%; right: 10%; top: 1rem; height: 2px; background: var(--vs-gold); opacity: .55; }
+.vs-step { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; gap: .4rem; text-align: center; }
+.vs-step-dot { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 999px; background: var(--vs-gold); color: #fff; font-weight: 700; font-size: .85rem; box-shadow: 0 0 0 4px #fff; }
+.vs-step-label { font-size: .68rem; line-height: 1.15; color: var(--vs-muted); max-width: 4.5rem; }
+.vs-step.is-current .vs-step-dot { background: var(--vs-primary); box-shadow: 0 0 0 4px #fff, 0 0 0 7px rgba(242, 179, 61, 0.55), 0 0 22px rgba(242, 179, 61, 0.8); }
+.vs-step.is-current .vs-step-label { color: var(--vs-primary); font-weight: 700; }
+.vs-step.is-done .vs-step-dot { background: var(--vs-green); }
+.vs-start-body { animation: vs-rise .35s ease both; }
+@media (min-width: 1024px) {
+  .vs-start { grid-template-columns: 1.05fr 1fr; min-height: 100vh; }
+  .vs-start-hero { min-height: 100vh; justify-content: center; padding: 2rem; }
+  .vs-start-character { width: min(36rem, 100%); max-height: 70vh; }
+  .vs-start-bubble { position: absolute; top: 7%; left: 8%; max-width: 19rem; font-size: 1rem; }
+  .vs-start-panel { place-items: center; padding: 2rem; background: radial-gradient(ellipse at 80% 90%, rgba(242, 179, 61, 0.25), transparent 55%); }
+  .vs-start-card { margin-top: 0; padding: 2rem 2.25rem 2.25rem; }
+  .vs-step-label { font-size: .75rem; max-width: 5.5rem; }
+}
+@media (prefers-reduced-motion: reduce) { .vs-start-bubble, .vs-start-body, .vs-character, .vs-sparkle { animation: none !important; } }

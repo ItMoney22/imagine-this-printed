@@ -9,6 +9,7 @@ import { verifyOrderStatusToken } from '../utils/order-status-token.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
 import { sendOrderShippedEmail } from '../utils/email.js'
 import { WAREHOUSE_ADDRESS_FROM } from './shipping.js'
+import { buyLabel, createShipment, isQuotableRate, shippoConfigured } from '../services/shippo.js'
 import { syncOrderTracking } from '../services/order-tracking-sync.js'
 import {
   makeTrackingSyncDeps,
@@ -908,7 +909,7 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
       // This is the first completed order, check for referral bonus.
       // processReferralFirstPurchase additionally self-guards on an existing
       // referral_transactions row (referral-service.ts:230).
-      await processReferralFirstPurchase(order.user_id, order.total)
+      await processReferralFirstPurchase(order.user_id, order.total, orderId)
     }
 
     // Create audit log
@@ -951,16 +952,9 @@ router.post('/:orderId/complete', requireAuth, requireRole(['admin', 'manager'])
 // the RLS policies that blocked the browser from persisting it at all.
 // ---------------------------------------------------------------------------
 
-const SHIPPO_BASE_URL = 'https://api.goshippo.com'
-
-// Same USPS/UPS filter the checkout quote uses (backend/routes/shipping.ts) so
-// admins buy a label from the set of carriers the customer was quoted.
-function isQuotableRate(rate: any): boolean {
-  const svc = rate?.servicelevel?.token?.toLowerCase() || ''
-  const provider = rate?.provider?.toLowerCase() || ''
-  return (provider === 'usps' && (svc.includes('priority') || svc.includes('express') || svc.includes('ground'))) ||
-         (provider === 'ups' && (svc.includes('ground') || svc.includes('2nd') || svc.includes('next') || svc.includes('saver')))
-}
+// The Shippo calls and the USPS/UPS filter the checkout quote uses live in
+// services/shippo.ts, so admins buy a label from the set of carriers the
+// customer was quoted.
 
 /**
  * Normalize the order's shipping_address JSONB into Shippo's address shape.
@@ -1049,20 +1043,21 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
 
     const { data: items } = await supabase
       .from('order_items')
-      .select('quantity')
+      .select('quantity, metadata')
       .eq('order_id', orderId)
 
+    // A store order's seller-made lines ship from her, on her own label
+    // (routes/vendor-store.ts), so ITP's parcel weighs only ITP's lines.
+    const ours = (lines: any[]) => lines.filter(line => (line?.metadata?.maker ?? line?.maker) !== 'vendor')
     const metaItems: any[] = Array.isArray(order.metadata?.items) ? order.metadata.items : []
     const weight = Number(weightOverride) > 0
       ? Number(weightOverride)
-      : parcelWeightLb((items && items.length > 0) ? items : metaItems)
-
-    const token = process.env.SHIPPO_API_TOKEN
+      : parcelWeightLb((items && items.length > 0) ? ours(items) : ours(metaItems))
 
     // Mock mode — keeps the admin flow usable without a token, exactly as the
     // old browser code did. Deliberately does NOT touch the order: a fake
     // tracking number on a real order would surface to the customer.
-    if (!token) {
+    if (!shippoConfigured()) {
       console.warn('[orders/shipping-label] SHIPPO_API_TOKEN not set — returning a demo label, order not updated')
       return res.json({
         ok: true,
@@ -1083,27 +1078,13 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
     }
 
     // 1. Create the shipment to get live rates.
-    const shipmentRes = await fetch(`${SHIPPO_BASE_URL}/shipments/`, {
-      method: 'POST',
-      headers: { 'Authorization': `ShippoToken ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        address_from: WAREHOUSE_ADDRESS_FROM,
-        address_to: addressTo,
-        parcels: [{
-          length: '10', width: '8', height: '4', distance_unit: 'in',
-          weight: weight.toFixed(2), mass_unit: 'lb'
-        }],
-        async: false
-      })
-    })
+    const shipment = await createShipment({ addressFrom: WAREHOUSE_ADDRESS_FROM, addressTo, weightLb: weight })
 
-    if (!shipmentRes.ok) {
-      const detail = await shipmentRes.text().catch(() => '')
-      console.error('[orders/shipping-label] Shippo /shipments failed:', shipmentRes.status, detail)
-      return res.status(502).json({ error: `Shippo could not create the shipment (${shipmentRes.status})` })
+    if (!shipment.ok) {
+      console.error('[orders/shipping-label] Shippo /shipments failed:', shipment.status, shipment.detail)
+      return res.status(502).json({ error: `Shippo could not create the shipment (${shipment.status})` })
     }
 
-    const shipment = await shipmentRes.json() as { rates?: any[] }
     const allRates = shipment.rates || []
     const usable = allRates.filter(isQuotableRate)
     const candidates = usable.length > 0 ? usable : allRates
@@ -1123,21 +1104,13 @@ router.post('/:orderId/shipping-label', requireAuth, requireRole(['admin', 'mana
     }
 
     // 2. Buy the label.
-    const txRes = await fetch(`${SHIPPO_BASE_URL}/transactions/`, {
-      method: 'POST',
-      headers: { 'Authorization': `ShippoToken ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rate: chosen.object_id, label_file_type: 'PDF', async: false })
-    })
+    const bought = await buyLabel(chosen.object_id)
 
-    const transaction = await txRes.json().catch(() => ({})) as any
-
-    if (!txRes.ok || transaction?.status !== 'SUCCESS' || !transaction?.label_url) {
-      const messages = Array.isArray(transaction?.messages)
-        ? transaction.messages.map((m: any) => m?.text).filter(Boolean).join('; ')
-        : ''
-      console.error('[orders/shipping-label] Shippo /transactions failed:', txRes.status, transaction?.status, messages)
-      return res.status(502).json({ error: messages || `Shippo could not purchase the label (${txRes.status})` })
+    if (!bought.ok) {
+      console.error('[orders/shipping-label] Shippo /transactions failed:', bought.status, bought.error)
+      return res.status(502).json({ error: bought.error })
     }
+    const transaction = bought.transaction
 
     const label = {
       id: transaction.object_id,

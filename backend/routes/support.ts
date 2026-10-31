@@ -47,6 +47,20 @@ function checkTicketCreateLimit(ip: string): boolean {
 }
 
 /**
+ * Who else hears about a bulk_quote ticket: BULK_QUOTE_ALERT_EMAIL, comma-separated,
+ * default davidt@ (forwards to David's Gmail). An address that is already the
+ * support inbox is dropped so nobody gets the same alert twice.
+ */
+export function bulkQuoteAlertRecipients(): string[] {
+  const support = (process.env.SUPPORT_EMAIL || 'wecare@imaginethisprinted.com').trim().toLowerCase()
+  const list = (process.env.BULK_QUOTE_ALERT_EMAIL || 'davidt@imaginethisprinted.com')
+    .split(',')
+    .map((a) => a.trim().toLowerCase())
+    .filter((a) => a && a !== support)
+  return [...new Set(list)]
+}
+
+/**
  * Create an admin notification for new ticket
  */
 const createNotification = async (
@@ -248,6 +262,19 @@ router.post('/tickets', async (req: Request, res: Response): Promise<void> => {
     } catch (emailError) {
       console.error('[Support] Failed to send support team notification:', emailError)
       // Don't fail the request if email fails
+    }
+
+    // A 12+ shirt / team / event quote is a sales lead: the same alert also goes to
+    // David (task 71164456), since the support inbox forwards only to Christina.
+    if (triage.category === 'bulk_quote') {
+      for (const to of bulkQuoteAlertRecipients()) {
+        try {
+          await sendNewSupportTicketEmail(ticket.id, subject, description, triage.dbPriority, 'bulk_quote', email, to)
+          console.log('[Support] Bulk quote alert sent to:', to)
+        } catch (emailError) {
+          console.error('[Support] Failed to send bulk quote alert:', emailError)
+        }
+      }
     }
 
     // Becky tells Christina on her phone; her answer comes back through /api/print-bridge/ticket-reply.

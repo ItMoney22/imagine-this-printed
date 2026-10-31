@@ -57,6 +57,12 @@ export function captureLandingUtms(): LandingAttribution | null {
   if (typeof window === 'undefined') return null
   const utms = parseUtmParams(window.location.search)
   if (Object.keys(utms).length === 0) {
+    // A Share link is a tagged campaign without the tags: last touch, like a utm visit.
+    const share = shareLinkAttribution(window.location.pathname, document.referrer, window.location.hostname)
+    if (share) {
+      persist(share)
+      return share
+    }
     const stored = getLandingUtms()
     const referral = referralFromDocument(document.referrer, window.location.hostname)
     // A tagged campaign outranks a bare referral; a referral only replaces
@@ -81,6 +87,38 @@ function persist(record: LandingAttribution): void {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(record))
   } catch {
     // Private mode / storage full — attribution is best-effort, never fatal.
+  }
+}
+
+/**
+ * Pure: a visit that lands on a Share link (/p/<code>). Share links carry no
+ * utm params (David 2026-10-16: the long tagged link read as a scam), so the
+ * path is the tag: source 'share', campaign 'product_share', content = the
+ * short code (which product), medium = the site the link was tapped on, or
+ * 'direct' for texts and chat apps, which send no referrer.
+ */
+export function shareLinkAttribution(
+  pathname: string,
+  referrer: string,
+  ownHost: string,
+  now: Date = new Date()
+): LandingAttribution | null {
+  const match = /^\/p\/([^/]+)\/?$/.exec(pathname || '')
+  if (!match) return null
+  let code: string
+  try {
+    code = decodeURIComponent(match[1])
+  } catch {
+    code = match[1]
+  }
+  const from = referralFromDocument(referrer, ownHost, now)
+  return {
+    utm_source: 'share',
+    utm_medium: from?.utm_source || 'direct',
+    utm_campaign: 'product_share',
+    utm_content: code.slice(0, 200),
+    referrer: referrer ? referrer.slice(0, 300) : undefined,
+    landed_at: now.toISOString()
   }
 }
 

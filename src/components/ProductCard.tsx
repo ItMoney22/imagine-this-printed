@@ -9,18 +9,12 @@ import { useCart } from '../context/CartContext'
 import { getColorName, isLightSwatch } from '../utils/color-presets'
 import { getPromoBadge } from '../utils/product-promo'
 import { usdToItcLabel } from '../lib/itc-pricing'
-import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation } from '../lib/product-kind'
+import { productKindOf, getGalleryImages, isBlankProduct, lineBasePrice, unitBasePrice, hasPriceRange, sizeChoicesFor, listingOptionSets, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { BUNDLE_DEAL, isBundleEligible } from '../../backend/shared/promos'
+import { useFeaturedOffer } from '../lib/featured-offer'
+import { matchesOfferTheme } from '../../backend/shared/seasonal-offer'
 import { blankFromPriceDollars, blankPricingOf, blankUnitPriceDollars } from '../../backend/shared/blank-pricing'
 import type { Product, SocialPost, TshirtPrintLocation } from '../types'
-
-// Customer-facing labels for products.print_locations values. Mirrors
-// ProductPage.tsx's PRINT_LOCATION_LABELS for the product-page selector.
-const PRINT_LOCATION_LABELS: Record<TshirtPrintLocation, string> = {
-  front_image: 'Front',
-  back_image: 'Back',
-  pocket: 'Pocket'
-}
 
 interface ProductCardProps {
   product: Product
@@ -57,6 +51,7 @@ interface SocialPostRow {
 }
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = true, compact = false }) => {
+  const featuredOffer = useFeaturedOffer()
   const navigate = useNavigate()
   const { addToCart } = useCart()
   const [socialPosts, setSocialPosts] = useState<SocialPost[]>([])
@@ -210,8 +205,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
   return (
     <div
       className="group relative bg-card card-border rounded-xl overflow-hidden transition-all duration-300 hover:shadow-glow hover:-translate-y-1"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      // Mouse only: a tap on a phone fires mouseenter and never mouseleave, so the
+      // primary image faded to opacity 0 over a still-unloaded hover image and the
+      // tile read blank (task 732f8a71).
+      onPointerEnter={(e) => { if (e.pointerType === 'mouse') setIsHovered(true) }}
+      onPointerLeave={() => setIsHovered(false)}
     >
       <div className="relative aspect-square overflow-hidden">
         <Link to={`/product/${product.slug || product.id}`}>
@@ -274,6 +272,16 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
           <div className="absolute top-2 left-2 z-10 mt-8">
             <span className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-xs font-bold px-3 py-1 rounded-full shadow-lg border border-white/20 animate-pulse">
               {BUNDLE_DEAL.label}!
+            </span>
+          </div>
+        )}
+
+        {/* Seasonal code badge: only while the live code behind it is valid,
+            and only on the designs it takes money off (SPOOKY20 = Halloween). */}
+        {featuredOffer && matchesOfferTheme(product as any, featuredOffer.theme) && (
+          <div className="absolute top-2 left-2 z-10 mt-24">
+            <span className="bg-primary text-bg text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+              {featuredOffer.percentOff}% off with {featuredOffer.code}
             </span>
           </div>
         )}
@@ -466,7 +474,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
                       : 'bg-card card-border text-text hover:border-primary/50 hover:bg-primary/10'
                   }`}
                 >
-                  {PRINT_LOCATION_LABELS[loc] || loc}
+                  {printLocationLabel(loc)}
                 </button>
               ))}
             </div>
@@ -504,7 +512,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               }, 2000)
             }}
             disabled={!product.inStock}
-            className={`w-full font-bold py-2.5 rounded-lg transition-all flex items-center justify-center text-sm ${compact ? 'px-2 gap-1.5 whitespace-nowrap' : 'px-4 gap-2 uppercase tracking-wider'} ${
+            className={`w-full font-bold py-2.5 rounded-lg transition-all flex items-center justify-center text-sm ${compact ? 'px-2 gap-1.5 text-xs sm:text-sm min-w-0' : 'px-4 gap-2 uppercase tracking-wider'} ${
               addedToCart
                 ? 'bg-green-500 text-white shadow-[0_0_15px_rgba(34,197,94,0.5)]'
                 : showSizePicker && !readyToAdd
@@ -521,8 +529,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, showSocialBadges = t
               </>
             ) : showSizePicker && !readyToAdd ? (
               <>
-                <ShoppingCart className="w-4 h-4" />
-                {`Pick ${missingSelections.join(' & ')}`}
+                <ShoppingCart className="w-4 h-4 shrink-0" />
+                <span className="truncate">{`Pick ${missingSelections.join(' & ')}`}</span>
               </>
             ) : (
               <>

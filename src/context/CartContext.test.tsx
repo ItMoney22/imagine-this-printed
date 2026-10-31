@@ -17,6 +17,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { renderHook, act, cleanup } from '@testing-library/react'
 import { CartProvider, useCart } from './CartContext'
 import type { CartItem, Product } from '../types'
+import { computeSubtotalCents } from '../../backend/services/order-pricing'
+
+// order-pricing imports the service-role client at module load; this test only uses its pure math.
+vi.mock('../../backend/lib/supabase', () => ({ supabase: {} }))
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <CartProvider>{children}</CartProvider>
@@ -315,6 +319,38 @@ describe('CartContext', () => {
         result.current.addToCart(baseProduct, 1, 'M') // $20 normal
       })
       expect(result.current.state.total).toBe(45)
+    })
+
+    it('cart total equals the server subtotal for 2 eligible + 1 ineligible (task b81a65f5 parity)', () => {
+      const ids = {
+        a: '11111111-1111-1111-1111-111111111111',
+        b: '22222222-2222-2222-2222-222222222222',
+        c: '33333333-3333-3333-3333-333333333333'
+      }
+      const tee = { ...eligibleProduct, id: ids.a }
+      const tee2 = { ...metadataEligibleProduct, id: ids.b }
+      const hoodie = { ...baseProduct, id: ids.c, price: 40 }
+      const { result } = renderHook(() => useCart(), { wrapper })
+      act(() => {
+        result.current.addToCart(tee, 1, 'M')
+        result.current.addToCart(tee2, 1, 'M')
+        result.current.addToCart(hoodie, 1, 'M')
+      })
+      const server = computeSubtotalCents(
+        [
+          { productId: ids.a, quantity: 1, selectedSize: 'M' },
+          { productId: ids.b, quantity: 1, selectedSize: 'M' },
+          { productId: ids.c, quantity: 1, selectedSize: 'M' }
+        ],
+        new Map([[ids.a, 9], [ids.b, 9], [ids.c, 40]]),
+        new Map(),
+        new Map(),
+        new Set(),
+        new Set([ids.a, ids.b])
+      )
+      expect(server.errors).toEqual([])
+      expect(server.subtotalCents / 100).toBe(result.current.state.total)
+      expect(result.current.state.total).toBe(65) // $25 bundle + $40 hoodie
     })
   })
 })

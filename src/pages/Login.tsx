@@ -2,7 +2,9 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import TurnstileWidget from '../components/TurnstileWidget'
+import { GateBanner } from '../components/GuestGate'
 import { isCaptchaConfigured } from '../lib/captcha'
+import { gateBannerFor } from '../lib/guest-gate'
 
 // Feature flags from environment
 const ENABLE_GOOGLE_OAUTH = import.meta.env.VITE_ENABLE_GOOGLE_OAUTH === 'true'
@@ -29,6 +31,7 @@ const Login: React.FC = () => {
   }
   const navigate = useNavigate()
   const location = useLocation()
+  const gateBanner = gateBannerFor(location.state)
 
   // Redirect if already logged in
   useEffect(() => {
@@ -165,10 +168,21 @@ const Login: React.FC = () => {
           {mode === 'signin' && (
             <p className="mt-2 text-center text-sm text-muted">
               Don't have an account?{' '}
-              <Link to="/signup" className="font-medium text-primary hover:text-secondary transition-colors">
+              <Link to="/signup" state={location.state} className="font-medium text-primary hover:text-secondary transition-colors">
                 Sign up
               </Link>
             </p>
+          )}
+          {/* Sent here from a page that needs an account: say why, and make
+              the free sign-up the obvious next step (task 8c67fe67). */}
+          {mode === 'signin' && gateBanner && (
+            <div className="mt-6 space-y-3">
+              <GateBanner title={gateBanner.title} why={gateBanner.why} />
+              <Link to="/signup" state={location.state} className="btn-primary w-full !py-3">
+                Create free account
+              </Link>
+              <p className="text-center text-xs text-muted">Already have one? Sign in below.</p>
+            </div>
           )}
         </div>
 

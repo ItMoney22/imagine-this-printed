@@ -1,9 +1,11 @@
 import React from 'react'
+import SeasonalOfferBanner from '../components/SeasonalOfferBanner'
 import { HomeHero, TrustStrip } from '../components/home/HomeHero'
 import { CategoryDoors } from '../components/home/CategoryDoors'
 import { SeasonalPicks, PopularGrid } from '../components/home/HomeShelves'
 import { ToyBand, HowItsMade, DesignBand } from '../components/home/HomeBands'
 import { useHomeShop } from '../components/home/useHomeShop'
+import { HomeSocialProof } from '../components/reviews/RealReviews'
 import '../components/home/home.css'
 
 /**
@@ -22,6 +24,7 @@ const Home: React.FC = () => {
   const shop = useHomeShop()
   return (
     <div className="home-root bg-bg">
+      <SeasonalOfferBanner />
       <HomeHero />
       <TrustStrip />
       <CategoryDoors counts={shop.counts} loading={shop.loading} />
@@ -30,6 +33,8 @@ const Home: React.FC = () => {
       <ToyBand toys={shop.toys} toyFrom={shop.toyFrom} />
       <HowItsMade />
       <DesignBand />
+      {/* Real buyer reviews: renders nothing until a real one exists */}
+      <HomeSocialProof />
     </div>
   )
 }

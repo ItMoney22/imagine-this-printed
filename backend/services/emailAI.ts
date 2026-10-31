@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import { supabase } from '../lib/supabase.js'
+import { recordEmailLog } from './email-log.js'
 import { resolveCarrier } from '../utils/carrier-tracking.js'
 import { buildOrderStatusUrl } from '../utils/order-status-token.js'
 import { buildAccountClaimUrl } from '../utils/account-claim-token.js'
@@ -181,6 +182,14 @@ Make it personal, creative, and memorable. This should feel like it came from a 
         console.warn('[EmailAI] order_confirmation body claimed shipping, using fallback copy')
         return generateFallbackEmail(context)
       }
+      // Same idea for money: on ITP-MTYGMM4V-UQ5X the writer added its own
+      // "Itemized totals: 2x Gothic Ghost Face Candle Holder $20.00" table right
+      // above the real one (Subtotal $40.00). The code-built totals table is the
+      // only place a price may appear.
+      if (aiCopyRestatesMoney(`${parsed.greeting || ''} ${parsed.mainContent || ''} ${parsed.closing || ''}`)) {
+        console.warn('[EmailAI] order_confirmation body restated prices, using fallback copy')
+        return generateFallbackEmail(context)
+      }
     }
 
     // Build the final HTML email
@@ -223,16 +232,20 @@ Make it personal, creative, and memorable. This should feel like it came from a 
  */
 function buildContextDescription(context: EmailContext): string {
   const lines: string[] = []
+  // A confirmation's prices live only in the code-built totals table. Shown the
+  // unit price, the writer repeated it as if it were the line total ($20.00 for
+  // 2x), so it is never handed a price for this email.
+  const showMoney = context.templateKey !== 'order_confirmation'
 
   if (context.customerName) lines.push(`Customer Name: ${context.customerName}`)
   if (context.orderNumber) lines.push(`Order Number: ${context.orderNumber}`)
   if (context.items?.length) {
     lines.push(`Items Ordered:`)
     context.items.forEach(item => {
-      lines.push(`  - ${item.quantity}x ${item.name} ($${item.price.toFixed(2)})`)
+      lines.push(`  - ${item.quantity}x ${item.name}${showMoney ? ` ($${item.price.toFixed(2)})` : ''}`)
     })
   }
-  if (context.total) lines.push(`Total: $${context.total.toFixed(2)}`)
+  if (showMoney && context.total) lines.push(`Total: $${context.total.toFixed(2)}`)
   if (context.trackingNumber) lines.push(`Tracking: ${context.trackingNumber}`)
   if (context.carrier) lines.push(`Carrier: ${context.carrier}`)
   if (context.productName) lines.push(`Product Name: ${context.productName}`)
@@ -435,9 +448,18 @@ function getCtaUrl(templateKey: string, context: EmailContext): string {
  */
 const esc = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
+/**
+ * True when AI copy carries a dollar figure ($20.00, $ 20, &#36;20) or its own
+ * <table>. Prices belong to the code-built totals table alone.
+ */
+export function aiCopyRestatesMoney(text: string): boolean {
+  const s = String(text || '')
+  return /(?:\$|&#0*36;|&#x0*24;|&dollar;)(?:\s|&nbsp;)?\d/i.test(s) || /<table\b/i.test(s)
+}
+
 function confirmationSubject(subject: unknown, context: EmailContext): string {
   const s = typeof subject === 'string' ? subject.trim() : ''
-  if (s && !subjectClaimsShipped(s) && /confirm|receiv|got your order|thank/i.test(s)) return s
+  if (s && !subjectClaimsShipped(s) && !aiCopyRestatesMoney(s) && /confirm|receiv|got your order|thank/i.test(s)) return s
   return `🎉 Order Confirmed - ${context.orderNumber || 'Your Order'}`
 }
 
@@ -536,7 +558,9 @@ function stripHtml(html: string): string {
 }
 
 /**
- * Log email to database with optional Resend message ID for tracking
+ * Log email to database with optional Resend message ID for tracking.
+ * Delegates to the shared recorder, which reads the insert's `{ error }` and
+ * logs a descriptive failure instead of dropping the row silently.
  */
 export async function logEmail(
   templateKey: string,
@@ -545,32 +569,25 @@ export async function logEmail(
   aiUsed: boolean,
   context: EmailContext,
   messageId?: string
-): Promise<void> {
-  try {
-    await supabase.from('email_logs').insert({
-      template_key: templateKey,
-      recipient_email: recipientEmail,
-      subject_sent: subject,
-      ai_personalization_used: aiUsed,
-      message_id: messageId,
-      status: messageId ? 'sent' : 'pending',
-      // order_id is a uuid FK to orders.id, but EmailContext only carries the human
-      // order NUMBER (a string), not the uuid — so we leave it null here. Do NOT
-      // assign context.orderNumber: it would write a non-uuid string into a uuid
-      // column and the whole insert would throw (silently dropping the email log).
-      // Proper linkage = thread the real orders.id through EmailContext (TODO).
-      order_id: null,
-      metadata: {
-        items: context.items,
-        total: context.total,
-        product_name: context.productName
-      }
-    })
-    console.log('[EmailAI] Email logged with messageId:', messageId)
-  } catch (error) {
-    console.error('[EmailAI] Failed to log email:', error)
-    // Don't throw - logging failure shouldn't break email sending
-  }
+): Promise<boolean> {
+  return recordEmailLog({
+    templateKey,
+    recipientEmail,
+    subject,
+    aiUsed,
+    messageId,
+    status: messageId ? 'sent' : 'failed',
+    errorMessage: messageId ? undefined : 'no provider message id returned',
+    // EmailContext.orderId is the orders.id uuid when the caller threaded it;
+    // the recorder moves anything that is not a uuid into metadata.
+    orderId: context.orderId,
+    metadata: {
+      items: context.items,
+      total: context.total,
+      product_name: context.productName,
+      order_number: context.orderNumber
+    }
+  })
 }
 
 /**
