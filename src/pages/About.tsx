@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Store, Printer, Truck, Mail } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Store, Printer, Truck, Mail } from 'lucide-react'
 import { HelpStrip } from '../components/support/SupportParts'
 
 // Who we are, in plain facts. A store with no About page and no business name
@@ -45,6 +45,21 @@ export default function About() {
             </div>
           </div>
         </div>
+
+        <Link
+          to="/team"
+          className="group mt-8 flex items-center gap-5 rounded-2xl bg-card p-6 shadow-lg ring-1 ring-black/5 transition-shadow hover:shadow-xl"
+        >
+          <div className="flex -space-x-4 shrink-0">
+            <img src="/team/david-trinidad.webp" alt="" className="h-16 w-16 rounded-full object-cover object-top ring-4 ring-white" />
+            <img src="/team/darrell-mccutchen.webp" alt="" className="h-16 w-16 rounded-full object-cover object-top ring-4 ring-white" />
+          </div>
+          <div className="flex-1">
+            <h2 className="font-display text-2xl font-bold text-text">Meet our team</h2>
+            <p className="text-muted">David Trinidad, CEO, and Darrell McCutchen, Vice President.</p>
+          </div>
+          <ArrowRight className="w-6 h-6 shrink-0 text-purple-600 transition-transform group-hover:translate-x-1" />
+        </Link>
       </div>
       <HelpStrip />
     </div>

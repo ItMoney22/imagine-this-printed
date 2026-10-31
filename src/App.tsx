@@ -42,6 +42,7 @@ import OrderSuccess from './pages/OrderSuccess'
 import Contact from './pages/Contact'
 import Help from './pages/Help'
 import About from './pages/About'
+import OurTeam from './pages/OurTeam'
 import Referrals from './pages/Referrals'
 import UserProfile from './pages/UserProfile'
 import PrivacyPolicy from './pages/PrivacyPolicy'
@@ -252,6 +253,7 @@ function App() {
                   <Route path="/orders" element={<RoleRoute allowedRoles={['admin', 'manager', 'founder']}><OrderManagement /></RoleRoute>} />
                   <Route path="/referrals" element={<Referrals />} />
                   <Route path="/about" element={<About />} />
+                  <Route path="/team" element={<OurTeam />} />
                   <Route path="/contact" element={<Contact />} />
                   <Route path="/help" element={<Help />} />
                   {/* PUBLIC — anyone can read the feed; voting/posting ask for an account. */}
