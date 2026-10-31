@@ -14,12 +14,17 @@ leaves blank. Without --logo the square stays blank for a sticker, as before.
 Every run scan-checks its own -face.png against the link and exits 3 when it does
 not read back, so nothing that fails to scan can reach a printer.
 
+Placed for the Business items page (task 96cc1d3e, 2026-10-30):
+  --text-y/--text-cap  words at a set height and size, e.g. between the code and a --clear-bottom band
+  --logo-at below      with --full-qr: the logo under the whole code, above the words
+  --nfc-pocket         the keychain's 25 mm NFC tag pocket inside the plate, and a pause to drop it in
+
 Exit codes (stdout is always one JSON line):
   0 ok · 2 "use a shorter link" · 3 face did not scan back · 4 logo unusable · 1 anything else
 """
 import argparse, io, math, os, re, sys, uuid, zipfile, json
 import numpy as np, segno, trimesh, manifold3d as m3d
-from shapely.geometry import Polygon, box
+from shapely.geometry import Point, Polygon, box
 from shapely.ops import unary_union
 from shapely import affinity
 from matplotlib.textpath import TextPath
@@ -61,6 +66,20 @@ STEM_L, LIP_L = 12.0, 8.0                  # stem length along the edge, lip len
 LEDGE, HOOK_D = 2.0, 3.8                   # plate back skin the lip slides behind, total hook depth
 CLEAR = 0.2
 LIP_FIT = 0.1                              # lip to skin gap (was 2 x CLEAR = 0.4: the stand rocked on its leg)
+
+# Words placed with --text-y/--text-cap keep white between them and the code, and stay off the rounded edge.
+WORDS_GAP, WORDS_EDGE, MIN_CAP = 1.0, 2.0, 3.0
+# A logo below the whole code (--logo-at below) fills the square the Business items preview draws
+# (david-trinidad-com src/lib/business-items/catalog.ts logoBelowBox): 2 mm under the code, 1.5 mm over the
+# words' capitals (or 2 mm over the band kept clear), at most 40% of the plate wide, never under 8 mm.
+LOGO_AT = ("middle", "below")
+LOGO_BELOW_GAP, LOGO_WORDS_GAP, LOGO_BELOW_MAX, LOGO_BELOW_MIN = 2.0, 1.5, PW * 0.4, 8.0
+# NFC pocket for a 25 mm round tag (bambu-printing, 2026-10-07), shared with keychain.py. On the stand it has
+# the keychain's 1.2 mm of PLA over it (NFC reads through), so z 3.2-4.8 under the 6 mm face; the hook slots
+# run up the middle of the back 4 mm deep, so it sits beside them behind a 2 mm wall, level with the code.
+POCKET_D, POCKET_H = 26.5, 1.6
+POCKET_COVER, POCKET_WALL = 1.2, 2.0
+STAND_POCKET_Z0 = round(PT - POCKET_COVER - POCKET_H, 3)
 
 
 def rounded_rect(w, h, r):
@@ -121,13 +140,12 @@ def qr_geometry(url, size=QR_SIZE, top=QR_TOP, full=False):
     return unary_union(sq).buffer(0.01, join_style=2).buffer(-0.01, join_style=2), qr, blank, mat
 
 
-def text_geometry(text):
+def text_geometry(text, centre=TEXT_Y, cap=TEXT_CAP):
     fp = FontProperties(fname=FONT)
     tp = TextPath((0, 0), text, size=1.0, prop=fp)
     shape = Polygon()
     for p in sorted((Polygon(p) for p in tp.to_polygons() if len(p) >= 3), key=lambda p: -p.area):
         shape = shape.symmetric_difference(p.buffer(0))   # even-odd: holes in e, a, R ...
-    cap = TEXT_CAP
     s = cap / TextPath((0, 0), "H", size=1.0, prop=fp).get_extents().height
     shape = affinity.scale(shape, s, s, origin=(0, 0))
     minx, miny, maxx, maxy = shape.bounds
@@ -136,7 +154,16 @@ def text_geometry(text):
         shape = affinity.scale(shape, f, f, origin=(0, 0)); cap *= f
         minx, miny, maxx, maxy = shape.bounds
     # baseline sits at y=0: centre the capitals, so descenders (y, p) hang below like normal type
-    return affinity.translate(shape, PW / 2 - (minx + maxx) / 2, TEXT_Y - cap / 2)
+    return affinity.translate(shape, PW / 2 - (minx + maxx) / 2, centre - cap / 2)
+
+
+def placed_words_fit(words, code_bottom, code_top):
+    """Words put somewhere by hand (--text-y/--text-cap) must stay on the plate and off the code."""
+    lo, hi = words.bounds[1], words.bounds[3]
+    if lo < WORDS_EDGE or hi > PH - WORDS_EDGE:
+        raise StandError("the words run off the plate", 1)
+    if hi > code_bottom - WORDS_GAP and lo < code_top + WORDS_GAP:
+        raise StandError(f"the words run into the code: keep {WORDS_GAP:g} mm between them", 1)
 
 
 # ---- the logo, printed in ----
@@ -201,12 +228,24 @@ def logo_silhouette(path):
     return mask[ys.min():ys.max() + 1, xs.min():xs.max() + 1]
 
 
-def logo_geometry(path, blank, cell):
-    """Trace the silhouette into polygons that fill the blank square, less one
-    module of quiet space so the code's own edge stays readable."""
+def logo_below_box(code_bottom, words_top=None, clear_bottom=0.0):
+    """The square (x, bottom y, side) a logo below the whole code fills: top-aligned under
+    the code, centred across, above the words' capitals or the band kept clear."""
+    hi = code_bottom - LOGO_BELOW_GAP
+    lo = words_top + LOGO_WORDS_GAP if words_top is not None else clear_bottom + LOGO_BELOW_GAP
+    side = min(hi - lo, LOGO_BELOW_MAX)
+    if side < LOGO_BELOW_MIN:
+        raise StandError(f"no room for the logo under the code ({max(0.0, side):.1f} mm, "
+                         f"{LOGO_BELOW_MIN:g} needed): make the code smaller", 1)
+    return (PW - side) / 2, hi - side, side
+
+
+def logo_geometry(path, blank, quiet):
+    """Trace the silhouette into polygons that fill the square, less `quiet` on each
+    side: one module in the centre square, so the code's own edge stays readable."""
     from PIL import Image
     bx, by, side = blank
-    room = side - 2 * cell
+    room = side - 2 * quiet
     mask = logo_silhouette(path)
     h, w = mask.shape
     scale = room / max(h, w)                          # mm per source pixel
@@ -266,24 +305,64 @@ def hook_pockets():
     return m3d.Manifold.batch_boolean(out, m3d.OpType.Add)
 
 
-def build_plate(url, text, logo=None, size=QR_SIZE, top=QR_TOP, full=False, clear_bottom=0.0):
-    if full and logo:
+def nfc_pocket(cx, cy, z0):
+    """The pocket a 25 mm round NFC tag drops into, floor at z0 (a 0.2 mm layer top)."""
+    return to_manifold(Point(cx, cy).buffer(POCKET_D / 2, resolution=64), z0, z0 + POCKET_H)
+
+
+def stand_pocket_centre(size=QR_SIZE, top=QR_TOP):
+    """Right of the hook slots (they reach z 4 up the middle of the back), level with the code's centre."""
+    cx = PW / 2 + SLOT_W / 2 + POCKET_WALL + POCKET_D / 2
+    keep = POCKET_D / 2 + POCKET_WALL + EDGE_R
+    return cx, min(max(PH - top - size / 2, keep), PH - keep)
+
+
+def build_plate(url, text, logo=None, size=QR_SIZE, top=QR_TOP, full=False, clear_bottom=0.0,
+                text_y=None, text_cap=None, logo_at="middle", nfc=False):
+    if logo_at not in LOGO_AT:
+        raise StandError(f"the logo goes {' or '.join(LOGO_AT)}", 1)
+    if full and logo and logo_at == "middle":
         raise StandError("a full code has no centre square for a logo", 1)
+    if logo_at == "below" and not full:
+        raise StandError("a logo below the code goes with the whole code (--full-qr)", 1)
     if size + top > PH:
         raise StandError("the code does not fit on the plate", 1)
     qr_poly, qr, blank, mat = qr_geometry(url, size, top, full)   # first: a refused link costs no geometry
-    feats = qr_poly.union(text_geometry(text)) if text else qr_poly
+    code_bottom, placed = PH - top - size, {}
+    feats, words_top = qr_poly, None
+    if text:
+        centre = TEXT_Y if text_y is None else text_y
+        cap = TEXT_CAP if text_cap is None else text_cap
+        if cap < MIN_CAP:
+            raise StandError(f"words under {MIN_CAP:g} mm tall don't print cleanly", 1)
+        words = text_geometry(text, centre, cap)
+        if text_y is not None or text_cap is not None:
+            placed_words_fit(words, code_bottom, PH - top)
+            placed["words_mm"] = [round(words.bounds[1], 2), round(words.bounds[3], 2)]
+        if centre < code_bottom:
+            words_top = centre + cap / 2   # nominal capitals, as the preview draws them
+        feats = feats.union(words)
     logo_share = None
     if logo:
-        logo_poly, logo_share = logo_geometry(logo, blank, size / mat.shape[0])
+        if logo_at == "below":
+            square = logo_below_box(code_bottom, words_top, clear_bottom)
+            logo_poly, logo_share = logo_geometry(logo, square, 0.0)
+            placed.update(logo_at="below", logo_box_mm=[round(v, 2) for v in square])
+        else:
+            logo_poly, logo_share = logo_geometry(logo, blank, size / mat.shape[0])
         feats = feats.union(logo_poly)
     if clear_bottom and feats.bounds[1] < clear_bottom:
         # The bottom of the face is kept empty for something stuck on (a nameplate).
         raise StandError(f"the face reaches {feats.bounds[1]:.1f} mm from the bottom; "
                          f"{clear_bottom:.1f} mm must stay clear", 1)
     plate = soft_plate() - hook_pockets()
+    if nfc:
+        cx, cy = stand_pocket_centre(size, top)
+        plate = plate - nfc_pocket(cx, cy, STAND_POCKET_Z0)
+        placed.update(pocket_mm=[POCKET_D, POCKET_H], pocket_at_mm=[round(cx, 2), round(cy, 2), STAND_POCKET_Z0],
+                      pause_before_layer_mm=pause_z(STAND_POCKET_Z0 + POCKET_H))
     plate = plate + to_manifold(feats, PT - 0.01, PT + RAISE)
-    return plate, qr, blank, mat, logo_share
+    return plate, qr, blank, mat, logo_share, placed
 
 
 def build_leg():
@@ -305,7 +384,7 @@ def build_leg():
 
 
 def assemble(url, text, logo=None, **face):
-    plate, qr, blank, mat, logo_share = build_plate(url, text, logo, **face)
+    plate, qr, blank, mat, logo_share, placed = build_plate(url, text, logo, **face)
     leg = build_leg().translate([PW + 10 + HOOK_D, 2, 0])
     whole = plate + leg
     m = whole.to_mesh()
@@ -313,7 +392,7 @@ def assemble(url, text, logo=None, **face):
     F = np.asarray(m.tri_verts).astype(int)
     zc = V[F][:, :, 2]
     black = (zc.max(1) > PT + 0.05) & (zc.min(1) >= PT - 0.02)  # raised QR + text + logo faces
-    return V, F, black, qr, blank, mat, logo_share
+    return V, F, black, qr, blank, mat, logo_share, placed
 
 
 def face_change_z():
@@ -326,14 +405,28 @@ def face_change_z():
     return round(LAYER_FIRST + (n + 1) * LAYER, 3)
 
 
-def face_change_xml():
+def pause_z(pocket_top):
+    """The first layer that covers a pocket: the pause fires before it prints."""
+    return round(pocket_top + LAYER, 3)
+
+
+def layers_xml(face_z, pause_at=None):
+    """The per-layer changes: a pause before the layer whose top is pause_at (type 1,
+    M400 U1: drop the NFC tag in, press resume), and the face colour from face_z."""
+    pause = (f'<layer top_z="{pause_at}" type="1" extruder="1" color="#FFFFFF" extra="" gcode="M400 U1"/>\n'
+             if pause_at is not None else "")
+    return ('<?xml version="1.0" encoding="utf-8"?>\n<custom_gcodes_per_layer>\n<plate>\n<plate_info id="1"/>\n'
+            + pause +
+            f'<layer top_z="{face_z}" type="2" extruder="{FACE_FILAMENT}" color="{FACE_COLOUR}" extra="" gcode="tool_change"/>\n'
+            '</plate>\n</custom_gcodes_per_layer>\n')
+
+
+def face_change_xml(pause_at=None):
     """The face colour as a height band. Everything above the plate is raised
     artwork, so one filament change at the first raised layer prints the code,
     caption and logo black on a white plate. Proven on the 2.1 command line
     2026-10-18: filament 1 for layers 0-29, filament 2 for 30-34."""
-    return ('<?xml version="1.0" encoding="utf-8"?>\n<custom_gcodes_per_layer>\n<plate>\n<plate_info id="1"/>\n'
-            f'<layer top_z="{face_change_z()}" type="2" extruder="{FACE_FILAMENT}" color="{FACE_COLOUR}" extra="" gcode="tool_change"/>\n'
-            '</plate>\n</custom_gcodes_per_layer>\n')
+    return layers_xml(face_change_z(), pause_at)
 
 
 # The slicer on Earth is the 2.1 command line, and it refuses a file stamped by a
@@ -451,21 +544,22 @@ def scan_check(png, url):
 
 
 def make(url, text, out, title="QR Stand", logo=None, check=True, paint=False, **face):
-    V, F, black, qr, blank, mat, logo_share = assemble(url, text, logo, **face)
+    V, F, black, qr, blank, mat, logo_share, placed = assemble(url, text, logo, **face)
     mesh = trimesh.Trimesh(V, F, process=False)
     png = os.path.splitext(out)[0] + "-face.png"
     render_front(V, F, black, png)
     result = {"qr_version": qr.version, "qr_error": qr.error, "modules": mat.shape[0], "blank_mm": round(blank[2], 1),
               "logo": "printed" if logo else "blank", "logo_share": round(logo_share, 3) if logo else None,
               "face_change_mm": face_change_z(), "watertight": bool(mesh.is_watertight),
-              "volume_cm3": round(mesh.volume / 1000, 1), "face_png": png, "out": out}
+              "volume_cm3": round(mesh.volume / 1000, 1), "face_png": png, "out": out, **placed}
     if check:
         ok, texts = scan_check(png, url)
         result.update(scan_ok=ok, scan_text=texts)
         if not ok:
             # No 3mf is written for a face that does not read back.
             raise StandError("the code did not scan back", 3)
-    ext = write_3mf(V, F, black, out, title, paint)
+    pause = placed.get("pause_before_layer_mm")
+    ext = write_3mf(V, F, black, out, title, paint, layers_xml=face_change_xml(pause) if pause else None)
     result["size_mm"] = [round(e, 1) for e in ext]
     return result
 
@@ -484,10 +578,18 @@ if __name__ == "__main__":
     ap.add_argument("--qr-top", type=float, default=QR_TOP, help="code margin from the top edge, mm")
     ap.add_argument("--clear-bottom", type=float, default=0.0,
                     help="mm at the bottom of the face that must stay empty (e.g. 50.8 for a nameplate)")
+    ap.add_argument("--text-y", type=float,
+                    help=f"centre line of the words, mm from the bottom edge (default {TEXT_Y:g}), e.g. between the code and --clear-bottom")
+    ap.add_argument("--text-cap", type=float, help=f"height of the words' capitals, mm (default {TEXT_CAP:g})")
+    ap.add_argument("--logo-at", choices=LOGO_AT, default="middle",
+                    help="middle: in the code's centre square; below: under the whole code, above the words (with --full-qr)")
+    ap.add_argument("--nfc-pocket", action="store_true",
+                    help="a pocket for a 25 mm NFC tag inside the plate, and a pause before the layer that covers it")
     a = ap.parse_args()
     try:
         print(json.dumps(make(a.url, a.text, a.out, a.title, a.logo, check=not a.no_check, paint=a.paint,
-                              size=a.qr_size, top=a.qr_top, full=a.full_qr, clear_bottom=a.clear_bottom)))
+                              size=a.qr_size, top=a.qr_top, full=a.full_qr, clear_bottom=a.clear_bottom,
+                              text_y=a.text_y, text_cap=a.text_cap, logo_at=a.logo_at, nfc=a.nfc_pocket)))
     except StandError as e:
         print(json.dumps({"error": str(e), "code": e.code}))
         sys.exit(e.code)

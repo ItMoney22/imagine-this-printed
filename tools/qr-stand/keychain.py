@@ -21,12 +21,13 @@ import gen
 KW, KH, KT, KR = 40.0, 56.0, 3.6, 4.0          # width, height, body thickness, corner radius
 HOLE_D, HOLE_Y = 5.0, 51.0                     # key-ring hole diameter, centre from the bottom
 QR_SIZE, QR_TOP, RAISE = 34.0, 12.0, 0.8       # code edge, margin from the top, raised height
-POCKET_D, POCKET_Z0, POCKET_H = 26.5, 0.8, 1.6  # NFC pocket: diameter, floor, depth (both on 0.2 mm layer tops)
+POCKET_D, POCKET_H = gen.POCKET_D, gen.POCKET_H  # NFC pocket (shared with the stand's --nfc-pocket)
+POCKET_Z0 = 0.8                                # its floor (pocket top 2.4: both on 0.2 mm layer tops)
 
 
 def pause_z():
     """The first layer that covers the pocket: the pause fires before it prints."""
-    return round(POCKET_Z0 + POCKET_H + gen.LAYER, 3)
+    return gen.pause_z(POCKET_Z0 + POCKET_H)
 
 
 def face_z():
@@ -34,10 +35,7 @@ def face_z():
 
 
 def layers_xml():
-    return ('<?xml version="1.0" encoding="utf-8"?>\n<custom_gcodes_per_layer>\n<plate>\n<plate_info id="1"/>\n'
-            f'<layer top_z="{pause_z()}" type="1" extruder="1" color="#FFFFFF" extra="" gcode="M400 U1"/>\n'
-            f'<layer top_z="{face_z()}" type="2" extruder="{gen.FACE_FILAMENT}" color="{gen.FACE_COLOUR}" extra="" gcode="tool_change"/>\n'
-            '</plate>\n</custom_gcodes_per_layer>\n')
+    return gen.layers_xml(face_z(), pause_z())
 
 
 def assemble(url):
@@ -45,7 +43,7 @@ def assemble(url):
     qr_poly = affinity.translate(qr_poly, (KW - gen.PW) / 2, KH - gen.PH)   # from the stand's plate onto the tag
     cy = KH - QR_TOP - QR_SIZE / 2
     outline = gen.rounded_rect(KW, KH, KR).difference(Point(KW / 2, HOLE_Y).buffer(HOLE_D / 2, resolution=48))
-    pocket = gen.to_manifold(Point(KW / 2, cy).buffer(POCKET_D / 2, resolution=64), POCKET_Z0, POCKET_Z0 + POCKET_H)
+    pocket = gen.nfc_pocket(KW / 2, cy, POCKET_Z0)
     whole = gen.to_manifold(outline, 0, KT) - pocket + gen.to_manifold(qr_poly, KT - 0.01, KT + RAISE)
     m = whole.to_mesh()
     V = np.asarray(m.vert_properties)[:, :3].astype(float)
