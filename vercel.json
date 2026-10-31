@@ -1,6 +1,7 @@
 {
   "rewrites": [
     { "source": "/sitemap.xml", "destination": "https://api.imaginethisprinted.com/api/seo/sitemap.xml" },
+    { "source": "/feeds/products.xml", "destination": "https://api.imaginethisprinted.com/api/seo/products.xml" },
     {
       "source": "/product/:path*",
       "has": [
