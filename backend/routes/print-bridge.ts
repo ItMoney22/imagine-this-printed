@@ -13,6 +13,7 @@ import { SHAPES as NAME_SHAPES } from '../services/name-print/geometry.js'
 import { signNamePrint } from '../services/name-print/store.js'
 import { parsePetOrnament } from '../shared/pet-ornament.js'
 import { signedPetParts } from '../services/pet-ornament/store.js'
+import { PRINT_REQUEUE_KEY, REQUEUE_CLEAR_STATUSES, clearPrintRequeue, isRequeuePending, requeueCutoff } from '../services/print-requeue.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -82,11 +83,47 @@ const WORKER_NOTIFY_STATUSES = new Set(['insert_pause', 'ready_for_packing'])
 // Watchtower pulls every 5 minutes; a minute's wait costs nothing.
 export const PAID_SETTLE_MS = 60_000
 
+const ORDER_COLUMNS = 'id, order_number, customer_email, customer_name, total, created_at, paid_at, payment_status, metadata'
+const ITEM_COLUMNS = 'product_id, product_name, quantity, unit_price, subtotal, metadata'
+
+/**
+ * Lines re-queued by a fix after their order was pulled (services/print-requeue.ts,
+ * task 4ef9db82), grouped by paid order. Orders already in this pull's paid
+ * window are skipped: their rows, stamp included, go out with the order.
+ */
+async function requeuedOrders(skip: Set<string>): Promise<Array<{ o: any; rows: any[] }>> {
+  const now = new Date()
+  // A null stamp never passes gte in Postgres; re-checked below all the same.
+  const { data: stamped, error } = await supabase
+    .from('order_items')
+    .select(`order_id, ${ITEM_COLUMNS}`)
+    .gte(`metadata->>${PRINT_REQUEUE_KEY}`, requeueCutoff(now))
+    .limit(100)
+  if (error) throw new Error(error.message)
+  const pending = (stamped || []).filter((r: any) => isRequeuePending(r?.metadata, now) && !skip.has(r.order_id))
+  if (pending.length === 0) return []
+  const ids = [...new Set(pending.map((r: any) => r.order_id as string))]
+  const { data: orders, error: orderErr } = await supabase
+    .from('orders')
+    .select(ORDER_COLUMNS)
+    .in('id', ids)
+    .eq('payment_status', 'paid')
+  if (orderErr) throw new Error(orderErr.message)
+  return (orders || [])
+    .filter((o: any) => ids.includes(o.id))
+    .map((o: any) => ({ o, rows: pending.filter((r: any) => r.order_id === o.id) }))
+}
+
 /**
  * GET /api/print-bridge/queue
  * Paid orders that became paid after `since` (orders.paid_at), oldest payment
  * first, that contain a 3D-print line item, mapped to the bridge order shape
  * Watchtower expects. `cursor` is the paid_at of the last order scanned.
+ *
+ * Plus, on every pull whatever `since` is, the lines a fix re-queued
+ * (order_items.metadata.print_requeued_at, services/print-requeue.ts): an Etsy
+ * pet ornament held at ingest and re-run with --photo --apply after the cursor
+ * passed its order. They never move the cursor, and carry `requeuedAt`.
  */
 router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
   try {
@@ -96,7 +133,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
 
     let q = supabase
       .from('orders')
-      .select('id, order_number, customer_email, customer_name, total, created_at, paid_at, payment_status, metadata')
+      .select(ORDER_COLUMNS)
       .eq('payment_status', 'paid')
       .lte('paid_at', settledBefore)
       .order('paid_at', { ascending: true })
@@ -106,10 +143,22 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
     const { data: orders, error } = await q
     if (error) return res.status(500).json({ error: error.message })
 
+    // A failure reading re-queued lines never costs the paid window.
+    let requeued: Array<{ o: any; rows: any[] }> = []
+    try {
+      requeued = await requeuedOrders(new Set((orders || []).map((o: any) => o.id)))
+    } catch (err: any) {
+      console.error('[print-bridge] re-queued lines unreadable:', err?.message || err)
+    }
+    const scans: Array<{ o: any; rows: any[] | null }> = [
+      ...(orders || []).map((o: any) => ({ o, rows: null })),
+      ...requeued,
+    ]
+
     const out: any[] = []
     let cursor = since
-    for (const o of orders || []) {
-      cursor = o.paid_at // advance past every scanned order, 3D or not
+    for (const { o, rows } of scans) {
+      if (!rows) cursor = o.paid_at // advance past every scanned order, 3D or not; a re-queued line never moves it
 
       // Production order_items columns are (product_id uuid, product_name,
       // quantity, unit_price, subtotal, metadata) — NOT price/total. And a
@@ -117,13 +166,16 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
       // id lives in order_items.metadata.client_product_id (new rows) and in
       // the orders.metadata.items snapshot (all rows, incl. orders predating
       // the order_items fix).
-      const { data: items } = await supabase
-        .from('order_items')
-        .select('product_id, product_name, quantity, unit_price, subtotal, metadata')
-        .eq('order_id', o.id)
+      const { data: items } = rows
+        ? { data: rows }
+        : await supabase
+            .from('order_items')
+            .select(ITEM_COLUMNS)
+            .eq('order_id', o.id)
 
       const lineItems = items || []
-      const metaItems: any[] = Array.isArray((o as any).metadata?.items) ? (o as any).metadata.items : []
+      // A re-queue sends only its stamped rows, never the order's snapshot.
+      const metaItems: any[] = !rows && Array.isArray((o as any).metadata?.items) ? (o as any).metadata.items : []
       const clientId = (it: any) => it?.metadata?.client_product_id ?? it?.product_id
 
       // Custom minis: cart ids '3d-print-<modelId>' from the 3D model designer.
@@ -361,6 +413,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
             customerEmail: o.customer_email || undefined,
             priceUsd: it.total ?? undefined,
             createdAt: o.created_at,
+            ...(isRequeuePending(itemRow?.metadata) ? { requeuedAt: itemRow.metadata[PRINT_REQUEUE_KEY] } : {}),
           })
         }
       }
@@ -410,6 +463,14 @@ router.post('/status', requireBridgeAuth, async (req: Request, res: Response): P
       .update({ metadata, updated_at: new Date().toISOString() })
       .eq('id', itpOrderId)
     if (upErr) return res.status(500).json({ error: upErr.message })
+
+    // On the printer: stop re-sending the order's re-queued lines (task
+    // 4ef9db82). Never fails the factory callback.
+    if (REQUEUE_CLEAR_STATUSES.has(status)) {
+      await clearPrintRequeue(supabase, itpOrderId, status).catch(err =>
+        console.error('[print-bridge] re-queue clear failed:', err instanceof Error ? err.message : err)
+      )
+    }
 
     // Notify print-floor workers on insert-pause / ready-for-packing.
     // Fire-and-forget: a mail failure must never fail the factory callback.

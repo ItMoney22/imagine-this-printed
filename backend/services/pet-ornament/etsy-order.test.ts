@@ -6,7 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import sharp from 'sharp'
 import { parsePetOrnament, sanitizePetValues } from '../../shared/pet-ornament.js'
-import { buildEtsyPetLine, etsyPetDeps, petLineMeta, MIN_PHOTO_SIDE } from './etsy-order.js'
+import { applyEtsyPetLine, buildEtsyPetLine, etsyPetDeps, petLineMeta, MIN_PHOTO_SIDE } from './etsy-order.js'
+import { PRINT_REQUEUE_KEY } from '../print-requeue.js'
 import type { PetDecision } from './pet-detect.js'
 import { blobStore, printCheckSpec, signedPetParts, storePetPrint } from './store.js'
 
@@ -184,6 +185,93 @@ describe('petLineMeta', () => {
     })
     expect(meta.etsy_pet).toBe(line.etsy)
     expect(petLineMeta(undefined)).toEqual({})
+  })
+})
+
+// --apply (task 4ef9db82): the team's re-run fixes the live order and re-queues the line.
+describe('applyEtsyPetLine', () => {
+  const ORDER = 'order-1'
+  // The row the receipt poller wrote for a held line (worker/etsy-receipt-ingest.ts).
+  const heldRow = () => ({
+    id: 'item-held', order_id: ORDER,
+    metadata: {
+      etsy_transaction_id: 9001, etsy_listing_id: 4607572810, size: null, color: null,
+      personalization: { pet: 'cat', name: 'Biscuit', portrait: '' }, print_file_path: null,
+      print_file_error: "The buyer's photo is missing from the Etsy order: message them for one, then re-run with --photo",
+      print_file_status: 'failed', personalization_flags: null, etsy_pet: { transactionId: 9001 },
+    },
+  })
+  let rows: any[]
+  let updates: Array<{ id: string; metadata: any }>
+  const db = {
+    from: (table: string) => {
+      expect(table).toBe('order_items')
+      const b: any = {
+        select: () => b,
+        eq: async (col: string, val: any) => ({ data: rows.filter((r) => r[col] === val), error: null }),
+        update: (patch: any) => ({
+          eq: async (_col: string, id: string) => {
+            updates.push({ id, metadata: patch.metadata })
+            rows = rows.map((r) => (r.id === id ? { ...r, ...patch } : r))
+            return { error: null }
+          },
+        }),
+      }
+      return b
+    },
+  }
+  beforeEach(() => {
+    rows = [heldRow(), { id: 'item-other', order_id: ORDER, metadata: { etsy_transaction_id: 9002, etsy_listing_id: 1 } }]
+    updates = []
+  })
+
+  it("writes checkout's keys + a re-queue stamp onto that transaction's row only, keeping the row's own keys", async () => {
+    const line = await buildEtsyPetLine(order(), template, { photo: await png(800, 600) })
+    const now = new Date('2026-11-01T18:00:00.000Z')
+    const done = await applyEtsyPetLine(db, ORDER, 9001, line, now)
+    expect(done).toMatchObject({ orderItemId: 'item-held', requeuedAt: '2026-11-01T18:00:00.000Z' })
+    expect(updates).toHaveLength(1)
+    const meta = rows.find((r) => r.id === 'item-held').metadata
+    expect(meta).toMatchObject({
+      etsy_transaction_id: 9001, etsy_listing_id: 4607572810, size: null, color: null,
+      personalization: { pet: 'dog', name: 'Biscuit', portrait: PORTRAIT },
+      print_file_path: 'users/pet-ornaments/geo-v1/k/print-spec.json',
+      print_file_status: 'ready', print_file_error: null,
+      [PRINT_REQUEUE_KEY]: '2026-11-01T18:00:00.000Z',
+      print_requeue_replaced: { status: 'failed', path: null, at: '2026-11-01T18:00:00.000Z' },
+    })
+    expect(meta.print_requeue_replaced.error).toMatch(/photo is missing/)
+    expect(meta.etsy_pet.photoUrl).toBe('operator')
+    expect(rows.find((r) => r.id === 'item-other').metadata).toEqual({ etsy_transaction_id: 9002, etsy_listing_id: 1 })
+  })
+
+  it('matches a transaction id stored as a string too', async () => {
+    rows[0].metadata.etsy_transaction_id = '9001'
+    const line = await buildEtsyPetLine(order(), template, { photo: await png(800, 600) })
+    await expect(applyEtsyPetLine(db, ORDER, 9001, line)).resolves.toMatchObject({ orderItemId: 'item-held' })
+  })
+
+  it('never writes a line that is still held: a good row is never replaced by a failure', async () => {
+    const held = await buildEtsyPetLine(order('Biscuit', null), template)
+    await expect(applyEtsyPetLine(db, ORDER, 9001, held)).rejects.toThrow(/still held.*not changed/)
+    expect(updates).toEqual([])
+  })
+
+  it('refuses when no row, or more than one, carries the transaction', async () => {
+    const line = await buildEtsyPetLine(order(), template, { photo: await png(800, 600) })
+    await expect(applyEtsyPetLine(db, ORDER, 7777, line)).rejects.toThrow(/no order_items row for Etsy transaction 7777/)
+    rows.push({ ...heldRow(), id: 'item-dup' })
+    await expect(applyEtsyPetLine(db, ORDER, 9001, line)).rejects.toThrow(/2 order_items rows/)
+    expect(updates).toEqual([])
+  })
+
+  it('a second fix replaces the first and re-stamps it (an earlier clear is dropped)', async () => {
+    rows[0].metadata.print_requeue_cleared = { requeuedAt: '2026-10-30T00:00:00.000Z', status: 'printing' }
+    const line = await buildEtsyPetLine(order(), template, { photo: await png(800, 600) })
+    await applyEtsyPetLine(db, ORDER, 9001, line, new Date('2026-11-02T00:00:00.000Z'))
+    const meta = rows[0].metadata
+    expect(meta[PRINT_REQUEUE_KEY]).toBe('2026-11-02T00:00:00.000Z')
+    expect(meta).not.toHaveProperty('print_requeue_cleared')
   })
 })
 

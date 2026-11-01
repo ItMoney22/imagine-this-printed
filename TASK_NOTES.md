@@ -1,5 +1,41 @@
 # TASK_NOTES
 
+## Current request (2026-11-01) — Etsy pet order: --apply fixes the order and re-queues the line (task 4ef9db82, zero-earth019)
+
+Follow-up of 5d007181 (ada-brooks 7daf849; this branch is a fast-forward of it). A held Etsy pet ornament line, re-run
+with --photo/--pet/--stock, wrote files only: order_items kept print_file_path null and the bridge's /queue cursor
+(orders.paid_at) had passed the order, so the fix never reached the printer.
+
+Decisions:
+- `--apply` on scripts/etsy-pet-order.ts writes petLineMeta onto the order_items row of order ETSY-<receipt> whose
+  metadata.etsy_transaction_id matches, keeps the row's own keys, and stamps `metadata.print_requeued_at`. Without
+  --apply the order is never touched. Only a line that BUILT is written (a held re-run never replaces the row).
+- Re-queue = a stamp, not a pull-by-order route (none exists, and the factory already polls /queue): /queue sends every
+  paid order's stamped lines on every pull whatever `since`, never moves the cursor for them, marks them `requeuedAt`.
+  The factory dedupes on (itpOrderId, lineItemId); the fixed line's lineItemId is product:<print folder>, new, so it
+  lands as a new print with its parts.
+- Cleared by POST /status printing / insert_pause / ready_for_packing / shipped_soon (moved to
+  `metadata.print_requeue_cleared`); a 7-day window is the backstop. No schema change (jsonb).
+- --apply re-runs the same pipeline; storage is content-addressed (print folder = hash of the values, portrait cached
+  by photo), so existing files are reused, not rewritten.
+
+### File shortlist (approved scope — 2026-11-01 Etsy pet re-queue)
+- `backend/scripts/etsy-pet-order.ts` (--apply)
+- `backend/services/pet-ornament/etsy-order.ts` (+ test: applyEtsyPetLine)
+- `backend/services/print-requeue.ts` (+ test, new: the stamp's key, window, clear rule; shared by writer and bridge
+  so they cannot drift, and so the route does not import the drawing/vision graph)
+- `backend/routes/print-bridge.ts` (/queue re-queued lines, /status clear) + `backend/routes/print-bridge.requeue.test.ts` (new)
+- `backend/scripts/etsy-pet-requeue-proof.ts` (new: the live end-to-end proof, one backdated test order, deleted after)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-01 (zero-earth019): built --apply + stamp + /queue + /status clear; vitest 216 files / 2844 pass (17 new);
+  backend tsc 0, root tsc -b 0, no type errors in touched files under the esnext scripts+tests check. Live proof PASS
+  (E:/memory/watchtower/projects/imagine-this-printed/2026-11-01-4ef9db82-etsy-pet-requeue/proof.json): ingest held
+  ETSY-9000000202 (paid_at backdated behind the factory cursor), /queue before = absent, re-run without --apply = row
+  unchanged, --photo --apply = print_file_path + stamp, /queue = the line with 4 petOrnamentParts (all 200), cursor
+  unmoved, POST /status printing = cleared; test order deleted.
+
 ## Current request (2026-11-01) — Etsy pet ornament order -> print files (task 5d007181, ada-brooks)
 An Etsy sale of the create-your-own pet ornament (draft 4607572810) must turn into the same print files as a site
 checkout: read the pet name (max 12) and the buyer's uploaded photo from the transaction personalization, pick the

@@ -16,7 +16,8 @@
 //     animal in it) HOLDS the line with a plain reason. It never falls back to
 //     a stock pet: the buyer paid for THEIR pet. The team messages the buyer
 //     and re-runs scripts/etsy-pet-order.ts with --photo (or --stock if the
-//     buyer agrees to the stock design).
+//     buyer agrees to the stock design), plus --apply to write the fixed line
+//     onto the order and re-queue it to the print bridge (applyEtsyPetLine).
 //   - More than one photo (a listing set to allow several): the largest one
 //     (most pixels) is drawn; the rest are recorded.
 //   - Never throws: money has already moved, so a failure is written on the
@@ -28,6 +29,7 @@ import { sniffImageContentType } from '../google-cloud-storage.js'
 import { sanitizePetValues, type PetOrnamentTemplate } from '../../shared/pet-ornament.js'
 import { sanitizeName } from '../../shared/name-print.js'
 import { reviewFlags, type ReviewFlag } from '../team-plate/review-flags.js'
+import { PRINT_REQUEUE_KEY } from '../print-requeue.js'
 import { detectPet } from './pet-detect.js'
 import { drawPortrait } from './portrait.js'
 import { storePetPrint, type StoredPetPrint } from './store.js'
@@ -98,6 +100,58 @@ export function petLineMeta(line: EtsyPetLine | undefined): Record<string, unkno
     personalization_flags: line.flags?.length ? line.flags : null,
     etsy_pet: line.etsy,
   }
+}
+
+export interface AppliedPetLine {
+  orderItemId: string
+  requeuedAt: string
+  /** The row's metadata before and after, for the command's log. */
+  before: Record<string, unknown>
+  after: Record<string, unknown>
+}
+
+/**
+ * The team's re-run fixed a held line (scripts/etsy-pet-order.ts --apply, task
+ * 4ef9db82): write it onto the order's order_items row, matched by
+ * metadata.etsy_transaction_id, with checkout's keys (petLineMeta) and a
+ * re-queue stamp (services/print-requeue.ts) so the print bridge sends it
+ * again although the order's paid_at is behind its cursor. The row's own keys
+ * (etsy ids, size, colour) are kept. Only a line that built is written: a
+ * re-run that is held again never overwrites the row (a good print file is
+ * never replaced by a failure). Throws on no matching row, or more than one.
+ */
+export async function applyEtsyPetLine(
+  db: { from: (table: string) => any },
+  orderId: string,
+  transactionId: number,
+  line: EtsyPetLine,
+  now: Date = new Date()
+): Promise<AppliedPetLine> {
+  if (line.status !== 'ready' || !line.path) throw new Error(`the line is still held (${line.error ?? 'no print file'}); the order was not changed`)
+  const { data: rows, error } = await db.from('order_items').select('id, metadata').eq('order_id', orderId)
+  if (error) throw new Error(`order_items unreadable for order ${orderId}: ${error.message}`)
+  const matches = (rows || []).filter((r: any) => Number(r?.metadata?.etsy_transaction_id) === Number(transactionId))
+  if (matches.length === 0) throw new Error(`order ${orderId} has no order_items row for Etsy transaction ${transactionId}`)
+  if (matches.length > 1) throw new Error(`order ${orderId} has ${matches.length} order_items rows for Etsy transaction ${transactionId}; fix the order by hand`)
+  const row = matches[0]
+  const before = (row.metadata && typeof row.metadata === 'object' ? row.metadata : {}) as Record<string, any>
+  const requeuedAt = now.toISOString()
+  const { print_requeue_cleared: _cleared, ...kept } = before
+  const after: Record<string, unknown> = {
+    ...kept,
+    ...petLineMeta(line),
+    // What this replaced, so the order still says why it was held.
+    print_requeue_replaced: {
+      status: before.print_file_status ?? null,
+      error: before.print_file_error ?? null,
+      path: before.print_file_path ?? null,
+      at: requeuedAt,
+    },
+    [PRINT_REQUEUE_KEY]: requeuedAt,
+  }
+  const { error: upErr } = await db.from('order_items').update({ metadata: after }).eq('id', row.id)
+  if (upErr) throw new Error(`order_items update failed for row ${row.id}: ${upErr.message}`)
+  return { orderItemId: String(row.id), requeuedAt, before, after }
 }
 
 /** Swappable so tests and the offline harness never call a model or GCS. */
