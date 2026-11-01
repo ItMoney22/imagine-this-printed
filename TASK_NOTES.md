@@ -5626,3 +5626,20 @@ Fix at the one chokepoint (`sendEmailWithTracking`) so all paths log, with error
 - 2026-10-12 (levi-james): scope added; live schema read-only inspected (20 cols, 6 rows, newest 2025-12-23).
 - 2026-10-12 (levi-james): shipped recorder `backend/services/email-log.ts`; `sendEmailWithTracking` now logs every send (sent/failed/suppressed/no-key) and 28 senders carry template keys; logEmail delegates; admin send-test no longer double-logs. 9 new vitest + live proof `backend/scripts/verify-email-logs.ts` (real Resend sink sends, rows read back via the admin query, cleaned up). Not deployed.
 - 2026-10-30 (zero-nine, ship 01e26f7c): rebuilt b7ee3be as one pick onto the 10/30 ITP train 418d060 (c026572f: origin/main 8290701b + Crystal + name gifts + rider c29e49f5); only TASK_NOTES.md conflicted (kept the train's copy, appended this block). Gates re-run on the pick; ships in the same promote as c026572f.
+
+## Current request (2026-10-31) — ITP data: shirt_color = black for Cowboy vs. Alien Showdown Tee f04b60e6 (task 32d53c6f, ada-brooks)
+
+Feed spec check (task 1df2f0be) found f04b60e6 with colors {} and no metadata.shirt_color: its 9 feed items had no
+g:color. Data-only fix by migration + ledger entry, applied on Earth. colors stays {} (feed + product page fall back to
+shirt_color). It was the only active apparel row with no colour, so no other product is touched or carded.
+
+### File shortlist (approved scope — 2026-10-31 shirt colour)
+- `supabase/migrations/20261031234500_product_f04b60e6_shirt_color_black.sql` (new; APPLIED + TRACKED on ITP prod)
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-31 (ada-brooks): applied 2026-11-01 00:39Z after a rolled-back dry run: 1 row, other 2,609 rows hash-identical,
+  re-run 0 rows, schema_migrations row 20261031234500. Feed build at bb93295 over the live rows: 445 items, spec check
+  0 errors, all 9 f04b60e6 items g:color Black. Live product page shows "Color — Black". Proof in
+  E:/memory/watchtower/assets/32d53c6f-itp-shirt-color/.

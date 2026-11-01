@@ -7,6 +7,22 @@ APPLIED/MISSING claim below comes from a live `information_schema` / `pg_proc`
 from reading file contents and assuming. No migration was applied, no `supabase
 db push`/`db reset` was run, nothing was written to the live database.
 
+## 2026-10-31 — Cowboy vs. Alien Showdown Tee `metadata.shirt_color = black` APPLIED + TRACKED (Ada Brooks, Watchtower `32d53c6f`)
+
+- `20261031234500_product_f04b60e6_shirt_color_black.sql` — **APPLIED LIVE** 2026-11-01 00:39Z (2026-10-31 ET), dry-run
+  in a rolled-back transaction first, then one transaction with the ledger row inserted into
+  `supabase_migrations.schema_migrations` (version `20261031234500`). Data only, one row: product
+  `f04b60e6-f89a-45f2-ae2b-2457a89d4ddb` had `colors = {}` and no `metadata.shirt_color`, so all 9 of its items in the
+  product feed (task 1df2f0be) went out with no `g:color` and Google disapproves apparel without colour in the US. Its
+  hero image is `cowboy-vs-alien-showdown-tee-black-1791822263209.png`. `colors` left `{}` on purpose: the feed and the
+  product page both fall back to `shirt_color` when there is no colour list, so item ids are unchanged and the buy box
+  preselects Black. Verified live: 1 row updated, the other 2,609 products' id/metadata/colors/updated_at hash identical
+  before and after, the other 3 metadata keys unchanged, a re-run updates 0 rows; the feed build at bb93295 over the
+  live rows gives 445 items, spec check 0 errors (9 `missing g:color` for this product with the old row), every
+  f04b60e6 item `<g:color>Black</g:color>`; the live product page shows "Color — Black". It was the only active
+  apparel row with no colour. Before/after rows: `E:/memory/watchtower/assets/32d53c6f-itp-shirt-color/`. Rollback =
+  `update public.products set metadata = metadata - 'shirt_color' where id = 'f04b60e6-f89a-45f2-ae2b-2457a89d4ddb';`
+
 ## 2026-10-26 — store referral link: `vendor_storefronts.referral_code` + `referral_percent` APPLIED, NOT TRACKED (Zero Pluto, Watchtower `1a699ba8`; renamed by Zero Nine, `963903af`)
 
 - `20261026211000_vendor_store_referral.sql` — **APPLIED LIVE** 2026-10-26 by Zero Pluto. It was committed as
