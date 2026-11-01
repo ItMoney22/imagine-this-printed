@@ -11,6 +11,8 @@ import { randomUUID } from 'crypto'
 import { parseNamePrint } from '../shared/name-print.js'
 import { SHAPES as NAME_SHAPES } from '../services/name-print/geometry.js'
 import { signNamePrint } from '../services/name-print/store.js'
+import { parsePetOrnament } from '../shared/pet-ornament.js'
+import { readPetPrintSpec, signPetFile } from '../services/pet-ornament/store.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -291,14 +293,40 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
               : null
           const nameStlUrl = namePath ? await signNamePrint(namePath).catch(() => undefined) : undefined
 
+          // A pet ornament (task 81358f3a) prints THIS line's parts: one STL
+          // per colour, each with its AMS slot, read from the line's
+          // print-spec.json. Never the product's static mesh.
+          const petTemplate = nameTemplate ? null : parsePetOrnament(p.metadata)
+          const petPath: string | null =
+            petTemplate && typeof itemRow?.metadata?.print_file_path === 'string' && itemRow.metadata.print_file_path.endsWith('/print-spec.json')
+              ? itemRow.metadata.print_file_path
+              : null
+          let petParts: Array<Record<string, unknown>> | undefined
+          let petError: string | undefined
+          if (petTemplate) {
+            try {
+              if (!petPath) throw new Error(itemRow?.metadata?.print_file_error ?? 'no print file on this line')
+              const spec = await readPetPrintSpec(petPath)
+              petParts = await Promise.all(
+                spec.parts.map(async (part) => ({ ...part, stlUrl: await signPetFile(part.stl) }))
+              )
+            } catch (err: any) {
+              petError = err?.message ?? 'pet ornament print files unreadable'
+            }
+          }
+
           out.push({
             itpOrderId: o.id,
-            lineItemId: namePath ? `${it.product_id}:${namePath.split('/').pop()!.replace(/\.stl$/, '')}` : it.product_id,
+            lineItemId: namePath
+              ? `${it.product_id}:${namePath.split('/').pop()!.replace(/\.stl$/, '')}`
+              : petPath
+                ? `${it.product_id}:${petPath.split('/').slice(-2, -1)[0]}`
+                : it.product_id,
             line: 'custom-toy',
             title: it.product_name || p.name || 'Catalog 3D print',
             concept: p.name || it.product_name || 'Catalog 3D print',
             glbUrl: await meshLinkFor(p.metadata?.print3d?.glb_url || p.metadata?.glb_url, PRINT_FILE_LINK_TTL_MINUTES),
-            stlUrl: nameTemplate ? nameStlUrl : await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
+            stlUrl: nameTemplate ? nameStlUrl : petTemplate ? undefined : await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
             referenceUrl: Array.isArray(p.images) && p.images[0] ? p.images[0] : undefined,
             quantity: it.quantity || 1,
             ...(nameTemplate
@@ -309,6 +337,16 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
                   // filament change at the top of the plate.
                   nameColours: { plate: nameTemplate.colours.plate.name, letters: nameTemplate.colours.letters.name },
                   colourChangeAtMm: NAME_SHAPES[nameTemplate.shape].plate,
+                }
+              : {}),
+            ...(petTemplate
+              ? {
+                  personalization: itemRow?.metadata?.personalization ?? null,
+                  // Multi-part, one filament per part (stacked by height):
+                  // load each part's filament in its slot, assemble the parts
+                  // as ONE object, slice with the process named in the spec.
+                  petOrnamentParts: petParts,
+                  printFileError: petError,
                 }
               : {}),
             material: p.metadata?.print3d?.material || 'PLA',
