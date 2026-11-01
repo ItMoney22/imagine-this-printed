@@ -1,5 +1,32 @@
 # TASK_NOTES
 
+## Current request (2026-11-01) — the Earth print runner prints pet ornament lines (task 0b4fe5d1, lucas-blaze)
+
+ITP's print bridge (Saturn e3f81a0, shipping as 200549e on SHIP ef1e9c04) sends a pet ornament line with stlUrl empty
+and petOrnamentParts: [{key, stl, stlUrl, slot, filament, filamentName, hex, z0, z1}]. The rail that reads it lives in
+the DASHBOARD repo, so the code is there, not here: ItMoney22/david-trinidad-com branch
+earth/lucas-blaze/print-runner-accept-peto-0b4fe5d1-dtc @ ce66c954. Nothing in ITP changes: the bridge's shape is
+read as it is.
+
+Decisions:
+- Intake copies every part into R2 at pull time (ITP's links last 7 days), all or none; approve writes one print_jobs
+  row per copy with stl_key NULL and part_colors = the parts (an older runner fails it instead of printing one part).
+- Each part prints in the shop's own spool of its name (ITP's Black #1B1B1B is 81 from the #000000 a Bambu Black
+  reports, past the runner's 60, so it would never be found); a name the shop palette lacks keeps ITP's colour.
+- Slots 1..4 only (one AMS lite), one colour per slot, none skipped; z0/z1 are checked against each file (0.05 mm),
+  never used to move it. A colour not loaded stops the job before the printer, like a name gift.
+- Runner = print_check.py's recipe: --load-assemble-list (ONE object, one shift), filaments [slot] + extruders
+  replaced, 0.16mm Optimal @BBL A1 + print_check SHOP + the pet spec's overrides, Textured PEI.
+
+### File shortlist (approved scope — 2026-11-01 pet ornament runner)
+- `TASK_NOTES.md` (this note only; the code is in david-trinidad-com, files listed in its commit)
+
+### Work log (append-only)
+- 2026-11-01 (lucas-blaze): Saturn's passed parts through Earth's runner: 15.19 g, 8.43/2.09/2.26/2.41 g per
+  filament = Saturn's to the hundredth, 12 AMS loads, 4.20 mm, bed 65; 4409 s vs 4308 s (older CLI estimator);
+  print_check's coverage: 0.0 mm2 wrong filament. With the shop's spool colours 15.64 g (bigger purge, same object
+  grams), still 0.0 mm2. Single-STL slices byte-identical before/after.
+
 ## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
 
 David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her
