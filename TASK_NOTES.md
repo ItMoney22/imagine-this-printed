@@ -1,5 +1,41 @@
 # TASK_NOTES
 
+## Current request (2026-11-01) — Etsy pet ornament order -> print files (task 5d007181, ada-brooks)
+An Etsy sale of the create-your-own pet ornament (draft 4607572810) must turn into the same print files as a site
+checkout: read the pet name (max 12) and the buyer's uploaded photo from the transaction personalization, pick the
+pet type from the photo (cat/dog/bunny, no new buyer question), run services/pet-ornament/* unchanged, and leave the
+order line the print bridge turns into petOrnamentParts. One command for a receipt id; the receipt poller does the
+same for new sales. Etsy calls here are reads only.
+
+### File shortlist (approved scope — 2026-11-01 Etsy pet orders)
+- `backend/services/etsy-personalization.ts` / `.test.ts` (new: multi-answer reader + photo download)
+- `backend/services/pet-ornament/pet-detect.ts` / `.test.ts` (new: pet type from the photo)
+- `backend/services/pet-ornament/etsy-order.ts` / `.test.ts` (new: Etsy line -> print files)
+- `backend/services/pet-ornament/store.ts` (signed-parts helper + print_check spec, shared with the bridge and scripts)
+- `backend/routes/print-bridge.ts` (calls the shared signed-parts helper; no behaviour change)
+- `backend/scripts/etsy-pet-order.ts` (new: the command), `backend/scripts/pet-ornament-build.ts` (shared spec)
+- `backend/worker/etsy-receipt-ingest.ts` / `.test.ts` (pet lines built at ingest, before the order insert)
+- `backend/services/etsy.ts` (export the api-key header + a one-receipt read)
+- `backend/shared/pet-ornament.ts` / `.test.ts` (ADDED mid-task: the live seeded row dff53dc2 stores pets as
+  {id,label} objects and parsePetOrnament read only ids, so the product parsed as null - not a pet ornament - on
+  the site, at checkout, in the bridge and here; the parser now reads both)
+- `CLAUDE_TASK.md`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-01 (ada-brooks, Earth, task 5d007181): fast-forwarded this branch onto 200549e (pet ornament merge). Etsy pet
+  order -> print files: services/etsy-personalization.ts reads every property_id 54 answer (unescaped; upload answers =
+  URLs; only Etsy https hosts fetched, Etsy API headers only on a 401/403 and never off Etsy); pet-detect.ts reads the
+  pet type off the photo (house vision model, low detail; no animal -> held; unsure/no answer -> closest/first pet,
+  flagged); pet-ornament/etsy-order.ts runs portrait.ts + store.ts unchanged and returns checkout's line shape
+  (petLineMeta = checkout's order_items keys + etsy_pet). The receipt poller builds pet lines BEFORE the order insert
+  (bridge settles 60 s after paid_at; a drawing can take longer) and skips a receipt that is already an order.
+  scripts/etsy-pet-order.ts = the command (GET-only Etsy, token never refreshed). Bridge now calls the shared
+  signedPetParts. FOUND + FIXED: the live seeded row dff53dc2 stores pets as {id,label}, parsePetOrnament read ids
+  only -> the product parsed as null everywhere; parser reads both. etsy_listings row 754b08d9 maps 4607572810 ->
+  dff53dc2 (state draft: inert to the publish worker). Proof: test receipt (real lab photo) -> dog 99% -> 4 STLs +
+  print_spec.json; Saturn print_check PASS (0.0 mm2 wrong colour, 14.67 g, 1h 9m 46s); runner intake (dtc ce66c954)
+  accepts the bridge line. Gates: tsc -b 0, backend tsc 0, vitest 214 files / 2827 pass.
+
 ## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
 
 David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her

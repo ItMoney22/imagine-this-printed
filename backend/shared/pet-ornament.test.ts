@@ -18,6 +18,14 @@ describe('pet ornament template', () => {
     expect(parsePetOrnament({})).toBeNull()
   })
 
+  it('reads the live seeded row, whose pets are stored as whole choices (task 5d007181)', () => {
+    // products dff53dc2 as pet-ornament-seed.ts wrote it on 2026-11-01.
+    const live = { pet_ornament: { font: 'brush-script', pets: [{ id: 'cat', label: 'Cat' }, { id: 'dog', label: 'Dog' }, { id: 'bunny', label: 'Bunny' }], field: { key: 'name', max: 12, label: "Your pet's name" }, photo: true, version: 1, upcharge: 0 } }
+    const t = parsePetOrnament(live)
+    expect(t?.pets.map((p) => p.id)).toEqual(['cat', 'dog', 'bunny'])
+    expect(parsePetOrnament(meta({ pets: [{ id: 'dragon' }, { label: 'Dog' }, null] }))).toBeNull()
+  })
+
   it('keeps only pets the house can draw', () => {
     expect(parsePetOrnament(meta({ pets: ['dog', 'dragon'] }))!.pets.map((p) => p.id)).toEqual(['dog'])
     expect(parsePetOrnament(meta({ pets: ['dragon'] }))).toBeNull()

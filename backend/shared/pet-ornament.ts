@@ -95,7 +95,11 @@ export function parsePetOrnament(metadata: unknown): PetOrnamentTemplate | null 
   if (raw.version !== PET_ORNAMENT_VERSION) return null
   if (typeof raw.font !== 'string' || !FONT_RE.test(raw.font)) return null
 
-  const wanted: unknown[] = Array.isArray(raw.pets) && raw.pets.length ? raw.pets : PETS.map((p) => p.id)
+  // Ids ("cat") or whole choices ({ id: "cat", label: "Cat" }): the seed script
+  // writes the parsed shape, so the live row (dff53dc2) holds objects, and
+  // reading only ids made it "not a pet ornament" everywhere (task 5d007181).
+  const listed: unknown[] = Array.isArray(raw.pets) && raw.pets.length ? raw.pets : PETS.map((p) => p.id)
+  const wanted = listed.map((p) => (p && typeof p === 'object' ? (p as { id?: unknown }).id : p))
   const pets = PETS.filter((p) => wanted.includes(p.id))
   if (pets.length === 0) return null
 

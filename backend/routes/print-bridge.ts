@@ -12,7 +12,7 @@ import { parseNamePrint } from '../shared/name-print.js'
 import { SHAPES as NAME_SHAPES } from '../services/name-print/geometry.js'
 import { signNamePrint } from '../services/name-print/store.js'
 import { parsePetOrnament } from '../shared/pet-ornament.js'
-import { readPetPrintSpec, signPetFile } from '../services/pet-ornament/store.js'
+import { signedPetParts } from '../services/pet-ornament/store.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -306,10 +306,8 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           if (petTemplate) {
             try {
               if (!petPath) throw new Error(itemRow?.metadata?.print_file_error ?? 'no print file on this line')
-              const spec = await readPetPrintSpec(petPath)
-              petParts = await Promise.all(
-                spec.parts.map(async (part) => ({ ...part, stlUrl: await signPetFile(part.stl) }))
-              )
+              // Shared with the Etsy order command (task 5d007181), so both send the same parts.
+              petParts = await signedPetParts(petPath)
             } catch (err: any) {
               petError = err?.message ?? 'pet ornament print files unreadable'
             }

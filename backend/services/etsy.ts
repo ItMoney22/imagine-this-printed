@@ -106,6 +106,11 @@ function apiKey(): string {
   return s ? `${keystring()}:${s}` : keystring()
 }
 
+/** The x-api-key value for a data call, for callers that hold their own token (scripts/etsy-pet-order.ts). */
+export function etsyApiKey(): string {
+  return apiKey()
+}
+
 function redirectUri(): string {
   return process.env.ETSY_REDIRECT_URI
     || `${process.env.API_ORIGIN || 'http://localhost:4000'}/api/admin/etsy/callback`
@@ -1245,6 +1250,25 @@ export async function getShopReceipts(opts: { minLastModified?: number; limit?: 
   if (opts.minLastModified !== undefined) params.set('min_last_modified', String(opts.minLastModified))
   const res = await etsyFetch(`/application/shops/${shopId}/receipts?${params.toString()}`, { token })
   return (res?.results ?? []) as EtsyReceipt[]
+}
+
+/**
+ * Headers for a READ of something Etsy keeps behind the shop's login, such as
+ * a buyer's personalization upload (task 5d007181). Same token path as every
+ * other call here.
+ */
+export async function etsyReadHeaders(): Promise<Record<string, string>> {
+  const { token } = await getAccessToken()
+  return { 'x-api-key': apiKey(), Authorization: `Bearer ${token}` }
+}
+
+/** One shop receipt with its transactions (read only). `token` lets a script use the live token without refreshing it. */
+export async function getShopReceipt(receiptId: number, opts: { token?: string; shopId?: number } = {}): Promise<EtsyReceipt> {
+  let token = opts.token
+  let shopId = opts.shopId ?? null
+  if (!token) ({ token, shopId } = await getAccessToken())
+  if (!shopId) throw new Error('No Etsy shop on the connected account yet')
+  return (await etsyFetch(`/application/shops/${shopId}/receipts/${receiptId}`, { token })) as EtsyReceipt
 }
 
 // ---------------------------------------------------------------------------

@@ -172,3 +172,42 @@ export async function readPetPrintSpec(specPath: string): Promise<PetPrintSpec> 
 export function signPetFile(p: string, hours = 24 * 7 - 1): Promise<string> {
   return blobStore.sign(p, hours)
 }
+
+export type SignedPetPart = PetPrintSpec['parts'][number] & { stlUrl: string }
+
+/**
+ * A line's parts as the print bridge hands them over (petOrnamentParts): every
+ * part of the print-spec.json with a signed link to its STL. One function, so a
+ * site order and an Etsy order are sent the same way (task 5d007181).
+ */
+export async function signedPetParts(specPath: string): Promise<SignedPetPart[]> {
+  const spec = await readPetPrintSpec(specPath)
+  return Promise.all(spec.parts.map(async (part) => ({ ...part, stlUrl: await signPetFile(part.stl) })))
+}
+
+/**
+ * The print_spec.json that the print check (assets/itp-print-picks/lib/print_check.py)
+ * slices for real: the settings the first ornament passed with (0.16 mm, 3 walls, 20%
+ * gyroid, ironing, no prime tower) and one object made of every part on its AMS slot.
+ * `stlName` says what each part's file is called next to the spec.
+ */
+export function printCheckSpec(
+  parts: Array<Pick<PetPrintSpec['parts'][number], 'key' | 'slot' | 'filament'>>,
+  name: string,
+  stlName: (key: string) => string
+) {
+  const slug = 'pet-ornament'
+  const title = name ? `Pet ornament ${name}` : 'Pet ornament'
+  return {
+    slug,
+    process: '0.16mm Optimal @BBL A1',
+    overrides: {
+      wall_loops: '3', sparse_infill_density: '20%', sparse_infill_pattern: 'gyroid', top_shell_layers: '5',
+      bottom_shell_layers: '3', brim_type: 'no_brim', seam_position: 'back', ironing_type: 'top',
+      enable_prime_tower: '0', flush_into_infill: '1', prime_tower_width: '25',
+    },
+    colors: parts.map((p) => filamentById(p.filament)!.hex),
+    color_names: parts.map((p) => `Bambu PLA Basic ${filamentById(p.filament)!.name} (${p.key})`),
+    plates: [{ name: title, objects: [{ name: title, parts: parts.map((p) => ({ stl: stlName(p.key), slot: p.slot })) }] }],
+  }
+}
