@@ -5646,6 +5646,7 @@ a DB trigger stamps orders.paid_at, the queue orders, filters and cursors on it,
 - 2026-10-31 (zero-nine, SHIP c6a5a3ec): merged 2270793 onto ITP main 4010ddb (origin/main 2e14daa9 + the QR stand tools);
   only TASK_NOTES.md conflicted (union). The name-print test fake already had `.lte()` + order `paid_at` (Pluto's prep f996303),
   so no test change was needed. Live DB re-checked and an A/B dry run rolled back before the ship.
+
 ## Current request (2026-10-31) — ITP data: shirt_color = black for Cowboy vs. Alien Showdown Tee f04b60e6 (task 32d53c6f, ada-brooks)
 
 Feed spec check (task 1df2f0be) found f04b60e6 with colors {} and no metadata.shirt_color: its 9 feed items had no

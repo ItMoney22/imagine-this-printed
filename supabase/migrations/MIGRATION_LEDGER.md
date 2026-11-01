@@ -22,6 +22,7 @@ db push`/`db reset` was run, nothing was written to the live database.
   f04b60e6 item `<g:color>Black</g:color>`; the live product page shows "Color — Black". It was the only active
   apparel row with no colour. Before/after rows: `E:/memory/watchtower/assets/32d53c6f-itp-shirt-color/`. Rollback =
   `update public.products set metadata = metadata - 'shirt_color' where id = 'f04b60e6-f89a-45f2-ae2b-2457a89d4ddb';`
+
 ## 2026-10-28 — print bridge paid time: `orders.paid_at` + trigger `on_order_paid_stamp` APPLIED + TRACKED (Zero Pluto, Watchtower `b17dc9f6`)
 
 - `20261028220000_orders_paid_at.sql` — **APPLIED LIVE** 2026-10-28 ~21:45Z, dry-run in a rolled-back transaction
