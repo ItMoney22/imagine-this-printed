@@ -170,6 +170,8 @@ describe('GET /api/seo/products.xml', () => {
       expect(it.g('price')[0]).toBe(`${(priceOf(TEE, size) / 100).toFixed(2)} USD`)
       expect(it.g('gender')).toEqual(['unisex'])
       expect(it.g('age_group')).toEqual([size.startsWith('Y') ? 'kids' : 'adult'])
+      // Lands on the page opened on this size, so the page shows this price.
+      expect(it.plain('link')).toMatch(new RegExp(`/product/[^?]+\\?size=${encodeURIComponent(size)}$`))
     }
     // The size surcharge is really in there.
     expect(tee.find(i => i.g('size')[0] === '2XL')!.g('price')[0]).toBe('27.50 USD')
@@ -187,6 +189,7 @@ describe('GET /api/seo/products.xml', () => {
       ['4x6', `${(priceOf(METAL, '4x6') / 100).toFixed(2)} USD`],
       ['8x10', `${(priceOf(METAL, '8x10') / 100).toFixed(2)} USD`]
     ])
+    expect(metal.map(i => i.plain('link').split('?')[1])).toEqual(['size=4x6', 'size=8x10'])
   })
 
   it('images follow the product-page gallery and never carry the print file', async () => {

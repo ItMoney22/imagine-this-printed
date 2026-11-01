@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { Sparkles, ShoppingCart, Check, Upload, Loader2, Store, Truck, ShieldCheck, ChevronDown } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { useAuth } from '../context/SupabaseAuthContext'
@@ -55,6 +55,10 @@ const SHELF_LABELS: Record<string, string> = {
 const ProductPage: React.FC = () => {
   // /product/:id (uuid or slug) or the /p/:code short link Share hands out.
   const { id: routeId, code: shortCode } = useParams<{ id?: string; code?: string }>()
+  // ?size=2XL opens on that size, so each product-feed variant lands on the
+  // price it was listed at (Google Merchant Center checks the two match).
+  const [searchParams] = useSearchParams()
+  const sizeParam = searchParams.get('size')
   const id = routeId ?? shortCode
   const navigate = useNavigate()
   const { addToCart } = useCart()
@@ -173,7 +177,11 @@ const ProductPage: React.FC = () => {
           // placement the design is actually printed at (David 2026-10-07:
           // "Print Placement - required" with no default emptied the cart on
           // f09a7d64). Garment sizes are never guessed.
-          setSelectedSize(defaultSizeFor(mappedProduct))
+          // A ?size= that isn't one of this listing's sizes is ignored.
+          const linkedSize = sizeParam
+            ? sizeChoicesFor(mappedProduct).find(sz => sz.toLowerCase() === sizeParam.trim().toLowerCase())
+            : undefined
+          setSelectedSize(linkedSize ?? defaultSizeFor(mappedProduct))
           const openingColors = colorChoicesFor(mappedProduct)
           setSelectedColor(openingColors.length === 1 ? openingColors[0] : '')
           setSelectedPrintLocation(defaultPrintLocation(mappedProduct) ?? '')
@@ -441,6 +449,10 @@ const ProductPage: React.FC = () => {
   // to the receipt. Everything else is products.price.
   const unitPrice = unitBasePrice(product, selectedSize)
   const priceIsFrom = productKind === 'metal' && !selectedSize && hasPriceRange(product)
+  // What one unit of the picked size costs: a 2XL tee's +$2.50 and a youth
+  // size's -$3.00 are in the headline, not only on the size chip. Display
+  // only; the same rails checkout charges (order-pricing.ts, floored at 0).
+  const sizedUnitPrice = selectedSize ? Math.max(0, unitPrice + sizePriceDelta(product, selectedSize)) : unitPrice
   const toggleAddon = (addon: { id: string; name: string; price: number }) => {
     setSelectedAddons(prev =>
       prev.some(a => a.id === addon.id)
@@ -740,7 +752,7 @@ const ProductPage: React.FC = () => {
             ) : (
               <p className="font-display text-3xl text-text">
                 {priceIsFrom && <span className="text-base font-body text-muted mr-1.5">from</span>}
-                ${unitPrice.toFixed(2)}
+                ${sizedUnitPrice.toFixed(2)}
               </p>
             )}
             {(() => {
@@ -1058,8 +1070,8 @@ const ProductPage: React.FC = () => {
                 </div>
                 {addonsTotal > 0 && (
                   <p className="text-sm text-muted mt-2">
-                    Item total: <span className="font-bold text-text">${(unitPrice + addonsTotal).toFixed(2)}</span>
-                    <span className="text-xs"> (base ${unitPrice.toFixed(2)} + add-ons ${addonsTotal.toFixed(2)})</span>
+                    Item total: <span className="font-bold text-text">${(sizedUnitPrice + addonsTotal).toFixed(2)}</span>
+                    <span className="text-xs"> (base ${sizedUnitPrice.toFixed(2)} + add-ons ${addonsTotal.toFixed(2)})</span>
                   </p>
                 )}
               </div>

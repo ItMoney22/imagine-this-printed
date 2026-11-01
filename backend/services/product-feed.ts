@@ -176,6 +176,10 @@ export function feedItemsFor(row: FeedProductRow, siteUrl: string): FeedItem[] {
     productType: PRODUCT_TYPE_LABELS[category] || category
   }
 
+  // Each size variant links to the page opened on that size (?size=, read by
+  // src/pages/ProductPage.tsx), so the price Google sees there is this item's.
+  const sizedLink = (size: string) => `${base.link}?size=${encodeURIComponent(size)}`
+
   const one = (size: string | null): FeedItem | null => {
     const priceCents = feedUnitPriceCents(row, size)
     if (priceCents === null || priceCents <= 0) return null
@@ -198,6 +202,7 @@ export function feedItemsFor(row: FeedProductRow, siteUrl: string): FeedItem[] {
         const suffix = colors.length > 1 && color ? `-${idPart(color)}` : ''
         items.push({
           ...base,
+          link: sizedLink(size),
           id: `${compactId(row.id)}-${idPart(size)}${suffix}`.slice(0, ID_MAX),
           itemGroupId: row.id,
           priceCents,
@@ -224,6 +229,7 @@ export function feedItemsFor(row: FeedProductRow, siteUrl: string): FeedItem[] {
       if (priceCents === null || priceCents <= 0) continue
       items.push({
         ...base,
+        link: sizedLink(size),
         id: `${compactId(row.id)}-${idPart(size)}`.slice(0, ID_MAX),
         itemGroupId: row.id,
         priceCents,
