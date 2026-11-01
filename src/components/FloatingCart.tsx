@@ -19,6 +19,8 @@ import { ShoppingCart, X, ArrowRight, Trash2, Plus, Minus } from 'lucide-react'
 import { useCart } from '../context/CartContext'
 import { getColorName } from '../utils/color-presets'
 import { unitBasePrice } from '../lib/product-kind'
+import { BUNDLE_DEAL } from '../../backend/shared/promos'
+import { bundleNote } from '../lib/bundle-note'
 
 const AUTO_HIDE_MS = 8000
 
@@ -30,6 +32,7 @@ const FloatingCart: React.FC = () => {
 
   const itemCount = state.items.reduce((sum, item) => sum + item.quantity, 0)
   const subtotal = state.total
+  const bundle = bundleNote(state.items)
 
   const armAutoHide = useCallback(() => {
     if (hideTimer.current) window.clearTimeout(hideTimer.current)
@@ -201,6 +204,12 @@ const FloatingCart: React.FC = () => {
 
           {/* Footer with subtotal + actions */}
           <div className="px-4 py-3 border-t border-white/10 space-y-2">
+            {bundle.saved > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-muted">{BUNDLE_DEAL.label} deal</span>
+                <span className="text-xs font-semibold text-primary">-${bundle.saved.toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted">Subtotal</span>
               <span className="text-base font-bold text-text">${subtotal.toFixed(2)}</span>

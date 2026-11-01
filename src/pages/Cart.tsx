@@ -9,6 +9,8 @@ import { getColorName } from '../utils/color-presets'
 import { addonsUnitTotal, lineBasePrice, printLocationLabel, sizePriceDelta, formatPriceDelta } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import type { CartItem } from '../types'
+import { BUNDLE_DEAL } from '../../backend/shared/promos'
+import { bundleNote } from '../lib/bundle-note'
 import { QR_FIELD, QR_STAND, isQrStandLineId } from '../../backend/shared/qr-stand'
 import { parseNamePrint } from '../../backend/shared/name-print'
 import { NamePrintThumb } from '../components/NamePrintPanel'
@@ -101,6 +103,7 @@ const Cart: React.FC = () => {
   }
 
   const count = state.items.reduce((sum, item) => sum + item.quantity, 0)
+  const bundle = bundleNote(state.items)
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-10">
@@ -189,6 +192,12 @@ const Cart: React.FC = () => {
             <h2 className="font-display text-2xl text-text mb-4">Order summary</h2>
 
             <dl className="space-y-2.5 text-sm">
+              {bundle.saved > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-text-secondary">{BUNDLE_DEAL.label} deal</dt>
+                  <dd className="text-primary font-semibold">-${bundle.saved.toFixed(2)}</dd>
+                </div>
+              )}
               <div className="flex justify-between">
                 <dt className="text-text-secondary">Subtotal</dt>
                 <dd className="text-text">${state.total.toFixed(2)}</dd>
@@ -212,6 +221,9 @@ const Cart: React.FC = () => {
                 </dd>
               </div>
             </dl>
+            {bundle.oneMore && (
+              <p className="mt-3 text-xs text-text-secondary">Add one more {BUNDLE_DEAL.label} tee and the pair costs ${(BUNDLE_DEAL.priceCents / 100).toFixed(0)}.</p>
+            )}
 
             {/* Free shipping progress (threshold lives in shipping-calculator) */}
             <div className="mt-4">
