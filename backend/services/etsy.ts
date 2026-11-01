@@ -351,14 +351,25 @@ async function sourceDesignFile(productId: string, productName?: string | null):
   const url = assets?.[0]?.url
   if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return null
 
-  // Buyers see this filename in their downloads — give them the design name,
-  // not a storage uuid. Keep the real extension so the file opens.
-  const ext = (url.split('?')[0].split('.').pop() || 'png').toLowerCase().slice(0, 4)
-  const slug = String(productName || 'design')
+  return { url, name: sourceDesignFileName(productName, url) }
+}
+
+// Etsy rejects a digital file whose name is outside 3-70 chars or uses anything
+// but letters, digits, '-', '_' and '.' (400 on POST .../files, live 2026-10-31).
+const ETSY_FILE_NAME_MAX = 70
+
+// Buyers see this filename in their downloads — give them the design name,
+// not a storage uuid. Keep the real extension so the file opens. The slug gets
+// whatever the '-300dpi.<ext>' suffix leaves of the 70, and hyphens are trimmed
+// AFTER the cut so a slice that lands on a word break leaves no '--300dpi'.
+export function sourceDesignFileName(productName: string | null | undefined, url: string): string {
+  const ext = ((url.split('?')[0].split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4)) || 'png'
+  const suffix = `-300dpi.${ext}`
+  const slug = String(productName || '')
     .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'design'
-  return { url, name: `${slug}-300dpi.${ext}` }
+    .slice(0, ETSY_FILE_NAME_MAX - suffix.length)
+    .replace(/^-+|-+$/g, '') || 'design'
+  return `${slug}${suffix}`
 }
 
 // ITP category slug → Etsy taxonomy id. Still driven by the ETSY_TAXONOMY_MAP
