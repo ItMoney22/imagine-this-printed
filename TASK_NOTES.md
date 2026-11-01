@@ -1,5 +1,20 @@
 # TASK_NOTES
 
+## Current request (2026-11-01) — Saturn's 5 print picks: Etsy drafts + client-store catalog (task 77a4756c, dane-marsh)
+
+David 11/1 8:05 AM ET: "okay forget the makerworld boost lets just focus on etsy selling make more $$ that way and
+offering it to our clients for them to sell." Etsy drafts are made through the Etsy API from a kit in the memory tree
+(no ITP code change); the client catalog lives in david-trinidad-com (src/lib/business-items/catalog.ts).
+
+### File shortlist (approved scope — 2026-11-01 print picks)
+- `docs/etsy/2026-11-01-print-picks-etsy-sheet.md` (new: drafts, proposed prices, publish plan, measurement)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-01 (dane-marsh): 5 private Etsy drafts with a required name question each (4607531972, 4607511235,
+  4607511249, 4607511267, 4607532022), read back from Etsy; no images (real photos only), nothing published.
+  Prices proposed, pending David. Client catalog STORE_PRODUCTS on dtc branch earth/dane-marsh/print-picks-catalog-77a4756c.
+
 ## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
 
 David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her
