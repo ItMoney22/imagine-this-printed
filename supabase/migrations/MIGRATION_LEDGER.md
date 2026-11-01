@@ -22,6 +22,20 @@ db push`/`db reset` was run, nothing was written to the live database.
   f04b60e6 item `<g:color>Black</g:color>`; the live product page shows "Color — Black". It was the only active
   apparel row with no colour. Before/after rows: `E:/memory/watchtower/assets/32d53c6f-itp-shirt-color/`. Rollback =
   `update public.products set metadata = metadata - 'shirt_color' where id = 'f04b60e6-f89a-45f2-ae2b-2457a89d4ddb';`
+## 2026-10-28 — print bridge paid time: `orders.paid_at` + trigger `on_order_paid_stamp` APPLIED + TRACKED (Zero Pluto, Watchtower `b17dc9f6`)
+
+- `20261028220000_orders_paid_at.sql` — **APPLIED LIVE** 2026-10-28 ~21:45Z, dry-run in a rolled-back transaction
+  first, then one transaction with the ledger row inserted into `supabase_migrations.schema_migrations`. Adds the
+  nullable `orders.paid_at timestamptz`, backfills the 6 paid rows with `paid_at = created_at` (their real paid time
+  was never recorded), trigger `on_order_paid_stamp` (BEFORE INSERT OR UPDATE OF payment_status: stamps
+  `clock_timestamp()` once, when a row is or becomes 'paid' with no stamp) and the partial index `idx_orders_paid_at`.
+  The dry run proved: a webhook-shaped flip stamps; a later status update, a same-value payment_status update,
+  paid -> refunded -> paid and an Etsy-style upsert all keep the first stamp; an insert as paid stamps; an explicit
+  paid_at is kept; a pending row stays unstamped; from the print bridge's seeded cursor (2026-09-12T14:07:56.865516Z)
+  no old order comes back. Verified live after: column, trigger, index and ledger row present, 6 backfilled, 3 pending
+  unstamped, 0 past the seeded cursor, and the route's own PostgREST query answers (0 rows from the cursor). Live code
+  does not read it yet: `backend/routes/print-bridge.ts` GET /queue walks it once the b17dc9f6 branch ships.
+  Rollback is in the file header.
 
 ## 2026-10-26 — store referral link: `vendor_storefronts.referral_code` + `referral_percent` APPLIED, NOT TRACKED (Zero Pluto, Watchtower `1a699ba8`; renamed by Zero Nine, `963903af`)
 
