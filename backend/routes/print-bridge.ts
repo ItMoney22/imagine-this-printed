@@ -11,6 +11,8 @@ import { randomUUID } from 'crypto'
 import { parseNamePrint } from '../shared/name-print.js'
 import { SHAPES as NAME_SHAPES } from '../services/name-print/geometry.js'
 import { signNamePrint } from '../services/name-print/store.js'
+import { parsePetOrnament } from '../shared/pet-ornament.js'
+import { readPetPrintSpec, signPetFile } from '../services/pet-ornament/store.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -67,23 +69,39 @@ const CUSTOMER_STATUSES = [
 // PRINT_WORKER_EMAILS (comma-separated); falls back to the company mailbox.
 const WORKER_NOTIFY_STATUSES = new Set(['insert_pause', 'ready_for_packing'])
 
+// The queue walks orders.paid_at, the moment an order became paid (a DB
+// trigger stamps it: supabase/migrations/20261028220000_orders_paid_at.sql).
+// It used to walk created_at, but checkout writes the row as pending before
+// the customer pays, so an order opened first and paid second sat behind a
+// cursor a newer, faster order had already moved past, and was never pulled
+// (Watchtower task b17dc9f6).
+//
+// A stamp is only visible once its payment's write commits, so a row stamped
+// a moment before another can show up a moment after it. The queue only walks
+// stamps older than this, so the cursor never passes one still in flight.
+// Watchtower pulls every 5 minutes; a minute's wait costs nothing.
+export const PAID_SETTLE_MS = 60_000
+
 /**
  * GET /api/print-bridge/queue
- * Paid orders (payment_status='paid') created after `since`, that contain a
- * 3D-print line item, mapped to the bridge order shape Watchtower expects.
+ * Paid orders that became paid after `since` (orders.paid_at), oldest payment
+ * first, that contain a 3D-print line item, mapped to the bridge order shape
+ * Watchtower expects. `cursor` is the paid_at of the last order scanned.
  */
 router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const since = (req.query.since as string) || ''
     const limit = Math.min(Number(req.query.limit) || 50, 100)
+    const settledBefore = new Date(Date.now() - PAID_SETTLE_MS).toISOString()
 
     let q = supabase
       .from('orders')
-      .select('id, order_number, customer_email, customer_name, total, created_at, payment_status, metadata')
+      .select('id, order_number, customer_email, customer_name, total, created_at, paid_at, payment_status, metadata')
       .eq('payment_status', 'paid')
-      .order('created_at', { ascending: true })
+      .lte('paid_at', settledBefore)
+      .order('paid_at', { ascending: true })
       .limit(limit)
-    if (since) q = q.gt('created_at', since)
+    if (since) q = q.gt('paid_at', since)
 
     const { data: orders, error } = await q
     if (error) return res.status(500).json({ error: error.message })
@@ -91,7 +109,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
     const out: any[] = []
     let cursor = since
     for (const o of orders || []) {
-      cursor = o.created_at // advance past every scanned order, 3D or not
+      cursor = o.paid_at // advance past every scanned order, 3D or not
 
       // Production order_items columns are (product_id uuid, product_name,
       // quantity, unit_price, subtotal, metadata) — NOT price/total. And a
@@ -275,14 +293,40 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
               : null
           const nameStlUrl = namePath ? await signNamePrint(namePath).catch(() => undefined) : undefined
 
+          // A pet ornament (task 81358f3a) prints THIS line's parts: one STL
+          // per colour, each with its AMS slot, read from the line's
+          // print-spec.json. Never the product's static mesh.
+          const petTemplate = nameTemplate ? null : parsePetOrnament(p.metadata)
+          const petPath: string | null =
+            petTemplate && typeof itemRow?.metadata?.print_file_path === 'string' && itemRow.metadata.print_file_path.endsWith('/print-spec.json')
+              ? itemRow.metadata.print_file_path
+              : null
+          let petParts: Array<Record<string, unknown>> | undefined
+          let petError: string | undefined
+          if (petTemplate) {
+            try {
+              if (!petPath) throw new Error(itemRow?.metadata?.print_file_error ?? 'no print file on this line')
+              const spec = await readPetPrintSpec(petPath)
+              petParts = await Promise.all(
+                spec.parts.map(async (part) => ({ ...part, stlUrl: await signPetFile(part.stl) }))
+              )
+            } catch (err: any) {
+              petError = err?.message ?? 'pet ornament print files unreadable'
+            }
+          }
+
           out.push({
             itpOrderId: o.id,
-            lineItemId: namePath ? `${it.product_id}:${namePath.split('/').pop()!.replace(/\.stl$/, '')}` : it.product_id,
+            lineItemId: namePath
+              ? `${it.product_id}:${namePath.split('/').pop()!.replace(/\.stl$/, '')}`
+              : petPath
+                ? `${it.product_id}:${petPath.split('/').slice(-2, -1)[0]}`
+                : it.product_id,
             line: 'custom-toy',
             title: it.product_name || p.name || 'Catalog 3D print',
             concept: p.name || it.product_name || 'Catalog 3D print',
             glbUrl: await meshLinkFor(p.metadata?.print3d?.glb_url || p.metadata?.glb_url, PRINT_FILE_LINK_TTL_MINUTES),
-            stlUrl: nameTemplate ? nameStlUrl : await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
+            stlUrl: nameTemplate ? nameStlUrl : petTemplate ? undefined : await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
             referenceUrl: Array.isArray(p.images) && p.images[0] ? p.images[0] : undefined,
             quantity: it.quantity || 1,
             ...(nameTemplate
@@ -293,6 +337,16 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
                   // filament change at the top of the plate.
                   nameColours: { plate: nameTemplate.colours.plate.name, letters: nameTemplate.colours.letters.name },
                   colourChangeAtMm: NAME_SHAPES[nameTemplate.shape].plate,
+                }
+              : {}),
+            ...(petTemplate
+              ? {
+                  personalization: itemRow?.metadata?.personalization ?? null,
+                  // Multi-part, one filament per part (stacked by height):
+                  // load each part's filament in its slot, assemble the parts
+                  // as ONE object, slice with the process named in the spec.
+                  petOrnamentParts: petParts,
+                  printFileError: petError,
                 }
               : {}),
             material: p.metadata?.print3d?.material || 'PLA',

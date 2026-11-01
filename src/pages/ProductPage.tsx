@@ -23,6 +23,8 @@ import { ProductSocialProof } from '../components/reviews/RealReviews'
 import { imaginationApi, apiFetch, tryonApi } from '../lib/api'
 import TeamPersonalizePanel, { type TeamTemplateSummary } from '../components/TeamPersonalizePanel'
 import NamePrintPanel from '../components/NamePrintPanel'
+import PetOrnamentPanel from '../components/PetOrnamentPanel'
+import { parsePetOrnament, sanitizePetValues } from '../../backend/shared/pet-ornament'
 import { parseNamePrint, sanitizeNameValues } from '../../backend/shared/name-print'
 import { canonicalCategoryOf, resolveProductAddons, addonsUnitTotal, getGalleryImages, offersDigitalDownload, isBlankProduct, unitBasePrice, startingPrice, hasPriceRange, metalSizePrice, productKindOf, sizeChoicesFor, listingOptionSets, colorChoicesFor, defaultSizeFor, sizePriceDelta, formatPriceDelta, placementChoicesFor, defaultPrintLocation, printLocationLabel } from '../lib/product-kind'
 import { isYouthSize, YOUTH_SIZE_DISCOUNT_DOLLARS } from '../../backend/shared/catalog-capability'
@@ -403,13 +405,24 @@ const ProductPage: React.FC = () => {
   // Same personalization values and the same checkout lane as a team shirt.
   const namePrint = parseNamePrint((product as any)?.metadata)
   const namedValues = namePrint ? sanitizeNameValues(namePrint, personalization) : null
+  // A create-your-own pet ornament (task 81358f3a): products.metadata.pet_ornament.
+  // Same lane again; its values are { pet, name, portrait }.
+  const petOrnament = parsePetOrnament((product as any)?.metadata)
+  const petValues = petOrnament ? sanitizePetValues(petOrnament, personalization) : null
   const personalizationComplete =
     (!teamTemplate || teamTemplate.fields.every((f: any) => (personalization[f.key] ?? '').length > 0)) &&
-    (!namePrint || (namedValues![namePrint.field.key] ?? '').length > 0)
-  const cartPersonalization = teamTemplate ? personalization : namedValues ?? undefined
+    (!namePrint || (namedValues![namePrint.field.key] ?? '').length > 0) &&
+    (!petOrnament || petValues!.name.length > 0)
+  const cartPersonalization = teamTemplate
+    ? personalization
+    : petValues && petOrnament
+      ? { pet: petValues.pet, [petOrnament.field.key]: petValues.name, portrait: petValues.portrait }
+      : namedValues ?? undefined
   const missingPersonalization = teamTemplate
     ? teamTemplate.fields.map((f: any) => f.label.toLowerCase()).join(' and ')
-    : 'name'
+    : petOrnament
+      ? "pet's name"
+      : 'name'
 
   // Blank garment pricing — per size + colour group off the product's own
   // table (backend/shared/blank-pricing.ts). products.price is only the
@@ -1072,6 +1085,15 @@ const ProductPage: React.FC = () => {
                 values={personalization}
                 onChange={setPersonalization}
                 onUnsupported={() => setPersonalizeUnsupported(true)}
+              />
+            )}
+
+            {petOrnament && (
+              <PetOrnamentPanel
+                productId={product.id}
+                template={petOrnament}
+                values={personalization}
+                onChange={setPersonalization}
               />
             )}
 

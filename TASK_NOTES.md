@@ -5626,3 +5626,24 @@ Fix at the one chokepoint (`sendEmailWithTracking`) so all paths log, with error
 - 2026-10-12 (levi-james): scope added; live schema read-only inspected (20 cols, 6 rows, newest 2025-12-23).
 - 2026-10-12 (levi-james): shipped recorder `backend/services/email-log.ts`; `sendEmailWithTracking` now logs every send (sent/failed/suppressed/no-key) and 28 senders carry template keys; logEmail delegates; admin send-test no longer double-logs. 9 new vitest + live proof `backend/scripts/verify-email-logs.ts` (real Resend sink sends, rows read back via the admin query, cleaned up). Not deployed.
 - 2026-10-30 (zero-nine, ship 01e26f7c): rebuilt b7ee3be as one pick onto the 10/30 ITP train 418d060 (c026572f: origin/main 8290701b + Crystal + name gifts + rider c29e49f5); only TASK_NOTES.md conflicted (kept the train's copy, appended this block). Gates re-run on the pick; ships in the same promote as c026572f.
+
+## Current request (2026-10-28) — print bridge cursor walks the paid time, not created_at (task b17dc9f6, zero-pluto)
+
+GET /api/print-bridge/queue walked created_at, but checkout writes the order pending before the customer pays, so an
+order opened first and paid second was skipped forever once a newer order's pull moved the cursor. Fix (a), ITP side:
+a DB trigger stamps orders.paid_at, the queue orders, filters and cursors on it, and only walks stamps over a minute old.
+
+### File shortlist (approved scope — 2026-10-28 print bridge cursor)
+- `backend/routes/print-bridge.ts` (GET /queue only), `backend/routes/print-bridge.queue.test.ts` (new)
+- `backend/routes/3d-models.model-files.test.ts` (its fake DB learns `.lte()` + the fixture gets paid_at)
+- `supabase/migrations/20261028220000_orders_paid_at.sql` (new, applied live), `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (zero-pluto): new A/B test red on the old route (second pull empty), green after; migration dry-run in a
+  rolled-back transaction then applied + tracked live; vitest 199 files / 2716 tests green; backend tsc only the 6
+  worktree-path TS2742 notes in middleware/rate-limits.ts.
+- 2026-10-31 (zero-nine, SHIP c6a5a3ec): merged 2270793 onto ITP main 4010ddb (origin/main 2e14daa9 + the QR stand tools);
+  only TASK_NOTES.md conflicted (union). The name-print test fake already had `.lte()` + order `paid_at` (Pluto's prep f996303),
+  so no test change was needed. Live DB re-checked and an A/B dry run rolled back before the ship.
+- 2026-11-01 (ada-brooks, Saturn, task 81358f3a): create-your-own pet ornament. products.metadata.pet_ornament (backend/shared/pet-ornament.ts); photo -> GPT Image 2.5 Flare low flat portrait -> 4-colour print map (services/pet-ornament/quantize.ts, 0.2 mm grid, ink thickened, slivers/specks/saddles fixed) -> one watertight STL per colour, stacked by height (plate 2.6 / coats 3.4 / ink+name+rim 4.2) + print-spec.json (geometry.ts, store.ts). Routes /api/pet-ornament/portrait (rate-limited, daily cap, same photo never redrawn) + /preview (free). Checkout petOrnamentForLine, print bridge sends petOrnamentParts. Stock cat/dog/bunny maps in backend/assets/pet-ornament. PetOrnamentPanel on ProductPage, cart chips + own-pet thumb. Seed: scripts/pet-ornament-seed.ts ($19.99, draft unless --activate). Scope additions: name-print/geometry.ts (exports only), stripe.ts, print-bridge.ts, index.ts, Cart.tsx, ProductPage.tsx, public/pet-ornament/. vitest 2783/2783, tsc clean, real Bambu CLI slice PASS (15.2 g, 1h12m), walked 390 + 1400 with a real cat photo.
