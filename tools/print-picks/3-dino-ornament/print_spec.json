@@ -1,0 +1,57 @@
+{
+ "slug": "dino-ornament",
+ "process": "0.16mm Optimal @BBL A1",
+ "overrides": {
+  "wall_loops": "3",
+  "sparse_infill_density": "20%",
+  "sparse_infill_pattern": "gyroid",
+  "top_shell_layers": "5",
+  "bottom_shell_layers": "3",
+  "brim_type": "no_brim",
+  "seam_position": "back",
+  "ironing_type": "top",
+  "enable_prime_tower": "0",
+  "flush_into_infill": "1",
+  "prime_tower_width": "25"
+ },
+ "colors": [
+  "#2E9E4A",
+  "#8FD16A",
+  "#D7262E",
+  "#F4F4F0"
+ ],
+ "color_names": [
+  "Bambu PLA Basic Green (body)",
+  "Bambu PLA Basic light green / Bambu Green (belly)",
+  "Bambu PLA Basic Red (hat)",
+  "Bambu PLA Basic Jade White (trim, name)"
+ ],
+ "plates": [
+  {
+   "name": "Dino ornament NOAH",
+   "objects": [
+    {
+     "name": "Dino ornament NOAH",
+     "parts": [
+      {
+       "stl": "dino_ornament_green.stl",
+       "slot": 1
+      },
+      {
+       "stl": "dino_ornament_light.stl",
+       "slot": 2
+      },
+      {
+       "stl": "dino_ornament_red.stl",
+       "slot": 3
+      },
+      {
+       "stl": "dino_ornament_white.stl",
+       "slot": 4
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,5 +1,29 @@
 # TASK_NOTES
 
+## Current request (2026-11-01) - print-pick order files match PRINT.3mf (task e912b835, mason-blaze)
+
+A new buyer name for a print pick (make_*.py in E:/memory/watchtower/assets/itp-print-picks/<n>-<slug>/) sliced
+through lib/itp_slice.py: Cool Plate (35 C bed), 0.20 mm, 2 walls, no ironing, one all-colour plate, no N2S stamp.
+The product PRINT.3mf files come from lib/print_check.py on print_spec.json. Fix: every make_*.py now ends in
+lib/order_print.py (product spec -> order spec -> print_check -> compare against the product's PRINT.3mf).
+The live code is the memory tree; this repo keeps the git record in tools/print-picks/.
+
+### File shortlist (approved scope - 2026-11-01 print-pick order files)
+- `tools/print-picks/**` (new: git record of the memory-tree lib, the five make scripts and print specs)
+- memory tree, not this repo: `assets/itp-print-picks/lib/{order_print,compare_print,prove_orders}.py` (new),
+  `lib/itp_slice.py` (docstring only), `<n>-<slug>/make_*.py` x5 (slice step -> order_print)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-01 (mason-blaze): measured the gap from the files (compare_print.py, PRINT.3mf vs the old itp_slice
+  .gcode.3mf of each product): Cool Plate / 35 C vs Textured PEI / 65 C, 0.20 vs 0.16 mm on 4 of 5, wall_loops 2 vs 3,
+  arachne vs classic, ironing off, 1 plate vs 1/4/1/3/4, generic start gcode, printer_model_id empty. Routed all five
+  make scripts through order_print; dry test on Earth (fake STLs) proved re-pointing, renames and the guards.
+- 2026-11-01 (mason-blaze): Saturn job 20261101-te912b835-itp-order-print-proof ran lib/prove_orders.py with
+  Earth's exact code (9 sha256 equal): 5/5 MATCH (The Garcias, SOPHIA, MAYA, LUCAS 7, Ms. Rivera), every plate
+  Textured PEI / M140 S65, settings_diff {}, plate lists 1/4/1/3/4 equal, N2S stamped; re-read on Earth with
+  compare_print.py, same result. Git record in tools/print-picks/.
+
 ## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
 
 David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her

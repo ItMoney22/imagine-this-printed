@@ -1,0 +1,13 @@
+{"slug": "shadow-ornament",
+ "process": "0.16mm Optimal @BBL A1",
+ "overrides": {
+   "brim_type": "no_brim",
+   "wall_loops": "3",
+   "sparse_infill_density": "100%", "sparse_infill_pattern": "zig-zag",
+   "top_shell_layers": "5", "bottom_shell_layers": "4",
+   "ironing_type": "top", "ironing_flow": "10%", "ironing_spacing": "0.15",
+   "seam_position": "back"
+ },
+ "colors": ["#FFFFFF"], "color_names": ["Bambu PLA Basic Jade White"],
+ "plates": [{"name": "Shadow ornament - The Trinidads", "objects": [
+   {"name": "Shadow ornament (The Trinidads)", "parts": [{"stl": "shadow_ornament.stl", "slot": 1}]}]}]}

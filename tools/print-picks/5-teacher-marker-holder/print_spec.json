@@ -1,0 +1,197 @@
+{
+ "slug": "teacher-marker-holder",
+ "process": "0.16mm Optimal @BBL A1",
+ "overrides": {
+  "wall_loops": "3",
+  "sparse_infill_density": "15%",
+  "sparse_infill_pattern": "gyroid",
+  "top_shell_layers": "5",
+  "bottom_shell_layers": "4",
+  "brim_type": "no_brim",
+  "seam_position": "back",
+  "enable_prime_tower": "0",
+  "flush_into_infill": "1"
+ },
+ "colors": [
+  "#F7C600",
+  "#1B1B1B",
+  "#D3202A",
+  "#3FA34D",
+  "#F4949C",
+  "#9EA3A8",
+  "#D9B48A"
+ ],
+ "color_names": [
+  "Bambu PLA Basic Yellow (body)",
+  "Bambu PLA Basic Black (name, tip)",
+  "Bambu PLA Basic Red (apple)",
+  "Bambu PLA Basic Green (leaf)",
+  "Bambu PLA Basic Pink (eraser)",
+  "Bambu PLA Basic Grey / Silver (ferrule)",
+  "Bambu PLA Basic Beige / Wood (cone)"
+ ],
+ "plates": [
+  {
+   "name": "1 Pencil body Mrs. Johnson (AMS set 1: yellow, black, red, green)",
+   "objects": [
+    {
+     "name": "Pencil body MRS. JOHNSON",
+     "parts": [
+      {
+       "stl": "marker_holder_A_yellow_body.stl",
+       "slot": 1
+      },
+      {
+       "stl": "marker_holder_A_black_name.stl",
+       "slot": 2
+      },
+      {
+       "stl": "marker_holder_A_red_apple.stl",
+       "slot": 3
+      },
+      {
+       "stl": "marker_holder_A_green_leaf.stl",
+       "slot": 4
+      }
+     ],
+     "print_params": {
+      "ironing_type": "top",
+      "layer_height": "0.2"
+     }
+    }
+   ]
+  },
+  {
+   "name": "2 Eraser + ferrule + 2 joint dowels (AMS set 2: pink, black, grey, wood)",
+   "objects": [
+    {
+     "name": "Eraser and ferrule",
+     "parts": [
+      {
+       "stl": "marker_holder_B_pink_eraser.stl",
+       "slot": 5
+      },
+      {
+       "stl": "marker_holder_B_grey_ferrule.stl",
+       "slot": 6
+      }
+     ]
+    },
+    {
+     "name": "Joint dowel 1 (pink, hidden in the joint)",
+     "parts": [
+      {
+       "stl": "marker_holder_B_grey_dowel.stl",
+       "slot": 5
+      }
+     ],
+     "bed_xy": [
+      170,
+      128
+     ]
+    },
+    {
+     "name": "Joint dowel 2 (pink, hidden in the joint)",
+     "parts": [
+      {
+       "stl": "marker_holder_B_grey_dowel.stl",
+       "slot": 5
+      }
+     ],
+     "bed_xy": [
+      186,
+      128
+     ]
+    }
+   ]
+  },
+  {
+   "name": "3 Cone + tip (AMS set 2: pink, black, grey, wood)",
+   "objects": [
+    {
+     "name": "Wood cone and black tip",
+     "parts": [
+      {
+       "stl": "marker_holder_C_wood_cone.stl",
+       "slot": 7
+      },
+      {
+       "stl": "marker_holder_C_black_tip.stl",
+       "slot": 2
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "4 FIT TEST - marker bores, magnet pockets, peg joint (print first, yellow)",
+   "objects": [
+    {
+     "name": "Fit test marker bores 17.5 18.5 19.5",
+     "parts": [
+      {
+       "stl": "fit-coupon/marker_bores.stl",
+       "slot": 1
+      }
+     ],
+     "bed_xy": [
+      128,
+      128
+     ]
+    },
+    {
+     "name": "Fit test magnet pockets 20.1 20.2 20.3",
+     "parts": [
+      {
+       "stl": "fit-coupon/magnet_pockets.stl",
+       "slot": 1
+      }
+     ],
+     "bed_xy": [
+      128,
+      60
+     ]
+    },
+    {
+     "name": "Fit test joint sockets standing 0.1 0.2 0.3 (like ferrule and cone)",
+     "parts": [
+      {
+       "stl": "fit-coupon/peg_sockets.stl",
+       "slot": 1
+      }
+     ],
+     "bed_xy": [
+      145,
+      195
+     ]
+    },
+    {
+     "name": "Fit test joint holes lying 0.1 0.2 0.3 (like the body)",
+     "parts": [
+      {
+       "stl": "fit-coupon/peg_holes_lying.stl",
+       "slot": 1
+      }
+     ],
+     "bed_xy": [
+      60,
+      195
+     ]
+    },
+    {
+     "name": "Fit test dowel",
+     "parts": [
+      {
+       "stl": "marker_holder_B_grey_dowel.stl",
+       "slot": 1
+      }
+     ],
+     "bed_xy": [
+      215,
+      195
+     ]
+    }
+   ]
+  }
+ ]
+}

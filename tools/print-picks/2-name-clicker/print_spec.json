@@ -1,0 +1,136 @@
+{
+ "slug": "name-clicker",
+ "process": "0.16mm Optimal @BBL A1",
+ "overrides": {
+  "wall_loops": "3",
+  "sparse_infill_density": "20%",
+  "sparse_infill_pattern": "gyroid",
+  "top_shell_layers": "5",
+  "bottom_shell_layers": "4",
+  "brim_type": "no_brim",
+  "seam_position": "back",
+  "flush_into_infill": "1",
+  "prime_tower_width": "25"
+ },
+ "colors": [
+  "#5B5E63",
+  "#F6A9BD",
+  "#BBA6E6",
+  "#1E1E1E"
+ ],
+ "color_names": [
+  "Bambu PLA Basic Grey (base)",
+  "Bambu PLA Basic Pink (caps 1 and 3)",
+  "Bambu PLA Basic Purple / lavender (caps 2 and 4)",
+  "Bambu PLA Basic Black (letters)"
+ ],
+ "plates": [
+  {
+   "name": "1 Base EMMA (grey)",
+   "objects": [
+    {
+     "name": "Clicker base EMMA",
+     "parts": [
+      {
+       "stl": "name_clicker_base.stl",
+       "slot": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "2 Keycaps E + M (pink, black letters)",
+   "objects": [
+    {
+     "name": "Keycaps pink E M",
+     "parts": [
+      {
+       "stl": "production/caps_1.stl",
+       "slot": 2
+      },
+      {
+       "stl": "production/letters_1.stl",
+       "slot": 4
+      }
+     ],
+     "print_params": {
+      "layer_height": "0.12",
+      "brim_type": "outer_only",
+      "brim_width": "3",
+      "ironing_type": "top",
+      "wall_loops": "3",
+      "sparse_infill_density": "100%",
+      "sparse_infill_pattern": "zig-zag"
+     }
+    }
+   ]
+  },
+  {
+   "name": "3 Keycaps M + A (lavender, black letters)",
+   "objects": [
+    {
+     "name": "Keycaps lavender M A",
+     "parts": [
+      {
+       "stl": "production/caps_2.stl",
+       "slot": 3
+      },
+      {
+       "stl": "production/letters_2.stl",
+       "slot": 4
+      }
+     ],
+     "print_params": {
+      "layer_height": "0.12",
+      "brim_type": "outer_only",
+      "brim_width": "3",
+      "ironing_type": "top",
+      "wall_loops": "3",
+      "sparse_infill_density": "100%",
+      "sparse_infill_pattern": "zig-zag"
+     }
+    }
+   ]
+  },
+  {
+   "name": "4 FIT TEST - MX socket + stem cross (print this first)",
+   "objects": [
+    {
+     "name": "Fit test MX socket strip",
+     "parts": [
+      {
+       "stl": "fit-coupon/mx_socket_strip.stl",
+       "slot": 1
+      }
+     ],
+     "bed_xy": [
+      128,
+      100
+     ],
+     "print_params": {
+      "layer_height": "0.12",
+      "brim_type": "no_brim"
+     }
+    },
+    {
+     "name": "Fit test MX stem cross",
+     "parts": [
+      {
+       "stl": "fit-coupon/mx_stem_cross.stl",
+       "slot": 1
+      }
+     ],
+     "bed_xy": [
+      128,
+      150
+     ],
+     "print_params": {
+      "layer_height": "0.12",
+      "brim_type": "no_brim"
+     }
+    }
+   ]
+  }
+ ]
+}
