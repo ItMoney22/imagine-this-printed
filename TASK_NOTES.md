@@ -302,6 +302,30 @@ FloatingCart only where the shop sidebar is not showing (full-screen routes, adm
   button clear, sidebar / top-bar cart counts intact, pill still on full-screen /imagination-station. npm run verify
   165 files / 2365 pass, vite build OK. Seen, not fixed here (other owners): checkout ignores the 2-for-$25 bundle
   the cart and server apply; desktop "Chat with us" pill over the bottom-right catalog card while scrolling.
+## Current request (2026-10-12) — merge Saturn's on-person model_id stamping (df79da8) onto main (Watchtower 6055f034, zero-saturn)
+
+New casting/reshoot shots wrote mockup_model_* rows with no metadata.model_id, so the step-flow engine line went blank
+after every reshoot (the 71 old rows were backfilled by c7f6efdc / 12ec1e1). df79da8 stamps them going forward.
+
+### File shortlist (approved scope — 2026-10-12 model_id stamping merge)
+- merge of df79da8 only: `backend/services/etsy-model-shots.ts` (+test), `backend/services/step-flow/shots.ts` (+test),
+  `backend/services/image-flow/worker-helpers.ts` (export only), `backend/scripts/ab-image-models-bakeoff.ts` + fixture,
+  `docs/IMAGE_MODEL_BAKEOFF_2026-10-09.md`, `TASK_NOTES.md`
+- added on send-back (Nine asked for a proof a checker can follow): `backend/scripts/prove-on-person-model-id.mjs`
+  (new, read-only after-live check: df79da8 on origin/main + every on-person row / engine line / step-flow shot job
+  since the ship carries model_id; prints RESULT: PASS | FAIL | WAITING)
+
+### Work log (append-only)
+- 2026-10-12 (zero-saturn): branch earth/zero-saturn/itp-merge-saturn-s-on-pe-6055f034-mv5fdgzk = origin/main 7314e53 +
+  merge of df79da8 (clean, no conflicts; also clean vs Nine's hotfix ship ad575329). `npm run verify`: tsc -b clean,
+  vitest 165 files / 2370 pass. Backend `tsc --noEmit` clean (6 TS2742 in untouched middleware/rate-limits.ts only with
+  declaration on, from node_modules junctioned to the shared checkout). Ship is Zero Nine's (SHIP_OWNERS).
+- 2026-10-12 (zero-saturn, send-back): merged live main ad57532 into the branch (clean; origin/main is now an ancestor,
+  so the ship fast-forwards). `npm run verify` green again: 165 files / 2370 pass; backend tsc clean. merge-tree clean vs
+  Rhea's 10/13 batch cb310e3. Added the after-live proof script; dry run against prod with --since 2026-09-01: 24
+  on-person rows + their engine lines PASS (backfill), 34 pre-fix step_flow_model_shot ai_jobs lack output.model_id
+  (history, the gap df79da8 closes); with --since today: df79da8 not on origin/main yet. ITP shipped 15:30Z + hotfix
+  15:55Z today, so this rides Nine's 10/13 daily ship.
 
 ## Current request (2026-10-07) — ship the ITP batch with private 3D files (Watchtower e086c595, zero-nine)
 
