@@ -1,5 +1,25 @@
 # TASK_NOTES
 
+## Current request (2026-11-04) — request logs stop carrying secret headers, then PRINT_BRIDGE_TOKEN rotates (task f2cadac6, sifu)
+
+pino-http wrote every request's headers to the host's logs in plain text: the bridge token on every 5-minute pull,
+shopper session tokens, cookies.
+
+Decisions:
+- `redact` sits on the base pino logger, so pino-http's child and every `req.log` inherit it. One list of header names in
+  `backend/lib/log-redaction.ts`, because index.ts boots the server on import and a test cannot load it.
+- Beyond the card's list: x-webhook-secret, x-health-probe-token, stripe-signature, svix-signature, x-replicate-signature,
+  every secret-shaped header the API reads. The test fails if backend code reads one the list does not name.
+  x-vercel-proxy-signature too: the API never reads it, but 12 hours of live logs showed it arriving.
+- Rotation comes AFTER this is live, or the new token is written to the same logs within five minutes.
+
+### File shortlist (approved scope — 2026-11-04 log redaction)
+- `backend/lib/log-redaction.ts` (+ test, new), `backend/index.ts` (import + one option), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-04 (sifu): redaction built, 7 tests; four deliberate breaks of the list each turned a test red. The real
+  index.ts booted on fake env logged [redacted] for all six headers sent, zero raw values in stdout or stderr.
+
 ## Current request (2026-11-01) — Etsy pet order: --apply fixes the order and re-queues the line (task 4ef9db82, zero-earth019)
 
 Follow-up of 5d007181 (ada-brooks 7daf849; this branch is a fast-forward of it). A held Etsy pet ornament line, re-run
