@@ -24,9 +24,11 @@
 // This trades "maybe reprocess a few extra receipts" (harmless — the unique
 // constraint makes that a no-op) for "never silently lose a sale."
 import { supabase } from '../lib/supabase.js'
-import { getShopReceipts, etsyMoneyToDollars, isEtsyEnabled, type EtsyReceipt, type EtsyReceiptTransaction } from '../services/etsy.js'
+import { getShopReceipts, etsyMoneyToDollars, etsyReadHeaders, isEtsyEnabled, type EtsyReceipt, type EtsyReceiptTransaction } from '../services/etsy.js'
 import { decrementBlanksForOrder } from '../services/blank-inventory.js'
 import { triageEtsyBuyerMessage, type EtsyFlagTriage } from '../lib/jev-triage.js'
+import { parsePetOrnament, type PetOrnamentTemplate } from '../shared/pet-ornament.js'
+import { buildEtsyPetLine, petLineMeta, type EtsyPetLine } from '../services/pet-ornament/etsy-order.js'
 
 const RECEIPT_POLL_INTERVAL = 60_000 // 60s — order ingestion isn't latency-critical; low volume, keeps well under Etsy rate limits
 const WATERMARK_ROW_ID = 1
@@ -95,6 +97,54 @@ function extractVariant(txn: EtsyReceiptTransaction): { size: string | null; col
   return { size: sizeVar?.formatted_value ?? null, color: colorVar?.formatted_value ?? null }
 }
 
+type PetLinesFor = (
+  receipt: EtsyReceipt,
+  productByListing: Map<number, string>,
+  db: { from: (table: string) => any }
+) => Promise<Map<number, EtsyPetLine>>
+
+/**
+ * Create-your-own pet ornament lines (task 5d007181): the buyer's name + photo
+ * answers -> the same print files checkout builds, keyed by transaction id.
+ * Runs BEFORE the order insert, so the order and its print files land
+ * together: the print bridge picks a paid order up a minute after paid_at,
+ * and a drawing can take longer than that. A receipt that is already an
+ * order is skipped here (the insert below then reports the duplicate), so a
+ * re-poll never pays for a second look. Never throws.
+ */
+export async function petLinesForReceipt(
+  receipt: EtsyReceipt,
+  productByListing: Map<number, string>,
+  db: { from: (table: string) => any }
+): Promise<Map<number, EtsyPetLine>> {
+  const out = new Map<number, EtsyPetLine>()
+  const productIds = [...new Set(productByListing.values())]
+  if (productIds.length === 0) return out
+  try {
+    const { data: rows, error } = await db.from('products').select('id, metadata').in('id', productIds)
+    if (error) throw new Error(error.message)
+    const templates = new Map<string, PetOrnamentTemplate>()
+    for (const row of rows || []) {
+      const t = parsePetOrnament(row.metadata)
+      if (t) templates.set(String(row.id), t)
+    }
+    const petTxns = receipt.transactions.filter((t) => templates.has(productByListing.get(t.listing_id) ?? ''))
+    if (petTxns.length === 0) return out
+
+    const { data: existing } = await db.from('orders').select('id').eq('etsy_receipt_id', receipt.receipt_id).maybeSingle()
+    if (existing) return out
+
+    for (const t of petTxns) {
+      const line = await buildEtsyPetLine(t, templates.get(productByListing.get(t.listing_id)!)!, { etsyHeaders: etsyReadHeaders })
+      if (line.status === 'failed') console.error(`[etsy-receipts] pet ornament held for receipt ${receipt.receipt_id} txn ${t.transaction_id}: ${line.error}`)
+      out.set(t.transaction_id, line)
+    }
+  } catch (e: any) {
+    console.error(`[etsy-receipts] pet ornament lines failed for receipt ${receipt.receipt_id} (order still ingests):`, e?.message)
+  }
+  return out
+}
+
 /**
  * Upsert one Etsy receipt into ITP as an order. `db` is injected (mirrors
  * ai-jobs-worker.ts's claimQueuedJob(db, ...) pattern) so this is unit
@@ -104,7 +154,8 @@ function extractVariant(txn: EtsyReceiptTransaction): { size: string | null; col
 export async function ingestReceipt(
   receipt: EtsyReceipt,
   db: { from: (table: string) => any } = supabase,
-  flagBuyerMessage: (message: string | null | undefined, items: string[]) => Promise<EtsyFlagTriage> = triageEtsyBuyerMessage
+  flagBuyerMessage: (message: string | null | undefined, items: string[]) => Promise<EtsyFlagTriage> = triageEtsyBuyerMessage,
+  petLinesFor: PetLinesFor = petLinesForReceipt
 ): Promise<IngestResult> {
   if (!receipt.was_paid) return { created: false, orderId: null, reason: 'not_paid_yet' }
   if (!receipt.transactions?.length) return { created: false, orderId: null, reason: 'no_transactions' }
@@ -122,6 +173,14 @@ export async function ingestReceipt(
     .in('listing_id', listingIds)
   if (listingErr) throw new Error(`etsy_listings lookup failed: ${listingErr.message}`)
   const productByListing = new Map<number, string>((listingRows || []).map((r: any) => [r.listing_id, r.product_id]))
+
+  // Pet ornament print files, built before the order exists (see petLinesForReceipt).
+  let petLines = new Map<number, EtsyPetLine>()
+  try {
+    petLines = await petLinesFor(receipt, productByListing, db)
+  } catch (e: any) {
+    console.error(`[etsy-receipts] pet ornament lines failed for receipt ${receipt.receipt_id} (order still ingests):`, e?.message)
+  }
 
   // Flag the buyer's checkout note for the print team: none | personalization
   // | change_request | problem. Jev decides above a keyword floor; unsure rows
@@ -208,7 +267,8 @@ export async function ingestReceipt(
         etsy_transaction_id: t.transaction_id,
         etsy_listing_id: t.listing_id,
         size: variant.size,
-        color: variant.color
+        color: variant.color,
+        ...petLineMeta(petLines.get(t.transaction_id))
       }
     }
   })

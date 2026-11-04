@@ -21,6 +21,8 @@ import { renderOrGetCached, pressPlatePath } from '../services/team-plate/plate-
 import { reviewFlags } from '../services/team-plate/review-flags.js'
 import { parseNamePrint, sanitizeNameValues, type NamePrintTemplate } from '../shared/name-print.js'
 import { storeNamePrint } from '../services/name-print/store.js'
+import { parsePetOrnament, sanitizePetValues, type PetOrnamentTemplate } from '../shared/pet-ornament.js'
+import { storePetPrint } from '../services/pet-ornament/store.js'
 import { sendMerchOrderEvent } from '../services/merch-webhook.js'
 // The paid-order pipeline (claim → ITC → rewards → emails → inventory →
 // margins → merch ledger) lives in this service so the hourly payment
@@ -352,9 +354,11 @@ async function personalizationForItems(
   }
   const templates = new Map<string, ReturnType<typeof parseTeamTemplate>>()
   const nameTemplates = new Map<string, NamePrintTemplate | null>()
+  const petTemplates = new Map<string, PetOrnamentTemplate | null>()
   for (const row of data ?? []) {
     templates.set(String(row.id), parseTeamTemplate(row.metadata))
     nameTemplates.set(String(row.id), parseNamePrint(row.metadata))
+    petTemplates.set(String(row.id), parsePetOrnament(row.metadata))
   }
 
   await Promise.all(
@@ -363,6 +367,11 @@ async function personalizationForItems(
       const nameTemplate = id ? nameTemplates.get(id) : null
       if (nameTemplate) {
         out.set(index, await namePrintForLine(nameTemplate, item?.personalization, id!, req))
+        return
+      }
+      const petTemplate = id ? petTemplates.get(id) : null
+      if (petTemplate) {
+        out.set(index, await petOrnamentForLine(petTemplate, item?.personalization, id!, req))
         return
       }
       const template = id ? templates.get(id) : null
@@ -432,6 +441,35 @@ async function namePrintForLine(
   } catch (err: any) {
     req.log?.error({ err, productId }, 'name-print: print file failed at checkout')
     return { values, path: null, status: 'failed', error: err?.message ?? 'print file failed', flags }
+  }
+}
+
+/**
+ * A create-your-own pet ornament line (products.metadata.pet_ornament, task
+ * 81358f3a): one STL per colour plus a print-spec.json naming the AMS slots,
+ * built from the customer's own photo portrait (or the stock one for the pet)
+ * and their pet's name. The values are re-checked here, never trusted; the
+ * portrait id only points at a map the server drew. A failure is recorded on
+ * the line, never thrown: money is already moving.
+ */
+async function petOrnamentForLine(
+  template: PetOrnamentTemplate,
+  raw: unknown,
+  productId: string,
+  req: Request
+): Promise<LinePersonalization> {
+  const clean = sanitizePetValues(template, raw)
+  const values: Record<string, string> = { pet: clean.pet, [template.field.key]: clean.name, portrait: clean.portrait }
+  const flags = reviewFlags({ fields: [{ key: template.field.key }] }, values)
+  if (!clean.name) {
+    return { values, path: null, status: 'failed', error: 'No pet name was typed for this line', flags }
+  }
+  try {
+    const stored = await storePetPrint(template, clean)
+    return { values, path: stored.path, status: 'ready', flags }
+  } catch (err: any) {
+    req.log?.error({ err, productId }, 'pet-ornament: print files failed at checkout')
+    return { values, path: null, status: 'failed', error: err?.message ?? 'print files failed', flags }
   }
 }
 

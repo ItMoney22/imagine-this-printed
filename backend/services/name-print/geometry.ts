@@ -103,13 +103,13 @@ export function missingGlyphs(font: opentype.Font, text: string): string[] {
 // 2D outlines
 // ---------------------------------------------------------------------------
 
-function signedArea(ring: Pt[]): number {
+export function signedArea(ring: Pt[]): number {
   let a = 0
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) a += ring[j][0] * ring[i][1] - ring[i][0] * ring[j][1]
   return a / 2
 }
 
-function pointInRing(p: Pt, ring: Pt[]): boolean {
+export function pointInRing(p: Pt, ring: Pt[]): boolean {
   let inside = false
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const [xi, yi] = ring[i]
@@ -120,7 +120,7 @@ function pointInRing(p: Pt, ring: Pt[]): boolean {
 }
 
 /** CCW for an outer ring, CW for a hole: the side walls rely on it. */
-function orient(ring: Pt[], ccw: boolean): Pt[] {
+export function orient(ring: Pt[], ccw: boolean): Pt[] {
   return signedArea(ring) > 0 === ccw ? ring : [...ring].reverse()
 }
 
@@ -235,7 +235,7 @@ export function layoutName(font: opentype.Font, text: string, box: ShapeSpec['te
   }
 }
 
-function circle(cx: number, cy: number, r: number, n = 96): Pt[] {
+export function circle(cx: number, cy: number, r: number, n = 96): Pt[] {
   const out: Pt[] = []
   for (let i = 0; i < n; i++) {
     const t = (i / n) * Math.PI * 2
@@ -291,10 +291,10 @@ function rimRegion(width: number): Region {
 // 3D
 // ---------------------------------------------------------------------------
 
-type Tri = [number, number, number, number, number, number, number, number, number]
+export type Tri = [number, number, number, number, number, number, number, number, number]
 
 /** Extrudes one region from z0 to z1: bottom cap, top cap, a wall per ring edge. */
-function extrude(reg: Region, z0: number, z1: number, out: Tri[]): void {
+export function extrude(reg: Region, z0: number, z1: number, out: Tri[]): void {
   const contour = reg.outer.map(([x, y]) => new Vector2(x, y))
   const holes = reg.holes.map((h) => h.map(([x, y]) => new Vector2(x, y)))
   // triangulateShape trims a repeated end point IN PLACE, and its indices are
@@ -364,7 +364,7 @@ export function buildNameModel(shape: NamePrintShape, fontId: string, name: stri
 }
 
 /** Binary STL. Facet normals are computed; slicers recompute them anyway. */
-export function toBinaryStl(model: NameModel, label = 'Imagine This Printed name gift'): Buffer {
+export function toBinaryStl(model: { triangles: Tri[] }, label = 'Imagine This Printed name gift'): Buffer {
   const n = model.triangles.length
   const buf = Buffer.alloc(84 + n * 50)
   buf.write(label.slice(0, 79), 0, 'ascii')
@@ -394,7 +394,7 @@ function ringPath(ring: Pt[]): string {
   return 'M' + ring.map(([x, y]) => `${x.toFixed(2)} ${(-y).toFixed(2)}`).join('L') + 'Z'
 }
 
-function regionPath(reg: Region): string {
+export function regionPath(reg: Region): string {
   return ringPath(reg.outer) + reg.holes.map(ringPath).join('')
 }
 
