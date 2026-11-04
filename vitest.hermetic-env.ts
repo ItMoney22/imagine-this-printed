@@ -37,6 +37,13 @@ const REAL_KEYS = [
   'JIMMY_DASHBOARD_INTERNAL_SECRET',
   'WATCHTOWER_INTERNAL_SECRET',
   'PRINT_BRIDGE_TOKEN',
+  // the phone line (routes/phone.ts): a live Twilio token redirects real calls,
+  // and the phone's own Gemini key mints paid Live sessions
+  'TWILIO_AUTH_TOKEN',
+  'TWILIO_ACCOUNT_SID',
+  'PHONE_AGENT_SECRET',
+  'VOICE_BRIDGE_TOKEN',
+  'PHONE_GEMINI_API_KEY',
 ]
 
 for (const key of REAL_KEYS) delete process.env[key]

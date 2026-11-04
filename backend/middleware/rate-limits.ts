@@ -30,13 +30,16 @@ function envInt(name: string, fallback: number): number {
 //   - health probes (uptime monitors poll on a tight interval).
 //   - the Watchtower print bridge, which polls its queue and authenticates
 //     with a shared secret rather than a user session.
+//   - the phone line (/api/phone): Twilio-signed webhooks plus the voice
+//     bridge's per-call heartbeats from one Fly IP; a 429 there drops a caller.
 const EXEMPT_PREFIXES = [
   '/api/health',
   '/api/webhooks',
   '/api/stripe/webhook',
   '/api/email/webhooks',
   '/api/ai/replicate',
-  '/api/print-bridge'
+  '/api/print-bridge',
+  '/api/phone'
 ]
 
 function pathOf(req: Request): string {

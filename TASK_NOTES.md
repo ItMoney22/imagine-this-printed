@@ -5869,3 +5869,17 @@ a DB trigger stamps orders.paid_at, the queue orders, filters and cursors on it,
   errors on the touched files. `backend/services/etsy-copy-repair.test.ts`
   fails 3 tests in this checkout — pre-existing and unrelated (it reaches a
   live model instead of a stub); filed separately.
+## Current request (2026-10-30) — ITP phone number (470) 227-8666 on the shared voice bridge (task 20d54c05, zero-pluto)
+
+David 10/30: ITP needs to be the (470) 227-8666 number. Calls reach ITP through the shared bridge (Dial fallback to David's mobile),
+inbound texts land where ITP reads, Twilio friendly name reads Imagine This Printed, the site shows this number.
+
+### File shortlist (approved scope — 2026-10-30 phone line)
+- new `backend/lib/phone-agent-token.ts` (verbatim from Darrell V2), `backend/lib/phone-agent-persona.ts`, `backend/lib/phone-gemini.ts`, `backend/lib/phone-twilio.ts`
+- new `backend/services/phone-agent.ts`, `backend/routes/phone.ts` (+ `phone.test.ts`)
+- `backend/index.ts` (mount `/api/phone`), `backend/middleware/rate-limits.ts` (exempt `/api/phone`), `vitest.hermetic-env.ts` (strip the phone secrets)
+- new `supabase/migrations/20261030120000_phone_calls.sql` + `MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-30 (zero-pluto): built the phone line on the Express API (not Next): Twilio signature + TwiML by hand (no twilio package), Mr. Imagine persona from the help-page facts, take_message / transfer_to_shop, texts -> support tickets (Becky pings Christina), missed calls -> tickets, transcript onto the ticket at hangup. Migration applied live. vitest 207 files / 2772 tests green, tsc clean; voiced harness call through the real bridge code PASS (E:/memory/watchtower/assets/20d54c05/harness-run.txt).
