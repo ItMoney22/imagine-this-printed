@@ -5,7 +5,10 @@ import {
   ExternalLink, MapPin, Mail
 } from 'lucide-react'
 import { API_BASE } from '../lib/api'
+import { orderMayStillPrint } from '../lib/live-print'
+import { useAuth } from '../context/SupabaseAuthContext'
 import { HelpStrip } from '../components/support/SupportParts'
+import LivePrintView from '../components/LivePrintView'
 
 // Public, no-login order status. Reached from the tokenized link in every
 // transactional email (/order-status/:orderId?t=…), so guest buyers who never
@@ -101,6 +104,7 @@ const OrderStatus: React.FC = () => {
   const { orderId } = useParams<{ orderId: string }>()
   const [searchParams] = useSearchParams()
   const token = searchParams.get('t') || searchParams.get('token') || ''
+  const { user } = useAuth()
 
   const [order, setOrder] = useState<OrderStatusPayload | null>(null)
   const [loading, setLoading] = useState(true)
@@ -220,6 +224,12 @@ const OrderStatus: React.FC = () => {
               })}
             </div>
           </div>
+        )}
+
+        {/* Live printer view. This page opens with the emailed link alone, but the
+            view is for the signed-in owner: the API answers no one else. */}
+        {user && orderId && order.print && (
+          <LivePrintView orderId={orderId} poll={orderMayStillPrint(order.status)} className="mb-6" />
         )}
 
         {/* Tracking */}

@@ -23,6 +23,7 @@ import { ITC_TO_USD_RATE } from '../config/itc-pricing.js'
 import { validateCouponForOrder, recordCouponUsage } from './coupons.js'
 import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attribution.js'
 import { isStoreReferralCode } from '../services/store-referral.js'
+import { liveOptInStamp } from '../services/print-live.js'
 
 const router = Router()
 
@@ -1105,7 +1106,8 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
       shippingMethod,
       shippingType,
       pickupAppointment,
-      attribution
+      attribution,
+      liveOptIn
     } = req.body
     const sanitizedAttribution = sanitizeAttribution(attribution)
 
@@ -1235,7 +1237,8 @@ router.post('/process-full-itc-payment', requireAuth, async (req: Request, res: 
           shipping_method: shippingMethod,
           shipping_type: shippingType,
           pickup_appointment: pickupAppointment,
-          coupon_code: couponCode || null
+          coupon_code: couponCode || null,
+          ...liveOptInStamp(liveOptIn)
         }
       })
       .select()

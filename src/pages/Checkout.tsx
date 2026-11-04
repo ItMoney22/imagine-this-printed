@@ -7,6 +7,7 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
+import { FAMILY_WATCH_BOX_ENABLED, LIVE_OPT_IN_LABEL, cartHasOwnPrint } from '../lib/live-print'
 import { addonsUnitTotal, lineBasePrice, printLocationLabel } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
@@ -305,6 +306,11 @@ const Checkout: React.FC = () => {
   const [pickupNotes, setPickupNotes] = useState('')
   // Rush upgrade (next-business-day pickup/delivery for a flat fee, pre-2PM ET only)
   const [rushSelected, setRushSelected] = useState(false)
+  // Optional, off unless the customer ticks it. Rides the order to the print queue.
+  const [liveOptIn, setLiveOptIn] = useState(false)
+  // What the last payment-intent call carried. Null until the first one goes out.
+  const liveOptInSentRef = useRef<boolean | null>(null)
+  const [paymentIntentCallsDone, setPaymentIntentCallsDone] = useState(0)
 
   // Pre-fill form with user profile data
   useEffect(() => {
@@ -356,6 +362,7 @@ const Checkout: React.FC = () => {
 
       // Set the order ID for payment
       setOrderId(draftOrderId)
+      setLiveOptIn(order.metadata?.live_opt_in === true)
 
       // If order has a payment intent, use it. The orders column is
       // payment_intent_id (NOT stripe_payment_intent_id) — reading the wrong
@@ -480,6 +487,8 @@ const Checkout: React.FC = () => {
   const rushEligible = !!selectedRate?.rushEligible && (selectedRate?.type === 'pickup' || selectedRate?.type === 'delivery')
   const rushActive = rushSelected && rushEligible && rushAvailable
   const rushFee = rushActive ? RUSH_FEE : 0
+  const showLiveOptIn = FAMILY_WATCH_BOX_ENABLED && cartHasOwnPrint(state.items)
+  const wantLiveOptIn = showLiveOptIn && liveOptIn
   // If free_shipping coupon is applied, the base shipping is $0 (rush still adds)
   const baseShipping = selectedRate?.amount || 0
   const shipping = (appliedCoupon?.freeShipping ? 0 : baseShipping) + rushFee
@@ -515,6 +524,15 @@ const Checkout: React.FC = () => {
       createPaymentIntent()
     }
   }, [state.items, totalUSD, shippingCalculation, requiresUSDPayment, discount, itcCreditAmount, rushSelected])
+
+  // The box never changes the total, so nothing else re-fires a save for it, and a
+  // tick while a call is in flight is dropped by the guard in createPaymentIntent.
+  // Checking again as each call lands means the order always ends up with what the
+  // box shows. The first call carries the box itself.
+  useEffect(() => {
+    if (liveOptInSentRef.current === null || liveOptInSentRef.current === wantLiveOptIn) return
+    createPaymentIntent()
+  }, [wantLiveOptIn, paymentIntentCallsDone])
 
   const calculateShipping = async () => {
     // Address-first: don't quote shipping until the customer has entered a full
@@ -598,6 +616,7 @@ const Checkout: React.FC = () => {
       const isLocalPickup = selectedShipping?.type === 'pickup'
       const isLocalDelivery = selectedShipping?.type === 'delivery'
 
+      liveOptInSentRef.current = wantLiveOptIn
       const data = await apiFetch('/api/stripe/checkout-payment-intent', {
         method: 'POST',
         body: JSON.stringify({
@@ -639,7 +658,8 @@ const Checkout: React.FC = () => {
           attribution: getLandingUtms(),
           // The ?ref= link this visitor came through (src/utils/referral-capture.ts):
           // a store owner's code pays her a cut once this order is paid.
-          referralCode: getPendingReferral()?.code ?? null
+          referralCode: getPendingReferral()?.code ?? null,
+          liveOptIn: wantLiveOptIn
         }),
       })
 
@@ -677,6 +697,7 @@ const Checkout: React.FC = () => {
       }
     } finally {
       creatingPaymentIntentRef.current = false
+      setPaymentIntentCallsDone(n => n + 1)
     }
   }
 
@@ -755,7 +776,8 @@ const Checkout: React.FC = () => {
             time: pickupTime || null,
             notes: pickupNotes || null
           } : null,
-          attribution: getLandingUtms()
+          attribution: getLandingUtms(),
+          liveOptIn: wantLiveOptIn
         }),
       })
 
@@ -1276,6 +1298,18 @@ const Checkout: React.FC = () => {
                   </div>
                 )}
               </div>
+            )}
+
+            {showLiveOptIn && (
+              <label className="flex items-start gap-3 bg-card rounded-2xl shadow-soft border border-border p-5 sm:p-6 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={liveOptIn}
+                  onChange={(e) => setLiveOptIn(e.target.checked)}
+                  className="mt-1"
+                />
+                <span className="font-medium text-text">{LIVE_OPT_IN_LABEL}</span>
+              </label>
             )}
 
             {/* Payment Method Selection - Show when logged in, even with 0 ITC (so users know the option exists) */}

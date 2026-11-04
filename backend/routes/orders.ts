@@ -20,6 +20,7 @@ import {
   LEGACY_ORDER_COLUMNS
 } from '../services/order-tracking-deps.js'
 import { STATUS_LABELS, type ShipmentStatus } from '../services/shipment-tracking.js'
+import { customerLiveView, readLiveRows } from '../services/print-live.js'
 
 const router = Router()
 
@@ -391,6 +392,36 @@ router.get('/my', requireAuth, async (req: Request, res: Response): Promise<any>
   } catch (error: any) {
     console.error('[orders/my] Error:', error)
     return res.status(500).json({ error: error.message })
+  }
+})
+
+// GET /api/orders/:orderId/live - The live printer view of an order, for its owner.
+//
+// Owner only, on purpose: no admin bypass, and the public tokenized status link
+// never reaches this. Someone else's order answers exactly like one that does not
+// exist, so this can't be used to find out which orders are real.
+router.get('/:orderId/live', requireAuth, async (req: Request, res: Response): Promise<any> => {
+  // Signed links for one customer: nothing between here and them may keep a copy.
+  res.set('Cache-Control', 'private, no-store')
+  try {
+    const { orderId } = req.params
+    const notFound = () => res.status(404).json({ error: 'Order not found' })
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(orderId)) return notFound()
+
+    const { data: order, error } = await supabase
+      .from('orders')
+      .select('user_id')
+      .eq('id', orderId)
+      .maybeSingle()
+    if (error) throw new Error(error.message)
+    if (!order?.user_id || order.user_id !== req.user?.sub) return notFound()
+
+    const rows = await readLiveRows(orderId)
+    const now = Date.now()
+    return res.json({ lines: rows.map(row => customerLiveView(row, now)) })
+  } catch (error: any) {
+    console.error('[orders/:orderId/live] Error:', error)
+    return res.status(500).json({ error: 'Live view unavailable' })
   }
 })
 

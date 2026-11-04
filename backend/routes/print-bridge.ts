@@ -14,18 +14,22 @@ import { signNamePrint } from '../services/name-print/store.js'
 import { parsePetOrnament } from '../shared/pet-ornament.js'
 import { signedPetParts } from '../services/pet-ornament/store.js'
 import { PRINT_REQUEUE_KEY, REQUEUE_CLEAR_STATUSES, clearPrintRequeue, isRequeuePending, requeueCutoff } from '../services/print-requeue.js'
+import { parseLivePush, saveLiveView } from '../services/print-live.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
  * factory (Saturn's Bambu A1 fleet: Batman + Levosa).
  *
  * ITP owns its own database. Watchtower never touches it directly — it calls
- * these two endpoints:
+ * these endpoints:
  *   GET  /api/print-bridge/queue?since=<iso>&limit=N
  *        -> paid orders containing a 3D-print line item, since a cursor. Read-only.
  *   POST /api/print-bridge/status  { itpOrderId, status, railStatus?, printer?, jobId? }
  *        -> mirror the coarse, customer-facing print status onto the order
  *           (stored in orders.metadata.print — no schema change). Idempotent.
+ *   POST /api/print-bridge/live    { itpOrderId, lineItemId?, live, sentAt }
+ *        -> keep the newest live view of an order line for its owner's order page
+ *           (order_print_live, services/print-live.ts). About every 45 s per print.
  *
  * This is ADDITIVE: it does not touch checkout, the Stripe webhook, or order
  * creation. Auth: Bearer <PRINT_BRIDGE_TOKEN> (a dedicated shared secret).
@@ -251,6 +255,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
           nfcUrl: customNfcExperienceUrl,
           customerName: o.customer_name || undefined,
           customerEmail: o.customer_email || undefined,
+          liveOptIn: o.metadata?.live_opt_in === true,
           priceUsd: printItem.total ?? o.total ?? undefined,
           createdAt: o.created_at,
         })
@@ -411,6 +416,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
             nfcUrl: catalogNfcUrl,
             customerName: o.customer_name || undefined,
             customerEmail: o.customer_email || undefined,
+            liveOptIn: o.metadata?.live_opt_in === true,
             priceUsd: it.total ?? undefined,
             createdAt: o.created_at,
             ...(isRequeuePending(itemRow?.metadata) ? { requeuedAt: itemRow.metadata[PRINT_REQUEUE_KEY] } : {}),
@@ -484,6 +490,24 @@ router.post('/status', requireBridgeAuth, async (req: Request, res: Response): P
   } catch (error: any) {
     req.log?.error?.({ err: error }, 'print-bridge status failed')
     return res.status(500).json({ error: error.message || 'status update failed' })
+  }
+})
+
+/**
+ * POST /api/print-bridge/live
+ * The newest live view of one order line, overwriting the last. Watchtower reports
+ * a non-2xx and moves on, so a failure here never touches the print itself.
+ */
+router.post('/live', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
+  const parsed = parseLivePush(req.body)
+  if ('error' in parsed) return res.status(400).json({ error: parsed.error })
+  try {
+    const saved = await saveLiveView(parsed.push)
+    if (!saved) return res.status(404).json({ error: 'order not found' })
+    return res.json({ ok: true })
+  } catch (error: any) {
+    req.log?.error?.({ err: error }, 'print-bridge live failed')
+    return res.status(500).json({ error: 'live view not saved' })
   }
 })
 

@@ -6020,3 +6020,28 @@ Ada's e14d239c batch merges them as no-ops) because the verifier and doc live th
   apply script NOT re-run; npm run verify green (166 files / 2371). Not pushed 10/12 (ITP's one regular ship went 15:30Z,
   this is not a hotfix): rides the 10/13 ship 4646cb1f. TASK_NOTES/LEDGER conflicts vs a9abbfb, eac8f19 and the other 10/13
   tips resolve with the memory-tree resolve-append-only-notes.cjs (keeps both sides, no duplicated ledger section).
+
+## Current request (2026-11-04) — live printer cam, ITP side (task 528180f9, cole-iverson)
+Watchtower pushes each printing order's live view to POST /api/print-bridge/live every ~45 s (404s harmlessly today).
+ITP stores the newest view per order line, shows it to the logged-in owner, and adds the optional checkout box.
+
+### File shortlist (approved scope — 2026-11-04 live printer cam)
+- `supabase/migrations/20261104130000_order_print_live.sql` (new) + `supabase/migrations/MIGRATION_LEDGER.md`
+- `backend/services/print-live.ts` (+ test, new): parse a push, save/read the row, the customer-safe view
+- `backend/routes/print-bridge.ts`: POST /live, liveOptIn on both /queue line shapes (+ `print-bridge.live.test.ts`, new)
+- `backend/routes/orders.ts`: GET /:orderId/live, owner only (+ `orders.live.test.ts`, new)
+- `backend/routes/stripe.ts`, `backend/routes/wallet.ts`: stamp orders.metadata.live_opt_in on both checkout paths
+- `src/components/LivePrintView.tsx` (+ test, new), `src/pages/MyOrders.tsx`, `src/pages/OrderStatus.tsx`
+- `src/lib/live-print.ts` (+ test, new), `src/pages/Checkout.tsx`: the box
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-04 (cole-iverson): branch was cut from local main af119d4, 13 commits behind origin/main 1b4b781 (no paid_at
+  queue, no pet ornament). Merged origin/main in (clean) so this work lands on the live print-bridge.ts.
+- 2026-11-04 (cole-iverson): built the push endpoint, owner-only read, order view (MyOrders + emailed status link when signed
+  in), checkout box on both pay paths, liveOptIn on both /queue line shapes. Fixed a lost tick: createPaymentIntent drops a
+  call made while one is in flight, so the box re-checks as each call lands. 12 guards broken on purpose, all 12 caught.
+  Migration proven on a throwaway local Postgres, NOT applied to prod. Walked the built site with the fleet browser at
+  1400 + 390 against the real orders + print-bridge routers and a local stand-in database (no production touched): owner
+  sees Live, flips to Last update by itself on the 30 s poll, timelapse link clicked; stranger and signed-out see no view.
+  Evidence E:/memory/watchtower/assets/528180f9/.
