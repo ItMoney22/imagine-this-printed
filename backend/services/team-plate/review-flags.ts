@@ -62,7 +62,9 @@ function normalize(value: string): string {
  * An empty array means nothing stood out — NOT that it was approved.
  */
 export function reviewFlags(
-  template: TeamTemplate,
+  // Only the field keys are read, so a 3D name template (shared/name-print.ts)
+  // uses the same check as a team shirt.
+  template: { fields: ReadonlyArray<Pick<TeamTemplate['fields'][number], 'key'>> },
   values: Record<string, string>
 ): ReviewFlag[] {
   const flags: ReviewFlag[] = []

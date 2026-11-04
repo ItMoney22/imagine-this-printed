@@ -1,10 +1,19 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 
 // backend/lib/supabase.ts creates its client eagerly at module load, so
 // these must exist before kiosk.ts is evaluated. Same pattern as
 // coupons.test.ts / order-status.test.ts.
 process.env.SUPABASE_URL ||= 'https://test-project.supabase.co'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
+
+// The first import of kiosk.ts loads its graph cold (express, supabase-js,
+// requireKioskSession), which ran past vitest's 5 s testTimeout under a
+// full-suite ship gate and refused a green ship (task 1e4242ba). Load it once
+// here under a 30 s hook timeout so no it() pays for it; each test's
+// vi.resetModules() re-import below then runs warm (~2 ms).
+beforeAll(async () => {
+  await import('./kiosk.js')
+}, 30_000)
 
 /**
  * Watchtower ITP Closeout campaign, 2026-07-28 (task 83eb5c5b) —

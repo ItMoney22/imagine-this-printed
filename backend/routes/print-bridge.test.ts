@@ -1,10 +1,20 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 
 // backend/lib/supabase.ts creates its client eagerly at module load, so
 // these must exist before print-bridge.ts is evaluated. Same pattern as
 // kiosk.test.ts / coupons.test.ts.
 process.env.SUPABASE_URL ||= 'https://test-project.supabase.co'
 process.env.SUPABASE_SERVICE_ROLE_KEY ||= 'test-service-role-key'
+
+// The first import of print-bridge loads its whole graph cold (express,
+// supabase-js, GCS, email): ~1 s on an idle box, and past vitest's 5 s
+// testTimeout under a full-suite ship gate, which refused two green ships
+// (task 1e4242ba). Load it once here under a 30 s hook timeout so no it()
+// pays for it; the vi.resetModules() re-imports below then run warm (~5 ms).
+let printBridge: typeof import('./print-bridge.js')
+beforeAll(async () => {
+  printBridge = await import('./print-bridge.js')
+}, 30_000)
 
 // ---------------------------------------------------------------------------
 // Watchtower task 5b49d774 — notifyWorkers() was matching catalog 3D print
@@ -51,14 +61,14 @@ function makeFakeProductsDb(
 
 describe('filterPrintNotificationItems — pure item filter', () => {
   it('matches a standard custom-mini item by PRINT_ITEM_PREFIX', async () => {
-    const { filterPrintNotificationItems } = await import('./print-bridge.js')
+    const { filterPrintNotificationItems } = printBridge
     const items = [{ id: '3d-print-abc123', name: 'Custom Figurine', quantity: 1 }]
     const result = filterPrintNotificationItems(items, new Set())
     expect(result).toEqual(items)
   })
 
   it('matches a catalog-toy item whose id is a resolved catalog-toy product id', async () => {
-    const { filterPrintNotificationItems } = await import('./print-bridge.js')
+    const { filterPrintNotificationItems } = printBridge
     const toyId = '11111111-1111-1111-1111-111111111111'
     const items = [{ id: toyId, name: 'Catalog Dino', quantity: 2 }]
     const result = filterPrintNotificationItems(items, new Set([toyId]))
@@ -66,7 +76,7 @@ describe('filterPrintNotificationItems — pure item filter', () => {
   })
 
   it('excludes an ordinary catalog item (UUID id not in the resolved catalog-toy set)', async () => {
-    const { filterPrintNotificationItems } = await import('./print-bridge.js')
+    const { filterPrintNotificationItems } = printBridge
     const shirtId = '22222222-2222-2222-2222-222222222222'
     const items = [{ id: shirtId, name: 'Cotton Tee', quantity: 1 }]
     const result = filterPrintNotificationItems(items, new Set())
@@ -74,7 +84,7 @@ describe('filterPrintNotificationItems — pure item filter', () => {
   })
 
   it('mixed cart: keeps only the custom-mini and catalog-toy items, drops the rest', async () => {
-    const { filterPrintNotificationItems } = await import('./print-bridge.js')
+    const { filterPrintNotificationItems } = printBridge
     const toyId = '33333333-3333-3333-3333-333333333333'
     const shirtId = '44444444-4444-4444-4444-444444444444'
     const items = [
@@ -87,7 +97,7 @@ describe('filterPrintNotificationItems — pure item filter', () => {
   })
 
   it('falls back to no matches (caller decides whether to list everything) when nothing qualifies', async () => {
-    const { filterPrintNotificationItems } = await import('./print-bridge.js')
+    const { filterPrintNotificationItems } = printBridge
     const items = [{ id: '55555555-5555-5555-5555-555555555555', name: 'Cotton Tee', quantity: 1 }]
     const result = filterPrintNotificationItems(items, new Set())
     expect(result).toEqual([])

@@ -106,6 +106,11 @@ function apiKey(): string {
   return s ? `${keystring()}:${s}` : keystring()
 }
 
+/** The x-api-key value for a data call, for callers that hold their own token (scripts/etsy-pet-order.ts). */
+export function etsyApiKey(): string {
+  return apiKey()
+}
+
 function redirectUri(): string {
   return process.env.ETSY_REDIRECT_URI
     || `${process.env.API_ORIGIN || 'http://localhost:4000'}/api/admin/etsy/callback`
@@ -351,14 +356,25 @@ async function sourceDesignFile(productId: string, productName?: string | null):
   const url = assets?.[0]?.url
   if (typeof url !== 'string' || !/^https?:\/\//.test(url)) return null
 
-  // Buyers see this filename in their downloads — give them the design name,
-  // not a storage uuid. Keep the real extension so the file opens.
-  const ext = (url.split('?')[0].split('.').pop() || 'png').toLowerCase().slice(0, 4)
-  const slug = String(productName || 'design')
+  return { url, name: sourceDesignFileName(productName, url) }
+}
+
+// Etsy rejects a digital file whose name is outside 3-70 chars or uses anything
+// but letters, digits, '-', '_' and '.' (400 on POST .../files, live 2026-10-31).
+const ETSY_FILE_NAME_MAX = 70
+
+// Buyers see this filename in their downloads — give them the design name,
+// not a storage uuid. Keep the real extension so the file opens. The slug gets
+// whatever the '-300dpi.<ext>' suffix leaves of the 70, and hyphens are trimmed
+// AFTER the cut so a slice that lands on a word break leaves no '--300dpi'.
+export function sourceDesignFileName(productName: string | null | undefined, url: string): string {
+  const ext = ((url.split('?')[0].split('.').pop() || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 4)) || 'png'
+  const suffix = `-300dpi.${ext}`
+  const slug = String(productName || '')
     .replace(/[^a-zA-Z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 60) || 'design'
-  return { url, name: `${slug}-300dpi.${ext}` }
+    .slice(0, ETSY_FILE_NAME_MAX - suffix.length)
+    .replace(/^-+|-+$/g, '') || 'design'
+  return `${slug}${suffix}`
 }
 
 // ITP category slug → Etsy taxonomy id. Still driven by the ETSY_TAXONOMY_MAP
@@ -1234,6 +1250,25 @@ export async function getShopReceipts(opts: { minLastModified?: number; limit?: 
   if (opts.minLastModified !== undefined) params.set('min_last_modified', String(opts.minLastModified))
   const res = await etsyFetch(`/application/shops/${shopId}/receipts?${params.toString()}`, { token })
   return (res?.results ?? []) as EtsyReceipt[]
+}
+
+/**
+ * Headers for a READ of something Etsy keeps behind the shop's login, such as
+ * a buyer's personalization upload (task 5d007181). Same token path as every
+ * other call here.
+ */
+export async function etsyReadHeaders(): Promise<Record<string, string>> {
+  const { token } = await getAccessToken()
+  return { 'x-api-key': apiKey(), Authorization: `Bearer ${token}` }
+}
+
+/** One shop receipt with its transactions (read only). `token` lets a script use the live token without refreshing it. */
+export async function getShopReceipt(receiptId: number, opts: { token?: string; shopId?: number } = {}): Promise<EtsyReceipt> {
+  let token = opts.token
+  let shopId = opts.shopId ?? null
+  if (!token) ({ token, shopId } = await getAccessToken())
+  if (!shopId) throw new Error('No Etsy shop on the connected account yet')
+  return (await etsyFetch(`/application/shops/${shopId}/receipts/${receiptId}`, { token })) as EtsyReceipt
 }
 
 // ---------------------------------------------------------------------------

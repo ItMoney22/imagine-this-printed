@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 
 // Must be set before supabaseAuth.ts is first imported below — the module
 // now throws at load time if SUPABASE_JWT_SECRET is unset (fail-fast boot
@@ -23,6 +23,18 @@ vi.mock('../lib/supabase.js', () => ({
     }),
   },
 }))
+
+// The first import of supabaseAuth.ts + jose.ts loads their graph cold, which
+// took 1.5 s of the first test's 5 s testTimeout under a parallel verify on
+// Earth (same flake class that refused two green ITP ships, task 1e4242ba).
+// Load both once here under a 30 s hook timeout so no it() pays for it, and
+// call jose() so the ESM-only `jose` package it lazy-loads is warm too; the
+// in-test imports below then resolve from the module cache (task f0aef7f0).
+beforeAll(async () => {
+  await import('./supabaseAuth.js')
+  const { jose } = await import('../lib/jose.js')
+  await jose()
+}, 30_000)
 
 function mockRes() {
   const res: any = { statusCode: 200, body: undefined }

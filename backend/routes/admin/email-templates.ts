@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express'
 import { requireAuth, requireRole } from '../../middleware/supabaseAuth.js'
 import { supabase } from '../../lib/supabase.js'
-import { generateAIEmail, previewAIEmail, logEmail } from '../../services/emailAI.js'
+import { generateAIEmail, previewAIEmail } from '../../services/emailAI.js'
 import { sendEmailWithTracking } from '../../utils/email.js'
 
 const router = Router()
@@ -164,16 +164,16 @@ router.post('/:key/send-test', async (req: Request, res: Response): Promise<any>
       to: testEmail,
       subject: `[TEST] ${email.subject}`,
       htmlContent: email.htmlContent,
-      textContent: email.textContent
+      textContent: email.textContent,
+      // sendEmailWithTracking writes the email_logs row itself (sent or failed),
+      // so this route no longer logs separately.
+      templateKey: key,
+      aiUsed: email.aiGenerated,
+      logMetadata: { test_send: true, product_name: email.context?.productName, order_number: email.context?.orderNumber }
     })
 
     if (!result.success) {
       return res.status(500).json({ error: 'Failed to send test email' })
-    }
-
-    // Log the email with messageId for tracking
-    if (email.context) {
-      await logEmail(key, testEmail, email.subject, email.aiGenerated, email.context, result.messageId)
     }
 
     req.log?.info({ templateKey: key, testEmail, messageId: result.messageId }, 'Test email sent')
