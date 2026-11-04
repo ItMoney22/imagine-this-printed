@@ -79,6 +79,7 @@ import creatorStudioRouter from './routes/creator-studio.js'
 import studioFlowRouter from './routes/studio-flow.js'
 import teamPlateRouter from './routes/team-plate.js'
 import namePrintRouter from './routes/name-print.js'
+import petOrnamentRouter from './routes/pet-ornament.js'
 import flareStudioRouter from './routes/flare-studio.js'
 import kioskRouter from './routes/kiosk.js'
 import adminKioskDevicesRouter from './routes/admin/kiosk-devices.js'
@@ -283,6 +284,7 @@ app.use('/api/creator/studio', creatorStudioRouter)
 app.use('/api/studio', studioFlowRouter)
 app.use('/api/team-plate', teamPlateRouter)
 app.use('/api/name-print', namePrintRouter)
+app.use('/api/pet-ornament', petOrnamentRouter)
 app.use('/api/watchtower', watchtowerRouter)
 // imageToolsRouter retired on the hardening branch (8f6e7a2: unbilled AI route)
 app.use('/api/user-products', userProductsRouter)

@@ -1,5 +1,77 @@
 # TASK_NOTES
 
+## Current request (2026-11-01) — Etsy pet order: --apply fixes the order and re-queues the line (task 4ef9db82, zero-earth019)
+
+Follow-up of 5d007181 (ada-brooks 7daf849; this branch is a fast-forward of it). A held Etsy pet ornament line, re-run
+with --photo/--pet/--stock, wrote files only: order_items kept print_file_path null and the bridge's /queue cursor
+(orders.paid_at) had passed the order, so the fix never reached the printer.
+
+Decisions:
+- `--apply` on scripts/etsy-pet-order.ts writes petLineMeta onto the order_items row of order ETSY-<receipt> whose
+  metadata.etsy_transaction_id matches, keeps the row's own keys, and stamps `metadata.print_requeued_at`. Without
+  --apply the order is never touched. Only a line that BUILT is written (a held re-run never replaces the row).
+- Re-queue = a stamp, not a pull-by-order route (none exists, and the factory already polls /queue): /queue sends every
+  paid order's stamped lines on every pull whatever `since`, never moves the cursor for them, marks them `requeuedAt`.
+  The factory dedupes on (itpOrderId, lineItemId); the fixed line's lineItemId is product:<print folder>, new, so it
+  lands as a new print with its parts.
+- Cleared by POST /status printing / insert_pause / ready_for_packing / shipped_soon (moved to
+  `metadata.print_requeue_cleared`); a 7-day window is the backstop. No schema change (jsonb).
+- --apply re-runs the same pipeline; storage is content-addressed (print folder = hash of the values, portrait cached
+  by photo), so existing files are reused, not rewritten.
+
+### File shortlist (approved scope — 2026-11-01 Etsy pet re-queue)
+- `backend/scripts/etsy-pet-order.ts` (--apply)
+- `backend/services/pet-ornament/etsy-order.ts` (+ test: applyEtsyPetLine)
+- `backend/services/print-requeue.ts` (+ test, new: the stamp's key, window, clear rule; shared by writer and bridge
+  so they cannot drift, and so the route does not import the drawing/vision graph)
+- `backend/routes/print-bridge.ts` (/queue re-queued lines, /status clear) + `backend/routes/print-bridge.requeue.test.ts` (new)
+- `backend/scripts/etsy-pet-requeue-proof.ts` (new: the live end-to-end proof, one backdated test order, deleted after)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-01 (zero-earth019): built --apply + stamp + /queue + /status clear; vitest 216 files / 2844 pass (17 new);
+  backend tsc 0, root tsc -b 0, no type errors in touched files under the esnext scripts+tests check. Live proof PASS
+  (E:/memory/watchtower/projects/imagine-this-printed/2026-11-01-4ef9db82-etsy-pet-requeue/proof.json): ingest held
+  ETSY-9000000202 (paid_at backdated behind the factory cursor), /queue before = absent, re-run without --apply = row
+  unchanged, --photo --apply = print_file_path + stamp, /queue = the line with 4 petOrnamentParts (all 200), cursor
+  unmoved, POST /status printing = cleared; test order deleted.
+
+## Current request (2026-11-01) — Etsy pet ornament order -> print files (task 5d007181, ada-brooks)
+An Etsy sale of the create-your-own pet ornament (draft 4607572810) must turn into the same print files as a site
+checkout: read the pet name (max 12) and the buyer's uploaded photo from the transaction personalization, pick the
+pet type from the photo (cat/dog/bunny, no new buyer question), run services/pet-ornament/* unchanged, and leave the
+order line the print bridge turns into petOrnamentParts. One command for a receipt id; the receipt poller does the
+same for new sales. Etsy calls here are reads only.
+
+### File shortlist (approved scope — 2026-11-01 Etsy pet orders)
+- `backend/services/etsy-personalization.ts` / `.test.ts` (new: multi-answer reader + photo download)
+- `backend/services/pet-ornament/pet-detect.ts` / `.test.ts` (new: pet type from the photo)
+- `backend/services/pet-ornament/etsy-order.ts` / `.test.ts` (new: Etsy line -> print files)
+- `backend/services/pet-ornament/store.ts` (signed-parts helper + print_check spec, shared with the bridge and scripts)
+- `backend/routes/print-bridge.ts` (calls the shared signed-parts helper; no behaviour change)
+- `backend/scripts/etsy-pet-order.ts` (new: the command), `backend/scripts/pet-ornament-build.ts` (shared spec)
+- `backend/worker/etsy-receipt-ingest.ts` / `.test.ts` (pet lines built at ingest, before the order insert)
+- `backend/services/etsy.ts` (export the api-key header + a one-receipt read)
+- `backend/shared/pet-ornament.ts` / `.test.ts` (ADDED mid-task: the live seeded row dff53dc2 stores pets as
+  {id,label} objects and parsePetOrnament read only ids, so the product parsed as null - not a pet ornament - on
+  the site, at checkout, in the bridge and here; the parser now reads both)
+- `CLAUDE_TASK.md`, `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-01 (ada-brooks, Earth, task 5d007181): fast-forwarded this branch onto 200549e (pet ornament merge). Etsy pet
+  order -> print files: services/etsy-personalization.ts reads every property_id 54 answer (unescaped; upload answers =
+  URLs; only Etsy https hosts fetched, Etsy API headers only on a 401/403 and never off Etsy); pet-detect.ts reads the
+  pet type off the photo (house vision model, low detail; no animal -> held; unsure/no answer -> closest/first pet,
+  flagged); pet-ornament/etsy-order.ts runs portrait.ts + store.ts unchanged and returns checkout's line shape
+  (petLineMeta = checkout's order_items keys + etsy_pet). The receipt poller builds pet lines BEFORE the order insert
+  (bridge settles 60 s after paid_at; a drawing can take longer) and skips a receipt that is already an order.
+  scripts/etsy-pet-order.ts = the command (GET-only Etsy, token never refreshed). Bridge now calls the shared
+  signedPetParts. FOUND + FIXED: the live seeded row dff53dc2 stores pets as {id,label}, parsePetOrnament read ids
+  only -> the product parsed as null everywhere; parser reads both. etsy_listings row 754b08d9 maps 4607572810 ->
+  dff53dc2 (state draft: inert to the publish worker). Proof: test receipt (real lab photo) -> dog 99% -> 4 STLs +
+  print_spec.json; Saturn print_check PASS (0.0 mm2 wrong colour, 14.67 g, 1h 9m 46s); runner intake (dtc ce66c954)
+  accepts the bridge line. Gates: tsc -b 0, backend tsc 0, vitest 214 files / 2827 pass.
+
 ## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
 
 David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her
@@ -5787,3 +5859,25 @@ Fix at the one chokepoint (`sendEmailWithTracking`) so all paths log, with error
 - 2026-10-12 (levi-james): scope added; live schema read-only inspected (20 cols, 6 rows, newest 2025-12-23).
 - 2026-10-12 (levi-james): shipped recorder `backend/services/email-log.ts`; `sendEmailWithTracking` now logs every send (sent/failed/suppressed/no-key) and 28 senders carry template keys; logEmail delegates; admin send-test no longer double-logs. 9 new vitest + live proof `backend/scripts/verify-email-logs.ts` (real Resend sink sends, rows read back via the admin query, cleaned up). Not deployed.
 - 2026-10-30 (zero-nine, ship 01e26f7c): rebuilt b7ee3be as one pick onto the 10/30 ITP train 418d060 (c026572f: origin/main 8290701b + Crystal + name gifts + rider c29e49f5); only TASK_NOTES.md conflicted (kept the train's copy, appended this block). Gates re-run on the pick; ships in the same promote as c026572f.
+
+## Current request (2026-10-28) — print bridge cursor walks the paid time, not created_at (task b17dc9f6, zero-pluto)
+
+GET /api/print-bridge/queue walked created_at, but checkout writes the order pending before the customer pays, so an
+order opened first and paid second was skipped forever once a newer order's pull moved the cursor. Fix (a), ITP side:
+a DB trigger stamps orders.paid_at, the queue orders, filters and cursors on it, and only walks stamps over a minute old.
+
+### File shortlist (approved scope — 2026-10-28 print bridge cursor)
+- `backend/routes/print-bridge.ts` (GET /queue only), `backend/routes/print-bridge.queue.test.ts` (new)
+- `backend/routes/3d-models.model-files.test.ts` (its fake DB learns `.lte()` + the fixture gets paid_at)
+- `supabase/migrations/20261028220000_orders_paid_at.sql` (new, applied live), `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-28 (zero-pluto): new A/B test red on the old route (second pull empty), green after; migration dry-run in a
+  rolled-back transaction then applied + tracked live; vitest 199 files / 2716 tests green; backend tsc only the 6
+  worktree-path TS2742 notes in middleware/rate-limits.ts.
+- 2026-10-31 (zero-nine, SHIP c6a5a3ec): merged 2270793 onto ITP main 4010ddb (origin/main 2e14daa9 + the QR stand tools);
+  only TASK_NOTES.md conflicted (union). The name-print test fake already had `.lte()` + order `paid_at` (Pluto's prep f996303),
+  so no test change was needed. Live DB re-checked and an A/B dry run rolled back before the ship.
+- 2026-11-01 (ada-brooks, Saturn, task 81358f3a): create-your-own pet ornament. products.metadata.pet_ornament (backend/shared/pet-ornament.ts); photo -> GPT Image 2.5 Flare low flat portrait -> 4-colour print map (services/pet-ornament/quantize.ts, 0.2 mm grid, ink thickened, slivers/specks/saddles fixed) -> one watertight STL per colour, stacked by height (plate 2.6 / coats 3.4 / ink+name+rim 4.2) + print-spec.json (geometry.ts, store.ts). Routes /api/pet-ornament/portrait (rate-limited, daily cap, same photo never redrawn) + /preview (free). Checkout petOrnamentForLine, print bridge sends petOrnamentParts. Stock cat/dog/bunny maps in backend/assets/pet-ornament. PetOrnamentPanel on ProductPage, cart chips + own-pet thumb. Seed: scripts/pet-ornament-seed.ts ($19.99, draft unless --activate). Scope additions: name-print/geometry.ts (exports only), stripe.ts, print-bridge.ts, index.ts, Cart.tsx, ProductPage.tsx, public/pet-ornament/. vitest 2783/2783, tsc clean, real Bambu CLI slice PASS (15.2 g, 1h12m), walked 390 + 1400 with a real cat photo.
+- 2026-11-01 (vinny-carbone, Earth, task 0d6c4b33): merged Saturn's pet ornament e3f81a0 onto this branch (no conflicts; same tree a1a8278 against local main 4010ddb and origin/main cfe64a0). Gates on the merge: tsc -b 0, backend tsc 0 (--preserveSymlinks; without it only the 6 worktree-path TS2742 notes), vitest 211 files / 2783 pass. Seed run with --apply (NOT --activate, card bf67ba74 print not done): draft product dff53dc2-38ec-4125-9cae-bbc41e094b23, $19.99, 3 images 200, anon reads 0 rows. Etsy DRAFT 4607572810 at $19.99 with two REQUIRED questions (name text max 12 + one photo upload, Etsy's upload question type), Dec 12 order-by line first, 1-3 day processing. Kit: E:/memory/watchtower/projects/imagine-this-printed/2026-11-01-0d6c4b33-pet-ornament-etsy/. Production = Zero Nine's SHIP card.

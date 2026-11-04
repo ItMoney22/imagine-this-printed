@@ -12,6 +12,8 @@ import type { CartItem } from '../types'
 import { QR_FIELD, QR_STAND, isQrStandLineId } from '../../backend/shared/qr-stand'
 import { parseNamePrint } from '../../backend/shared/name-print'
 import { NamePrintThumb } from '../components/NamePrintPanel'
+import { parsePetOrnament } from '../../backend/shared/pet-ornament'
+import { PetOrnamentThumb } from '../components/PetOrnamentPanel'
 
 /** The name a shopper typed for a 3D name gift line, or null for any other line. */
 function giftName(item: { product: { metadata?: unknown }; personalization?: Record<string, string> }): string | null {
@@ -52,6 +54,17 @@ function choiceChips(item: CartItem): string[] {
     chips.push(up > 0 ? `${tier.label} (+$${up.toFixed(2)})` : tier.label)
   }
   for (const addon of item.selectedAddons ?? []) chips.push(`+ ${addon.name} (+$${addon.price.toFixed(2)})`)
+  // A pet ornament says which pet, the name, and whether it is drawn from their photo —
+  // never the portrait's id.
+  const petTemplate = parsePetOrnament(item.product.metadata)
+  if (petTemplate) {
+    const p = item.personalization ?? {}
+    const pet = petTemplate.pets.find((x) => x.id === p.pet)
+    if (pet) chips.push(pet.label)
+    if (p[petTemplate.field.key]) chips.push(`Name: ${p[petTemplate.field.key]}`)
+    chips.push(p.portrait ? 'Drawn from your photo' : 'Our design')
+    return chips
+  }
   // A name gift's one field is the name that prints, so its chip says so in a word ("Name: Grandma Rose").
   const gift = parseNamePrint(item.product.metadata)
   for (const [k, v] of Object.entries(item.personalization ?? {})) {
@@ -115,10 +128,19 @@ const Cart: React.FC = () => {
               const unit = lineBasePrice(item.product, item.selectedSize, item.selectedColor)
               const line = (unit + sizeUpcharge(item) + garmentTierUpcharge(item.selectedTier) + addonsUnitTotal(item.selectedAddons)) * item.quantity
               const gift = giftName(item)
+              const petOrnament = parsePetOrnament(item.product.metadata)
               return (
                 <li key={item.id} className="bg-card rounded-2xl border border-border shadow-soft p-3 sm:p-4 flex gap-3 sm:gap-5">
                   <Link to={isQrStandLineId(item.product.id) ? QR_STAND.path : `/product/${item.product.slug || item.product.id}`} className="shrink-0">
-                    {gift ? (
+                    {petOrnament && item.personalization ? (
+                      // A pet ornament shows THEIR pet and name, not the product photo.
+                      <PetOrnamentThumb
+                        productId={item.product.id}
+                        values={item.personalization}
+                        fallback={item.product.images?.[0] || FALLBACK}
+                        className="w-24 h-24 sm:w-32 sm:h-32 object-contain rounded-xl bg-bg"
+                      />
+                    ) : gift ? (
                       // A name gift shows the shopper's own name on the piece, not the product photo.
                       <NamePrintThumb
                         productId={item.product.id}
