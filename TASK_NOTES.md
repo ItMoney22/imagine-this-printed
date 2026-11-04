@@ -1,5 +1,45 @@
 # TASK_NOTES
 
+## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
+
+David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her
+stuff." Stacked on Amelia's unshipped Crystal store branch (f0aee34) because StoreManager.tsx only exists there.
+
+Decisions:
+- No third referral system: her link IS the friend link (imaginethisprinted.com/?ref=CODE, referral-capture.ts); the
+  code belongs to her STORE (vendor_storefronts.referral_code = CRYSTAL), because she has no ITP account yet.
+- The sign-in apply route answers { store: true } for a store code and the site keeps it (30 days) for checkout
+  instead of clearing it; Checkout sends it; the server stamps orders.metadata.store_referral.
+- Her cut = vendor_storefronts.referral_percent of products after discounts (QR stand reseller rule), paid on the paid
+  hook as a Stripe transfer to the store's Express account with source_transaction = the charge, idempotent per order.
+- referral_percent NULL until David picks it (APPROVE card): cuts wait on the order and a settle pays them when the
+  percent is set or her payouts go live. A full refund reverses a paid cut / cancels a waiting one.
+
+### File shortlist (approved scope — 2026-10-26 Crystal referral)
+- `supabase/migrations/20261026211000_vendor_store_referral.sql` (new; APPLIED to ITP prod; renamed from 20261026210000 by zero-nine 10/26, which the inbox migration already used)
+- `backend/services/store-referral.ts` (+ test, new)
+- `backend/routes/stripe.ts` (checkout stamp + reversal alert line), `backend/routes/wallet.ts` (apply: store code kept)
+- `backend/routes/vendor-store.ts` (+ test: manage GET referral, admin PATCH referralPercent, settle)
+- `backend/services/order-payment.ts` (paid hook), `backend/services/order-refunds.ts` (reversal step)
+- `src/utils/referral-capture.ts` (+ test), `src/pages/Checkout.tsx` (send referralCode)
+- `src/lib/vendor-store.ts` (types), `src/pages/store/StoreLink.tsx` (new card), `src/pages/store/StoreManager.tsx`
+- `backend/scripts/store-referral-test-proof.ts` (new; Stripe TEST mode proof, runs when KEY 8144ed23 lands)
+- Walk scope +1 (2026-10-26): `src/pages/store/StoreDesign.tsx` (one class): at 390 the "Create a design" title
+  column shrank to one word per line beside its button on the same page; rule 9 says the whole screen ships right.
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-26 (zero-pluto): built the link + cut end to end; migration applied on prod (CRYSTAL, percent NULL);
+  store-referral 18/18, vendor-store route 7/7, referral-capture 25/25; npm run verify 185 files / 2557 pass.
+- 2026-10-26 (zero-pluto): real checkout route (proof script --checkout-only, live key, no payment) stamped CRYSTAL on
+  order ITP-MVPFNMMX-99N1, PaymentIntent cancelled, rows deleted. Walked the built site (API :4011 + preview :5191,
+  admin + ?view=seller) at 1400 and 390: card, Copy -> Copied, nav "My link", admin "Her link's cut". Fixed at 390:
+  link shown without https:// + smaller on phone, Copy no longer wraps, StoreDesign title no longer one word a line.
+  Stripe TEST-mode transfer proof waits on KEY 8144ed23; percent waits on APPROVE 0d6f0cdd.
+- 2026-10-26 (zero-nine, SHIP 963903af): the 10/26 ITP slot went to f0da3eed (main 2af93f65), so the 10/27 batch is
+  main + 580c4f3 + Dr Dill's discount codes f9d8117 (SHIP a7a8eba8) on one branch; StoreManager imports + TASK_NOTES
+  unioned; referral migration renamed 20261026210000 -> 20261026211000 (the inbox owns 210000) with its ledger row.
+
 ## Current request (2026-10-29) — weekly Etsy shop review
 
 - Review the live Etsy storefront against the 2026-10-22 baseline.
@@ -38,6 +78,7 @@
 ## Work log (append-only) — 2026-10-29 weekly Etsy review
 
 - 2026-10-29 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Not a Drill Dad Duties, Grey Alien Listen, and About/policies screenshots. Compared with October 22: the shop remains at 14 active listings and zero sales/reviews/admirers with the same featured assortment and 20% sale; only the delivery estimate advanced to October 31–November 7, while title, option, real-product-proof, trust, and visible accessibility gaps remain. Sent one illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified delivery, four attachments reported by Resend, four attachments in Mr. Imagine's Sent record, four attachments in the WeCare record, and four working PNG-signature-verified recipient downloads. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
+- 2026-11-04 (iahhm, task 51e5d6fd): The 10-08 to 10-29 review notes and the CLAUDE_TASK.md brief sat unsaved in the shared checkout, so /git/merge refused any branch touching either file. Landed them through a branch and /git/merge: byte-for-byte commit 8e4e638, then this block moved below the first Crystal entry so it does not collide with the entry production holds at the top of the file. The Thursday 9 AM Codex heartbeat writes both files from the shared checkout, so they go dirty again until card 72f6c7e0 lands. The 09-24 and 10-01 reviews are still only in stash 2d7b3c3 and E:/memory/watchtower/parked/itp-shared-checkout-20261007/.
 
 ---
 
@@ -159,46 +200,6 @@
 - 2026-10-08 (Codex weekly Etsy review): Captured and visually checked fresh shop-home, Not a Drill Dad Duties, Grey Alien Listen, and About/policies screenshots. Compared with October 1: the storefront is materially unchanged at 14 active listings and zero sales/reviews/admirers; featured assortment, prices, title/option inconsistencies, and trust/accessibility gaps are unchanged, while the delivery estimate advanced to October 10–17. Sent one illustrated report from `mrimagine@imaginethisprinted.com` to `wecare@imaginethisprinted.com`; verified delivery, four CID attachments at the sending service, four attachments in Mr. Imagine's Sent record, and four working PNG-signature-verified downloads in the WeCare recipient record. Modified only `CLAUDE_TASK.md` and `TASK_NOTES.md`; no Etsy or repo implementation changes were made.
 
 ---
-
-## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
-
-David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her
-stuff." Stacked on Amelia's unshipped Crystal store branch (f0aee34) because StoreManager.tsx only exists there.
-
-Decisions:
-- No third referral system: her link IS the friend link (imaginethisprinted.com/?ref=CODE, referral-capture.ts); the
-  code belongs to her STORE (vendor_storefronts.referral_code = CRYSTAL), because she has no ITP account yet.
-- The sign-in apply route answers { store: true } for a store code and the site keeps it (30 days) for checkout
-  instead of clearing it; Checkout sends it; the server stamps orders.metadata.store_referral.
-- Her cut = vendor_storefronts.referral_percent of products after discounts (QR stand reseller rule), paid on the paid
-  hook as a Stripe transfer to the store's Express account with source_transaction = the charge, idempotent per order.
-- referral_percent NULL until David picks it (APPROVE card): cuts wait on the order and a settle pays them when the
-  percent is set or her payouts go live. A full refund reverses a paid cut / cancels a waiting one.
-
-### File shortlist (approved scope — 2026-10-26 Crystal referral)
-- `supabase/migrations/20261026211000_vendor_store_referral.sql` (new; APPLIED to ITP prod; renamed from 20261026210000 by zero-nine 10/26, which the inbox migration already used)
-- `backend/services/store-referral.ts` (+ test, new)
-- `backend/routes/stripe.ts` (checkout stamp + reversal alert line), `backend/routes/wallet.ts` (apply: store code kept)
-- `backend/routes/vendor-store.ts` (+ test: manage GET referral, admin PATCH referralPercent, settle)
-- `backend/services/order-payment.ts` (paid hook), `backend/services/order-refunds.ts` (reversal step)
-- `src/utils/referral-capture.ts` (+ test), `src/pages/Checkout.tsx` (send referralCode)
-- `src/lib/vendor-store.ts` (types), `src/pages/store/StoreLink.tsx` (new card), `src/pages/store/StoreManager.tsx`
-- `backend/scripts/store-referral-test-proof.ts` (new; Stripe TEST mode proof, runs when KEY 8144ed23 lands)
-- Walk scope +1 (2026-10-26): `src/pages/store/StoreDesign.tsx` (one class): at 390 the "Create a design" title
-  column shrank to one word per line beside its button on the same page; rule 9 says the whole screen ships right.
-- `TASK_NOTES.md`
-
-### Work log (append-only)
-- 2026-10-26 (zero-pluto): built the link + cut end to end; migration applied on prod (CRYSTAL, percent NULL);
-  store-referral 18/18, vendor-store route 7/7, referral-capture 25/25; npm run verify 185 files / 2557 pass.
-- 2026-10-26 (zero-pluto): real checkout route (proof script --checkout-only, live key, no payment) stamped CRYSTAL on
-  order ITP-MVPFNMMX-99N1, PaymentIntent cancelled, rows deleted. Walked the built site (API :4011 + preview :5191,
-  admin + ?view=seller) at 1400 and 390: card, Copy -> Copied, nav "My link", admin "Her link's cut". Fixed at 390:
-  link shown without https:// + smaller on phone, Copy no longer wraps, StoreDesign title no longer one word a line.
-  Stripe TEST-mode transfer proof waits on KEY 8144ed23; percent waits on APPROVE 0d6f0cdd.
-- 2026-10-26 (zero-nine, SHIP 963903af): the 10/26 ITP slot went to f0da3eed (main 2af93f65), so the 10/27 batch is
-  main + 580c4f3 + Dr Dill's discount codes f9d8117 (SHIP a7a8eba8) on one branch; StoreManager imports + TASK_NOTES
-  unioned; referral migration renamed 20261026210000 -> 20261026211000 (the inbox owns 210000) with its ledger row.
 
 ## Current request (2026-10-26) — Crystal's store: discount codes that cut only her share (task b72f83b5, dr-dill)
 
