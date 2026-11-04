@@ -3,7 +3,9 @@
 //   node scripts/prove-print-bridge-mesh.mjs           one check, prints WAITING / PASS / FAIL
 //   node scripts/prove-print-bridge-mesh.mjs --watch   scheduled-task mode: a WAITING run only appends a line
 //     to watch.log; the first run that finds a meshed line writes evidence-<stamp>.json, closes the trigger
-//     card (WATCH_CARD_ID) with the result and deletes its own scheduled task, so it fires exactly once.
+//     card (WATCH_CARD_ID), files the proof card and deletes its own scheduled task. A close or a filing that
+//     fails leaves the task armed, so the next 30-minute run tries again. Never run --watch by hand: test it
+//     with scripts/prove-print-bridge-mesh-stub-run.mjs, which stubs the board and schtasks.
 //   QUEUE_FILE=<json> ...   verify a saved queue body instead of the live API (self-test of the checks).
 //   QUEUE_PAGE_LIMIT=1 ...  page the live queue one paid order at a time (proves the cursor walk).
 //   Every live run also counts paid meshed lines straight from the database; db > 0 with 0 queue links is a FAIL.
@@ -21,6 +23,9 @@ const BUCKET = 'imagine-this-printed-products'
 const evidenceDir = process.env.EVIDENCE_DIR || 'E:/memory/watchtower/projects/imagine-this-printed/print-bridge-mesh-watch'
 const cardId = process.env.WATCH_CARD_ID || ''
 const TASK_NAME = 'ITP print-bridge mesh watch'
+const BOARD = 'https://davidtrinidad.com/api/tasks/internal'
+// One line, under 240 characters, naming a time: the board's intake cap holds a card without it (the 30 min is an estimate).
+const EARNS_OR_SAVES = 'Saves about 30 minutes of hand checks per paid toy order (estimate): proof on file that the printers receive working mesh links.'
 const log = (...a) => console.log(...a)
 
 let http = 200, body
@@ -115,17 +120,59 @@ if (watch) {
     const file = path.join(evidenceDir, `evidence-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
     fs.writeFileSync(file, JSON.stringify({ task: 'e51d15e8', checkedAt: new Date(receivedAt * 1000).toISOString(), queueHttp: http, ttlSec, result, db, meshedLines: meshed.map(redact), links: checks }, null, 2))
     log('evidence written:', file)
+    let finished = true // no trigger card: nothing to close, so the task goes as it always did
     if (cardId) {
       const env = fs.readFileSync('D:/Projects for MetaSphere/david-trinidad-com/.env.local', 'utf8')
       const secret = env.match(/^CRON_SECRET=["']?([^"'\r\n]+)/m)?.[1]
       const summary = `Trigger fired ${new Date().toISOString()}: ${meshed.length} meshed queue line(s) (db: ${db?.paidMeshedLines} paid meshed), ${checks.length} link(s), RESULT ${result} ` +
         `(${checks.map(c => `${c.kind} ${c.http} life ${c.lifeSec}s`).join('; ')}). Evidence: ${file}`
-      const res = await fetch('https://davidtrinidad.com/api/tasks/internal', {
-        method: 'PATCH', headers: { 'content-type': 'application/json', 'x-internal-secret': secret },
-        body: JSON.stringify({ id: cardId, status: 'completed', result: summary }),
+      const board = (method, payload) => fetch(BOARD, {
+        method, headers: { 'content-type': 'application/json', 'x-internal-secret': secret }, body: JSON.stringify(payload),
       })
-      log('trigger card closed:', res.status)
+      // The board refuses a result field with HTTP 400: close-out proof goes in approval_notes.
+      let closed = false, closeNote = 'no reply'
+      try {
+        const res = await board('PATCH', { id: cardId, status: 'completed', approval_notes: summary })
+        closed = res.ok
+        closeNote = `HTTP ${res.status}`
+        if (!closed) closeNote += ` ${(await res.text()).slice(0, 300)}`
+      } catch (e) { closeNote = `no reply (${e.message})` }
+      log('trigger card close:', closeNote)
+
+      // One proof card per watch, however many runs a refused close takes: the marker file remembers it. The card names
+      // no other card by id, so the board cannot read it as waiting on a wait-gate card that is still open.
+      const marker = path.join(evidenceDir, 'proof-card.json')
+      let filed = fs.existsSync(marker)
+      if (filed) log('proof card already filed:', marker)
+      else {
+        const title = `ITP: write the print-bridge mesh proof from ${path.basename(file)}`
+        try {
+          const res = await board('POST', {
+            title,
+            description: [
+              `The print-bridge mesh watch fired on a real paid meshed-toy order: RESULT ${result}.`,
+              `Evidence file: ${file}`,
+              summary,
+              `Closing the wait-gate card answered: ${closeNote}.`,
+              `Write the evidence handoff from that file: the queue excerpt for each meshed line and every glbUrl/stlUrl with its HTTP status and expiry check (https, storage.googleapis.com/${BUCKET}, 12 h link), so a checker can re-run it. The signed links in the file die 12 h after the read; node scripts/prove-print-bridge-mesh.mjs with no --watch is a read-only recheck that signs fresh ones.`,
+              'On RESULT FAIL, name which check failed and what it takes to fix it.',
+              'Never create a fake paid order: Pluto prints whatever the queue holds.',
+            ].join('\n\n'),
+            project: 'imagine-this-printed',
+            assigned_agent: 'daisy-carter',
+            created_by: 'daisy-carter',
+            metadata: { earns_or_saves: EARNS_OR_SAVES },
+          })
+          const card = await res.json().catch(() => ({}))
+          // A card the intake cap holds answers 202 with id null: it never reached the board, so only an id counts.
+          filed = res.ok && !!card.id
+          if (filed) fs.writeFileSync(marker, JSON.stringify({ id: card.id, title, evidence: file, filedAt: new Date().toISOString() }, null, 2))
+          log('proof card POST:', res.status, filed ? card.id : JSON.stringify(card).slice(0, 300))
+        } catch (e) { log('proof card POST failed:', e.message) }
+      }
+      finished = closed && filed
     }
-    try { execFileSync('schtasks', ['/Delete', '/TN', TASK_NAME, '/F'], { stdio: 'ignore' }); log('scheduled task removed') } catch { /* not installed */ }
+    if (finished) { try { execFileSync('schtasks', ['/Delete', '/TN', TASK_NAME, '/F'], { stdio: 'ignore' }); log('scheduled task removed') } catch { /* not installed */ } }
+    else log('watch stays armed: the next run tries again')
   }
 }
