@@ -9,6 +9,7 @@ import dotenv from 'dotenv'
 import { PrismaClient } from '@prisma/client'
 import pino from 'pino'
 import pinoHttp from 'pino-http'
+import { LOG_REDACT } from './lib/log-redaction.js'
 import { nanoid } from 'nanoid'
 
 // Import routes
@@ -107,6 +108,7 @@ console.log('[boot] OPENAI_API_KEY suffix: ...' + (process.env.OPENAI_API_KEY?.s
 // Setup logger
 const logger = pino({
   level: process.env.LOG_LEVEL || 'info',
+  redact: LOG_REDACT,
   transport: process.env.NODE_ENV === 'development' ? {
     target: 'pino-pretty',
     options: {
