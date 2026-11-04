@@ -5720,3 +5720,21 @@ a DB trigger stamps orders.paid_at, the queue orders, filters and cursors on it,
   so no test change was needed. Live DB re-checked and an A/B dry run rolled back before the ship.
 - 2026-11-01 (ada-brooks, Saturn, task 81358f3a): create-your-own pet ornament. products.metadata.pet_ornament (backend/shared/pet-ornament.ts); photo -> GPT Image 2.5 Flare low flat portrait -> 4-colour print map (services/pet-ornament/quantize.ts, 0.2 mm grid, ink thickened, slivers/specks/saddles fixed) -> one watertight STL per colour, stacked by height (plate 2.6 / coats 3.4 / ink+name+rim 4.2) + print-spec.json (geometry.ts, store.ts). Routes /api/pet-ornament/portrait (rate-limited, daily cap, same photo never redrawn) + /preview (free). Checkout petOrnamentForLine, print bridge sends petOrnamentParts. Stock cat/dog/bunny maps in backend/assets/pet-ornament. PetOrnamentPanel on ProductPage, cart chips + own-pet thumb. Seed: scripts/pet-ornament-seed.ts ($19.99, draft unless --activate). Scope additions: name-print/geometry.ts (exports only), stripe.ts, print-bridge.ts, index.ts, Cart.tsx, ProductPage.tsx, public/pet-ornament/. vitest 2783/2783, tsc clean, real Bambu CLI slice PASS (15.2 g, 1h12m), walked 390 + 1400 with a real cat photo.
 - 2026-11-01 (vinny-carbone, Earth, task 0d6c4b33): merged Saturn's pet ornament e3f81a0 onto this branch (no conflicts; same tree a1a8278 against local main 4010ddb and origin/main cfe64a0). Gates on the merge: tsc -b 0, backend tsc 0 (--preserveSymlinks; without it only the 6 worktree-path TS2742 notes), vitest 211 files / 2783 pass. Seed run with --apply (NOT --activate, card bf67ba74 print not done): draft product dff53dc2-38ec-4125-9cae-bbc41e094b23, $19.99, 3 images 200, anon reads 0 rows. Etsy DRAFT 4607572810 at $19.99 with two REQUIRED questions (name text max 12 + one photo upload, Etsy's upload question type), Dec 12 order-by line first, 1-3 day processing. Kit: E:/memory/watchtower/projects/imagine-this-printed/2026-11-01-0d6c4b33-pet-ornament-etsy/. Production = Zero Nine's SHIP card.
+
+## Current request (2026-11-04) — live printer cam, ITP side (task 528180f9, cole-iverson)
+Watchtower pushes each printing order's live view to POST /api/print-bridge/live every ~45 s (404s harmlessly today).
+ITP stores the newest view per order line, shows it to the logged-in owner, and adds the optional checkout box.
+
+### File shortlist (approved scope — 2026-11-04 live printer cam)
+- `supabase/migrations/20261104130000_order_print_live.sql` (new) + `supabase/migrations/MIGRATION_LEDGER.md`
+- `backend/services/print-live.ts` (+ test, new): parse a push, save/read the row, the customer-safe view
+- `backend/routes/print-bridge.ts`: POST /live, liveOptIn on both /queue line shapes (+ `print-bridge.live.test.ts`, new)
+- `backend/routes/orders.ts`: GET /:orderId/live, owner only (+ `orders.live.test.ts`, new)
+- `backend/routes/stripe.ts`, `backend/routes/wallet.ts`: stamp orders.metadata.live_opt_in on both checkout paths
+- `src/components/LivePrintView.tsx` (+ test, new), `src/pages/MyOrders.tsx`, `src/pages/OrderStatus.tsx`
+- `src/lib/live-print.ts` (+ test, new), `src/pages/Checkout.tsx`: the box
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-04 (cole-iverson): branch was cut from local main af119d4, 13 commits behind origin/main 1b4b781 (no paid_at
+  queue, no pet ornament). Merged origin/main in (clean) so this work lands on the live print-bridge.ts.

@@ -3,6 +3,8 @@ import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/SupabaseAuthContext'
 import { apiFetch } from '../lib/api'
 import { isUnpaidDraft as checkoutNeverPaid } from '../lib/order-payment-truth'
+import { orderMayStillPrint } from '../lib/live-print'
+import LivePrintView from '../components/LivePrintView'
 import { Package, ChevronRight, Clock, CheckCircle, Truck, AlertCircle, XCircle, CreditCard, Edit3, FileText } from 'lucide-react'
 
 interface OrderItem {
@@ -401,6 +403,15 @@ export default function MyOrders() {
                       </div>
                     </div>
                   </div>
+
+                  {/* Live printer view: only an order on the print floor has one */}
+                  {!isDraft && order.metadata?.print?.status && (
+                    <LivePrintView
+                      orderId={order.id}
+                      poll={orderMayStillPrint(order.status)}
+                      className="px-5 pt-5 sm:px-6 sm:pt-6"
+                    />
+                  )}
 
                   {/* Order Items Preview */}
                   <div className="p-5 sm:p-6">

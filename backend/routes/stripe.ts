@@ -39,6 +39,7 @@ import { sanitizeAttribution, DIRECT_ATTRIBUTION } from '../services/order-attri
 import { QR_STAND, QR_FIELD, isQrStandLineId, readQrStandFields } from '../shared/qr-stand.js'
 import { verifyResellerRef } from '../services/qr-stand-reseller.js'
 import { resolveStoreReferral } from '../services/store-referral.js'
+import { liveOptInStamp } from '../services/print-live.js'
 
 const router = Router()
 
@@ -549,7 +550,7 @@ export async function replaceOrderItems(orderId: string, items: any[] | undefine
 // userId (or null) — guest order rows just won't be tied to a user.
 router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution, referralCode } = req.body
+    const { amount, currency, items, shipping, couponCode, userId: bodyUserId, shippingCost, itcCreditAmount, itcCreditUSD, existingPaymentIntentId, existingOrderId, shippingType, rush, shippingQuoteToken, shippingMethod, pickupAppointment, isLocalDelivery, attribution, referralCode, liveOptIn } = req.body
     // Landing UTMs captured client-side (src/utils/utm.ts) before checkout —
     // sanitized/allowlisted so an untrusted body can't inject arbitrary JSONB.
     // null means "nothing known this call", not "clear what's stored".
@@ -713,7 +714,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             freeShippingApplied: pricing.freeShippingApplied
           }),
           // Only set when THIS call carried a store link, like attribution below.
-          ...(storeReferral ? { store_referral: storeReferral } : {})
+          ...(storeReferral ? { store_referral: storeReferral } : {}),
+          ...liveOptInStamp(liveOptIn)
         }
 
         // Update the existing order
@@ -830,7 +832,8 @@ router.post('/checkout-payment-intent', optionalAuth, async (req: Request, res: 
             rushFeeCents: pricing.rushFeeCents,
             freeShippingApplied: pricing.freeShippingApplied
           }),
-          ...(storeReferral ? { store_referral: storeReferral } : {})
+          ...(storeReferral ? { store_referral: storeReferral } : {}),
+          ...liveOptInStamp(liveOptIn)
         }
       })
       .select()
