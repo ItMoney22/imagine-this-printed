@@ -5626,3 +5626,11 @@ Fix at the one chokepoint (`sendEmailWithTracking`) so all paths log, with error
 - 2026-10-12 (levi-james): scope added; live schema read-only inspected (20 cols, 6 rows, newest 2025-12-23).
 - 2026-10-12 (levi-james): shipped recorder `backend/services/email-log.ts`; `sendEmailWithTracking` now logs every send (sent/failed/suppressed/no-key) and 28 senders carry template keys; logEmail delegates; admin send-test no longer double-logs. 9 new vitest + live proof `backend/scripts/verify-email-logs.ts` (real Resend sink sends, rows read back via the admin query, cleaned up). Not deployed.
 - 2026-10-30 (zero-nine, ship 01e26f7c): rebuilt b7ee3be as one pick onto the 10/30 ITP train 418d060 (c026572f: origin/main 8290701b + Crystal + name gifts + rider c29e49f5); only TASK_NOTES.md conflicted (kept the train's copy, appended this block). Gates re-run on the pick; ships in the same promote as c026572f.
+
+### File shortlist (approved scope — 2026-11-04 mesh watch close, task 4ed45c6c)
+- `scripts/prove-print-bridge-mesh.mjs`: the fire path (close, proof card, delete)
+- `scripts/prove-print-bridge-mesh-stub-preload.mjs`, `scripts/prove-print-bridge-mesh-stub-run.mjs` (new): the stub harness the card asks for
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-04 (daisy-carter): close sends approval_notes, the task deletes only after a 2xx close and a filed proof card, and a marker file keeps retries to one card. Stub run: new code 8/8, old code fails 6/8.
