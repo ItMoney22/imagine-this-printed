@@ -57,6 +57,20 @@ function extractPricingFromApiError(err: unknown): ServerPricing | null {
   }
 }
 
+// Same error body, the other field: the server names a coupon it refused
+// (already used, first order only, expired) so the shopper sees why.
+function extractCouponErrorFromApiError(err: unknown): string | null {
+  if (!(err instanceof Error)) return null
+  const match = err.message.match(/^HTTP \d+: ([\s\S]*)$/)
+  if (!match) return null
+  try {
+    const body = JSON.parse(match[1])
+    return typeof body?.couponError === 'string' ? body.couponError : null
+  } catch {
+    return null
+  }
+}
+
 const ExpressCheckout: React.FC<{ total: number, items: any[], shipping: any, orderId: string }> = ({ orderId }) => {
   const { clearCart } = useCart()
   const navigate = useNavigate()
@@ -535,7 +549,7 @@ const Checkout: React.FC = () => {
   const handleApplyCoupon = async () => {
     if (!couponCode.trim()) return
     setCouponError(null)
-    const result = await applyCoupon(couponCode.trim(), user?.id)
+    const result = await applyCoupon(couponCode.trim(), user?.id, formData.email)
     if (!result.success) {
       setCouponError(result.error || 'Failed to apply coupon')
     } else {
@@ -546,6 +560,17 @@ const Checkout: React.FC = () => {
   const handleRemoveCoupon = () => {
     removeCoupon()
     setCouponError(null)
+  }
+
+  // A code applied before the email was typed is re-checked once we know who
+  // is buying (first-order-only and one-per-customer codes depend on it).
+  const handleEmailBlur = async () => {
+    if (!appliedCoupon || !formData.email.trim()) return
+    const result = await applyCoupon(appliedCoupon.code, user?.id, formData.email)
+    if (!result.success) {
+      removeCoupon()
+      setCouponError(result.error || 'This code no longer applies')
+    }
   }
 
   const createPaymentIntent = async () => {
@@ -644,6 +669,11 @@ const Checkout: React.FC = () => {
       const serverPricingFromError = extractPricingFromApiError(error)
       if (serverPricingFromError) {
         setServerPricing(serverPricingFromError)
+      }
+      const refusedCoupon = extractCouponErrorFromApiError(error)
+      if (refusedCoupon) {
+        removeCoupon()
+        setCouponError(refusedCoupon)
       }
     } finally {
       creatingPaymentIntentRef.current = false
@@ -902,6 +932,7 @@ const Checkout: React.FC = () => {
                   name="email"
                   value={formData.email}
                   onChange={handleInputChange}
+                  onBlur={handleEmailBlur}
                   placeholder="Email address"
                   required
                   className="w-full px-3.5 py-2.5 text-base sm:text-sm border border-border bg-bg rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"

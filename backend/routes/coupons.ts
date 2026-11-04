@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 import dotenv from 'dotenv'
 import { FEATURED_OFFER_CODE, describeFeaturedOffer } from '../shared/seasonal-offer.js'
 import { calculateOrderPricing, pricingItemsFromCart } from '../services/order-pricing.js'
+import { checkCustomerCouponRules, supabaseCustomerOrderLookups, type CustomerOrderLookups } from '../services/coupon-customer-rules.js'
 
 dotenv.config()
 
@@ -51,10 +52,11 @@ type CouponDb = { from: (table: string) => any; rpc: (fn: string, args: any) => 
  * trusted the client's `discount` field with zero validation at all.
  */
 export async function validateCouponForOrder(
-    params: { code: string; userId?: string | null; orderTotal: number },
-    db: CouponDb = supabase
+    params: { code: string; userId?: string | null; email?: string | null; orderTotal: number },
+    db: CouponDb = supabase,
+    customerLookups: CustomerOrderLookups = supabaseCustomerOrderLookups(db)
 ): Promise<CouponValidationResult> {
-    const { code, userId, orderTotal } = params
+    const { code, userId, email, orderTotal } = params
     const total = Number(orderTotal) || 0
 
     const { data: coupon, error } = await db
@@ -85,6 +87,7 @@ export async function validateCouponForOrder(
         }
     }
 
+    let usageCountForUser = 0
     if (userId && coupon.per_user_limit) {
         const { count, error: usageError } = await db
             .from('coupon_usage')
@@ -92,9 +95,13 @@ export async function validateCouponForOrder(
             .eq('discount_code_id', coupon.id)
             .eq('user_id', userId)
 
-        if (!usageError && count !== null && count >= coupon.per_user_limit) {
-            return { valid: false, discountAmount: 0, freeShipping: false, error: 'You have already used this coupon' }
-        }
+        if (!usageError && count !== null) usageCountForUser = count
+    }
+
+    // One use per customer + first-order-only, for guests too (by email).
+    const customerCheck = await checkCustomerCouponRules(coupon, { userId, email }, customerLookups, usageCountForUser)
+    if (!customerCheck.ok) {
+        return { valid: false, discountAmount: 0, freeShipping: false, error: customerCheck.error }
     }
 
     // Calculate discount
@@ -215,7 +222,7 @@ router.get('/featured', async (_req: Request, res: Response) => {
 // GET /api/coupons/validate - Validate a coupon code
 router.get('/validate', async (req: Request, res: Response) => {
     try {
-        const { code, userId, orderTotal } = req.query
+        const { code, userId, email, orderTotal } = req.query
 
         if (!code) {
             return res.status(400).json({ valid: false, error: 'Coupon code is required' })
@@ -224,6 +231,7 @@ router.get('/validate', async (req: Request, res: Response) => {
         const result = await validateCouponForOrder({
             code: code as string,
             userId: (userId as string) || null,
+            email: typeof email === 'string' ? email : null,
             orderTotal: Number(orderTotal) || 0
         })
 
@@ -255,22 +263,24 @@ router.get('/validate', async (req: Request, res: Response) => {
 // payment step then refuses.
 router.post('/quote', async (req: Request, res: Response) => {
     try {
-        const { code, items, userId } = req.body || {}
+        const { code, items, userId, email } = req.body || {}
         if (!code || typeof code !== 'string') {
             return res.status(400).json({ valid: false, error: 'Coupon code is required' })
         }
         const user = typeof userId === 'string' && userId ? userId : null
+        const customerEmail = typeof email === 'string' && email.trim() ? email.trim() : null
         const pricing = await calculateOrderPricing({
             items: pricingItemsFromCart(items),
             // Pickup is the one shipping type with no quote token to verify;
             // shipping plays no part in what a coupon takes off.
             shipping: { type: 'pickup', clientAmountCents: 0 },
             couponCode: code,
-            userId: user
+            userId: user,
+            customerEmail
         })
         if (pricing.couponError) return res.json({ valid: false, error: pricing.couponError })
 
-        const result = await validateCouponForOrder({ code, userId: user, orderTotal: pricing.productSubtotalCents / 100 })
+        const result = await validateCouponForOrder({ code, userId: user, email: customerEmail, orderTotal: pricing.productSubtotalCents / 100 })
         if (!result.valid) return res.json({ valid: false, error: result.error })
 
         const discount = pricing.couponDiscountCents / 100

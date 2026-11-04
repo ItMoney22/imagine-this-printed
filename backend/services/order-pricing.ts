@@ -81,6 +81,7 @@ import { blankUnitPriceDollars, blankPricingOf, isBlankGarmentMeta, type BlankPr
 import { isYouthSize, plusSizeUpchargeCents, YOUTH_SIZE_DISCOUNT_CENTS } from '../shared/catalog-capability.js'
 import { offerThemeOf, matchesOfferTheme } from '../shared/seasonal-offer.js'
 import { QR_STAND, isQrStandLineId } from '../shared/qr-stand.js'
+import { checkCustomerCouponRules, supabaseCustomerOrderLookups, type CustomerOrderLookups } from './coupon-customer-rules.js'
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -276,7 +277,8 @@ export interface PricingDiscountCodeRow {
   min_order_amount: number | null
   max_discount_amount: number | null
   per_user_limit: number | null
-  /** metadata.theme limits the code to one theme's designs (shared/seasonal-offer.ts). */
+  /** metadata.theme limits the code to one theme's designs (shared/seasonal-offer.ts);
+   *  metadata.first_order_only — see coupon-customer-rules.ts. */
   metadata?: any
 }
 
@@ -321,6 +323,13 @@ export interface PricingDependencies {
    */
   fetchOfferThemedIds?: (ids: string[], theme: string) => Promise<Set<string>>
   countCouponUsageForUser: (discountCodeId: string, userId: string) => Promise<number>
+  /**
+   * Paid-order lookups behind "one use per customer" and "first order only"
+   * for guests, who have no user id (coupon-customer-rules.ts). Optional so
+   * existing injected-deps tests keep compiling; absent = the old
+   * account-only per_user_limit check.
+   */
+  customerOrderLookups?: CustomerOrderLookups
   /** Returns the user's real ITC wallet balance (units), 0 if none. */
   fetchWalletItcBalance: (userId: string) => Promise<number>
   /**
@@ -357,8 +366,11 @@ export interface CalculateOrderPricingInput {
   shipping: PricingShippingInput
   couponCode?: string | null
   /** Authenticated user id ONLY (e.g. req.user.sub). Pass null for guests —
-   *  guests can never apply ITC credit or per-user coupon limits. */
+   *  guests can never apply ITC credit. */
   userId?: string | null
+  /** Checkout email — how a GUEST is recognised for per-customer coupon
+   *  rules (one use per customer, first order only). */
+  customerEmail?: string | null
   itcCreditRequested?: number
 }
 
@@ -981,6 +993,8 @@ const defaultDependencies: PricingDependencies = {
     return count
   },
 
+  customerOrderLookups: supabaseCustomerOrderLookups(supabase),
+
   async fetchWalletItcBalance(userId: string) {
     const { data, error } = await supabase.from('user_wallets').select('itc_balance').eq('user_id', userId).single()
     if (error || !data) return 0
@@ -1112,9 +1126,18 @@ export async function calculateOrderPricing(
       ).themedCents
       if (discountBaseCents <= 0) themeError = `${row.code} is for ${theme.charAt(0).toUpperCase()}${theme.slice(1)} designs, and nothing in this cart is one`
     }
-    const result = themeError
+    let result = themeError
       ? { discountCents: 0, freeShipping: false, error: themeError }
       : computeDiscountFromCoupon(row, subtotalCents, usageCount, new Date(), discountBaseCents)
+    if (row && !result.error && deps.customerOrderLookups) {
+      const customerCheck = await checkCustomerCouponRules(
+        row,
+        { userId: input.userId, email: input.customerEmail },
+        deps.customerOrderLookups,
+        usageCount
+      )
+      if (!customerCheck.ok) result = { discountCents: 0, freeShipping: false, error: customerCheck.error }
+    }
     couponDiscountCents = result.discountCents
     freeShipping = result.freeShipping
     couponError = result.error
