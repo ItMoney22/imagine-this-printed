@@ -7,7 +7,7 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, ExpressCheckoutElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { shippingCalculator, WAREHOUSE_ADDRESS, PICKUP_HOURS, MAX_DELIVERY_RADIUS_MILES, RUSH_FEE, isRushAvailable, getRushUnavailableReason } from '../utils/shipping-calculator'
 import { apiFetch } from '../lib/api'
-import { LIVE_OPT_IN_LABEL, cartHasOwnPrint } from '../lib/live-print'
+import { FAMILY_WATCH_BOX_ENABLED, LIVE_OPT_IN_LABEL, cartHasOwnPrint } from '../lib/live-print'
 import { addonsUnitTotal, lineBasePrice, printLocationLabel } from '../lib/product-kind'
 import { garmentTierUpcharge, getGarmentTier } from '../lib/garment-tiers'
 import { isBlankGarmentMeta, lineUnitBasePrice } from '../../backend/shared/blank-pricing'
@@ -473,7 +473,7 @@ const Checkout: React.FC = () => {
   const rushEligible = !!selectedRate?.rushEligible && (selectedRate?.type === 'pickup' || selectedRate?.type === 'delivery')
   const rushActive = rushSelected && rushEligible && rushAvailable
   const rushFee = rushActive ? RUSH_FEE : 0
-  const showLiveOptIn = cartHasOwnPrint(state.items)
+  const showLiveOptIn = FAMILY_WATCH_BOX_ENABLED && cartHasOwnPrint(state.items)
   const wantLiveOptIn = showLiveOptIn && liveOptIn
   // If free_shipping coupon is applied, the base shipping is $0 (rush still adds)
   const baseShipping = selectedRate?.amount || 0

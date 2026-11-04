@@ -15,6 +15,14 @@ const shirt = { id: 'line-2', quantity: 1, product: { id: '44444444-4444-4444-84
 
 let items: any[] = []
 const apiFetch = vi.fn()
+// The box ships OFF (task 55d6ae95); the plumbing tests switch it on.
+const flag = vi.hoisted(() => ({ on: true }))
+vi.mock('../lib/live-print', async importOriginal => ({
+  ...(await importOriginal<any>()),
+  get FAMILY_WATCH_BOX_ENABLED() {
+    return flag.on
+  },
+}))
 
 vi.mock('../lib/api', () => ({ apiFetch: (...args: unknown[]) => apiFetch(...args) }))
 vi.mock('../context/CartContext', () => ({
@@ -84,11 +92,21 @@ const openDraft = (metadata: Record<string, any> = {}) => {
 beforeEach(() => {
   apiFetch.mockReset()
   items = [ownPrint]
+  flag.on = true
 })
 
 afterEach(cleanup)
 
 describe('checkout: live printer box', () => {
+  it('is hidden by default: no family link exists, so nobody is promised one', async () => {
+    flag.on = false
+    openDraft({ live_opt_in: true })
+    await waitFor(() => expect(intentCalls().length).toBeGreaterThan(0), { timeout: 3000 })
+    expect(screen.queryByLabelText(LABEL)).toBeNull()
+    expect(screen.queryByText(/family/i)).toBeNull()
+    expect(intentCalls().at(-1).liveOptIn).toBe(false)
+  })
+
   it('shows on a cart with the customer\'s own print, unticked', async () => {
     openDraft()
     const box = (await screen.findByLabelText(LABEL)) as HTMLInputElement
