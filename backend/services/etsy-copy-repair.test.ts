@@ -238,3 +238,59 @@ describe('repairEtsyPack', () => {
     expect(db.updates[0].metadata.etsy_pack.tags).toContain('samurai tee')
   })
 })
+
+// ---------------------------------------------------------------------------
+// Task 28ab467c: the repair's words follow the product's RESOLVED kind. Before
+// it, every kind without its own vocabulary fell through to tee copy, so a 3D
+// figurine was described as "a soft unisex tee".
+// ---------------------------------------------------------------------------
+describe('repairCopy — one vocabulary per product kind', () => {
+  const cases: Array<[string, Partial<typeof base> & { kind?: any }]> = [
+    ['3d', { category: '3d-prints', garment: null, name: 'Toy: Robo Rascal' }],
+    ['tumbler', { category: 'tumblers', garment: null, name: 'Death Before Decaf' }],
+    ['other', { category: null, garment: null, name: 'Golf Dad Polo', kind: 'other' }],
+    ['youth_tee', { category: 'shirts', garment: 'youth-tshirt', name: 'Little Dino Explorer' }],
+  ]
+  for (const [kind, subject] of cases) {
+    it(`writes ${kind} copy that clears the gate and names no garment it is not`, () => {
+      const fixed = repairCopy({ ...base, ...subject, title: String(subject.name) })
+      expect(kindOf({ ...base, ...subject })).toBe(kind)
+      expect(blockingOf(fixed.title, fixed.tags, fixed.description)).toEqual([])
+      expect(fixed.tags).toHaveLength(MAX_TAGS)
+      expect(fixed.tags.every(t => t.length <= MAX_TAG_LEN)).toBe(true)
+      if (kind !== 'youth_tee') expect(fixed.description).not.toMatch(/unisex tee|the shirt|machine wash/i)
+    })
+  }
+
+  it('lets the caller\'s resolved kind override the floor', () => {
+    expect(kindOf({ category: 'shirts', garment: null, name: 'Cozy Ghost Hoodie', kind: 'tee' })).toBe('tee')
+    expect(kindOf({ category: null, garment: null, name: 'Mystery' })).toBe('other')
+  })
+})
+
+describe('repairEtsyPack — stamps the kind it repaired for', () => {
+  beforeEach(() => {
+    db.updates = []
+    db.product = {
+      id: 'p3d',
+      name: 'Toy: Robo Rascal',
+      description: '',
+      category: '3d-prints',
+      price: 30,
+      meta_title: null,
+      meta_description: null,
+      search_keywords: null,
+      metadata: {},
+    }
+  })
+
+  it('writes figure copy and records the decision on metadata.product_kind', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {})
+    const result = await repairEtsyPack('p3d', ['Only 0 tag(s); at least 10 are required and Etsy allows 13.'])
+    expect(result.repaired).toBe(true)
+    const md = db.updates[0].metadata
+    expect(md.etsy_pack.description).toMatch(/3D printed/)
+    expect(md.etsy_pack.description).not.toMatch(/unisex tee/)
+    expect(md.product_kind).toMatchObject({ kind: '3d', source: 'floor', needs_review: false, category: '3d-prints' })
+  })
+})

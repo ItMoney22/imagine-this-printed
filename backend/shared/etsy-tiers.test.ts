@@ -7,6 +7,7 @@ import {
   etsyTierConfig,
   isEtsyTier,
   taxonomyIdForCategory,
+  taxonomyIdForProduct,
   tierCopy,
   tiersForCategory,
   CATEGORY_TAXONOMY_DEFAULTS
@@ -265,5 +266,55 @@ describe('taxonomyIdForCategory', () => {
       expect(Number.isInteger(id), `${slug} must be an integer id`).toBe(true)
       expect(id, `${slug} must be > 0`).toBeGreaterThan(0)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Task 28ab467c: the primary tier's taxonomy reads the product, not just its
+// category slug — a kind flagged for review waits for a human, and a product
+// nothing identifies is never listed under the tee node by default.
+// ---------------------------------------------------------------------------
+describe('taxonomyIdForProduct', () => {
+  const saved = { map: process.env.ETSY_TAXONOMY_MAP, def: process.env.ETSY_DEFAULT_TAXONOMY_ID }
+  beforeEach(() => {
+    delete process.env.ETSY_TAXONOMY_MAP
+    process.env.ETSY_DEFAULT_TAXONOMY_ID = '482'
+  })
+  afterEach(() => {
+    if (saved.map === undefined) delete process.env.ETSY_TAXONOMY_MAP
+    else process.env.ETSY_TAXONOMY_MAP = saved.map
+    if (saved.def === undefined) delete process.env.ETSY_DEFAULT_TAXONOMY_ID
+    else process.env.ETSY_DEFAULT_TAXONOMY_ID = saved.def
+  })
+
+  it('resolves a plain category exactly as before', () => {
+    expect(taxonomyIdForProduct({ category: 'hoodies', name: 'Moon' })).toEqual({ taxonomyId: 1853, category: 'hoodies' })
+    expect(taxonomyIdForProduct({ category: '3d-prints', name: 'Toy' }).taxonomyId).toBe(1799)
+  })
+
+  it('blocks a product whose kind is flagged for review, with the reason', () => {
+    const stamp = { kind: 'tee', source: 'floor', needs_review: true, note: 'Jev reads this as other (98% sure) but the category says tee', category: 'shirts' }
+    const r = taxonomyIdForProduct({ category: 'shirts', name: 'Golf Dad Polo', metadata: { product_kind: stamp } })
+    expect(r.taxonomyId).toBeNull()
+    expect(r.blockedReason).toMatch(/Check what this product is before it lists on Etsy: Jev reads this as other/)
+  })
+
+  it('ignores a stale stamp once a human re-files the category', () => {
+    const stamp = { kind: 'tee', source: 'floor', needs_review: true, note: 'x', category: 'shirts' }
+    expect(taxonomyIdForProduct({ category: 'hoodies', name: 'Golf', metadata: { product_kind: stamp } })).toEqual({ taxonomyId: 1853, category: 'hoodies' })
+  })
+
+  it("follows the admin's pick", () => {
+    const md = { step_flow: { garment: 'hoodie', approvals: { garments: '2026-10-01' } } }
+    expect(taxonomyIdForProduct({ category: 'shirts', name: 'Art', metadata: md }).taxonomyId).toBe(1853)
+  })
+
+  it('files an uncategorised product by its resolved kind, never by the tee default', () => {
+    expect(taxonomyIdForProduct({ category: null, metadata: { product_template: 'metal-art' } })).toEqual({ taxonomyId: 119, category: 'metal-art' })
+    const jevStamp = { kind: '3d', source: 'jev', needs_review: false, note: 'x', category: null }
+    expect(taxonomyIdForProduct({ category: null, name: 'Robo', metadata: { product_kind: jevStamp } }).taxonomyId).toBe(1799)
+    const nothing = taxonomyIdForProduct({ category: null, name: 'Camper Apology' })
+    expect(nothing.taxonomyId).toBeNull()
+    expect(nothing.blockedReason).toMatch(/Nothing on this product says what it is/)
   })
 })

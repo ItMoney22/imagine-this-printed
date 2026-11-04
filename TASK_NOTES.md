@@ -5883,3 +5883,32 @@ inbound texts land where ITP reads, Twilio friendly name reads Imagine This Prin
 
 ### Work log (append-only)
 - 2026-10-30 (zero-pluto): built the phone line on the Express API (not Next): Twilio signature + TwiML by hand (no twilio package), Mr. Imagine persona from the help-page facts, take_message / transfer_to_shop, texts -> support tickets (Becky pings Christina), missed calls -> tickets, transcript onto the ticket at hangup. Migration applied live. vitest 207 files / 2772 tests green, tsc clean; voiced harness call through the real bridge code PASS (E:/memory/watchtower/assets/20d54c05/harness-run.txt).
+
+## Current request (2026-10-12) — Jev product-kind detection, no more silent shirt defaults (task 28ab467c, dr-dill)
+
+Product kind is guessed four different ways (copy-repair `kindOf`, composer `isHoodieProduct`, the approval route's
+template sniff + `'shirts'` default, and the Etsy taxonomy's category-only lookup). One resolver replaces the guessing:
+admin-set category wins unconditionally; Jev (multi-option choice, 8 kinds, described) reads the product's WORDS; the old
+heuristics stay as the deterministic floor; a low-confidence or contradicted row is flagged for a human, never defaulted
+to shirts. Rollout `PRODUCT_KIND_JEV` = shadow (default) | on | off, measured first by a dry run on the live catalog.
+
+### File shortlist (approved scope — 2026-10-12 product kind)
+- The brief's four: `backend/services/etsy-copy-repair.ts`, `backend/services/etsy-seo-composer.ts`,
+  `backend/routes/admin/user-product-approvals.ts`, `backend/shared/etsy-tiers.ts` (+ their tests)
+- New: `backend/shared/product-kind.ts` (pure floor + decision rules), `backend/services/product-kind-jev.ts` (the Jev
+  call), `backend/scripts/jev-product-kind-dryrun.ts` (read-only live comparison), their tests, `docs/reports/jev-product-kind-*`
+- Added, with rationale: `backend/services/etsy.ts` (the ONE publish call site that turns category into a taxonomy id —
+  without it etsy-tiers' review gate is dead code); `backend/routes/admin/ai-products.ts` (stamp `category_source` where
+  the admin's wizard pick wins vs. where the 'shirts' default fires, so the resolver can tell an admin choice from a guess)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-10-12 (dr-dill): merged origin/main (branch was 55 behind). Built shared/product-kind.ts (8 kinds, admin > Jev >
+  floor, review instead of shirts, metadata.product_kind stamp) + services/product-kind-jev.ts (words-only Jev choice,
+  PRODUCT_KIND_JEV shadow default, bar 0.85). Wired copy repair (8 vocabularies; 'other' no longer writes tee copy),
+  composer (per-kind prompt, tee prompt byte-identical, kind anchor, no shirt colours off garments, refuses an
+  unidentifiable product), approvals (admin category wins + stamped; 409 pick-a-category instead of 'shirts'),
+  etsy-tiers taxonomyIdForProduct (review stamp blocks; no tee default) + its one publish call site, wizard
+  category_source stamp. Dry run on all 2,605 live rows: $0.0998, 98% agree, 29 on-mode reviews (21 real misroutes),
+  shadow changes 0 rows (docs/reports/jev-product-kind-dryrun-2026-10-12.md). vitest 170 files / 2429 pass (+48 new;
+  mutations turn 6 red), backend tsc clean bar the 6 known TS2742, app tsc 0, vite build green, eslint 0 errors.

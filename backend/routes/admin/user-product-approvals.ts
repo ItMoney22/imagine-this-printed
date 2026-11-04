@@ -3,6 +3,8 @@ import { supabase } from '../../lib/supabase.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { sendEmail, sendProductApprovalEmail } from '../../utils/email.js'
 import { generateSeoPackForProduct } from '../../services/seo-pack.js'
+import { resolveProductKind } from '../../services/product-kind-jev.js'
+import { KIND_CATEGORY, categoryForKind, kindForCategory, toKindStamp } from '../../shared/product-kind.js'
 import { isCreatorProductMeta, printFilePlacementsOf } from '../../shared/creator-product.js'
 
 const router = Router()
@@ -99,13 +101,44 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
       return res.status(400).json({ error: 'This is not a user-submitted product' })
     }
 
+    // What is this product? (task 28ab467c) This used to sniff the submitted
+    // template for "metal"/"3d" and call everything else apparel, then file any
+    // uncategorised apparel as 'shirts'. Now one resolver decides
+    // (services/product-kind-jev.ts): a category the admin sends with this
+    // approval wins outright; else the product's own fields, with Jev reading
+    // its words when PRODUCT_KIND_JEV=on. A product nothing identifies, or whose
+    // fields disagree, is NOT approved as shirts — the admin is asked to pick.
+    const requestedCategory =
+      typeof req.body?.category === 'string' && kindForCategory(req.body.category.trim()) ? req.body.category.trim() : null
+    const kindSubject = requestedCategory
+      ? { ...product, category: requestedCategory, metadata: { ...product.metadata, category_source: 'admin' } }
+      : product
+    const kindDecision = await resolveProductKind(kindSubject)
+    const pickCategory = (reason: string) =>
+      res.status(409).json({
+        error: reason,
+        needs_category: true,
+        suggested_category: categoryForKind(kindDecision.jev.choice ?? kindDecision.kind),
+        categories: [...new Set(Object.values(KIND_CATEGORY).filter(Boolean))],
+      })
+    if (!requestedCategory && (kindDecision.needsReview || kindDecision.floor.conflict)) {
+      return pickCategory(
+        kindDecision.needsReview
+          ? kindDecision.note
+          : `This product's own fields disagree about what it is (${kindDecision.floor.signals.map(s => `${s.field}: ${s.kind}`).join(', ')}) — pick its category to approve it.`
+      )
+    }
+    const productKind = kindDecision.kind!
+    const resolvedCategory = requestedCategory ?? categoryForKind(productKind)
+    if (!product.category && !resolvedCategory) {
+      return pickCategory(`This reads as something the shop has no category for (${productKind}) — pick its category to approve it.`)
+    }
+
     // Generation-completeness gate: a design only goes 'active' (visible on the
     // products tab) once all its expected generations exist. Otherwise it lands
     // as 'incomplete' and stays off the storefront. (David: "before they hit the
     // products tab they need to have all generations done, or be marked incomplete.")
-    const tmpl = String(product.metadata?.product_template || product.metadata?.category || '').toLowerCase()
-    const kind = (tmpl.includes('metal') || tmpl.includes('wall')) ? 'metal'
-      : (tmpl.includes('3d') || tmpl.includes('toy')) ? '3d' : 'apparel'
+    const kind = productKind === 'metal' ? 'metal' : productKind === '3d' ? '3d' : 'apparel'
     const assets = (product.metadata?.assets && typeof product.metadata.assets === 'object') ? product.metadata.assets : {}
     const hasMockup = !!(product.metadata?.mockup_url || (Array.isArray(assets.mockups) && assets.mockups.length))
     // Direct-print products (Merch Studio publishes via POST
@@ -185,13 +218,14 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
     // Set the canonical `category` column so the storefront classifies the
     // product correctly. Metal/3D submissions came in with a null category and
     // were defaulting to T-Shirts everywhere (catalog filter, product card,
-    // product page). Derived from `kind` (computed above from product_template).
-    if (kind === 'metal') {
-      updateData.category = 'metal-art'
-    } else if (kind === '3d') {
-      updateData.category = '3d-prints'
-    } else if (!product.category) {
-      updateData.category = 'shirts'
+    // product page). The admin's pick wins; metal and 3D always take their own
+    // category; anything else keeps the category it has, and an uncategorised
+    // product takes its RESOLVED kind's category — never a 'shirts' default.
+    if (requestedCategory) {
+      updateData.category = requestedCategory
+      updateData.metadata.category_source = 'admin'
+    } else if (kind === 'metal' || kind === '3d' || !product.category) {
+      updateData.category = resolvedCategory
     }
 
     // products.print_locations CHECK (products_print_locations_valid) requires
@@ -201,6 +235,8 @@ router.post('/:id/approve', requireAuth, requireAdmin, async (req: Request, res:
     // the product will be a shirt, guarantee a valid array: prefer admin-supplied
     // print_locations, else the product's existing ones, else front print.
     const finalCategory = updateData.category ?? product.category
+    // The decision rides on the row so the Etsy step reads the same answer.
+    updateData.metadata.product_kind = toKindStamp(kindDecision, { category: finalCategory })
     if (finalCategory === 'shirts') {
       const VALID_PRINT_LOCATIONS = ['front_image', 'back_image', 'pocket']
       const requested = Array.from(new Set(
