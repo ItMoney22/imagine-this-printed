@@ -5936,3 +5936,87 @@ to shirts. Rollout `PRODUCT_KIND_JEV` = shadow (default) | on | off, measured fi
   category_source stamp. Dry run on all 2,605 live rows: $0.0998, 98% agree, 29 on-mode reviews (21 real misroutes),
   shadow changes 0 rows (docs/reports/jev-product-kind-dryrun-2026-10-12.md). vitest 170 files / 2429 pass (+48 new;
   mutations turn 6 red), backend tsc clean bar the 6 known TS2742, app tsc 0, vite build green, eslint 0 errors.
+
+## 2026-09-22 — legacy wide-open RLS policies reconciled FORWARD (Sifu, Watchtower `82d4ae2e`)
+
+The August 2026 hardening dropped wide-open RLS policies by running SQL straight
+at production, so production is hardened but the migration chain still CREATEs
+them. Any fresh environment built by replaying the chain — `supabase db reset`, a
+staging stack, a DR rebuild, a test DB — came up WIDE OPEN while prod was locked.
+One forward migration closes that; no historical migration file is touched.
+
+### File shortlist (approved scope — 2026-09-22 RLS reconciliation)
+- `supabase/migrations/20260922210000_drop_legacy_wide_open_rls_policies.sql` (new)
+- `scripts/verify-rls-policy-reconciliation.mjs` (new — re-runnable proof)
+- `docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md` (new — audit + evidence)
+- `supabase/migrations/MIGRATION_LEDGER.md`
+- `TASK_NOTES.md`
+
+Explicitly NOT in scope and NOT touched: every historical migration file (their
+checksums and history must stay intact), table-level `anon` write GRANTs
+(Watchtower `b6d6720f`), and `src/context/SupabaseAuthContext.tsx`.
+
+### Work log (append-only) — 2026-09-22 RLS reconciliation
+- Dumped live production `pg_policies` (read-only): 187 policies, 8 of them
+  wide-open and every one a public `FOR SELECT USING (true)` read.
+- Static-replayed every `CREATE POLICY`/`DROP POLICY` in `supabase/migrations/`
+  in filename order: 149 policies, 13 wide-open. Diffed against live. Seven
+  wide-open WRITE policies exist only in the files, never in production.
+- Confirmed the nine wide-open policies in `20251219_coupons_giftcards_support.sql`
+  are ALREADY dropped forward by `20260805_security_lockdown.sql` /
+  `20260805_02_discount_codes_lockdown.sql`, so they need no new statement.
+- Proved blast radius is nil: every writer of the seven tables is service-role
+  `backend/**` (RLS bypassed). Only browser-client hit anywhere in `src/` is the
+  already-dead wallet fallback at `src/context/SupabaseAuthContext.tsx:191`.
+- Verified against live, inside a rolled-back transaction, that
+  `DROP POLICY IF EXISTS … ON <missing table>` still raises `42P01` — so each
+  drop sits behind a `to_regclass(...) IS NOT NULL` guard.
+- Wrote the migration, the verifier and the evidence doc. Replayed set is now
+  142 policies / 6 wide-open, all six allow-listed by name with a reason.
+  `node scripts/verify-rls-policy-reconciliation.mjs --live` exits 0.
+- Applied to production as a proven no-op (transaction + full `pg_policies`
+  snapshot either side: 0 removed, 0 added, 187 -> 187), committed, and recorded
+  in `supabase_migrations.schema_migrations` as `20260922210000`. First pick
+  `20260922160000` was already taken by another agent's branch — checked and
+  moved rather than overwriting.
+- Two findings deliberately left for follow-up tasks: the live
+  `email_logs` "Service can insert email logs" INSERT-to-authenticated policy
+  (live, so dropping it would diverge), and production's `products`
+  `USING (true)` SELECT policy, which exists in no migration file and exposes
+  2,474 of 2,602 unapproved/inactive product rows to the anon key.
+
+## Current request (2026-10-12) — restrict products RLS to published rows + sync missing public policies (task 7e54a10f, cole-iverson)
+
+Follow-up of 82d4ae2e. Anon must read only `approved = true AND status = 'active'` products; signed-in readers of
+unpublished rows keep working; the live public reads on imagination_products / imagination_product_sizes /
+shipping_methods go into the chain. Branch carries Sifu's 6242274 + fb4de67 (merged by SHA, not cherry-picked, so
+Ada's e14d239c batch merges them as no-ops) because the verifier and doc live there.
+
+### File shortlist (approved scope — 2026-10-12 products RLS)
+- `supabase/migrations/20261012210000_restrict_products_public_read.sql` (new; applied live 2026-10-12)
+- `scripts/apply-restrict-products-public-read.mjs` (new: dry run / --apply in one transaction with in-transaction probe)
+- `scripts/verify-rls-policy-reconciliation.mjs` (strict convergence for 4 tables, visibility probe, live-only drift fails, SQL comments stripped)
+- `supabase/migrations/MIGRATION_LEDGER.md`, `docs/SECURITY-rls-policy-reconciliation-82d4ae2e.md`, `TASK_NOTES.md`
+- READ-ONLY audit (no edits needed): every `from('products')` caller in `src/`, `api/_seo/*`, backend supabase clients
+
+### Work log (append-only) — 2026-10-12 products RLS
+- Audited all 56 `products` reads/writes in src/: storefront callers already filter to published rows; the only
+  readers of unpublished rows are admin/manager screens (AdminDashboard, PromoPicker admin lane, PromoPricingModal,
+  AdminTeamTemplatesIndex, TeamStudio, AdminAIProductBuilder, AdminCreateProductWizard), VendorDashboard (own rows)
+  and UserProfile (own designs). Customer Step Flow, backend and worker are service-role. Decision: role/owner-scoped
+  signed-in SELECT policies instead of moving ~30 admin call sites to new endpoints; no src change needed.
+- Live before: 2,605 products, 38 published, anon REST read 2,605 (2,567 unpublished). No staff/vendor/creator
+  SELECT policy existed, so a narrowed public read alone would have silently zeroed admin UPDATEs.
+- Wrote 20261012210000 + apply script; dry run rolled back clean; applied + recorded in schema_migrations.
+  Anon REST now 38 (0 unpublished, draft by id = []); catalogue tables 3 / 34 / 0 unchanged.
+- `verify-rls-policy-reconciliation.mjs --live` PASS: strict convergence identical (products 10/10, imagination 2/2,
+  sizes 2/2, shipping 1/1), probe anon 38, customer 38, draft owner 40, admin 2,605.
+- Real-JWT PostgREST check with a throwaway user (deleted after; 0 orphan rows): customer 38 + PATCH on a draft = 0 rows;
+  as admin 2,605, pending queue 1, held-back library 2,369, no-op PATCH on a draft returns the row.
+- Fleet-browser walk of the live storefront at 1400 and 390: catalog 38 products with category counts, home, a live
+  product page, /blanks all render; a draft's product URL shows Product Not Found.
+- 2026-10-12 SHIP 17d474e6 (zero-nine): branch fast-forwards live main a28c1b1 (8 files, docs/scripts/migrations only, no src/ or backend/);
+  verify-rls-policy-reconciliation --live PASS again; schema_migrations has 20260922210000, 20260922220000, 20261012210000;
+  apply script NOT re-run; npm run verify green (166 files / 2371). Not pushed 10/12 (ITP's one regular ship went 15:30Z,
+  this is not a hotfix): rides the 10/13 ship 4646cb1f. TASK_NOTES/LEDGER conflicts vs a9abbfb, eac8f19 and the other 10/13
+  tips resolve with the memory-tree resolve-append-only-notes.cjs (keeps both sides, no duplicated ledger section).
