@@ -309,7 +309,7 @@ app.use('/api/admin/etsy', adminEtsyRouter) // Etsy store integration: OAuth con
 app.use('/api/admin/trend-scout', adminTrendScoutRouter) // Mr Imagine pitches landing pages; approve -> Watchtower task
 app.use('/api/admin/mrs-imagine', adminMrsImagineRouter) // Mrs. Imagine: realtime Etsy research -> designs -> QA -> Etsy drafts
 app.use('/api/media', mediaRouter) // permanent asset URLs — signs private GCS objects per request so stored URLs never expire
-app.use('/api/seo', seoRouter) // sitemap.xml (exposed on www via vercel rewrite)
+app.use('/api/seo', seoRouter) // sitemap.xml + products.xml (exposed on www via vercel rewrites)
 app.use('/api/social-outbox', socialOutboxRouter) // review-gated TikTok queue (admin UI + Rico bridge)
 app.use('/api/coupons', couponsRouter)
 app.use('/api/gift-cards', giftCardsRouter)
