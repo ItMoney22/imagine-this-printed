@@ -1,0 +1,103 @@
+# Print-bridge mesh proof, re-check 2026-10-13T19:49Z (task e51d15e8, send-back #4). Read-only; no order created.
+# Customer names/emails never printed. Token from vault itp.PRINT_BRIDGE_TOKEN, never printed.
+
+## 1. Live queue, full cursor walk + database cross-check   (node scripts/prove-print-bridge-mesh.mjs)
+queue pages 2 cursor 2026-09-12T14:07:56.865516+00:00
+queue HTTP 200
+orders 2 lines 2
+gs:// anywhere: false
+mesh links found: 0
+db cross-check: {
+  paidOrders: 6,
+  newestPaid: '2026-09-12T14:07:56.865516+00:00',
+  printLinesEver: 0,
+  meshedCatalogToys: 3,
+  paidToyLines: 2,
+  paidMeshedLines: 0
+} (toy lines match the queue)
+RESULT: WAITING (no meshed paid line yet)
+exit 0
+
+## 2. Same, one paid order per page: the walk covers every paid order   (QUEUE_PAGE_LIMIT=1 node scripts/prove-print-bridge-mesh.mjs)
+queue pages 7 cursor 2026-09-12T14:07:56.865516+00:00
+queue HTTP 200
+orders 2 lines 2
+gs:// anywhere: false
+mesh links found: 0
+db cross-check: {
+  paidOrders: 6,
+  newestPaid: '2026-09-12T14:07:56.865516+00:00',
+  printLinesEver: 0,
+  meshedCatalogToys: 3,
+  paidToyLines: 2,
+  paidMeshedLines: 0
+} (toy lines match the queue)
+RESULT: WAITING (no meshed paid line yet)
+exit 0
+
+## 3. Scheduled Earth watch ran this version (E:/memory/watchtower/projects/imagine-this-printed/print-bridge-mesh-watch/watch.log, last 3)
+2026-10-13T19:00:34.292Z queue 200 lines 2 mesh 0 WAITING
+2026-10-13T19:30:34.272Z queue 200 lines 2 mesh 0 WAITING
+2026-10-13T19:47:31.111Z queue 200 lines 2 mesh 0 db paid 6 paidMeshed 0 WAITING
+
+## 4. Pre-flight, NOT the live proof: the 3 meshed toys a shopper can buy today (anon-visible, active),
+##    real mesh objects signed 12 h with the backend's GCS signer and fetched   (node scripts/preflight-print-bridge-toy-meshes.mjs)
+signer ***@imagine-this-printed-main.iam.gserviceaccount.com
+19d0d6a4 Shadow Raptor Toy Charm glb {
+  object: 'imagine-this-printed-products/3d-models/2a67afc5-9392-4b93-87f3-42035dd1136c/model.glb',
+  http: 200,
+  bytes: 1268156,
+  lifeSec: 43200,
+  md5MatchesGcs: true,
+  ok: true
+}
+19d0d6a4 Shadow Raptor Toy Charm stl {
+  object: 'imagine-this-printed-products/3d-models/2a67afc5-9392-4b93-87f3-42035dd1136c/model.stl',
+  http: 200,
+  bytes: 1249684,
+  lifeSec: 43200,
+  md5MatchesGcs: true,
+  ok: true
+}
+43d607e5 Gothic Ghost Face Candle Holder glb no mesh on record
+43d607e5 Gothic Ghost Face Candle Holder stl no mesh on record
+bb5cfb7c Toy: The Wizard Beast glb {
+  object: 'imagine-this-printed-products/3d-models/684d282e-89f5-4dd2-a30e-cf4e428643ff/model.glb',
+  http: 200,
+  bytes: 4093524,
+  lifeSec: 43200,
+  md5MatchesGcs: true,
+  ok: true
+}
+bb5cfb7c Toy: The Wizard Beast stl {
+  object: 'imagine-this-printed-products/3d-models/684d282e-89f5-4dd2-a30e-cf4e428643ff/model.stl',
+  http: 200,
+  bytes: 1999684,
+  lifeSec: 43200,
+  md5MatchesGcs: true,
+  ok: true
+}
+5eac6a81 Toy: Robo Rascal glb {
+  object: 'imagine-this-printed-products/3d-models/2d7eaa60-fb44-4a12-9357-cebeccb408f5/model.glb',
+  http: 200,
+  bytes: 1273720,
+  lifeSec: 43200,
+  md5MatchesGcs: true,
+  ok: true
+}
+5eac6a81 Toy: Robo Rascal stl {
+  object: 'imagine-this-printed-products/3d-models/2d7eaa60-fb44-4a12-9357-cebeccb408f5/model.stl',
+  http: 200,
+  bytes: 1250084,
+  lifeSec: 43200,
+  md5MatchesGcs: true,
+  ok: true
+}
+PREFLIGHT: every buyable toy mesh fetches 200 on a 12 h link, md5 = GCS
+exit 0
+
+## 5. Fixture regressions of the unchanged link checks   (QUEUE_FILE=<fixture> node scripts/prove-print-bridge-mesh.mjs)
+empty queue ->
+RESULT: WAITING (no meshed paid line yet)
+expired/unsigned link ->
+RESULT: FAIL
