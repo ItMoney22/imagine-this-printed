@@ -14,7 +14,8 @@ export const SECRET_REQUEST_HEADERS = [
   'x-health-probe-token',
   'stripe-signature',
   'svix-signature',
-  'x-replicate-signature'
+  'x-replicate-signature',
+  'x-vercel-proxy-signature'
 ]
 
 export const LOG_REDACT = {

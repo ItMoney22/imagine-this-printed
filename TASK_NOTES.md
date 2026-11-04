@@ -10,6 +10,7 @@ Decisions:
   `backend/lib/log-redaction.ts`, because index.ts boots the server on import and a test cannot load it.
 - Beyond the card's list: x-webhook-secret, x-health-probe-token, stripe-signature, svix-signature, x-replicate-signature,
   every secret-shaped header the API reads. The test fails if backend code reads one the list does not name.
+  x-vercel-proxy-signature too: the API never reads it, but 12 hours of live logs showed it arriving.
 - Rotation comes AFTER this is live, or the new token is written to the same logs within five minutes.
 
 ### File shortlist (approved scope — 2026-11-04 log redaction)
