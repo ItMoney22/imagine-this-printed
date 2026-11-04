@@ -2158,7 +2158,7 @@ async function process3DModelTripo(job: any) {
     await updateJobProgress(job.id, `🎲 Tripo3D ${tier.label} — generating mesh (~${tier.approxSeconds}s)...`, 1, 4)
 
     // Generate via Tripo3D
-    const { glbUrl: tripoGlbUrl, processingTimeSec, modelMetadata, pbrUrl, rendererPreviewUrl } = await generateTripo3D({
+    const { glbUrl: tripoGlbUrl, processingTimeSec, modelMetadata, rendererPreviewUrl } = await generateTripo3D({
       imageUrl: source_image_url,
       tier: size_tier,
       orientation: 'align_image',
@@ -2168,8 +2168,18 @@ async function process3DModelTripo(job: any) {
 
     // Save the GLB to the PRIVATE bucket: it is a paid deliverable. The row
     // keeps a gs:// reference; links are signed on read (task 1417e863).
+    // Tripo V3 output links expire after 5 minutes, so the GLB and the
+    // preview image are copied right away.
     await updateJobProgress(job.id, '📤 Uploading GLB to cloud storage...', 2, 4)
     const glbRef = await storeModelFileFromUrl(tripoGlbUrl, modelFilePath(model_id, 'glb'), 'glb')
+    let previewPublicUrl: string | undefined
+    if (rendererPreviewUrl) {
+      try {
+        previewPublicUrl = (await uploadImageFromUrl(rendererPreviewUrl, `3d-models/${model_id}/tripo-preview`)).publicUrl
+      } catch (previewErr: any) {
+        console.warn('[worker] ⚠️ Tripo preview not kept:', previewErr?.message)
+      }
+    }
 
     // Convert to STL (print-ready). Pass tier height + Bambu-friendly options
     // so the STL imports at the right size, oriented Z-up, sitting on the build plate.
@@ -2209,8 +2219,11 @@ async function process3DModelTripo(job: any) {
           texture: modelMetadata.texture,
           quad: modelMetadata.quad,
           auto_sized: modelMetadata.autoSized,
-          pbr_url: pbrUrl,
-          preview_url: rendererPreviewUrl,
+          tripo_model: modelMetadata.model,
+          ...(modelMetadata.creditsConsumed !== undefined ? { tripo_credits: modelMetadata.creditsConsumed } : {}),
+          // V3 has one model download (it is the PBR model when textured): our private copy.
+          pbr_url: modelMetadata.texture !== 'none' ? glbRef : null,
+          preview_url: previewPublicUrl ?? null,
           processing_time_sec: processingTimeSec,
         },
         updated_at: updatedAt,
