@@ -20,8 +20,9 @@ const { ingestReceipt } = await import('./etsy-receipt-ingest.js')
 
 interface FakeListingRow { listing_id: number; product_id: string }
 
-function makeFakeDb(opts: { etsyListings?: FakeListingRow[] } = {}) {
+function makeFakeDb(opts: { etsyListings?: FakeListingRow[]; products?: Array<{ id: string; metadata: any }> } = {}) {
   const etsyListings = opts.etsyListings ?? []
+  const products = opts.products ?? []
   const ordersInserted: any[] = []
   const orderItemsInserted: any[] = []
   const seenReceiptIds = new Set<number>()
@@ -29,6 +30,7 @@ function makeFakeDb(opts: { etsyListings?: FakeListingRow[] } = {}) {
   return {
     ordersInserted,
     orderItemsInserted,
+    seenReceiptIds,
     from(table: string) {
       if (table === 'etsy_listings') {
         return {
@@ -39,8 +41,24 @@ function makeFakeDb(opts: { etsyListings?: FakeListingRow[] } = {}) {
           }
         }
       }
+      if (table === 'products') {
+        return {
+          select() { return this },
+          in(_col: string, vals: any[]) {
+            return Promise.resolve({ data: products.filter((p) => vals.includes(p.id)), error: null })
+          }
+        }
+      }
       if (table === 'orders') {
         return {
+          // petLinesForReceipt's "already an order?" check
+          select() {
+            return {
+              eq(_col: string, receiptId: number) {
+                return { maybeSingle: () => Promise.resolve({ data: seenReceiptIds.has(receiptId) ? { id: `order-${receiptId}` } : null, error: null }) }
+              }
+            }
+          },
           insert(row: any) {
             return {
               select() {
@@ -199,5 +217,98 @@ describe('ingestReceipt', () => {
     const result = await ingestReceipt(baseReceipt() as any, db as any)
     expect(result.created).toBe(true)
     expect(db.orderItemsInserted[0].product_id).toBeNull()
+  })
+})
+
+// Create-your-own pet ornament sales (task 5d007181): the buyer's name + photo
+// answers become checkout's print files before the order lands.
+describe('ingestReceipt — pet ornament lines', () => {
+  const PET_PRODUCT = 'dff53dc2-38ec-4125-9cae-bbc41e094b23'
+  const PET_LISTING = 4607572810
+  const petTemplate = { pet_ornament: { version: 1, font: 'brush-script', pets: ['cat', 'dog', 'bunny'], field: { key: 'name', label: "Your pet's name", max: 12 }, photo: true } }
+  const petReceipt = () =>
+    baseReceipt({
+      receipt_id: 777,
+      transactions: [
+        {
+          transaction_id: 4242,
+          listing_id: PET_LISTING,
+          title: 'Create Your Own Pet Ornament',
+          quantity: 1,
+          price: { amount: 1999, divisor: 100, currency_code: 'USD' },
+          variations: [
+            { property_id: 54, value_id: null, formatted_name: 'Your pet&#39;s name', formatted_value: 'Biscuit' },
+            { property_id: 54, value_id: null, formatted_name: 'A photo of your pet', formatted_value: 'https://i.etsystatic.com/uploads/x/pet.jpg' },
+          ],
+        },
+      ],
+    })
+  const readyLine = {
+    values: { pet: 'dog', name: 'Biscuit', portrait: 'a1b2c3d4e5f6a1b2c3d4e5f6' },
+    path: 'users/pet-ornaments/geo-v1/k/print-spec.json',
+    status: 'ready' as const,
+    etsy: { transactionId: 4242, listingId: PET_LISTING, nameAnswer: 'Biscuit', photoUrl: 'https://i.etsystatic.com/uploads/x/pet.jpg', photoCandidates: 1, photo: null, pet: { id: 'dog', source: 'vision' as const, uncertain: false, reason: 'photo shows a dog (97% sure)' }, portraitId: 'a1b2c3d4e5f6a1b2c3d4e5f6' },
+  }
+  const noFlag = async () => ({ flag: 'personalization', needsReview: false, source: 'keyword', mode: 'shadow' }) as any
+
+  it("writes checkout's print-file keys on the pet line, so the print bridge sends its parts", async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: PET_LISTING, product_id: PET_PRODUCT }] })
+    const result = await ingestReceipt(petReceipt() as any, db as any, noFlag, async () => new Map([[4242, readyLine]]))
+    expect(result.created).toBe(true)
+    const item = db.orderItemsInserted[0]
+    expect(item.product_id).toBe(PET_PRODUCT)
+    expect(item.metadata).toMatchObject({
+      etsy_transaction_id: 4242,
+      personalization: { pet: 'dog', name: 'Biscuit', portrait: 'a1b2c3d4e5f6a1b2c3d4e5f6' },
+      print_file_path: 'users/pet-ornaments/geo-v1/k/print-spec.json',
+      print_file_status: 'ready',
+      print_file_error: null,
+      etsy_pet: { pet: { id: 'dog', source: 'vision' } },
+    })
+  })
+
+  it('a held pet line still lands the order, with the reason on the line', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: PET_LISTING, product_id: PET_PRODUCT }] })
+    const held = { ...readyLine, path: null, status: 'failed' as const, error: "The buyer's photo is too small to draw" }
+    const result = await ingestReceipt(petReceipt() as any, db as any, noFlag, async () => new Map([[4242, held]]))
+    expect(result.created).toBe(true)
+    expect(db.orderItemsInserted[0].metadata).toMatchObject({ print_file_path: null, print_file_status: 'failed', print_file_error: "The buyer's photo is too small to draw" })
+  })
+
+  it('a pet-line crash never costs the sale', async () => {
+    const db = makeFakeDb({ etsyListings: [{ listing_id: PET_LISTING, product_id: PET_PRODUCT }] })
+    const result = await ingestReceipt(petReceipt() as any, db as any, noFlag, async () => { throw new Error('boom') })
+    expect(result.created).toBe(true)
+    expect(db.orderItemsInserted[0].metadata.print_file_path).toBeUndefined()
+  })
+
+  it('the real petLinesForReceipt builds only pet products, and skips a receipt that is already an order', async () => {
+    const { petLinesForReceipt } = await import('./etsy-receipt-ingest.js')
+    const { etsyPetDeps } = await import('../services/pet-ornament/etsy-order.js')
+    const saved = { ...etsyPetDeps }
+    const drawn: string[] = []
+    etsyPetDeps.fetch = (async () => new Response(new Uint8Array(await (await import('sharp')).default({ create: { width: 600, height: 600, channels: 3, background: '#884422' } }).png().toBuffer()))) as any
+    etsyPetDeps.detectPet = async () => ({ pet: 'dog', source: 'vision', usable: true, uncertain: false, reason: 'photo shows a dog', vision: null })
+    etsyPetDeps.drawPortrait = (async (_p: Buffer, label: string) => { drawn.push(label); return { id: 'a1b2c3d4e5f6a1b2c3d4e5f6', map: {}, drawn: true } }) as any
+    etsyPetDeps.storePetPrint = (async () => ({ path: 'users/pet-ornaments/geo-v1/k/print-spec.json', built: true, spec: { parts: [] } })) as any
+    try {
+      const receipt = petReceipt()
+      receipt.transactions.push({ ...baseReceipt().transactions[0] }) // a tee on the same receipt: not a pet line
+      const db = makeFakeDb({
+        etsyListings: [{ listing_id: PET_LISTING, product_id: PET_PRODUCT }, { listing_id: 555, product_id: 'prod-tee' }],
+        products: [{ id: PET_PRODUCT, metadata: petTemplate }, { id: 'prod-tee', metadata: {} }],
+      })
+      const productByListing = new Map<number, string>([[PET_LISTING, PET_PRODUCT], [555, 'prod-tee']])
+      const lines = await petLinesForReceipt(receipt as any, productByListing, db as any)
+      expect([...lines.keys()]).toEqual([4242])
+      expect(lines.get(4242)).toMatchObject({ status: 'ready', values: { pet: 'dog', name: 'Biscuit' } })
+      expect(drawn).toEqual(['Dog'])
+
+      db.seenReceiptIds.add(777) // a re-poll of a receipt that is already an order
+      expect((await petLinesForReceipt(receipt as any, productByListing, db as any)).size).toBe(0)
+      expect(drawn).toEqual(['Dog']) // nothing drawn or paid for twice
+    } finally {
+      Object.assign(etsyPetDeps, saved)
+    }
   })
 })

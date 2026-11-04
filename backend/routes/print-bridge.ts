@@ -11,6 +11,9 @@ import { randomUUID } from 'crypto'
 import { parseNamePrint } from '../shared/name-print.js'
 import { SHAPES as NAME_SHAPES } from '../services/name-print/geometry.js'
 import { signNamePrint } from '../services/name-print/store.js'
+import { parsePetOrnament } from '../shared/pet-ornament.js'
+import { signedPetParts } from '../services/pet-ornament/store.js'
+import { PRINT_REQUEUE_KEY, REQUEUE_CLEAR_STATUSES, clearPrintRequeue, isRequeuePending, requeueCutoff } from '../services/print-requeue.js'
 
 /**
  * Print bridge — the seam between the ITP storefront and the Watchtower print
@@ -67,31 +70,95 @@ const CUSTOMER_STATUSES = [
 // PRINT_WORKER_EMAILS (comma-separated); falls back to the company mailbox.
 const WORKER_NOTIFY_STATUSES = new Set(['insert_pause', 'ready_for_packing'])
 
+// The queue walks orders.paid_at, the moment an order became paid (a DB
+// trigger stamps it: supabase/migrations/20261028220000_orders_paid_at.sql).
+// It used to walk created_at, but checkout writes the row as pending before
+// the customer pays, so an order opened first and paid second sat behind a
+// cursor a newer, faster order had already moved past, and was never pulled
+// (Watchtower task b17dc9f6).
+//
+// A stamp is only visible once its payment's write commits, so a row stamped
+// a moment before another can show up a moment after it. The queue only walks
+// stamps older than this, so the cursor never passes one still in flight.
+// Watchtower pulls every 5 minutes; a minute's wait costs nothing.
+export const PAID_SETTLE_MS = 60_000
+
+const ORDER_COLUMNS = 'id, order_number, customer_email, customer_name, total, created_at, paid_at, payment_status, metadata'
+const ITEM_COLUMNS = 'product_id, product_name, quantity, unit_price, subtotal, metadata'
+
+/**
+ * Lines re-queued by a fix after their order was pulled (services/print-requeue.ts,
+ * task 4ef9db82), grouped by paid order. Orders already in this pull's paid
+ * window are skipped: their rows, stamp included, go out with the order.
+ */
+async function requeuedOrders(skip: Set<string>): Promise<Array<{ o: any; rows: any[] }>> {
+  const now = new Date()
+  // A null stamp never passes gte in Postgres; re-checked below all the same.
+  const { data: stamped, error } = await supabase
+    .from('order_items')
+    .select(`order_id, ${ITEM_COLUMNS}`)
+    .gte(`metadata->>${PRINT_REQUEUE_KEY}`, requeueCutoff(now))
+    .limit(100)
+  if (error) throw new Error(error.message)
+  const pending = (stamped || []).filter((r: any) => isRequeuePending(r?.metadata, now) && !skip.has(r.order_id))
+  if (pending.length === 0) return []
+  const ids = [...new Set(pending.map((r: any) => r.order_id as string))]
+  const { data: orders, error: orderErr } = await supabase
+    .from('orders')
+    .select(ORDER_COLUMNS)
+    .in('id', ids)
+    .eq('payment_status', 'paid')
+  if (orderErr) throw new Error(orderErr.message)
+  return (orders || [])
+    .filter((o: any) => ids.includes(o.id))
+    .map((o: any) => ({ o, rows: pending.filter((r: any) => r.order_id === o.id) }))
+}
+
 /**
  * GET /api/print-bridge/queue
- * Paid orders (payment_status='paid') created after `since`, that contain a
- * 3D-print line item, mapped to the bridge order shape Watchtower expects.
+ * Paid orders that became paid after `since` (orders.paid_at), oldest payment
+ * first, that contain a 3D-print line item, mapped to the bridge order shape
+ * Watchtower expects. `cursor` is the paid_at of the last order scanned.
+ *
+ * Plus, on every pull whatever `since` is, the lines a fix re-queued
+ * (order_items.metadata.print_requeued_at, services/print-requeue.ts): an Etsy
+ * pet ornament held at ingest and re-run with --photo --apply after the cursor
+ * passed its order. They never move the cursor, and carry `requeuedAt`.
  */
 router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Promise<any> => {
   try {
     const since = (req.query.since as string) || ''
     const limit = Math.min(Number(req.query.limit) || 50, 100)
+    const settledBefore = new Date(Date.now() - PAID_SETTLE_MS).toISOString()
 
     let q = supabase
       .from('orders')
-      .select('id, order_number, customer_email, customer_name, total, created_at, payment_status, metadata')
+      .select(ORDER_COLUMNS)
       .eq('payment_status', 'paid')
-      .order('created_at', { ascending: true })
+      .lte('paid_at', settledBefore)
+      .order('paid_at', { ascending: true })
       .limit(limit)
-    if (since) q = q.gt('created_at', since)
+    if (since) q = q.gt('paid_at', since)
 
     const { data: orders, error } = await q
     if (error) return res.status(500).json({ error: error.message })
 
+    // A failure reading re-queued lines never costs the paid window.
+    let requeued: Array<{ o: any; rows: any[] }> = []
+    try {
+      requeued = await requeuedOrders(new Set((orders || []).map((o: any) => o.id)))
+    } catch (err: any) {
+      console.error('[print-bridge] re-queued lines unreadable:', err?.message || err)
+    }
+    const scans: Array<{ o: any; rows: any[] | null }> = [
+      ...(orders || []).map((o: any) => ({ o, rows: null })),
+      ...requeued,
+    ]
+
     const out: any[] = []
     let cursor = since
-    for (const o of orders || []) {
-      cursor = o.created_at // advance past every scanned order, 3D or not
+    for (const { o, rows } of scans) {
+      if (!rows) cursor = o.paid_at // advance past every scanned order, 3D or not; a re-queued line never moves it
 
       // Production order_items columns are (product_id uuid, product_name,
       // quantity, unit_price, subtotal, metadata) — NOT price/total. And a
@@ -99,13 +166,16 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
       // id lives in order_items.metadata.client_product_id (new rows) and in
       // the orders.metadata.items snapshot (all rows, incl. orders predating
       // the order_items fix).
-      const { data: items } = await supabase
-        .from('order_items')
-        .select('product_id, product_name, quantity, unit_price, subtotal, metadata')
-        .eq('order_id', o.id)
+      const { data: items } = rows
+        ? { data: rows }
+        : await supabase
+            .from('order_items')
+            .select(ITEM_COLUMNS)
+            .eq('order_id', o.id)
 
       const lineItems = items || []
-      const metaItems: any[] = Array.isArray((o as any).metadata?.items) ? (o as any).metadata.items : []
+      // A re-queue sends only its stamped rows, never the order's snapshot.
+      const metaItems: any[] = !rows && Array.isArray((o as any).metadata?.items) ? (o as any).metadata.items : []
       const clientId = (it: any) => it?.metadata?.client_product_id ?? it?.product_id
 
       // Custom minis: cart ids '3d-print-<modelId>' from the 3D model designer.
@@ -275,14 +345,38 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
               : null
           const nameStlUrl = namePath ? await signNamePrint(namePath).catch(() => undefined) : undefined
 
+          // A pet ornament (task 81358f3a) prints THIS line's parts: one STL
+          // per colour, each with its AMS slot, read from the line's
+          // print-spec.json. Never the product's static mesh.
+          const petTemplate = nameTemplate ? null : parsePetOrnament(p.metadata)
+          const petPath: string | null =
+            petTemplate && typeof itemRow?.metadata?.print_file_path === 'string' && itemRow.metadata.print_file_path.endsWith('/print-spec.json')
+              ? itemRow.metadata.print_file_path
+              : null
+          let petParts: Array<Record<string, unknown>> | undefined
+          let petError: string | undefined
+          if (petTemplate) {
+            try {
+              if (!petPath) throw new Error(itemRow?.metadata?.print_file_error ?? 'no print file on this line')
+              // Shared with the Etsy order command (task 5d007181), so both send the same parts.
+              petParts = await signedPetParts(petPath)
+            } catch (err: any) {
+              petError = err?.message ?? 'pet ornament print files unreadable'
+            }
+          }
+
           out.push({
             itpOrderId: o.id,
-            lineItemId: namePath ? `${it.product_id}:${namePath.split('/').pop()!.replace(/\.stl$/, '')}` : it.product_id,
+            lineItemId: namePath
+              ? `${it.product_id}:${namePath.split('/').pop()!.replace(/\.stl$/, '')}`
+              : petPath
+                ? `${it.product_id}:${petPath.split('/').slice(-2, -1)[0]}`
+                : it.product_id,
             line: 'custom-toy',
             title: it.product_name || p.name || 'Catalog 3D print',
             concept: p.name || it.product_name || 'Catalog 3D print',
             glbUrl: await meshLinkFor(p.metadata?.print3d?.glb_url || p.metadata?.glb_url, PRINT_FILE_LINK_TTL_MINUTES),
-            stlUrl: nameTemplate ? nameStlUrl : await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
+            stlUrl: nameTemplate ? nameStlUrl : petTemplate ? undefined : await meshLinkFor(p.metadata?.print3d?.stl_url, PRINT_FILE_LINK_TTL_MINUTES),
             referenceUrl: Array.isArray(p.images) && p.images[0] ? p.images[0] : undefined,
             quantity: it.quantity || 1,
             ...(nameTemplate
@@ -293,6 +387,16 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
                   // filament change at the top of the plate.
                   nameColours: { plate: nameTemplate.colours.plate.name, letters: nameTemplate.colours.letters.name },
                   colourChangeAtMm: NAME_SHAPES[nameTemplate.shape].plate,
+                }
+              : {}),
+            ...(petTemplate
+              ? {
+                  personalization: itemRow?.metadata?.personalization ?? null,
+                  // Multi-part, one filament per part (stacked by height):
+                  // load each part's filament in its slot, assemble the parts
+                  // as ONE object, slice with the process named in the spec.
+                  petOrnamentParts: petParts,
+                  printFileError: petError,
                 }
               : {}),
             material: p.metadata?.print3d?.material || 'PLA',
@@ -309,6 +413,7 @@ router.get('/queue', requireBridgeAuth, async (req: Request, res: Response): Pro
             customerEmail: o.customer_email || undefined,
             priceUsd: it.total ?? undefined,
             createdAt: o.created_at,
+            ...(isRequeuePending(itemRow?.metadata) ? { requeuedAt: itemRow.metadata[PRINT_REQUEUE_KEY] } : {}),
           })
         }
       }
@@ -358,6 +463,14 @@ router.post('/status', requireBridgeAuth, async (req: Request, res: Response): P
       .update({ metadata, updated_at: new Date().toISOString() })
       .eq('id', itpOrderId)
     if (upErr) return res.status(500).json({ error: upErr.message })
+
+    // On the printer: stop re-sending the order's re-queued lines (task
+    // 4ef9db82). Never fails the factory callback.
+    if (REQUEUE_CLEAR_STATUSES.has(status)) {
+      await clearPrintRequeue(supabase, itpOrderId, status).catch(err =>
+        console.error('[print-bridge] re-queue clear failed:', err instanceof Error ? err.message : err)
+      )
+    }
 
     // Notify print-floor workers on insert-pause / ready-for-packing.
     // Fire-and-forget: a mail failure must never fail the factory callback.
