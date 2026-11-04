@@ -15,7 +15,8 @@ export const SECRET_REQUEST_HEADERS = [
   'stripe-signature',
   'svix-signature',
   'x-replicate-signature',
-  'x-vercel-proxy-signature'
+  'x-vercel-proxy-signature',
+  'x-twilio-signature'
 ]
 
 export const LOG_REDACT = {
