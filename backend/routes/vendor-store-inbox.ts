@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import { supabase } from '../lib/supabase.js'
 import { getCachedRole } from '../lib/role-cache.js'
 import { sendViaResend } from '../services/email-resend.js'
+import { withAttachmentLinks } from '../services/private-files.js'
 
 // A store's own inbox (David 2026-10-26: "she needs a spot to read her email that goes to
 // crystal@imaginethisprinted.com, also put jev in it so we make sure keeps junk away").
@@ -160,7 +161,7 @@ inbox.get('/:id', async (req: Request, res: Response): Promise<any> => {
       at: m.created_at,
       html: m.html_body || null,
       text: m.text_body || null,
-      attachments: (Array.isArray(m.attachments) ? m.attachments : []).map((a: any) => ({ filename: a.filename, size: a.size || 0, url: a.url || null })),
+      attachments: (await withAttachmentLinks(m.attachments as any[])).map((a: any) => ({ filename: a.filename, size: a.size || 0, url: a.url || null })),
       junk: !!m.is_archived,
     },
     replies: (replies || []).map((r: any) => ({ at: r.created_at, text: r.text_body || '' })),

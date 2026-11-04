@@ -1079,7 +1079,8 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
         const primary = resolved.get(designUrl)
         designUrl = (primary?.url as string) || designUrl
         if (primary?.upscaled && primary.path) designPath = primary.path
-        const images = Array.isArray(product.images) ? product.images.map(mapped) : product.images
+        // products.images keeps what it had: the upscale is the press file, and
+        // a gallery is public (tasks 83a2ab40, 4c100f9f).
         productMetadata = {
           ...(productMetadata || {}),
           image: {
@@ -1106,7 +1107,7 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
             required_px: requiredShortEdgePx(),
             results: [...resolved.values()].map((r) => ({
               from: r.originalUrl,
-              to: r.upscaled ? r.url : null,
+              to: r.upscaled ? r.ref ?? r.url : null,
               size: r.width && r.height ? `${r.width}x${r.height}` : null,
               upscaled: r.upscaled,
               skipped: r.skipped ?? null,
@@ -1114,8 +1115,7 @@ router.post('/:id/step/adopt', requireAuth, requireStudioAccess, async (req: Req
             })),
           },
         }
-        await supabase.from('products').update({ images, metadata: productMetadata }).eq('id', id)
-        product.images = images
+        await supabase.from('products').update({ metadata: productMetadata }).eq('id', id)
         product.metadata = productMetadata
       }
       upscaleReport = {

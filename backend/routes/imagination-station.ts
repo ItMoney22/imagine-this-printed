@@ -15,7 +15,8 @@ import { detectSolidBg } from '../services/bg-key.js';
 import { editOpenAIImage } from '../services/image-flow/providers/openai-image.js';
 import { layoutService } from '../services/imagination-layout.js';
 import gcsStorage from '../services/gcs-storage.js';
-import { uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
+import { LONG_LINK_TTL_MINUTES, storePrivateDataUrl } from '../services/private-files.js'
 import { partitionLayersForSave, rotatedBoundingBox, RENDER_DPI } from '../services/imagination-layer-save.js';
 import { requireCreator } from '../middleware/requireCreator.js';
 
@@ -1568,18 +1569,19 @@ router.post('/ai/use-upload', requireAuth, async (req: Request, res: Response): 
       return;
     }
 
-    const uploaded = await uploadImageFromBase64(
+    // Private bucket (task 4c100f9f). The canvas, cart and order all carry this
+    // as a plain URL, so it is the same one-year link it has always been.
+    const uploaded = await storePrivateDataUrl(
       dataUrl,
-      `users/${user.id}/uploads/own-design-${Date.now()}.png`
+      `users/${user.id}/uploads/own-design-${Date.now()}.png`,
+      LONG_LINK_TTL_MINUTES
     );
 
-    console.log('[imagination-station] use-upload saved:', uploaded.publicUrl.substring(0, 100) + '...');
-
     res.json({
-      url: uploaded.publicUrl,
-      imageUrl: uploaded.publicUrl,
-      output: uploaded.publicUrl,
-      processedUrl: uploaded.publicUrl,
+      url: uploaded.url,
+      imageUrl: uploaded.url,
+      output: uploaded.url,
+      processedUrl: uploaded.url,
     });
   } catch (error: any) {
     console.error('[imagination-station] use-upload error:', error);

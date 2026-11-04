@@ -54,6 +54,14 @@ describe('ensurePrintResolution', () => {
     })
   })
 
+  it('hands on the private reference so public fields never need the link', async () => {
+    const out = await ensurePrintResolution(['a.png'], 3000, {
+      measure: async () => ({ width: 1000, height: 1000 }) as ArtworkMeasurement,
+      upscale: async () => ({ url: 'link', path: 'print-ready/p/a.png', ref: 'gs://private/print-ready/p/a.png', width: 4000, height: 4000 }),
+    })
+    expect(out.get('a.png')?.ref).toBe('gs://private/print-ready/p/a.png')
+  })
+
   it('judges on the SHORT edge, not on either dimension alone', async () => {
     // A banner-shaped design: 4000px wide but only 900 tall. Plenty of pixels,
     // still unprintable at 4" across the narrow way.

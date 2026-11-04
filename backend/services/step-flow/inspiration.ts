@@ -22,7 +22,7 @@
 // StepFlowValidationError in shots.ts — the route maps it to 400.
 import sharp from 'sharp'
 import OpenAI from 'openai'
-import { uploadFile } from '../gcs-storage.js'
+import { LONG_LINK_TTL_MINUTES, linkForStoredFile, storePrivateFile } from '../private-files.js'
 import { runCopyrightGate } from '../etsy-copyright-gate.js'
 
 /** Thrown for expected, user-facing validation failures — the route maps this to 400 (mirrors StepFlowValidationError in shots.ts). */
@@ -498,12 +498,10 @@ export async function analyzeInspirationImage(image: unknown, opts?: { actorId?:
   const { buffer, contentType } = await decodeInspirationImage(image)
 
   const filename = `inspiration-${Date.now()}.${extForContentType(contentType)}`
-  const { publicUrl } = await uploadFile(buffer, {
-    userId: opts?.actorId || 'system',
-    folder: 'inspiration',
-    filename,
-    contentType,
-  })
+  // Private bucket (task 4c100f9f); the panel shows it as a plain URL.
+  const ref = await storePrivateFile(buffer, `users/${opts?.actorId || 'system'}/inspiration/${filename}`, contentType)
+  const imageUrl = await linkForStoredFile(ref, { ttlMinutes: LONG_LINK_TTL_MINUTES })
+  if (!imageUrl) throw new Error('Could not link the uploaded photo')
 
   const { dataUrl, stats } = await prepareForAnalysis(buffer)
   const modelRaw = await requestBreakdownFromModel(dataUrl)
@@ -513,6 +511,6 @@ export async function analyzeInspirationImage(image: unknown, opts?: { actorId?:
   return {
     persona: 'mrs-imagine',
     intro: INSPIRATION_INTRO,
-    inspiration: { imageUrl: publicUrl, breakdown, questions, suggestedIdea },
+    inspiration: { imageUrl, breakdown, questions, suggestedIdea },
   }
 }

@@ -8,7 +8,8 @@ import { pricingService } from './imagination-pricing.js';
 import { AI_STYLES } from '../config/imagination-presets.js';
 import { removeBackgroundWithRemoveBg } from './removebg.js';
 import * as gcsStorage from './gcs-storage.js';
-import { uploadImageFromBase64, uploadImageFromBuffer } from './google-cloud-storage.js';
+import { uploadImageFromBuffer } from './google-cloud-storage.js';
+import { storePrivateDataUrl } from './private-files.js';
 import { pickFanOutModels, runImageFlowMultiGenerate } from './image-flow/worker-helpers.js';
 import { brandFor } from './image-flow/models.js';
 import { runOpenAIImage } from './image-flow/providers/openai-image.js';
@@ -594,11 +595,11 @@ export class ImaginationAIService {
       let inputUrl = imageUrl;
       if (inputUrl.startsWith('data:')) {
         console.log('[imagination-ai] reimagineImage uploading data URL to GCS...');
-        const uploaded = await uploadImageFromBase64(
+        const uploaded = await storePrivateDataUrl(
           inputUrl,
           `users/${userId}/uploads/reference-${Date.now()}.png`
         );
-        inputUrl = uploaded.publicUrl;
+        inputUrl = uploaded.url;
         console.log('[imagination-ai] reimagineImage uploaded reference to:', inputUrl.substring(0, 100) + '...');
       }
 

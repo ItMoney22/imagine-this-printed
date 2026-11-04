@@ -31,7 +31,7 @@ import sharp from 'sharp'
 import { runReplicate } from '../image-flow/providers/replicate.js'
 import { getModel, DEFAULT_UPSCALE_MODEL } from '../image-flow/models.js'
 import { buildInput } from '../image-flow/input-builder.js'
-import { uploadImageFromBuffer } from '../google-cloud-storage.js'
+import { LONG_LINK_TTL_MINUTES, linkForStoredFile, storePrivateFile } from '../private-files.js'
 
 export interface ArtworkMeasurement {
   width: number
@@ -42,6 +42,8 @@ export interface ArtworkMeasurement {
 export interface UpscaledArtwork {
   url: string
   path: string
+  /** gs:// reference, for anything a shopper's browser can read. */
+  ref?: string
   width: number
   height: number
 }
@@ -56,6 +58,8 @@ export interface ResolvedArtwork {
   /** GCS object path of the upscale, so an asset row can point at the same
    *  object its url serves rather than inheriting the original's path. */
   path: string | null
+  /** gs:// reference of the upscale, for anything a shopper's browser can read. */
+  ref?: string | null
   /** The URL it came from, kept so nothing is silently lost. */
   originalUrl: string
   /** Why it was left alone, when it was. */
@@ -200,11 +204,16 @@ export async function upscaleArtwork(
   const slug = opts.label ? `${opts.label}-` : ''
   const folder = opts.productId ? `print-ready/${opts.productId}` : 'print-ready/loose'
   const destination = `${folder}/${slug}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.png`
-  const uploaded = await uploadImageFromBuffer(up.buffer, destination, 'image/png')
+  // The press file: private bucket, and the link goes only where the public
+  // cannot read it (task 4c100f9f; product_assets hides print-ready/ rows).
+  const ref = await storePrivateFile(up.buffer, destination, 'image/png')
+  const link = await linkForStoredFile(ref, { ttlMinutes: LONG_LINK_TTL_MINUTES })
+  if (!link) throw new Error('Could not link the upscaled file')
 
   return {
-    url: uploaded.publicUrl,
-    path: uploaded.path,
+    url: link,
+    path: destination,
+    ref,
     width: up.width,
     height: up.height,
   }
@@ -276,6 +285,7 @@ export async function ensurePrintResolution(
             height: up.height,
             upscaled: true,
             path: up.path,
+            ref: up.ref ?? null,
             originalUrl: url,
           })
         })

@@ -2,6 +2,7 @@ import express from 'express'
 import multer from 'multer'
 import OpenAI from 'openai'
 import { uploadImageFromBuffer } from '../../services/google-cloud-storage.js'
+import { storePrivateFile } from '../../services/private-files.js'
 import { requireAuth } from '../../middleware/supabaseAuth.js'
 import { requireAdmin } from '../../middleware/requireAdmin.js'
 import { requireVendorOrAdmin } from '../../middleware/requireVendorOrAdmin.js'
@@ -100,23 +101,21 @@ router.post('/upload-digital-file', requireAuth, requireVendorOrAdmin, upload.si
       return res.status(400).json({ error: 'No file provided' })
     }
 
-    const folder = req.body.folder || 'digital-products'
+    // Always this folder: the caller used to name it, which let a vendor write
+    // anywhere in the bucket. The file is what the buyer pays for, so it goes
+    // to the private bucket and the row keeps a gs:// reference (task 4c100f9f).
     const fileId = nanoid(10)
-    const extension = file.originalname.split('.').pop() || 'bin'
-    const destinationPath = `${folder}/${fileId}.${extension}`
+    const extension = (file.originalname.split('.').pop() || '').replace(/[^a-zA-Z0-9]/g, '') || 'bin'
+    const destinationPath = `digital-products/${fileId}.${extension}`
 
     console.log('[admin/products] Uploading digital file:', destinationPath)
 
-    const result = await uploadImageFromBuffer(
-      file.buffer,
-      destinationPath,
-      file.mimetype
-    )
+    const ref = await storePrivateFile(file.buffer, destinationPath, file.mimetype)
 
     res.json({
       success: true,
-      url: result.publicUrl,
-      path: result.path,
+      url: ref,
+      path: destinationPath,
       name: file.originalname,
       size: file.size
     })

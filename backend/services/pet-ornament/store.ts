@@ -3,7 +3,8 @@
 //
 //   portraits   users/pet-ornaments/portraits/<id>.json   the four-colour map
 //               users/pet-ornaments/portraits/<id>.png    what the model drew
-//               users/pet-ornaments/photos/<id>.<ext>     the customer's photo
+//               users/pet-ornaments/photos/<id>.<ext>     the customer's photo,
+//                                                         PRIVATE bucket (task 4c100f9f)
 //   stock       backend/assets/pet-ornament/<pet>.json   (in the repo, no I/O)
 //   print files users/pet-ornaments/geo-v<N>/<key>/       one STL per colour +
 //                                                         print-spec.json
@@ -17,12 +18,14 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { downloadFile, fileExists, generateSignedUrl } from '../gcs-storage.js'
 import { uploadImageFromBuffer } from '../google-cloud-storage.js'
+import { storePrivateFile } from '../private-files.js'
 import { filamentById, type PetOrnamentTemplate, type PetOrnamentValues } from '../../shared/pet-ornament.js'
 import { toBinaryStl } from '../name-print/geometry.js'
 import { PET_GEOMETRY_VERSION, buildPetModel, type PetModel } from './geometry.js'
 import { decodeMap, encodeMap, type PortraitMap } from './quantize.js'
 
 const OWNER = 'pet-ornaments'
+const PHOTO_PREFIX = `users/${OWNER}/photos/`
 
 /**
  * Where the files go. GCS in production; a test or the local walk harness
@@ -32,7 +35,8 @@ export const blobStore = {
   exists: (p: string): Promise<boolean> => fileExists(p),
   read: (p: string): Promise<Buffer> => downloadFile(p),
   write: async (buf: Buffer, p: string, contentType: string): Promise<void> => {
-    await uploadImageFromBuffer(buf, p, contentType)
+    if (p.startsWith(PHOTO_PREFIX)) await storePrivateFile(buf, p, contentType)
+    else await uploadImageFromBuffer(buf, p, contentType)
   },
   sign: (p: string, hours: number): Promise<string> => generateSignedUrl(p, hours),
 }
@@ -43,7 +47,7 @@ export function portraitId(photo: Buffer): string {
 
 export const portraitMapPath = (id: string) => `users/${OWNER}/portraits/${id}.json`
 export const portraitPngPath = (id: string) => `users/${OWNER}/portraits/${id}.png`
-export const photoPath = (id: string, ext: string) => `users/${OWNER}/photos/${id}.${ext}`
+export const photoPath = (id: string, ext: string) => `${PHOTO_PREFIX}${id}.${ext}`
 
 // ---------------------------------------------------------------------------
 // Stock portraits (no photo): committed maps, read once

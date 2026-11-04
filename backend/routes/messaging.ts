@@ -2,7 +2,8 @@ import { Router, Request, Response } from "express";
 import { v4 as uuidv4 } from "uuid";
 import { requireAuth } from "../middleware/supabaseAuth.js";
 import { supabase } from "../lib/supabase.js";
-import { uploadFile, generateSignedUrl } from "../services/gcs-storage.js";
+import { signObjectInBucket } from "../services/google-cloud-storage.js";
+import { PRIVATE_FILES_BUCKET, storePrivateFile } from "../services/private-files.js";
 
 const router = Router();
 
@@ -84,10 +85,8 @@ router.post("/attachments/upload", requireAuth, async (req: Request, res: Respon
 
     const safeName = typeof filename === "string" && filename.trim() ? filename.trim().slice(0, 200) : "attachment";
 
-    // uploadFile() defaults to a hardcoded `.png` extension when no filename
-    // is passed (backend/services/gcs-storage.ts) -- matches the extension to
-    // the real content type instead, same as backend/routes/user.ts does for
-    // avatar/cover uploads.
+    // Matches the extension to the real content type, same as
+    // backend/routes/user.ts does for avatar/cover uploads.
     const extMap: Record<string, string> = {
       "image/png": "png",
       "image/jpeg": "jpg",
@@ -99,12 +98,9 @@ router.post("/attachments/upload", requireAuth, async (req: Request, res: Respon
     };
     const storedFilename = `${uuidv4()}.${extMap[contentType] || "bin"}`;
 
-    const result = await uploadFile(buffer, {
-      userId,
-      folder: "message-attachments",
-      filename: storedFilename,
-      contentType,
-    });
+    // Private bucket: the public one answers any plain path (task 4c100f9f).
+    const gcsPath = `users/${userId}/message-attachments/${storedFilename}`;
+    await storePrivateFile(buffer, gcsPath, contentType);
 
     return res.json({
       ok: true,
@@ -113,7 +109,7 @@ router.post("/attachments/upload", requireAuth, async (req: Request, res: Respon
       size: buffer.length,
       mimeType: contentType,
       type: contentType.startsWith("image/") ? "image" : "file",
-      gcsPath: result.gcsPath,
+      gcsPath,
     });
   } catch (error: any) {
     console.error("[messaging/attachments/upload] Error:", error);
@@ -158,7 +154,7 @@ router.get("/attachments/:attachmentId", requireAuth, async (req: Request, res: 
       return res.status(410).json({ error: "Attachment unavailable" });
     }
 
-    const url = await generateSignedUrl(attachment.gcsPath, 0.25); // 15 minutes
+    const url = await signObjectInBucket(PRIVATE_FILES_BUCKET, attachment.gcsPath, 15);
     return res.json({ ok: true, url, name: attachment.name, mimeType: attachment.mimeType });
   } catch (error: any) {
     console.error("[messaging/attachments/:attachmentId] Error:", error);

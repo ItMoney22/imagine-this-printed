@@ -21,7 +21,7 @@ import {
   EMAIL_DOMAIN,
   type InboundEmailData,
 } from '../services/email-resend.js';
-import { uploadFile } from '../services/gcs-storage.js';
+import { FORWARD_LINK_TTL_MINUTES, storePrivateFile, withAttachmentLinks } from '../services/private-files.js';
 import { listSuppressions, recordSuppression } from '../services/email-suppression.js';
 import { sortByReplyUrgency, triageEmails, wantsSummary, type EmailTriage } from '../lib/jev-triage.js';
 import { decideInboundFiling, bodyForTriage, type InboundFiling } from '../lib/inbound-spam.js';
@@ -453,7 +453,8 @@ router.get('/messages/:id', requireAuth, async (req: Request, res: Response) => 
       message.is_read = true;
     }
 
-    res.json({ message });
+    // Stored attachments are private references; the inbox gets a fresh link.
+    res.json({ message: { ...message, attachments: await withAttachmentLinks(message.attachments) } });
   } catch (error) {
     res.status(500).json({ error: error instanceof Error ? error.message : String(error) });
   }
@@ -1051,7 +1052,8 @@ async function forwardInbound(input: ForwardInput): Promise<void> {
 
   const originLabel = input.from.name ? `${input.from.name} <${input.from.address}>` : input.from.address;
   const recipients = [...input.to, ...input.cc].join(', ');
-  const linked = input.attachments.filter(a => a.url);
+  // A forward sits in someone's mailbox, so its links get days, not minutes.
+  const linked = (await withAttachmentLinks(input.attachments, FORWARD_LINK_TTL_MINUTES)).filter(a => a.url);
 
   const attachmentsHtml = linked.length
     ? `<div style="margin-top:4px;">Attachments: ` +
@@ -1408,7 +1410,8 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
     // webhook nor the retrieve-received-email body carry the bytes. The actual
     // files live behind short-lived pre-signed download_urls on the attachments
     // endpoint. Fetch those, download each file while the URL is fresh, and
-    // re-host it in GCS so the inbox can serve a durable download link.
+    // re-host it in the PRIVATE bucket; the row keeps a gs:// reference and the
+    // inbox signs a link per read (task 4c100f9f).
     // (Previously the code expected inline base64 `content` that Resend never
     // sends, so EVERY inbound attachment was stored byte-less and showed up in
     // the UI as un-openable — exactly the bug being fixed here.)
@@ -1430,13 +1433,12 @@ router.post('/webhooks/resend', async (req: Request, res: Response) => {
           try {
             const buf = await downloadAttachment(a.download_url);
             if (!buf) return record;
-            const { publicUrl } = await uploadFile(buf, {
-              userId: 'inbound',
-              folder: 'email-attachments',
-              filename: `${emailId}-${idx}-${sanitizeAttachmentName(a.filename || 'attachment')}`,
-              contentType: record.content_type,
-            });
-            return { ...record, size: record.size || buf.length, url: publicUrl };
+            const ref = await storePrivateFile(
+              buf,
+              `users/inbound/email-attachments/${emailId}-${idx}-${sanitizeAttachmentName(a.filename || 'attachment')}`,
+              record.content_type
+            );
+            return { ...record, size: record.size || buf.length, url: ref };
           } catch (err) {
             console.error('[email-webhook] attachment persist failed:', record.filename, err instanceof Error ? err.message : err);
             return record;

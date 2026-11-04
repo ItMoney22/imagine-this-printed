@@ -210,10 +210,11 @@ vi.mock('../../services/product-build.js', () => ({
 // upscaleArtwork are stubbed too since nothing here exercises the too_small
 // upscale path against a real back image.
 const measureArtwork = vi.fn()
+const ensurePrintResolution = vi.fn(async (): Promise<Map<string, any>> => new Map())
 vi.mock('../../services/step-flow/print-resolution.js', () => ({
   measureArtwork: (...args: any[]) => measureArtwork(...args),
   upscaleArtwork: vi.fn(),
-  ensurePrintResolution: vi.fn(async () => new Map()),
+  ensurePrintResolution: (...args: any[]) => (ensurePrintResolution as any)(...args),
 }))
 
 // The upload route names a design by looking at it; never a real vision call here.
@@ -755,6 +756,30 @@ describe('POST /:id/step/adopt — design library into the Step Flow', () => {
     await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
     expect(res.statusCode).toBe(200)
     expect(db.product_assets).toHaveLength(1)
+  })
+
+  it('keeps an upscaled press file out of the public gallery and off the public metadata', async () => {
+    const original = 'https://api.example.test/api/media/design-library/cats/avogato.png'
+    const link = 'https://storage.test/imagine-this-printed-products/print-ready/p1/a.png?Signature=y'
+    const ref = 'gs://imagine-this-printed-products/print-ready/p1/a.png'
+    seedLibraryDesign({ image: { width_px: 400, height_px: 400, has_alpha: true } })
+    ensurePrintResolution.mockResolvedValueOnce(new Map([[original, {
+      url: link, ref, path: 'print-ready/p1/a.png', width: 5000, height: 5000, upscaled: true, originalUrl: original,
+    }]]))
+
+    const handler = getRouteHandler('post', '/:id/step/adopt')
+    const res = makeRes()
+    await handler({ params: { id: 'p1' }, body: {}, user: { id: 'u1', sub: 'u1' }, log: undefined }, res)
+
+    expect(res.statusCode).toBe(200)
+    const product = db.products.find((p) => p.id === 'p1')
+    expect(product.images).toEqual([original])
+    expect(JSON.stringify(product.metadata)).not.toContain('Signature')
+    expect(product.metadata.print_upscale.results[0].to).toBe(ref)
+    // The team's working row keeps the link; the migration hides that row from the public.
+    const source = db.product_assets.find((a) => a.kind === 'source')
+    expect(source.url).toBe(link)
+    expect(source.path).toBe('print-ready/p1/a.png')
   })
 
   it('is idempotent — a second adopt makes no second take and no second rembg', async () => {

@@ -30,8 +30,12 @@ vi.mock('openai', () => ({
   },
 }))
 
-const uploadFile = vi.fn()
-vi.mock('../gcs-storage.js', () => ({ uploadFile: (...args: any[]) => uploadFile(...args) }))
+const storePrivateFile = vi.fn()
+vi.mock('../private-files.js', () => ({
+  LONG_LINK_TTL_MINUTES: 525600,
+  storePrivateFile: (...args: any[]) => storePrivateFile(...args),
+  linkForStoredFile: async () => 'https://gcs.example/inspiration/test.png',
+}))
 
 const {
   decodeInspirationImage,
@@ -59,8 +63,8 @@ async function solidPngDataUrl(r: number, g: number, b: number, size = 16): Prom
 
 beforeEach(() => {
   create.mockReset()
-  uploadFile.mockReset()
-  uploadFile.mockResolvedValue({ gcsPath: 'users/system/inspiration/test.png', publicUrl: 'https://gcs.example/inspiration/test.png', filename: 'test.png' })
+  storePrivateFile.mockReset()
+  storePrivateFile.mockResolvedValue('gs://private/users/system/inspiration/test.png')
   ;(globalThis as any).fetch = undefined
 })
 
@@ -242,8 +246,8 @@ describe('analyzeInspirationImage', () => {
     const url = await solidPngDataUrl(20, 200, 200)
     const result = await analyzeInspirationImage(url, { actorId: 'admin-1' })
 
-    expect(uploadFile).toHaveBeenCalledTimes(1)
-    expect(uploadFile.mock.calls[0][1]).toMatchObject({ userId: 'admin-1', folder: 'inspiration' })
+    expect(storePrivateFile).toHaveBeenCalledTimes(1)
+    expect(storePrivateFile.mock.calls[0][1]).toMatch(/^users\/admin-1\/inspiration\//)
     expect(result.persona).toBe('mrs-imagine')
     expect(result.intro).toBe(INSPIRATION_INTRO)
     expect(result.inspiration.imageUrl).toBe('https://gcs.example/inspiration/test.png')
@@ -267,7 +271,7 @@ describe('analyzeInspirationImage', () => {
 
   it('rejects before ever calling the model or GCS when the image fails validation', async () => {
     await expect(analyzeInspirationImage('not a url at all')).rejects.toThrow(InspirationValidationError)
-    expect(uploadFile).not.toHaveBeenCalled()
+    expect(storePrivateFile).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
   })
 })
