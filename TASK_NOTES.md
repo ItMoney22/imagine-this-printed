@@ -5738,3 +5738,10 @@ ITP stores the newest view per order line, shows it to the logged-in owner, and 
 ### Work log (append-only)
 - 2026-11-04 (cole-iverson): branch was cut from local main af119d4, 13 commits behind origin/main 1b4b781 (no paid_at
   queue, no pet ornament). Merged origin/main in (clean) so this work lands on the live print-bridge.ts.
+- 2026-11-04 (cole-iverson): built the push endpoint, owner-only read, order view (MyOrders + emailed status link when signed
+  in), checkout box on both pay paths, liveOptIn on both /queue line shapes. Fixed a lost tick: createPaymentIntent drops a
+  call made while one is in flight, so the box re-checks as each call lands. 12 guards broken on purpose, all 12 caught.
+  Migration proven on a throwaway local Postgres, NOT applied to prod. Walked the built site with the fleet browser at
+  1400 + 390 against the real orders + print-bridge routers and a local stand-in database (no production touched): owner
+  sees Live, flips to Last update by itself on the 30 s poll, timelapse link clicked; stranger and signed-out see no view.
+  Evidence E:/memory/watchtower/assets/528180f9/.

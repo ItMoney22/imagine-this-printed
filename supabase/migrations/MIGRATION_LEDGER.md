@@ -22,6 +22,15 @@ db push`/`db reset` was run, nothing was written to the live database.
   does not read it yet: `backend/routes/print-bridge.ts` GET /queue walks it once the b17dc9f6 branch ships.
   Rollback is in the file header.
 
+## 2026-11-04 — live printer cam: `order_print_live` NOT APPLIED, apply before the ship (Cole Iverson, Watchtower `528180f9`)
+
+- `20261104130000_order_print_live.sql` — **NOT APPLIED to production.** Run on a throwaway local Postgres 18 only:
+  safe to run twice, two pushes leave one row, an unknown order is refused with 23503, anon and authenticated both get
+  permission denied, RLS on with 0 policies, deleting the order clears its rows. Apply it before the code ships: until
+  then POST /api/print-bridge/live answers 500 (Watchtower logs it and moves on) and the order page shows no live view.
+  Empty table, unread by live code, so applying ahead of the ship is harmless.
+  Rollback = `drop table public.order_print_live;` (nothing references it).
+
 ## 2026-10-26 — store referral link: `vendor_storefronts.referral_code` + `referral_percent` APPLIED, NOT TRACKED (Zero Pluto, Watchtower `1a699ba8`; renamed by Zero Nine, `963903af`)
 
 - `20261026211000_vendor_store_referral.sql` — **APPLIED LIVE** 2026-10-26 by Zero Pluto. It was committed as
