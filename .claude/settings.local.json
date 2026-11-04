@@ -84,5 +84,58 @@
     "codex",
     "supabase"
   ],
-  "outputStyle": "default"
+  "outputStyle": "default",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:/Projects for MetaSphere/david-trinidad-com/engine/dispatch-autoclose-hook.mjs\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:/Projects for MetaSphere/david-trinidad-com/engine/dispatch-activity-hook.mjs\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:/Projects for MetaSphere/david-trinidad-com/engine/dispatch-activity-hook.mjs\""
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:/Projects for MetaSphere/david-trinidad-com/engine/dispatch-activity-hook.mjs\""
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"D:/Projects for MetaSphere/david-trinidad-com/engine/dispatch-live-merge-hook.mjs\""
+          }
+        ]
+      }
+    ]
+  }
 }
