@@ -1,10 +1,12 @@
 import { Router, Request, Response } from 'express'
 import { requireAuth } from '../middleware/supabaseAuth.js'
+import { scrubEngineErrors } from '../middleware/engine-error-scrub.js'
 import { supabase } from '../lib/supabase.js'
 import { uploadImageFromBase64 } from '../services/google-cloud-storage.js'
 import Replicate from 'replicate'
 
 const router = Router()
+router.use(scrubEngineErrors)
 
 // Initialize Replicate client
 const replicate = new Replicate({

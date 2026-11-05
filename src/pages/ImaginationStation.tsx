@@ -7,7 +7,7 @@ import { useAuth } from '../context/SupabaseAuthContext';
 import { useGuestGate } from '../components/GuestGate';
 import { useCart } from '../context/CartContext';
 import { useToast } from '../hooks/useToast';
-import { imaginationApi, apiFetch, flareApi } from '../lib/api';
+import { imaginationApi, apiFetch, flareApi, failureLine } from '../lib/api';
 import { supabase } from '../lib/supabase';
 import ErrorBoundary from '../components/ErrorBoundary';
 import type {
@@ -1302,7 +1302,7 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Auto-Nest failed:', error);
-      toast.error('Auto-Nest failed', error.response?.data?.error || 'Please try again.');
+      toast.error('Auto-Nest failed', failureLine(error));
     } finally {
       setIsProcessing(false);
     }
@@ -1374,7 +1374,7 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Smart Fill failed:', error);
-      toast.error('Smart Fill failed', error.response?.data?.error || 'Please try again.');
+      toast.error('Smart Fill failed', failureLine(error));
     } finally {
       setIsProcessing(false);
     }
@@ -1446,7 +1446,7 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Remove Background failed:', error);
-      const msg = error.response?.data?.error || 'Please try again.';
+      const msg = failureLine(error);
       toast.error('Remove background failed', msg);
     } finally {
       setIsRemovingBg(false);
@@ -1562,7 +1562,7 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Upscale failed:', error);
-      const msg = error.response?.data?.error || 'Please try again.';
+      const msg = failureLine(error);
       toast.error('Upscale failed', msg);
     } finally {
       setIsUpscaling(false);
@@ -1642,7 +1642,7 @@ const ImaginationStation: React.FC = () => {
       }
     } catch (error: any) {
       console.error('Enhance failed:', error);
-      const msg = error.response?.data?.error || 'Please try again.';
+      const msg = failureLine(error);
       toast.error('Enhance failed', msg);
     } finally {
       setIsEnhancing(false);
@@ -1895,7 +1895,7 @@ const ImaginationStation: React.FC = () => {
         setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Remove Background', revert: revertSnapshot });
         if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
       } else { toast.error('Remove background failed', 'No image returned.'); }
-    } catch (err: any) { toast.error('Remove background failed', err.response?.data?.error || 'Please try again.'); }
+    } catch (err: any) { toast.error('Remove background failed', failureLine(err)); }
     finally { setIsRemovingBg(false); }
   };
 
@@ -1936,7 +1936,7 @@ const ImaginationStation: React.FC = () => {
       if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
       return newUrl;
     } catch (err: any) {
-      toast.error('Upscale failed', err.response?.data?.error || 'Please try again.');
+      toast.error('Upscale failed', failureLine(err));
       return null;
     }
   };
@@ -1957,7 +1957,7 @@ const ImaginationStation: React.FC = () => {
         setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Upscale 2x', revert: revertSnapshot });
         if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
       } else { toast.error('Upscale failed', 'No image returned.'); }
-    } catch (err: any) { toast.error('Upscale failed', err.response?.data?.error || 'Please try again.'); }
+    } catch (err: any) { toast.error('Upscale failed', failureLine(err)); }
     finally { setIsUpscaling(false); }
   };
 
@@ -1977,7 +1977,7 @@ const ImaginationStation: React.FC = () => {
         setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Enhance', revert: revertSnapshot });
         if (useTrial) { const { data: pd } = await imaginationApi.getPricing(); setFreeTrials(pd?.freeTrials || []); }
       } else { toast.error('Enhance failed', 'No image returned.'); }
-    } catch (err: any) { toast.error('Enhance failed', err.response?.data?.error || 'Please try again.'); }
+    } catch (err: any) { toast.error('Enhance failed', failureLine(err)); }
     finally { setIsEnhancing(false); }
   };
 
@@ -1995,7 +1995,7 @@ const ImaginationStation: React.FC = () => {
         setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
         setCompareModal({ isOpen: true, beforeImage: imageUrl, afterImage: newUrl, layerId: activeDesign.id, operation: 'Halftone', revert: revertSnapshot });
       } else { toast.error('Halftone failed', 'No image returned.'); }
-    } catch (err: any) { toast.error('Halftone failed', err.response?.data?.error || 'Please try again.'); }
+    } catch (err: any) { toast.error('Halftone failed', failureLine(err)); }
     finally { setIsHalftoning(false); }
   };
 

@@ -134,6 +134,15 @@ const api = {
 
 export default api
 
+/**
+ * The line to show for a failed call on this client. It throws a plain Error holding the
+ * server's text, so there is no axios-style err.response to read here. A TypeError is the
+ * browser's own (fetch could not connect) and not worth showing a customer.
+ */
+export function failureLine(err: unknown, fallback = 'Please try again.'): string {
+  return err instanceof Error && !(err instanceof TypeError) && err.message ? err.message : fallback
+}
+
 // AI Product Builder endpoints
 export const aiProducts = {
   phrases: async (request: {

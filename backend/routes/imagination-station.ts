@@ -18,8 +18,10 @@ import gcsStorage from '../services/gcs-storage.js';
 import { uploadImageFromBase64, uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { partitionLayersForSave, rotatedBoundingBox, RENDER_DPI } from '../services/imagination-layer-save.js';
 import { requireCreator } from '../middleware/requireCreator.js';
+import { scrubEngineErrors } from '../middleware/engine-error-scrub.js';
 
 const router = Router();
+router.use(scrubEngineErrors);
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } }); // 50MB limit
 
 const supabase = createClient(
