@@ -1,23 +1,5 @@
 # TASK_NOTES
 
-## Current request (2026-11-05) — keep engine names out of customer error text (task 7d5d7d86, vinny-carbone)
-
-### File shortlist (approved scope — 2026-11-05 engine error scrub)
-- `backend/middleware/engine-error-scrub.ts` (+ test, new): the one scrub, mounted per router
-- `backend/routes/imagination-station.ts`, `backend/routes/mockups.ts`: one `router.use` line each
-- `backend/routes/engine-error-scrub.test.ts` (new): failed Remove BG and generate through the real routers
-- `src/pages/ImaginationStation.tsx`: 10 toasts read `failureLine(err)`. Scope widened from read only: they read
-  `err.response.data.error`, which the fetch client in `api.ts` never sets, so they always said "Please try again."
-- `src/lib/api.ts` (+ `src/lib/api.failure-line.test.ts`, new): `failureLine`, kept beside the client that throws
-- `TASK_NOTES.md`
-
-### Work log (append-only)
-- 2026-11-05 (vinny-carbone): scope filed; flare-studio.ts left alone, its admin split lands with Iahhm's 728fa6a3.
-- 2026-11-05 (vinny-carbone): scrub mounted on both routers; 59 tests pass, 6 go red with it off, 2 go red reading `.sub`.
-- 2026-11-05 (vinny-carbone): 10 Station toasts now show the server's line. Pressed Remove BG and Generate in a real
-  browser (real page + router + role-cache, fake Supabase): customer clean at 1400 and 390, admin raw, ITC line verbatim.
-  verify green: 209 files, 2816 tests, tsc clean.
-
 ## Current request (2026-10-26) — Crystal's own referral link + her cut by Stripe transfer (task 1a699ba8, zero-pluto)
 
 David 10/26: "if one of her referrals use her link and buy a shirt she gets a cut. She needs her own link to give her
@@ -57,6 +39,24 @@ Decisions:
 - 2026-10-26 (zero-nine, SHIP 963903af): the 10/26 ITP slot went to f0da3eed (main 2af93f65), so the 10/27 batch is
   main + 580c4f3 + Dr Dill's discount codes f9d8117 (SHIP a7a8eba8) on one branch; StoreManager imports + TASK_NOTES
   unioned; referral migration renamed 20261026210000 -> 20261026211000 (the inbox owns 210000) with its ledger row.
+
+## Current request (2026-11-05) — keep engine names out of customer error text (task 7d5d7d86, vinny-carbone)
+
+### File shortlist (approved scope — 2026-11-05 engine error scrub)
+- `backend/middleware/engine-error-scrub.ts` (+ test, new): the one scrub, mounted per router
+- `backend/routes/imagination-station.ts`, `backend/routes/mockups.ts`: one `router.use` line each
+- `backend/routes/engine-error-scrub.test.ts` (new): failed Remove BG and generate through the real routers
+- `src/pages/ImaginationStation.tsx`: 10 toasts read `failureLine(err)`. Scope widened from read only: they read
+  `err.response.data.error`, which the fetch client in `api.ts` never sets, so they always said "Please try again."
+- `src/lib/api.ts` (+ `src/lib/api.failure-line.test.ts`, new): `failureLine`, kept beside the client that throws
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-05 (vinny-carbone): scope filed; flare-studio.ts left alone, its admin split lands with Iahhm's 728fa6a3.
+- 2026-11-05 (vinny-carbone): scrub mounted on both routers; 59 tests pass, 6 go red with it off, 2 go red reading `.sub`.
+- 2026-11-05 (vinny-carbone): 10 Station toasts now show the server's line. Pressed Remove BG and Generate in a real
+  browser (real page + router + role-cache, fake Supabase): customer clean at 1400 and 390, admin raw, ITC line verbatim.
+  verify green: 209 files, 2816 tests, tsc clean.
 
 ## Current request (2026-10-29) — weekly Etsy shop review
 
