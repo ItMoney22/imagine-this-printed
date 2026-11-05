@@ -1,4 +1,4 @@
-// Flare Lab — the GPT Image 2.5 Flare edit surface behind Imagination Station.
+// Flare Lab — the GPT Image Flare edit surface behind Imagination Station.
 //
 // David 2026-09-24: "learn all the capabilities that gpt image can do and build
 // guides and steps in the imagination station".
@@ -20,10 +20,11 @@
 // Everything here except runFlare() is pure, so the recipes, sizing, pricing and
 // mask conversion are pinned by flare-studio.test.ts without a network.
 import sharp from 'sharp'
-import { editOpenAIImageMany } from './image-flow/providers/openai-image.js'
+import { editOpenAIImageMany, OPENAI_IMAGE_BUDGET_MODEL } from './image-flow/providers/openai-image.js'
 import type { LetteringVerdict } from './lettering-check.js'
 
-export const FLARE_MODEL = 'gpt-image-2.5-flare'
+/** High, X-High and Max run here; see flareModelFor for the two cheaper tiers. */
+export const FLARE_MODEL = 'gpt-image-2.6-flare'
 
 export const FLARE_OPS = [
   'edit',
@@ -40,6 +41,15 @@ export type FlareOp = (typeof FLARE_OPS)[number]
 
 export const FLARE_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type FlareQuality = (typeof FLARE_QUALITIES)[number]
+
+/**
+ * Draft and Good are the cheap tiers people explore on, so they stay on 2.5:
+ * 2.6 only matches its price at high and up. Measured on ITP's key on a 1536
+ * square, 2026-11-05: low $0.017 vs $0.044, medium $0.027 vs $0.071.
+ */
+export function flareModelFor(quality: FlareQuality): string {
+  return quality === 'low' || quality === 'medium' ? OPENAI_IMAGE_BUDGET_MODEL : FLARE_MODEL
+}
 
 export type FlareSize = 'standard' | 'large'
 
@@ -240,12 +250,13 @@ export function buildFlarePrompt(req: FlareRequest): string {
 }
 
 /** Background to request: transparent for the ops that are ABOUT transparency, else the source's own. */
-export function backgroundFor(req: FlareRequest, sourceHasAlpha: boolean): 'transparent' | 'opaque' | undefined {
+export function backgroundFor(req: FlareRequest, sourceHasAlpha: boolean): 'transparent' | 'opaque' {
   if (req.op === 'transparent') return 'transparent'
   if (req.transparent) return 'transparent'
-  // A cut-out stays a cut-out. Otherwise omitted, so the edit endpoint keeps
-  // the source's own background.
-  return sourceHasAlpha ? 'transparent' : undefined
+  // A cut-out stays a cut-out, and solid art stays solid. Always said out loud:
+  // left unset, a masked edit on 2.6 turned a solid black background
+  // semi-transparent with a halo round the art (task f023a1e4, 2026-11-05).
+  return sourceHasAlpha ? 'transparent' : 'opaque'
 }
 
 const SIZE_LONG_EDGE: Record<FlareSize, number> = { standard: 1536, large: 2560 }
@@ -329,7 +340,7 @@ export interface FlareResult {
   images: Array<{ url: string; modelId: string; lettering?: LetteringVerdict | null }>
   prompt: string
   size: string
-  background: 'transparent' | 'opaque' | 'source'
+  background: 'transparent' | 'opaque'
 }
 
 /** Run one Flare Lab tool end to end and store the outputs under users/<uid>/flare/. */
@@ -370,13 +381,13 @@ export async function runFlare(req: FlareRequest, userId: string): Promise<Flare
     background,
     mask,
     n: req.variations,
-    model: FLARE_MODEL,
+    model: flareModelFor(req.quality),
   })
 
   return {
     images: images.map((i) => ({ url: i.url, modelId: i.modelId })),
     prompt,
     size: `${out.w}x${out.h}`,
-    background: background ?? 'source',
+    background,
   }
 }

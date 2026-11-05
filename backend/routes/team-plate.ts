@@ -8,7 +8,7 @@
 // string that is stripped to [A-Z0-9 '-] before it reaches a glyph.
 //
 // It is rate-limited because every NEW name and number is a paid
-// gpt-image-2.5-flare edit (task 65d98dd9 — the vector engine it replaced was
+// GPT Image Flare edit (task 65d98dd9 — the vector engine it replaced was
 // free to run), and cached because the same name and number is a very common
 // request (a coach ordering a roster will hit the same shirt fifteen times).
 import express, { type Request, type Response } from 'express'

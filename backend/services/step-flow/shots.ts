@@ -88,7 +88,7 @@ export interface ShotState {
   note?: string
   /**
    * The model that actually produced this card, e.g.
-   * `print-true/openai/gpt-image-2.5-flare+composite`,
+   * `print-true/openai/gpt-image-2.6-flare+composite`,
    * `black-forest-labs/flux-2-pro`, `google/nano-banana-2-lite`.
    *
    * DERIVED from the finished asset's own `metadata.model_id` in

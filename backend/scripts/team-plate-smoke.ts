@@ -2,7 +2,7 @@
 //
 //   flare edit -> cache miss/hit -> crisp upscale -> cache miss/hit -> GCS persistence
 //
-// Runs the REAL production dependencies (OpenAI gpt-image-2.5-flare, Replicate
+// Runs the REAL production dependencies (OpenAI gpt-image-2.6-flare, Replicate
 // recraft-crisp-upscale, the real bucket) through plate-store.renderOrGetCached,
 // with one substitution: the source art is read from a URL instead of a
 // product_assets row, so nothing is written to the database. Costs one flare

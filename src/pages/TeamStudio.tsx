@@ -6,7 +6,7 @@
 //
 // The old screen erased the sample lettering and re-set it in vector fonts,
 // which is where the flat, wrong-looking "SMITH" came from. This one never
-// erases anything: GPT Image 2.5 Flare edits the ORIGINAL back art and redoes
+// erases anything: GPT Image Flare edits the ORIGINAL back art and redoes
 // only the name and number in the art's own lettering
 // (backend/services/team-plate/generate.ts), then a crisp upscale makes the
 // 300 DPI press file. The operator's job shrinks to five guided steps:
@@ -124,7 +124,7 @@ const STEP_GUIDE: Record<number, { title: string; points: string[] }> = {
     title: 'Proof the hard cases',
     points: [
       'Try a short name, a long name and a name with an apostrophe — they stress spacing differently.',
-      'Every proof is a real GPT Image 2.5 Flare render, exactly what a customer will see.',
+      'Every proof is a real Flare render, exactly what a customer will see.',
       'Every proof is read back letter by letter; a misspelled render is redrawn once automatically. Still glance at it.',
       'Not right? Adjust the boxes or the notes and proof again — changed templates render fresh.',
     ],
@@ -411,7 +411,7 @@ const TeamStudio: React.FC = () => {
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="font-display text-lg leading-tight">Team Studio</h1>
-            <p className="text-xs text-muted truncate">{productName || 'Loading…'} · Imagination Station · GPT Image 2.5 Flare</p>
+            <p className="text-xs text-muted truncate">{productName || 'Loading…'} · Imagination Station · Flare</p>
           </div>
           {published && (
             <span className="hidden sm:inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
@@ -854,7 +854,7 @@ const TeamStudio: React.FC = () => {
               <Sparkles className="w-4 h-4 text-fuchsia-400" /> How it works
             </p>
             <p className="text-xs text-muted mt-1.5">
-              Each customer's shirt is a GPT Image 2.5 Flare edit of this exact artwork: the sample name and number are redrawn
+              Each customer's shirt is a Flare edit of this exact artwork: the sample name and number are redrawn
               as theirs, in the same lettering, with everything else held. The approved preview is then crisp-upscaled into the
               print file, so what they approve is what prints.
             </p>

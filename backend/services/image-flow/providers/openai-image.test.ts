@@ -40,10 +40,13 @@ const {
   runOpenAIImage,
   editOpenAIImage,
   resolveModelChain,
+  chainForQuality,
+  probeOpenAIImageCredit,
   isModelUnavailable,
   clearModelAvailabilityCache,
   paramsForModel,
   DEFAULT_OPENAI_IMAGE_CHAIN,
+  OPENAI_IMAGE_BUDGET_MODEL,
   OPENAI_IMAGE_PRECISION_MODEL,
 } = await import('./openai-image.js')
 
@@ -77,11 +80,11 @@ beforeEach(() => {
 })
 
 describe('the default chain', () => {
-  it('leads with GPT Image 2.5 Flare and keeps the older models behind it', () => {
-    // Flare is OpenAI's fast/high-quality default; the two behind it are what
-    // this account was already using, so losing 2.5 access degrades instead of
-    // breaking.
-    expect(DEFAULT_OPENAI_IMAGE_CHAIN).toEqual(['gpt-image-2.5-flare', 'gpt-image-2', 'gpt-image-1'])
+  it('leads with GPT Image 2.6 Flare and keeps the older models behind it', () => {
+    // 2.6 is the same price as 2.5 at high and about twice as fast; the three
+    // behind it are what this account was already using, so losing 2.6 access
+    // degrades instead of breaking.
+    expect(DEFAULT_OPENAI_IMAGE_CHAIN).toEqual(['gpt-image-2.6-flare', 'gpt-image-2.5-flare', 'gpt-image-2', 'gpt-image-1'])
   })
 
   it('names the precision model for the call sites that want detail over speed', () => {
@@ -100,6 +103,32 @@ describe('resolveModelChain', () => {
 
   it('falls back to the configured chain when nothing is pinned', () => {
     expect(resolveModelChain(undefined, ['a', 'b'])).toEqual(['a', 'b'])
+  })
+})
+
+describe('chainForQuality', () => {
+  const chain = [...DEFAULT_OPENAI_IMAGE_CHAIN]
+
+  it('keeps 2.6 first at high and above, and when no quality is named', () => {
+    for (const q of ['high', 'xhigh', 'max', undefined] as const) {
+      expect(chainForQuality(q, undefined, chain)[0]).toBe('gpt-image-2.6-flare')
+    }
+  })
+
+  it('keeps low and medium on 2.5, where 2.6 bills about three times as much', () => {
+    expect(OPENAI_IMAGE_BUDGET_MODEL).toBe('gpt-image-2.5-flare')
+    for (const q of ['low', 'medium'] as const) {
+      expect(chainForQuality(q, undefined, chain)).toEqual(['gpt-image-2.5-flare', 'gpt-image-2', 'gpt-image-1', 'gpt-image-2.6-flare'])
+    }
+  })
+
+  it('treats auto as unmeasured, so it stays off 2.6 too', () => {
+    expect(chainForQuality('auto', undefined, chain)[0]).toBe('gpt-image-2.5-flare')
+  })
+
+  it('lets a pin win at any quality: naming a model is deliberate', () => {
+    expect(chainForQuality('medium', 'gpt-image-2.6-flare', chain)[0]).toBe('gpt-image-2.6-flare')
+    expect(chainForQuality('high', 'gpt-image-2.5-flare', chain)[0]).toBe('gpt-image-2.5-flare')
   })
 })
 
@@ -129,21 +158,36 @@ describe('runOpenAIImage', () => {
     const r = await runOpenAIImage({ prompt: 'a cat' })
 
     expect(generate).toHaveBeenCalledTimes(1)
-    expect(generate.mock.calls[0][0].model).toBe('gpt-image-2.5-flare')
+    expect(generate.mock.calls[0][0].model).toBe('gpt-image-2.6-flare')
+    expect(r.modelId).toBe('openai/gpt-image-2.6-flare')
+  })
+
+  it('never sends complexity: its default costs the same and low garbled the page', async () => {
+    generate.mockResolvedValueOnce(ok)
+    await runOpenAIImage({ prompt: 'a cat', quality: 'high' })
+    expect(generate.mock.calls[0][0]).not.toHaveProperty('complexity')
+  })
+
+  it('runs a medium call on 2.5, where 2.6 would bill about three times as much', async () => {
+    generate.mockResolvedValueOnce(ok)
+
+    const r = await runOpenAIImage({ prompt: 'a cat', quality: 'medium' })
+
+    expect(generate.mock.calls[0][0]).toMatchObject({ model: 'gpt-image-2.5-flare', quality: 'medium' })
     expect(r.modelId).toBe('openai/gpt-image-2.5-flare')
   })
 
   it('walks to the next model when the first is not available to this account', async () => {
-    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare')).mockResolvedValueOnce(ok)
+    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare')).mockResolvedValueOnce(ok)
 
     const r = await runOpenAIImage({ prompt: 'a cat' })
 
-    expect(generate.mock.calls.map((c: any[]) => c[0].model)).toEqual(['gpt-image-2.5-flare', 'gpt-image-2'])
-    expect(r.modelId).toBe('openai/gpt-image-2')
+    expect(generate.mock.calls.map((c: any[]) => c[0].model)).toEqual(['gpt-image-2.6-flare', 'gpt-image-2.5-flare'])
+    expect(r.modelId).toBe('openai/gpt-image-2.5-flare')
   })
 
   it('does NOT retry a moderation block down the chain', async () => {
-    generate.mockRejectedValueOnce(moderationBlocked('gpt-image-2.5-flare'))
+    generate.mockRejectedValueOnce(moderationBlocked('gpt-image-2.6-flare'))
 
     await expect(runOpenAIImage({ prompt: 'a cat' })).rejects.toThrow(/safety system/)
     expect(generate).toHaveBeenCalledTimes(1)
@@ -151,12 +195,13 @@ describe('runOpenAIImage', () => {
 
   it('throws the last error when no model in the chain is available', async () => {
     generate
+      .mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare'))
       .mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare'))
       .mockRejectedValueOnce(modelMissing('gpt-image-2'))
       .mockRejectedValueOnce(modelMissing('gpt-image-1'))
 
     await expect(runOpenAIImage({ prompt: 'a cat' })).rejects.toThrow(/gpt-image-1/)
-    expect(generate).toHaveBeenCalledTimes(3)
+    expect(generate).toHaveBeenCalledTimes(4)
   })
 
   it('honours a pinned model', async () => {
@@ -168,16 +213,16 @@ describe('runOpenAIImage', () => {
     expect(r.modelId).toBe('openai/gpt-image-2.5-sunburst')
   })
 
-  it('passes the 2.5-only quality tiers straight through', async () => {
+  it('passes the xhigh tier straight through on 2.6', async () => {
     generate.mockResolvedValueOnce(ok)
     await runOpenAIImage({ prompt: 'a cat', quality: 'xhigh' })
-    expect(generate.mock.calls[0][0].quality).toBe('xhigh')
+    expect(generate.mock.calls[0][0]).toMatchObject({ model: 'gpt-image-2.6-flare', quality: 'xhigh' })
   })
 
-  it('passes a custom 2.5 resolution straight through', async () => {
+  it('passes a custom resolution straight through on 2.6', async () => {
     generate.mockResolvedValueOnce(ok)
     await runOpenAIImage({ prompt: 'a cat', size: '1536x864' })
-    expect(generate.mock.calls[0][0].size).toBe('1536x864')
+    expect(generate.mock.calls[0][0]).toMatchObject({ model: 'gpt-image-2.6-flare', size: '1536x864' })
   })
 })
 
@@ -187,12 +232,22 @@ describe('editOpenAIImage', () => {
 
     const r = await editOpenAIImage({ sourceUrl: 'https://cdn/a.png', prompt: 'put it on a shirt' })
 
-    expect(edit.mock.calls[0][0].model).toBe('gpt-image-2.5-flare')
+    expect(edit.mock.calls[0][0].model).toBe('gpt-image-2.6-flare')
+    expect(r.modelId).toBe('openai/gpt-image-2.6-flare')
+    expect(edit.mock.calls[0][0]).not.toHaveProperty('complexity')
+  })
+
+  it('keeps a medium edit on 2.5: the room mockup picked medium to be cheap', async () => {
+    edit.mockResolvedValueOnce(ok)
+
+    const r = await editOpenAIImage({ sourceUrl: 'https://cdn/a.png', prompt: 'hang it on a wall', quality: 'medium' })
+
+    expect(edit.mock.calls[0][0]).toMatchObject({ model: 'gpt-image-2.5-flare', quality: 'medium' })
     expect(r.modelId).toBe('openai/gpt-image-2.5-flare')
   })
 
   it('falls through on an unavailable model, carrying the same inputs', async () => {
-    edit.mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare')).mockResolvedValueOnce(ok)
+    edit.mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare')).mockResolvedValueOnce(ok)
 
     const r = await editOpenAIImage({
       sourceUrl: 'https://cdn/a.png',
@@ -200,14 +255,14 @@ describe('editOpenAIImage', () => {
       prompt: 'composite',
     })
 
-    expect(r.modelId).toBe('openai/gpt-image-2')
+    expect(r.modelId).toBe('openai/gpt-image-2.5-flare')
     // Both reference images survive the retry — a fallback that dropped the
     // second input would silently stop compositing.
     expect(edit.mock.calls[1][0].image).toHaveLength(2)
   })
 
   it('does NOT retry a moderation block down the chain', async () => {
-    edit.mockRejectedValueOnce(moderationBlocked('gpt-image-2.5-flare'))
+    edit.mockRejectedValueOnce(moderationBlocked('gpt-image-2.6-flare'))
 
     await expect(
       editOpenAIImage({ sourceUrl: 'https://cdn/a.png', prompt: 'x' })
@@ -218,7 +273,7 @@ describe('editOpenAIImage', () => {
   it('fetches each source image only once, no matter how far it falls back', async () => {
     // The files are read before the first attempt and reused. Re-fetching per
     // attempt would triple the egress on every fallback.
-    edit.mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare')).mockResolvedValueOnce(ok)
+    edit.mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare')).mockResolvedValueOnce(ok)
 
     await editOpenAIImage({ sourceUrl: 'https://cdn/a.png', prompt: 'x' })
 
@@ -230,35 +285,36 @@ describe('the unavailable-model cache', () => {
   it('stops re-probing a model this key cannot use', async () => {
     // The whole point: leading the chain with a model the account lacks must
     // not add a wasted round-trip to every render for the rest of the day.
-    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare')).mockResolvedValueOnce(ok)
+    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare')).mockResolvedValueOnce(ok)
     await runOpenAIImage({ prompt: 'one' })
-    expect(generate.mock.calls.map((c: any[]) => c[0].model)).toEqual(['gpt-image-2.5-flare', 'gpt-image-2'])
+    expect(generate.mock.calls.map((c: any[]) => c[0].model)).toEqual(['gpt-image-2.6-flare', 'gpt-image-2.5-flare'])
 
     generate.mockResolvedValueOnce(ok)
     const second = await runOpenAIImage({ prompt: 'two' })
 
     // Second call skips the known-missing head entirely.
-    expect(generate.mock.calls.slice(2).map((c: any[]) => c[0].model)).toEqual(['gpt-image-2'])
-    expect(second.modelId).toBe('openai/gpt-image-2')
+    expect(generate.mock.calls.slice(2).map((c: any[]) => c[0].model)).toEqual(['gpt-image-2.5-flare'])
+    expect(second.modelId).toBe('openai/gpt-image-2.5-flare')
   })
 
   it('forgets the note as soon as the model answers again', async () => {
-    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare')).mockResolvedValueOnce(ok)
+    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare')).mockResolvedValueOnce(ok)
     await runOpenAIImage({ prompt: 'one' })
 
     // Access lands. A pinned call proves it works, which must clear the note.
     generate.mockResolvedValueOnce(ok)
-    await runOpenAIImage({ prompt: 'two', model: 'gpt-image-2.5-flare' })
+    await runOpenAIImage({ prompt: 'two', model: 'gpt-image-2.6-flare' })
 
     generate.mockResolvedValueOnce(ok)
     const third = await runOpenAIImage({ prompt: 'three' })
-    expect(third.modelId).toBe('openai/gpt-image-2.5-flare')
+    expect(third.modelId).toBe('openai/gpt-image-2.6-flare')
   })
 
   it('still makes one real call when every model is cached unavailable', async () => {
     // Stale local bookkeeping must never be the thing that fails a render —
     // the real API error is always more informative than our own cache.
     generate
+      .mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare'))
       .mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare'))
       .mockRejectedValueOnce(modelMissing('gpt-image-2'))
       .mockRejectedValueOnce(modelMissing('gpt-image-1'))
@@ -266,33 +322,37 @@ describe('the unavailable-model cache', () => {
 
     generate.mockRejectedValueOnce(modelMissing('gpt-image-1'))
     await expect(runOpenAIImage({ prompt: 'two' })).rejects.toThrow(/gpt-image-1/)
-    expect(generate.mock.calls.slice(3).map((c: any[]) => c[0].model)).toEqual(['gpt-image-1'])
+    expect(generate.mock.calls.slice(4).map((c: any[]) => c[0].model)).toEqual(['gpt-image-1'])
   })
 
   it('shares the cache with the edit path', async () => {
-    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare')).mockResolvedValueOnce(ok)
+    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare')).mockResolvedValueOnce(ok)
     await runOpenAIImage({ prompt: 'warm the cache' })
 
     edit.mockResolvedValueOnce(ok)
     const r = await editOpenAIImage({ sourceUrl: 'https://cdn/a.png', prompt: 'x' })
 
-    expect(edit.mock.calls.map((c: any[]) => c[0].model)).toEqual(['gpt-image-2'])
-    expect(r.modelId).toBe('openai/gpt-image-2')
+    expect(edit.mock.calls.map((c: any[]) => c[0].model)).toEqual(['gpt-image-2.5-flare'])
+    expect(r.modelId).toBe('openai/gpt-image-2.5-flare')
   })
 })
 
 describe('paramsForModel', () => {
   it('strips input_fidelity for every model but gpt-image-1.x (2.5-flare 400s on it, live 2026-09-24)', () => {
     const p = { prompt: 'x', input_fidelity: 'high' }
+    expect(paramsForModel('gpt-image-2.6-flare', p)).not.toHaveProperty('input_fidelity')
     expect(paramsForModel('gpt-image-2.5-flare', p)).not.toHaveProperty('input_fidelity')
     expect(paramsForModel('gpt-image-2', p)).not.toHaveProperty('input_fidelity')
     expect(paramsForModel('gpt-image-1.5', p)).toHaveProperty('input_fidelity', 'high')
     expect(paramsForModel('gpt-image-1', p)).toHaveProperty('input_fidelity', 'high')
   })
 
-  it('leaves a 2.5 request untouched', () => {
+  it('leaves a 2.5 or 2.6 request untouched', () => {
+    // Team plates ask for 1232x1536 and the large canvas for 2560 square: a 2.6
+    // that fell into the downgrade would quietly snap both to a standard frame.
     const p = { quality: 'max', size: '1536x864' }
     expect(paramsForModel('gpt-image-2.5-flare', p)).toEqual(p)
+    expect(paramsForModel('gpt-image-2.6-flare', p)).toEqual(p)
   })
 
   it('downgrades the 2.5-only quality tiers for an older model', () => {
@@ -320,11 +380,26 @@ describe('paramsForModel', () => {
   })
 
   it('applies the downgrade on the model that actually runs, not the one asked for', async () => {
-    generate.mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare')).mockResolvedValueOnce(ok)
+    generate
+      .mockRejectedValueOnce(modelMissing('gpt-image-2.6-flare'))
+      .mockRejectedValueOnce(modelMissing('gpt-image-2.5-flare'))
+      .mockResolvedValueOnce(ok)
 
     await runOpenAIImage({ prompt: 'a cat', quality: 'max', size: '1536x864' })
 
     expect(generate.mock.calls[0][0]).toMatchObject({ quality: 'max', size: '1536x864' })
-    expect(generate.mock.calls[1][0]).toMatchObject({ quality: 'high', size: '1536x1024' })
+    expect(generate.mock.calls[1][0]).toMatchObject({ quality: 'max', size: '1536x864' })
+    expect(generate.mock.calls[2][0]).toMatchObject({ model: 'gpt-image-2', quality: 'high', size: '1536x1024' })
+  })
+})
+
+describe('probeOpenAIImageCredit', () => {
+  it('checks the wallet with the cheap model: 2.6 at low bills about 2.6x as much', async () => {
+    generate.mockResolvedValueOnce(ok)
+
+    const r = await probeOpenAIImageCredit()
+
+    expect(generate.mock.calls[0][0]).toMatchObject({ model: 'gpt-image-2.5-flare', quality: 'low' })
+    expect(r.outcome).toBe('ok')
   })
 })

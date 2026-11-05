@@ -220,7 +220,7 @@ const ImaginationStation: React.FC = () => {
   const [showMakeProductModal, setShowMakeProductModal] = useState(false);
   const [showReimagineItModal, setShowReimagineItModal] = useState(false);
   const [showITPEnhanceModal, setShowITPEnhanceModal] = useState(false);
-  // Flare Lab — GPT Image 2.5 Flare edit tools with their guides (flare/FlareLab.tsx)
+  // Flare Lab — GPT Image Flare edit tools with their guides (flare/FlareLab.tsx)
   const [showFlareLab, setShowFlareLab] = useState(false);
   const [reimagineItLayerId, setReimagineItLayerId] = useState<string | null>(null);
 
@@ -1909,13 +1909,13 @@ const ImaginationStation: React.FC = () => {
     const revertSnapshot = { processedUrl: activeDesign.url, metadata: null as Record<string, any> | null };
     setDesigns(prev => prev.map(d => d.id === activeDesign.id ? { ...d, url: newUrl, history: [...d.history, newUrl] } : d));
     setShowFlareLab(false);
-    setCompareModal({ isOpen: true, beforeImage: activeDesign.url, afterImage: newUrl, layerId: activeDesign.id, operation: `Flare · ${label}`, revert: revertSnapshot });
+    setCompareModal({ isOpen: true, beforeImage: activeDesign.url, afterImage: newUrl, layerId: activeDesign.id, operation: `Imagination · ${label}`, revert: revertSnapshot });
   };
 
   const handleFlareAddNew = (urls: string[], label: string) => {
     const created: StudioDesign[] = urls.map((url, i) => ({
       id: `design-${Date.now()}-${i}-${Math.random().toString(36).substr(2, 9)}`,
-      name: `Flare ${label}`,
+      name: `Imagination ${label}`,
       url,
       originalUrl: url,
       history: [url],

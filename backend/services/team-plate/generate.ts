@@ -1,6 +1,6 @@
 // Team plate — the per-order lettering pipeline.
 //
-//   tagged back art ──gpt-image-2.5-flare edit──▶ BASE (~1152x1536, the preview)
+//   tagged back art ──gpt-image-2.6-flare edit──▶ BASE (~1152x1536, the preview)
 //                                                   │
 //                                  recraft-crisp-upscale (print-resolution.ts)
 //                                                   ▼
@@ -22,8 +22,8 @@ import type { TeamTemplate } from '../../shared/team-template.js'
 import { buildLetteringPrompt, type LetteringMode } from './lettering-prompt.js'
 import type { LetteringVerdict } from '../lettering-check.js'
 
-/** Pinned first; the provider's chain (gpt-image-2 -> 1) remains the fallback. */
-export const LETTERING_MODEL = 'gpt-image-2.5-flare'
+/** Pinned first; the provider's chain (2.5-flare -> 2 -> 1) remains the fallback. */
+export const LETTERING_MODEL = 'gpt-image-2.6-flare'
 
 /** Long edge asked of the model. 1536 is the largest every model in the chain honours. */
 const BASE_LONG_EDGE = 1536

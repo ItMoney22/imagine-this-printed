@@ -722,6 +722,39 @@ Decisions (noted for the handoff):
   paint kit with prices from TOY_ADDONS, figurines only (no candle holder), grown-ups facts, closing band with the live
   cheapest-toy price ($15.99, not the old $5.99). Printed this week sticker and emoji chips gone. Walked 1440 + 390.
   Replicate credit fell under $5 while rendering (burst 1, 6/min).
+## Current request (2026-11-04) — GPT Image 2.6 on the ITP lanes the bake-off says (task f023a1e4, iahhm)
+
+David 11/04: "gpt came out with new image model ... make sure u add it to every flow that needs it". Switch only what
+bake-off ab95e18d + Ethan's addendum say, and run one real ITP job per flow first (the bake-off tested none of ours).
+
+Decisions (numbers: E:/memory/watchtower/assets/f023a1e4/results.jsonl, ITP's own key, 26 calls, $2.3959):
+- 2.6 leads DEFAULT_OPENAI_IMAGE_CHAIN, 2.5 behind it. chainForQuality keeps unpinned low/medium on 2.5: on a 1536 square
+  low bills $0.0435 vs $0.0167 and medium $0.0706 vs $0.0272. A pin always wins. complexity is never sent.
+- SWITCH: Flare Studio High/X-High/Max, team plates + erase, print-true, on-person shots, Image Flow generate + edit.
+- KEEP 2.5: Flare Draft/Good, room mockup, gen-metal-mockup, credit probe, pet portrait (pinned, low).
+- paramsForModel treated 2.6 as an old model: custom sizes and xhigh/max would have been downgraded. Fixed.
+- A masked edit on 2.6 with background unset turned solid art semi-transparent with a halo (2.5 did not). Flare now always
+  sends a background.
+- Credit math unchanged: worst lane Max + large is $0.5996 against 135 ITC, $0.945 at the deepest pack discount.
+
+### File shortlist (approved scope — 2026-11-04 GPT Image 2.6)
+- `backend/services/image-flow/providers/openai-image.ts` (+ test), `backend/services/image-flow/models.ts`, `worker-helpers.ts` (comments)
+- `backend/services/flare-studio.ts` (+ test), `backend/routes/flare-studio.ts` (+ test, new)
+- `backend/services/team-plate/generate.ts` (+ test), `plate-store.ts` (+ test), `backend/shared/team-template.ts`
+- Comments that named the old model: `backend/routes/team-plate.ts`, `backend/routes/stripe.ts`, `backend/scripts/team-plate-smoke.ts`, `backend/services/step-flow/shots.ts`
+- Scope added for "no customer-facing string names the model": `src/components/imagination/flare/FlareLab.tsx`, `flareGuide.ts`,
+  `MrImagineModal.tsx`, `ReimagineItModal.tsx`, `src/components/CreateDesignModal.tsx`, `VoiceConversationEnhanced.tsx`,
+  `src/components/studio/DesignStep.tsx` (+ test), `MockupStep.tsx`, `src/pages/ImaginationStation.tsx`, `src/pages/TeamStudio.tsx` (admin, version claim only)
+- `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-05 (iahhm): switched the lanes above, real job per lane read by eye, 26 calls booked in llm_spend (caller
+  itp-image-switch-proof). OPENAI_IMAGE_MODELS and HOUSE_GPT_IMAGE_QUALITY unset on Render API + worker and Fly api + worker.
+  Customer step flow no longer shows the engine (admin still does). FlareLab tool list was squeezed to a sliver at 390, fixed with
+  auto-rows-max. npm run verify green.
+- 2026-11-05 (iahhm): second sweep found engines still reaching customers: the lab's "via <model>" line after a run, the worker progress text,
+  and raw failed-job errors. All gated to the team lane, each pinned by a test that fails without its gate. Scope +3 tests: FlareLab.test.tsx, MockupStep.lane.test.tsx, DesignStep.test.tsx.
+
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 
 ### File shortlist (approved scope — 2026-10-07 policies)
