@@ -618,6 +618,8 @@ Decisions (numbers: E:/memory/watchtower/assets/f023a1e4/results.jsonl, ITP's ow
   itp-image-switch-proof). OPENAI_IMAGE_MODELS and HOUSE_GPT_IMAGE_QUALITY unset on Render API + worker and Fly api + worker.
   Customer step flow no longer shows the engine (admin still does). FlareLab tool list was squeezed to a sliver at 390, fixed with
   auto-rows-max. npm run verify green.
+- 2026-11-05 (iahhm): second sweep found engines still reaching customers: the lab's "via <model>" line after a run, the worker progress text,
+  and raw failed-job errors. All gated to the team lane, each pinned by a test that fails without its gate. Scope +3 tests: FlareLab.test.tsx, MockupStep.lane.test.tsx, DesignStep.test.tsx.
 
 ## Current request (2026-10-07) — ITP policies: contact block + one shipping story (task 5c713452, dane-marsh)
 

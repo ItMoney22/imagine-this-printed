@@ -89,6 +89,33 @@ describe('DesignStep — who sees the engine', () => {
 
     expect(screen.getByText('gpt-image-2.6-flare')).toBeTruthy()
   })
+
+  it('keeps the raw refusal, which names the engine, away from a customer', () => {
+    const { container } = render(
+      <StudioLaneProvider lane={customerLane}>
+        <DesignStep state={baseState({ jobs: [failedJob()] })} dispatch={vi.fn()} refresh={vi.fn()} />
+      </StudioLaneProvider>
+    )
+
+    expect(screen.getByText(/flagged by the image model's safety filter/i)).toBeTruthy()
+    expect(container.innerHTML).not.toMatch(/replicate|flux|black-forest/i)
+  })
+
+  it('keeps the worker progress line, which lists the engines, away from a customer', () => {
+    const running = failedJob({
+      status: 'running',
+      error: undefined,
+      output: { message: 'Generating with 4 models in parallel (Recraft V4, Grok Imagine, Imagen 4 Ultra, Wan 2.7 Pro)...' },
+    } as Partial<StepFlowJob>)
+    const { container } = render(
+      <StudioLaneProvider lane={customerLane}>
+        <DesignStep state={baseState({ jobs: [running] })} dispatch={vi.fn()} refresh={vi.fn()} />
+      </StudioLaneProvider>
+    )
+
+    expect(screen.getByText('Painting your design')).toBeTruthy()
+    expect(container.innerHTML).not.toMatch(/recraft|grok|imagen|wan 2/i)
+  })
 })
 
 describe('DesignStep — E005 sensitivity rephrase path', () => {

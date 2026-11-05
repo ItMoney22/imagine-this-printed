@@ -319,7 +319,7 @@ const FlareLab: React.FC<FlareLabProps> = ({
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-xs text-muted">
                   <span>
-                    {results.images.length} result{results.images.length > 1 ? 's' : ''} · {results.size} · via {results.images[0].modelId.replace('openai/', '')}
+                    {results.images.length} result{results.images.length > 1 ? 's' : ''} · {results.size}{isAdmin ? ` · via ${results.images[0].modelId.replace('openai/', '')}` : ''}
                   </span>
                   <span>{results.cost > 0 ? `${results.cost} ITC` : 'free'}</span>
                 </div>

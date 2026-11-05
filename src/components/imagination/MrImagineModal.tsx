@@ -441,7 +441,7 @@ const MrImagineModal: React.FC<MrImagineModalProps> = ({
       if (data.images && Array.isArray(data.images) && data.images.length > 0) {
         images = data.images.map((img: { url: string; modelId?: string; modelLabel?: string }) => ({
           url: img.url,
-          modelLabel: img.modelLabel || img.modelId || 'AI Model',
+          modelLabel: img.modelLabel || 'AI Model',
           added: false,
         }));
       } else {

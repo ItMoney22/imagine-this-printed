@@ -171,7 +171,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
           <div>
             <p className="font-semibold text-text mb-1">This idea was flagged by the image model's safety filter</p>
             <p className="text-muted">
-              {failedDesignJob?.error || 'The generator refused this prompt as potentially sensitive.'} This is
+              {(lane.showTeamTools && failedDesignJob?.error) || 'The generator refused this prompt as potentially sensitive.'} This is
               often a false positive — rephrasing it, dropping specific or provocative wording, or describing the
               idea more generally usually gets past it. Edit the prompt below, or try the auto-softened version
               as a starting point, then retry.
@@ -213,7 +213,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
           <ProgressBar
             size="lg"
             label={
-              designJob?.output?.message ||
+              (lane.showTeamTools && designJob?.output?.message) ||
               (designEngine && lane.showTeamTools ? `Painting your design with ${designEngine}` : 'Painting your design')
             }
             startedAt={designJob?.created_at ? new Date(designJob.created_at).getTime() : Date.now()}
