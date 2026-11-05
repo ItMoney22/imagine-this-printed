@@ -54,13 +54,24 @@ type Background = 'opaque' | 'transparent' | 'auto'
 type ImageSize = '1024x1024' | '1536x1024' | '1024x1536' | 'auto' | (string & {})
 
 /**
- * Preference order, best-first. Flare is OpenAI's fast, high-quality default
- * (better output than GPT Image 2 at roughly half the latency), and the two
- * behind it are what this account was already running — so if 2.5 access is not
- * on the key yet, every pipeline quietly degrades to what it had yesterday
- * instead of failing.
+ * Preference order, best-first. 2.6 Flare leads: the same price as 2.5 at
+ * quality high and about twice as fast (bake-off ab95e18d, 2026-11-04). The
+ * models behind it are what this account was already running, so if 2.6 is not
+ * on the key every pipeline quietly degrades to what it had yesterday instead
+ * of failing.
+ *
+ * `complexity` is deliberately never sent: its default costs the same as low,
+ * and low garbled a dense page 2 of 2 times in that bake-off.
  */
-export const DEFAULT_OPENAI_IMAGE_CHAIN = ['gpt-image-2.5-flare', 'gpt-image-2', 'gpt-image-1'] as const
+export const DEFAULT_OPENAI_IMAGE_CHAIN = ['gpt-image-2.6-flare', 'gpt-image-2.5-flare', 'gpt-image-2', 'gpt-image-1'] as const
+
+/**
+ * What a low or medium call runs on. 2.6 only matches 2.5's price at high and
+ * above: at medium it bills 3.3x the output tokens at the same size (real calls
+ * in llm_spend, 2026-11-05), so a lane that picked medium to be cheap would lose
+ * exactly that by moving.
+ */
+export const OPENAI_IMAGE_BUDGET_MODEL = 'gpt-image-2.5-flare'
 
 /**
  * The precision half of the 2.5 pair — slower, aimed at detailed creative work.
@@ -84,6 +95,25 @@ export function resolveModelChain(pinned?: string, chain: string[] = OPENAI_IMAG
   return [pinned, ...chain.filter((m) => m !== pinned)]
 }
 
+const FULL_PRICE_TIERS: ReadonlySet<string> = new Set(['high', 'xhigh', 'max'])
+
+/**
+ * The order to try for a call at this quality. An unpinned low or medium call
+ * sends 2.6 to the back of the line, so it runs on OPENAI_IMAGE_BUDGET_MODEL and
+ * only reaches 2.6 if everything older is gone. `undefined` is high, the default
+ * both run functions apply. A pin always wins: naming a model is deliberate.
+ */
+export function chainForQuality(
+  quality: Quality | undefined,
+  pinned?: string,
+  chain: string[] = OPENAI_IMAGE_MODEL_CHAIN
+): string[] {
+  const ordered = resolveModelChain(pinned, chain)
+  if (pinned || FULL_PRICE_TIERS.has(quality ?? 'high')) return ordered
+  const isGpt26 = (m: string) => /gpt-image-2\.6/.test(m)
+  return [...ordered.filter((m) => !isGpt26(m)), ...ordered.filter(isGpt26)]
+}
+
 /**
  * True only for "this account cannot use that model".
  *
@@ -102,15 +132,15 @@ export function isModelUnavailable(err: any): boolean {
   return /does not exist|do not have access|model.*not.*found|invalid model|unknown model/i.test(msg)
 }
 
-/** True for the GPT Image 2.5 family, which is what gained xhigh/max and free-form sizes. */
-function isGpt25(model: string): boolean {
-  return /gpt-image-2\.5/.test(model)
+/** True from GPT Image 2.5 on, which is what gained xhigh/max and free-form sizes. */
+function takesFreeFormParams(model: string): boolean {
+  return /gpt-image-2\.[5-9]/.test(model)
 }
 
 /**
  * Re-shape one request for the model that is actually about to run.
  *
- * The chain means a request built for GPT Image 2.5 can end up at GPT Image 2,
+ * The chain means a request built for GPT Image 2.5 or 2.6 can end up at GPT Image 2,
  * which rejects both of 2.5's additions — the `xhigh`/`max` quality tiers and
  * arbitrary `WIDTHxHEIGHT` sizes. Downgrading here keeps the fallback a
  * DEGRADE (a slightly less detailed image at a standard size) instead of a
@@ -125,7 +155,7 @@ export function paramsForModel(model: string, params: Record<string, unknown>): 
     const { input_fidelity: _dropped, ...rest } = params
     params = rest
   }
-  if (isGpt25(model)) return params
+  if (takesFreeFormParams(model)) return params
   const out = { ...params }
 
   if (out.quality === 'xhigh' || out.quality === 'max') out.quality = 'high'
@@ -259,7 +289,7 @@ export async function runOpenAIImage(opts: OpenAIImageOpts): Promise<{ url: stri
     ...(opts.moderation ? { moderation: opts.moderation } : {}),
   }
   const { res, usedModel } = await withModelChain(
-    resolveModelChain(opts.model),
+    chainForQuality(opts.quality, opts.model),
     (model) => client().images.generate({ model, ...paramsForModel(model, base) } as any),
     opts.model
   )
@@ -282,7 +312,7 @@ export async function probeOpenAIImageCredit(): Promise<CreditProbeResult> {
   const base = { prompt: 'a plain light grey square', n: 1, size: '1024x1024', quality: 'low', output_format: 'png' }
   try {
     const { usedModel } = await withModelChain(
-      resolveModelChain(),
+      chainForQuality('low'),
       (model) => client().images.generate({ model, ...paramsForModel(model, base) } as any)
     )
     return { outcome: 'ok', detail: `${usedModel} rendered a test image` }
@@ -374,7 +404,7 @@ export async function editOpenAIImageMany(
   if (opts.mask) base.mask = await toFile(opts.mask, 'mask.png', { type: 'image/png' })
 
   const { res, usedModel } = await withModelChain(
-    resolveModelChain(opts.model),
+    chainForQuality(opts.quality, opts.model),
     (model) => client().images.edit({ model, ...paramsForModel(model, base) } as any),
     opts.model
   )

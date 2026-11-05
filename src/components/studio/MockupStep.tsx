@@ -570,8 +570,8 @@ const MockupStep: React.FC<MockupStepProps> = ({ state, dispatch, refresh }) => 
                       {shot.casting.audience === 'youth' && ' (kid)'}
                     </p>
                   )}
-                  {/* What actually rendered this card, read off the finished asset. */}
-                  <EngineLine engine={shot.engine} />
+                  {/* What actually rendered this card, read off the finished asset. Team lanes only: a customer never sees the engine. */}
+                  {lane.showTeamTools && <EngineLine engine={shot.engine} />}
                   {shot.status === 'failed' && shot.error && <p className="text-[10px] text-red-400 truncate" title={shot.error}>{shot.error}</p>}
                   {shot.note && shot.status !== 'failed' && (
                     <p className="text-[10px] text-amber-400 line-clamp-2" title={shot.note}>{shot.note}</p>

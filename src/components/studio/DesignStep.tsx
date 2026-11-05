@@ -214,7 +214,7 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
             size="lg"
             label={
               designJob?.output?.message ||
-              (designEngine ? `Painting your design with ${designEngine}` : 'Painting your design')
+              (designEngine && lane.showTeamTools ? `Painting your design with ${designEngine}` : 'Painting your design')
             }
             startedAt={designJob?.created_at ? new Date(designJob.created_at).getTime() : Date.now()}
             expectedMs={DESIGN_EXPECTED_MS}
@@ -235,11 +235,11 @@ const DesignStep: React.FC<DesignStepProps> = ({ state, dispatch, refresh }) => 
                 className={`rounded-xl border overflow-hidden ${isSelected ? 'border-primary ring-2 ring-primary/40' : 'border-border-subtle'}`}
               >
                 <div className={`${isMetal ? 'aspect-[3/4]' : 'aspect-square'} bg-card-elevated`}>
-                  <img src={c.url} alt={c.label ?? 'Design take'} className="w-full h-full object-contain" />
+                  <img src={c.url} alt={(lane.showTeamTools && c.label) || 'Design take'} className="w-full h-full object-contain" />
                 </div>
                 <div className="p-2 space-y-1.5">
-                  {/* Which model drew THIS take, read off the asset itself. */}
-                  <EngineLine engine={c.engine} />
+                  {/* Which model drew THIS take, read off the asset itself. Team lanes only: a customer never sees the engine. */}
+                  {lane.showTeamTools && <EngineLine engine={c.engine} />}
                   <button
                     type="button"
                     onClick={() => handleUseThis(c.assetId)}

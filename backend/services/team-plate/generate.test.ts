@@ -77,20 +77,20 @@ describe('baseSizeFor', () => {
 })
 
 describe('generateBase (flare edit)', () => {
-  it('edits the ORIGINAL art with gpt-image-2.5-flare, the new values in the prompt', async () => {
+  it('edits the ORIGINAL art with gpt-image-2.6-flare, the new values in the prompt', async () => {
     const deps = fakeDeps({ source: await artwork(1200, 1600), base: await artwork(1152, 1536) })
     const out = await generateBase(template(), { name: 'SMITH', number: '22' }, deps, 'users/team-plates/x-base.png')
 
     expect(deps.loadAsset).toHaveBeenCalledWith('source-asset')
     const call = (deps.edit as any).mock.calls[0][0]
     expect(call.model).toBe(LETTERING_MODEL)
-    expect(call.model).toBe('gpt-image-2.5-flare')
+    expect(call.model).toBe('gpt-image-2.6-flare')
     expect(call.size).toBe('1152x1536')
     expect(call.objectPath).toBe('users/team-plates/x-base.png')
     expect(call.prompt).toContain('"SMITH"')
     expect(call.prompt).toContain('"22"')
     expect(out.mode).toBe('replace')
-    expect(out.modelId).toBe('openai/gpt-image-2.5-flare')
+    expect(out.modelId).toBe('openai/gpt-image-2.6-flare')
     expect(out.width).toBe(1152)
   })
 

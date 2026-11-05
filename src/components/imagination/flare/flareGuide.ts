@@ -1,4 +1,4 @@
-// Flare Lab — the in-app guide to what GPT Image 2.5 Flare can do.
+// Flare Lab — the in-app guide to what GPT Image Flare can do.
 //
 // David 2026-09-24: "learn all the capabilities that gpt image can do and build
 // guides and steps in the imagination station". Researched against the OpenAI
@@ -46,7 +46,7 @@ export const FLARE_TOOLS: FlareToolGuide[] = [
     steps: [
       'Select the design you want to change.',
       'Describe ONE change in plain words.',
-      'The recipe tells Flare to hold everything you did not mention.',
+      'The recipe holds everything you did not mention.',
       'Run it, compare before/after, keep the one you like.',
     ],
     tips: [

@@ -26,7 +26,7 @@ export async function runImageFlowGenerate(opts: RunGenerateOpts): Promise<{ url
   const r = await runRegisteredModel(model, { prompt: opts.prompt, extra: opts.extra })
   // The RESOLVED model, not the registry key. `openai/gpt-image-2` is a stored
   // id that products and ai_jobs rows have recorded for months, but the OpenAI
-  // provider walks a chain behind it (2.5-flare -> 2 -> 1), so reporting the key
+  // provider walks a chain behind it (2.6-flare -> 2.5-flare -> 2 -> 1), so reporting the key
   // told every audit trail "gpt-image-2" no matter what actually drew the image.
   // David 2026-09-09, on being unable to tell what made a design: "the design
   // must first come from flare not reg".
@@ -95,7 +95,7 @@ export interface MultiGenerateResult {
    *  because callers look models up by it; it is not what drew the image. */
   modelId: string
   /** The model that ACTUALLY answered (e.g. `openai/gpt-image-2.5-flare`).
-   *  `openai/gpt-image-2` is a chain - 2.5-flare, then 2, then 1 - so the key
+   *  `openai/gpt-image-2` is a chain - 2.6-flare, 2.5-flare, 2, then 1 - so the key
    *  above names the door, not who opened it. Callers writing an audit trail
    *  want THIS. Undefined on a failed take. */
   resolvedModelId?: string

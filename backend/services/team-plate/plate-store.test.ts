@@ -75,7 +75,7 @@ beforeEach(async () => {
       // A real flare call takes ~20-40s; a tick is enough to expose a race.
       await new Promise((r) => setTimeout(r, 10))
       bucket.set(o.objectPath, await png(1152, 1536))
-      return { url: `https://signed.example/${o.objectPath}?sig=1`, path: o.objectPath, modelId: 'openai/gpt-image-2.5-flare' }
+      return { url: `https://signed.example/${o.objectPath}?sig=1`, path: o.objectPath, modelId: 'openai/gpt-image-2.6-flare' }
     },
     fetchBuffer: async (url) => {
       const path = decodeURIComponent(new URL(url).pathname.slice(1))

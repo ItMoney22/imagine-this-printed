@@ -11,7 +11,7 @@
 //
 // HOW THEY ARE DRAWN CHANGED 2026-09-23 (task 65d98dd9). The v1 engine set
 // real vector glyphs (services/team-plate/legacy-vector, now quarantined). It
-// is replaced by a gpt-image-2.5-flare EDIT of the tagged back artwork that
+// is replaced by a GPT Image Flare EDIT of the tagged back artwork that
 // keeps the art and redoes only the name and number, chained into
 // recraft-crisp-upscale for the 300 DPI press file. David 2026-09-22: "it will
 // cost more but will come out the cleanest we will make the $$ back with the

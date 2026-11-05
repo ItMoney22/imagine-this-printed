@@ -9,6 +9,7 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest'
 import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import DesignStep from './DesignStep'
+import { adminLane, customerLane, StudioLaneProvider, type StudioLane } from './lane'
 import { aiProducts } from '../../lib/api'
 import { initialStepFlowState, type StepFlowJob, type StepFlowState } from './stepFlowReducer'
 
@@ -57,6 +58,37 @@ const baseState = (over: Partial<StepFlowState> = {}): StepFlowState => ({
     approvals: {},
   },
   ...over,
+})
+
+describe('DesignStep — who sees the engine', () => {
+  const take = {
+    id: 'asset-1',
+    kind: 'source',
+    asset_role: 'design',
+    url: 'https://cdn.test/take.png',
+    created_at: '2026-11-05T00:00:00Z',
+    metadata: { model_id: 'openai/gpt-image-2.6-flare', model_name: 'GPT Image · Take 1' },
+  } as unknown as StepFlowState['assets'][number]
+
+  const show = (lane: StudioLane) =>
+    render(
+      <StudioLaneProvider lane={lane}>
+        <DesignStep state={baseState({ assets: [take] })} dispatch={vi.fn()} refresh={vi.fn()} />
+      </StudioLaneProvider>
+    )
+
+  it('never names the model to a customer, in the caption or the picture alt', () => {
+    const { container } = show(customerLane)
+
+    expect(container.innerHTML).not.toMatch(/gpt|openai|flare/i)
+    expect(screen.getByAltText('Design take')).toBeTruthy()
+  })
+
+  it('still tells the team which engine drew each take', () => {
+    show(adminLane)
+
+    expect(screen.getByText('gpt-image-2.6-flare')).toBeTruthy()
+  })
 })
 
 describe('DesignStep — E005 sensitivity rephrase path', () => {

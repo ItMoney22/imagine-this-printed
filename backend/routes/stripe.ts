@@ -278,7 +278,7 @@ function qrStandLineMeta(item: any, lineIndex: number) {
 // team sees the problem instead of pressing a blank.
 //
 // NOR MAY A SLOW RENDER STALL IT (task 65d98dd9). The press file is now a
-// gpt-image-2.5-flare edit + recraft-crisp-upscale: ~30s when the customer
+// GPT Image Flare edit + recraft-crisp-upscale: ~30s when the customer
 // already previewed (upscale only), ~60-90s cold — past Cloudflare's 100s
 // origin timeout once the rest of this request is added. So the render gets
 // PRESS_WAIT_MS; past that the line is written with the press file's durable

@@ -6,7 +6,7 @@
 //
 // TWO CACHED TIERS, ONE KEY
 //
-//   <key>-base.png   the gpt-image-2.5-flare edit (~1152x1536). The preview.
+//   <key>-base.png   the gpt-image-2.6-flare edit (~1152x1536). The preview.
 //   <key>-press.png  that same image through recraft-crisp-upscale, fitted to
 //                    the template canvas (3600x4800 @300 DPI). The print file.
 //

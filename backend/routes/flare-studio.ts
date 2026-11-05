@@ -24,7 +24,7 @@ router.get('/pricing', (_req: Request, res: Response) => {
 
 router.post('/run', requireAuth, async (req: Request, res: Response): Promise<any> => {
   const userId = req.user?.sub
-  if (!userId) return res.status(401).json({ error: 'Sign in to use Flare Lab' })
+  if (!userId) return res.status(401).json({ error: 'Sign in to use this tool' })
 
   const parsed = validateFlareRequest(req.body)
   if (!parsed.ok) return res.status(400).json({ error: parsed.error })
@@ -71,10 +71,12 @@ router.post('/run', requireAuth, async (req: Request, res: Response): Promise<an
   } catch (err: any) {
     if (cost > 0) await pricingService.refundITC(userId, cost, `flare_${flare.op}_failed`).catch(() => {})
     req.log?.error?.({ err, op: flare.op }, 'flare-lab run failed')
-    const msg = String(err?.message ?? 'Flare could not finish that')
+    const msg = String(err?.message ?? '')
     const blocked = /safety|moderation|content_policy/i.test(msg)
+    // The raw text can name the model, so only the team reads it.
+    const failed = role === 'admin' && msg ? msg : 'That edit could not be finished. Please try again.'
     return res.status(blocked ? 422 : 500).json({
-      error: blocked ? 'The image model declined this edit. Try rewording it.' : msg,
+      error: blocked ? 'This edit was declined. Try rewording it.' : failed,
       refunded: cost,
     })
   }

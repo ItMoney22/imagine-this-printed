@@ -1,8 +1,11 @@
 // Flare Lab recipes, sizing, pricing and mask conversion — no network.
 import { describe, it, expect } from 'vitest'
 import sharp from 'sharp'
+import { ITC_PACKAGES } from '../config/itc-pricing.js'
 import {
   backgroundFor,
+  FLARE_MODEL,
+  flareModelFor,
   buildFlarePrompt,
   buildOpenAIMask,
   flareCost,
@@ -81,11 +84,35 @@ describe('buildFlarePrompt', () => {
 })
 
 describe('backgroundFor', () => {
-  it('asks for transparency when the tool or the source calls for it, else leaves it alone', () => {
+  it('asks for transparency when the tool or the source calls for it, else says opaque', () => {
     expect(backgroundFor(req({ op: 'transparent' }), false)).toBe('transparent')
     expect(backgroundFor(req(), true)).toBe('transparent')
     expect(backgroundFor(req({ transparent: true }), false)).toBe('transparent')
-    expect(backgroundFor(req(), false)).toBeUndefined()
+    // Never left unset: a masked edit on 2.6 turned solid art semi-transparent.
+    expect(backgroundFor(req(), false)).toBe('opaque')
+  })
+})
+
+describe('flareModelFor', () => {
+  it('runs High and up on 2.6', () => {
+    expect(FLARE_MODEL).toBe('gpt-image-2.6-flare')
+    for (const q of ['high', 'xhigh', 'max'] as const) expect(flareModelFor(q)).toBe(FLARE_MODEL)
+  })
+
+  it('keeps Draft and Good on 2.5, the cheap tiers people explore on', () => {
+    for (const q of ['low', 'medium'] as const) expect(flareModelFor(q)).toBe('gpt-image-2.5-flare')
+  })
+})
+
+describe('the credit price covers the worst lane', () => {
+  it('still clears the measured cost at the deepest ITC pack discount', () => {
+    // Measured on ITP's own key 2026-11-05 (task f023a1e4), Max on the large
+    // canvas: 2560x2560, 19,708 output tokens, $0.5996. The dearest ITC any
+    // buyer holds is the cheapest pack's, so that is the rate that has to hold.
+    const worstCostUsd = 0.5996
+    const usdPerItc = Math.min(...ITC_PACKAGES.map((p) => p.priceUSD / p.itcAmount))
+    const charged = flareCost({ quality: 'max', size: 'large', variations: 1 })
+    expect(charged * usdPerItc).toBeGreaterThan(worstCostUsd)
   })
 })
 

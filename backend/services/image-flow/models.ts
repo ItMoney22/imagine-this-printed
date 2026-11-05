@@ -274,8 +274,8 @@ export const MODELS: ImageModel[] = [
   {
     // The id is the STORED key — products and ai_jobs rows all over the
     // database record `openai/gpt-image-2`, so it stays put even though the
-    // provider now leads with GPT Image 2.5. What actually runs is the chain in
-    // providers/openai-image.ts (2.5-flare -> 2 -> 1, first one this key can
+    // provider now leads with GPT Image 2.6. What actually runs is the chain in
+    // providers/openai-image.ts (2.6-flare -> 2.5-flare -> 2 -> 1, first one this key can
     // see); the returned modelId always names the model that really answered.
     id: 'openai/gpt-image-2',
     // OpenAI-direct since 2026-08-20 (was Replicate's hosted copy). The cost
@@ -284,13 +284,13 @@ export const MODELS: ImageModel[] = [
     // the real ~$0.17 without consulting the gate.
     provider: 'openai',
     tier: 'edit',
-    label: 'GPT Image (2.5 when available, else 2)',
+    label: 'GPT Image (2.6 at high quality, else 2.5)',
     costPerImageUsd: 0.04,
     approxSeconds: 25,
     strengths: ['edit', 'multi-image', 'photoreal-product', 'photoreal-people', 'text-in-image'],
     unifiedGenAndEdit: true,
     notes:
-      'OpenAI GPT Image, newest-first: gpt-image-2.5-flare, falling back to gpt-image-2 (Apr 21, 2026) then gpt-image-1 depending on what this API key can see. Single endpoint serves both text-to-image and image edits. Accepts up to 10 input images for compositing — used for Mr. Imagine character + design fusion. GPT Image 2.5 adds the xhigh/max quality tiers and arbitrary WIDTHxHEIGHT sizes; set OPENAI_IMAGE_MODELS to change the order without a deploy.',
+      'OpenAI GPT Image, newest-first: gpt-image-2.6-flare at quality high and up, gpt-image-2.5-flare below that (2.6 bills about 3x at low and medium), falling back to gpt-image-2 (Apr 21, 2026) then gpt-image-1 depending on what this API key can see. Single endpoint serves both text-to-image and image edits. Accepts up to 10 input images for compositing — used for Mr. Imagine character + design fusion. GPT Image 2.5 adds the xhigh/max quality tiers and arbitrary WIDTHxHEIGHT sizes; set OPENAI_IMAGE_MODELS to change the order without a deploy.',
     promptCraft:
       "Instruction-style edits. State both what changes AND what stays the same. For multi-image compositing, describe each input by role: 'Input 1 is the character, input 2 is the design — apply the design to the character\\'s shirt.' For pure generation (no input images), write 40–120 words of clear scene description.",
     nativeParams: [
