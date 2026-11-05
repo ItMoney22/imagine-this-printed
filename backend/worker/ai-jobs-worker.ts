@@ -1682,9 +1682,10 @@ async function process3DModelConcept(job: any) {
   const isRemix = !!source_image_url
   console.log('[worker] 🎨 Starting 3D concept generation for model:', model_id, isRemix ? '(remix)' : '(fresh)')
 
+  let deducted = false
   try {
     // Deduct ITC
-    const deducted = await deductItc(user_id, ITC_3D_COSTS.concept, isRemix ? 'Concept remix' : 'Concept generation')
+    deducted = await deductItc(user_id, ITC_3D_COSTS.concept, isRemix ? 'Concept remix' : 'Concept generation')
     if (!deducted) {
       throw new Error('Insufficient ITC balance')
     }
@@ -1845,7 +1846,7 @@ async function process3DModelConcept(job: any) {
     console.error('[worker] ❌ 3D concept generation failed:', error.message)
 
     // Refund ITC on failure
-    await refundItc(user_id, ITC_3D_COSTS.concept, isRemix ? 'Concept remix failed' : 'Concept generation failed')
+    if (deducted) await refundItc(user_id, ITC_3D_COSTS.concept, isRemix ? 'Concept remix failed' : 'Concept generation failed')
 
     // Update model status
     await supabase
@@ -1876,9 +1877,10 @@ async function process3DModelAngles(job: any) {
   const { model_id, user_id, style, concept_image_url } = job.input
   console.log('[worker] 🔄 Starting 3D angle generation for model:', model_id)
 
+  let deducted = false
   try {
     // Deduct ITC
-    const deducted = await deductItc(user_id, ITC_3D_COSTS.angles, 'Multi-view generation')
+    deducted = await deductItc(user_id, ITC_3D_COSTS.angles, 'Multi-view generation')
     if (!deducted) {
       throw new Error('Insufficient ITC balance')
     }
@@ -1985,7 +1987,7 @@ async function process3DModelAngles(job: any) {
     console.error('[worker] ❌ 3D angle generation failed:', error.message)
 
     // Refund ITC on failure
-    await refundItc(user_id, ITC_3D_COSTS.angles, 'Angle generation failed')
+    if (deducted) await refundItc(user_id, ITC_3D_COSTS.angles, 'Angle generation failed')
 
     // Update model status
     await supabase
@@ -2016,9 +2018,10 @@ async function process3DModelTrellis(job: any) {
   const { model_id, user_id, angle_images } = job.input
   console.log('[worker] 🎲 Starting TRELLIS 3D conversion for model:', model_id)
 
+  let deducted = false
   try {
     // Deduct ITC
-    const deducted = await deductItc(user_id, ITC_3D_COSTS.convert, '3D conversion')
+    deducted = await deductItc(user_id, ITC_3D_COSTS.convert, '3D conversion')
     if (!deducted) {
       throw new Error('Insufficient ITC balance')
     }
@@ -2106,7 +2109,7 @@ async function process3DModelTrellis(job: any) {
     console.error('[worker] ❌ TRELLIS conversion failed:', error.message)
 
     // Refund ITC on failure
-    await refundItc(user_id, ITC_3D_COSTS.convert, '3D conversion failed')
+    if (deducted) await refundItc(user_id, ITC_3D_COSTS.convert, '3D conversion failed')
 
     // Update model status
     await supabase
@@ -2145,8 +2148,9 @@ async function process3DModelTripo(job: any) {
   const tier = SIZE_TIERS[size_tier] || SIZE_TIERS.small
   console.log('[worker] 🎲 Tripo3D job —', tier.label, 'tier — model:', model_id)
 
+  let deducted = false
   try {
-    const deducted = await deductItc(user_id, tier.itcCost, `3D ${tier.label} conversion`)
+    deducted = await deductItc(user_id, tier.itcCost, `3D ${tier.label} conversion`)
     if (!deducted) throw new Error('Insufficient ITC balance')
 
     const { data: model } = await supabase
@@ -2262,7 +2266,7 @@ async function process3DModelTripo(job: any) {
     console.log('[worker] ✅ Tripo3D job completed:', model_id)
   } catch (error: any) {
     console.error('[worker] ❌ Tripo3D conversion failed:', error.message)
-    await refundItc(user_id, tier.itcCost, `3D ${tier.label} conversion failed`)
+    if (deducted) await refundItc(user_id, tier.itcCost, `3D ${tier.label} conversion failed`)
     await supabase
       .from('user_3d_models')
       .update({
