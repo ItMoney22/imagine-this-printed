@@ -3,7 +3,7 @@ import Stripe from 'stripe'
 import { requireAuth, requireRole } from '../middleware/supabaseAuth.js'
 import { supabase } from '../lib/supabase.js'
 import { sendInvoiceEmail } from '../utils/email.js'
-import { FOUNDER_PERCENTAGE, calculateFounderShareCents } from '../services/invoice-stats.js'
+import { FOUNDER_PERCENTAGE, buildInvoiceStats, calculateFounderShareCents } from '../services/invoice-stats.js'
 
 const router = Router()
 
@@ -109,41 +109,7 @@ router.get('/stats/summary', requireAuth, requireRole(['founder', 'admin']), asy
       return res.status(500).json({ error: 'Failed to fetch statistics' })
     }
 
-    const stats = {
-      total_invoices: invoices?.length || 0,
-      draft: 0,
-      sent: 0,
-      paid: 0,
-      overdue: 0,
-      void: 0,
-      total_billed_cents: 0,
-      total_collected_cents: 0,
-      total_earnings_cents: 0,
-      pending_earnings_cents: 0
-    }
-
-    for (const inv of invoices || []) {
-      stats[inv.status as keyof typeof stats]++
-      stats.total_billed_cents += inv.subtotal_cents
-
-      if (inv.status === 'paid') {
-        stats.total_collected_cents += inv.subtotal_cents
-        stats.total_earnings_cents += inv.founder_earnings_cents
-      } else if (inv.status === 'sent') {
-        stats.pending_earnings_cents += inv.founder_earnings_cents
-      }
-    }
-
-    return res.json({
-      ok: true,
-      stats: {
-        ...stats,
-        total_billed: stats.total_billed_cents / 100,
-        total_collected: stats.total_collected_cents / 100,
-        total_earnings: stats.total_earnings_cents / 100,
-        pending_earnings: stats.pending_earnings_cents / 100
-      }
-    })
+    return res.json({ ok: true, stats: buildInvoiceStats(invoices) })
   } catch (error: any) {
     req.log?.error({ err: error }, 'Error fetching invoice stats')
     return res.status(500).json({ error: error.message })

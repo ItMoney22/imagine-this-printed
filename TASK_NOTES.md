@@ -58,6 +58,19 @@ Decisions:
 - Fresh true-PNG screenshots are stored at `D:/Scratch/etsy-review-2026-10-29`.
 - No live Etsy changes or repo implementation-code changes were made.
 
+## File shortlist (approved scope — 2026-11-07 invoice Total Billed, task e12614ba)
+- `backend/routes/invoices.ts`: GET /stats/summary calls buildInvoiceStats instead of its own loop
+- `backend/routes/invoices.stats-summary.test.ts` (new): the real route over HTTP, database and auth faked
+- Read only: `backend/services/invoice-stats.ts` (+ test), `backend/routes/stripe.ts` (who writes overdue),
+  `src/components/AdminInvoiceManagement.tsx`, `src/pages/FoundersDashboard.tsx` (the two readers of the payload)
+- `TASK_NOTES.md`
+
+## Work log (append-only) — 2026-11-07 invoice Total Billed
+- 2026-11-07 (lucas-blaze): live admin Invoices page read $1,100.10 Total Billed on 8 rows, $995 of it void. The route
+  now delegates the whole payload to buildInvoiceStats. On those 8 rows the old route answers 110010 cents and the new
+  one 10510 ($105.10); Collected stays $0.00. Over 20,000 random ledgers the only other changes are overdue founder
+  shares joining pending_earnings and a stray `uncollectible: null` key going away. Not live until shipped.
+
 ## File shortlist (approved scope — 2026-10-29 weekly Etsy review)
 
 ### Read first
