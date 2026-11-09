@@ -1,5 +1,5 @@
 // Sticker Pack: what the customer picks, and how a pack is dealt out (one Flare call per sticker).
-// The ids match backend/services/flare-studio.ts STICKER_STYLES; the backend refuses any other.
+// The ids match backend/shared/sticker-styles.ts STICKER_STYLES; the backend refuses any other.
 
 export const STICKER_TYPES = [
   { id: 'cartoon', label: 'Cartoon' },

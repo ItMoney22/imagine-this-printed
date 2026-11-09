@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { planPack, stickerFileName, STICKER_TYPES } from './stickerPlan'
-import { STICKER_STYLES } from '../../../../backend/services/flare-studio'
+import { STICKER_STYLES } from '../../../../backend/shared/sticker-styles'
 
 describe('planPack', () => {
   it('shows every chosen type before any repeats, and numbers the repeats', () => {
