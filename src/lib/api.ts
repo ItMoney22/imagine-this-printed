@@ -9,6 +9,7 @@ import type {
   SimpleWordPhraseResponse,
 } from '../types'
 import type { MetalArtSizeKey } from '../../backend/shared/metal-art'
+import { withQuery } from './query-string'
 
 export const API_BASE = import.meta.env.VITE_API_BASE || import.meta.env.VITE_API_URL || (import.meta.env.DEV ? 'http://localhost:4000' : '')
 
@@ -35,14 +36,8 @@ const api = {
     const { data } = await supabase.auth.getSession()
     const token = data.session?.access_token
 
-    let fullUrl = `${API_BASE}${url}`
-    if (config?.params) {
-      const params = new URLSearchParams()
-      Object.entries(config.params).forEach(([key, value]) => {
-        params.append(key, String(value))
-      })
-      fullUrl += `?${params.toString()}`
-    }
+    // Undefined/null params are left out, never sent as the string "undefined" (see withQuery).
+    const fullUrl = withQuery(`${API_BASE}${url}`, config?.params)
 
     const response = await fetch(fullUrl, {
       method: 'GET',
