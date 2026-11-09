@@ -40,17 +40,24 @@ export interface StickerPackProps {
 
 const OUT_OF_ITC = /^HTTP 402/
 
-/** The backend takes https or a data URL; a local upload is shrunk to 1536 px so the request stays small. */
-async function toSendable(url: string): Promise<string> {
+/**
+ * The backend takes https or a data URL; a local upload is shrunk to 1536 px so the request stays small.
+ * Decoded through an <img>, never fetch(): the live site's CSP connect-src has no blob: or data:, so fetching the
+ * upload threw on production ("That picture could not be read") while img-src allows both (task 96d01978).
+ * `type` is the picked file's type; a data URL carries its own; otherwise PNG, which keeps any transparency.
+ */
+async function toSendable(url: string, type = ''): Promise<string> {
   if (/^https:\/\//i.test(url) || /^http:\/\/localhost/i.test(url)) return url
-  const blob = await (await fetch(url)).blob()
-  const bmp = await createImageBitmap(blob)
-  const scale = Math.min(1, 1536 / Math.max(bmp.width, bmp.height))
+  const img = new Image()
+  img.src = url
+  await img.decode()
+  const scale = Math.min(1, 1536 / Math.max(img.naturalWidth, img.naturalHeight))
   const c = document.createElement('canvas')
-  c.width = Math.round(bmp.width * scale)
-  c.height = Math.round(bmp.height * scale)
-  c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height)
-  return /png|webp/i.test(blob.type) ? c.toDataURL('image/png') : c.toDataURL('image/jpeg', 0.92)
+  c.width = Math.round(img.naturalWidth * scale)
+  c.height = Math.round(img.naturalHeight * scale)
+  c.getContext('2d')!.drawImage(img, 0, 0, c.width, c.height)
+  const mime = type || /^data:([^;,]+)/i.exec(url)?.[1] || 'image/png'
+  return /jpe?g/i.test(mime) ? c.toDataURL('image/jpeg', 0.92) : c.toDataURL('image/png')
 }
 
 const StickerPack: React.FC<StickerPackProps> = ({ isOpen, onClose, imageUrl, isAdmin, onAddNew, onSpent }) => {
@@ -66,6 +73,7 @@ const StickerPack: React.FC<StickerPackProps> = ({ isOpen, onClose, imageUrl, is
   const fileRef = useRef<HTMLInputElement | null>(null)
   const resultsRef = useRef<HTMLElement | null>(null)
   const sendable = useRef<string | null>(null)
+  const sourceType = useRef('')
 
   useEffect(() => {
     if (!isOpen) return
@@ -109,6 +117,7 @@ const StickerPack: React.FC<StickerPackProps> = ({ isOpen, onClose, imageUrl, is
       return
     }
     sendable.current = null
+    sourceType.current = f.type
     setNotice(null)
     setSource(URL.createObjectURL(f))
   }
@@ -143,7 +152,7 @@ const StickerPack: React.FC<StickerPackProps> = ({ isOpen, onClose, imageUrl, is
     setNotice(null)
     setRunning(true)
     try {
-      const img = sendable.current ?? (sendable.current = await toSendable(source))
+      const img = sendable.current ?? (sendable.current = await toSendable(source, sourceType.current))
       const plan = planPack(count, types)
       setSlots(plan.map((p) => ({ ...p, status: 'waiting' })))
       setJumpToResults(true)
@@ -172,7 +181,7 @@ const StickerPack: React.FC<StickerPackProps> = ({ isOpen, onClose, imageUrl, is
     if (running || !source) return
     setRunning(true)
     try {
-      const img = sendable.current ?? (sendable.current = await toSendable(source))
+      const img = sendable.current ?? (sendable.current = await toSendable(source, sourceType.current))
       await makeOne(i, slots[i], img)
     } finally {
       setRunning(false)
