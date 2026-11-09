@@ -10,6 +10,8 @@ import {
   buildOpenAIMask,
   flareCost,
   flareSize,
+  FLARE_ITC,
+  STICKER_STYLES,
   maskCoverage,
   validateFlareRequest,
   type FlareRequest,
@@ -169,5 +171,64 @@ describe('buildOpenAIMask', () => {
     const { data } = await sharp(mask).extractChannel(3).raw().toBuffer({ resolveWithObject: true })
     expect(data[0]).toBe(0) // top-left: painted -> editable
     expect(data[39]).toBe(255) // top-right: untouched -> protected
+  })
+})
+
+describe('sticker pack (one sticker per call)', () => {
+  const sticker = (over: Record<string, unknown> = {}) =>
+    validateFlareRequest({ op: 'sticker', imageUrl: IMG, stickerStyle: 'kawaii', ...over })
+
+  it('needs a known sticker type and refuses anything else', () => {
+    expect(sticker({ stickerStyle: undefined }).ok).toBe(false)
+    expect(sticker({ stickerStyle: 'toString' }).ok).toBe(false)
+    expect(sticker({ stickerStyle: 'laser' }).ok).toBe(false)
+    for (const s of Object.keys(STICKER_STYLES)) expect(sticker({ stickerStyle: s }).ok).toBe(true)
+  })
+
+  it('always runs one image at high on 2.6 Flare at the standard price, whatever the body asks', () => {
+    const v = sticker({ quality: 'low', size: 'large', variations: 4 })
+    if (!v.ok) throw new Error(v.error)
+    expect(v.req.quality).toBe('high')
+    expect(v.req.size).toBe('standard')
+    expect(v.req.variations).toBe(1)
+    expect(flareModelFor(v.req.quality)).toBe(FLARE_MODEL)
+    expect(flareCost(v.req)).toBe(FLARE_ITC.high)
+  })
+
+  it('always asks for a transparent background, even from a solid photo', () => {
+    const v = sticker()
+    if (!v.ok) throw new Error(v.error)
+    expect(backgroundFor(v.req, false)).toBe('transparent')
+  })
+
+  it('keeps the subject, names the style and asks a later copy for a new pose', () => {
+    const first = sticker({ stickerStyle: 'retro' })
+    const third = sticker({ stickerStyle: 'retro', variant: 2 })
+    if (!first.ok || !third.ok) throw new Error('invalid')
+    const p1 = buildFlarePrompt(first.req)
+    expect(p1).toContain(STICKER_STYLES.retro.look)
+    expect(p1).toMatch(/KEEP who or what it is/)
+    expect(p1).toMatch(/white die-cut border/)
+    expect(p1).toMatch(/Add no new text/)
+    expect(buildFlarePrompt(third.req)).toMatch(/sticker 3 of this style/)
+  })
+
+  it('spells the speech bubble words out, and only the bubble may carry words', () => {
+    const v = sticker({ stickerStyle: 'bubble', prompt: 'GOOD BOY' })
+    if (!v.ok) throw new Error(v.error)
+    const p = buildFlarePrompt(v.req)
+    expect(p).toContain('"GOOD BOY"')
+    expect(p).toContain('G-O-O-D-(space)-B-O-Y')
+    expect(p).not.toMatch(/Add no new text/)
+  })
+
+  it('clamps the variant and leaves other tools untouched', () => {
+    const v = sticker({ variant: 999 })
+    if (!v.ok) throw new Error(v.error)
+    expect(v.req.variant).toBe(24)
+    const edit = validateFlareRequest({ op: 'edit', imageUrl: IMG, prompt: 'x', stickerStyle: 'holo', variant: 3 })
+    if (!edit.ok) throw new Error(edit.error)
+    expect(edit.req.stickerStyle).toBeNull()
+    expect(edit.req.variant).toBe(0)
   })
 })

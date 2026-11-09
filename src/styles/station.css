@@ -99,3 +99,36 @@
 .st-drop { border: 2px dashed color-mix(in srgb, var(--primary) 32%, transparent); }
 .st-drop:hover { border-color: color-mix(in srgb, var(--primary) 60%, transparent); }
 .st-idea { box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 10%, transparent); }
+
+/* Sticker Pack (David 2026-11-08, mock 280d7fb3). The hero is a light picture in both modes, like the welcome scene. */
+.sp-hero { background: #efe9fb; color: #1d1530; min-height: 15rem; }
+.sp-hero-art { animation: st-drift 18s ease-in-out infinite alternate; object-position: 75% 50%; }
+.sp-hero-fade {
+  background: linear-gradient(90deg, #efe9fb 0%, rgb(239 233 251 / 0.95) 38%, rgb(239 233 251 / 0.3) 64%, rgb(239 233 251 / 0) 80%);
+}
+@media (max-width: 639px) {
+  .sp-hero-fade { background: linear-gradient(180deg, rgb(239 233 251 / 0.86), rgb(239 233 251 / 0.95)); }
+}
+.sp-type { transition: transform 0.2s ease, box-shadow 0.2s ease; }
+.sp-type:not(:disabled):hover { transform: translateY(-2px); }
+.sp-type-on {
+  border: 1px solid color-mix(in srgb, var(--primary) 70%, transparent);
+  background: color-mix(in srgb, var(--primary) 9%, var(--bg));
+  box-shadow: 0 8px 20px -12px rgb(155 48 255 / 0.7);
+}
+/* A sticker sits on a faint checkerboard so its white border and the see-through background both read. */
+.sp-check {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(45deg, color-mix(in srgb, var(--text) 7%, transparent) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--text) 7%, transparent) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--text) 7%, transparent) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--text) 7%, transparent) 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+.sp-drop { filter: drop-shadow(0 6px 10px rgb(29 21 48 / 0.22)); }
+.sp-band { background: linear-gradient(110deg, #5b21b6, #9b30ff 55%, #e0218a); }
+@media (prefers-reduced-motion: reduce) {
+  .sp-hero-art, .sp-type { animation: none; transition: none; }
+}

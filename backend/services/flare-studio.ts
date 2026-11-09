@@ -36,8 +36,28 @@ export const FLARE_OPS = [
   'recolor',
   'cleanup',
   'restyle',
+  'sticker',
 ] as const
 export type FlareOp = (typeof FLARE_OPS)[number]
+
+/**
+ * Sticker Pack (David 2026-11-08: "i give you the image and i chose how many stickers i want the diff sticker
+ * types and we use gpt 2.6 images for it so we make sure we get great quaility"). One call = one sticker of one
+ * type; the pack is N calls, so billing, refunds and the rate limit are the Flare Lab's own.
+ */
+export const STICKER_STYLES = {
+  photo: { label: 'Photo cut-out', look: 'a realistic photographic cut-out of the subject, true to the photo, crisp and clean' },
+  cartoon: { label: 'Cartoon', look: 'a bold flat vector cartoon like a sticker-shop illustration: chunky playful proportions, hair or fur drawn as a few simple flat colour shapes with no fine strands, thick clean black outlines, one step of cel shading, big expressive eyes' },
+  kawaii: { label: 'Kawaii chibi', look: 'a cute kawaii chibi character: a huge head about as big as the whole body, big shiny sparkly eyes, rosy cheeks, a tiny stubby body, simple flat pastel colours' },
+  emoji: { label: 'Emoji faces', look: 'an emoji: just the round glossy head, no body, pulling one big exaggerated emoji expression (laughing with tears, heart eyes, winking or starstruck), smooth shiny vector look' },
+  retro: { label: 'Retro badge', look: 'a round retro 1970s badge: the subject inside a circle with a sunburst, warm orange, mustard and teal, no lettering' },
+  holo: { label: 'Holo foil', look: 'a holographic foil sticker: the subject rendered with an iridescent rainbow chrome sheen and sparkles' },
+  // Says "inside a circle" like retro: asked for a "shaped patch" twice, the model embroidered only the outline.
+  patch: { label: 'Vintage patch', look: 'a round embroidered fabric patch: a circle of coloured twill with the subject stitched inside it in 5-6 thread colours, satin-stitch thread texture everywhere, a thick raised merrowed border around the circle, photographed flat' },
+  bubble: { label: 'Speech bubble', look: 'a cartoon of the subject with a white comic speech bubble beside it' },
+} as const
+export type StickerStyle = keyof typeof STICKER_STYLES
+const MAX_STICKER_VARIANT = 24
 
 export const FLARE_QUALITIES = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export type FlareQuality = (typeof FLARE_QUALITIES)[number]
@@ -68,6 +88,9 @@ export interface FlareRequest {
   variations: number
   /** Ask for a transparent background on ops that don't imply one. */
   transparent: boolean
+  /** op 'sticker': which kind, and which copy of that kind in the pack (0 = first), so siblings differ. */
+  stickerStyle: StickerStyle | null
+  variant: number
 }
 
 /** Max references beside the source. The API takes 16 images; 6 keeps a call sane. */
@@ -115,6 +138,14 @@ export function validateFlareRequest(raw: any): { ok: true; req: FlareRequest } 
   const wanted = Number.isFinite(Number(raw.variations)) ? Math.floor(Number(raw.variations)) : op === 'variations' ? 3 : 1
   const variations = Math.max(1, Math.min(MAX_VARIATIONS, wanted))
 
+  const stickerStyle =
+    typeof raw.stickerStyle === 'string' && Object.prototype.hasOwnProperty.call(STICKER_STYLES, raw.stickerStyle)
+      ? (raw.stickerStyle as StickerStyle)
+      : null
+  if (op === 'sticker' && !stickerStyle) return { ok: false, error: 'Pick a sticker type' }
+  const v = Math.floor(Number(raw.variant))
+  const variant = Number.isFinite(v) ? Math.max(0, Math.min(MAX_STICKER_VARIANT, v)) : 0
+
   return {
     ok: true,
     req: {
@@ -126,10 +157,15 @@ export function validateFlareRequest(raw: any): { ok: true; req: FlareRequest } 
       textFrom,
       textTo,
       colors,
-      quality,
-      size,
-      variations,
+      // Stickers always run at high on 2.6 Flare (David: "we use gpt 2.6 images for it so we make sure we get great
+      // quaility"), on the standard price: the square is fixed, so 'large' would charge for pixels it never draws.
+      quality: op === 'sticker' ? 'high' : quality,
+      size: op === 'sticker' ? 'standard' : size,
+      // One sticker per call: the pack's size is the number of calls, never n.
+      variations: op === 'sticker' ? 1 : variations,
       transparent: raw.transparent === true,
+      stickerStyle: op === 'sticker' ? stickerStyle : null,
+      variant: op === 'sticker' ? variant : 0,
     },
   }
 }
@@ -246,12 +282,37 @@ export function buildFlarePrompt(req: FlareRequest): string {
         'Keep the same subject, composition and layout. Keep any text spelled exactly as it is.',
         NO_EXTRA_TEXT,
       ].join('\n')
+
+    case 'sticker': {
+      const style = STICKER_STYLES[req.stickerStyle ?? 'cartoon']
+      const words = req.stickerStyle === 'bubble'
+        ? extra
+          ? `The speech bubble reads exactly "${extra}" (${spellOut(extra)}), in bold rounded comic lettering.`
+          : 'The speech bubble holds one short, friendly word or two that suits the subject, spelled correctly.'
+        : NO_EXTRA_TEXT
+      return [
+        'Turn the main subject of this picture into one die-cut sticker.',
+        `STYLE: ${style.look}.`,
+        'KEEP who or what it is: the same identity, face, markings, colours, hair or fur, and any clothing or accessories, so anyone who knows the subject recognises it at a glance.',
+        // Measured 2026-11-08: without this the model filtered the photo, and cartoon, kawaii, emoji and patch came
+        // back as the same realistic sitting dog with an outline.
+        req.stickerStyle === 'photo'
+          ? 'Keep it photographic: the real subject, cleanly cut out.'
+          : 'REDRAW it from scratch in that style. Do not trace or filter the photo: no photographic texture, lighting or detail survives, only who the subject is. A new pose is welcome.',
+        req.variant > 0
+          ? `This is sticker ${req.variant + 1} of this style in the same pack: give it a clearly different pose, expression or angle from the first one.`
+          : 'Use a lively, flattering pose that reads well small.',
+        'One sticker only, centred, filling about 85% of the square, wrapped in a thick, even, clean white die-cut border that follows its outline.',
+        'Fully transparent background around the border: no scenery, no floor shadow, no frame and no painted grey-and-white checkerboard.',
+        words,
+      ].join('\n')
+    }
   }
 }
 
 /** Background to request: transparent for the ops that are ABOUT transparency, else the source's own. */
 export function backgroundFor(req: FlareRequest, sourceHasAlpha: boolean): 'transparent' | 'opaque' {
-  if (req.op === 'transparent') return 'transparent'
+  if (req.op === 'transparent' || req.op === 'sticker') return 'transparent'
   if (req.transparent) return 'transparent'
   // A cut-out stays a cut-out, and solid art stays solid. Always said out loud:
   // left unset, a masked edit on 2.6 turned a solid black background
@@ -365,7 +426,8 @@ export async function runFlare(req: FlareRequest, userId: string): Promise<Flare
     if ((await maskCoverage(mask)) < 0.002) throw new Error('The painted area is empty — paint over what you want changed')
   }
 
-  const out = flareSize(w, h, req.size)
+  // A sticker is always a square, whatever the photo's shape.
+  const out = req.op === 'sticker' ? { w: 1024, h: 1024 } : flareSize(w, h, req.size)
   const background = backgroundFor(req, hasAlpha)
   const prompt = buildFlarePrompt(req)
 

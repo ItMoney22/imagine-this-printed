@@ -22,6 +22,7 @@ import type {
 } from '../types';
 import { SheetCanvas, AddElementPanel, ImageCompareModal, MrImagineModal, ReimagineItModal, ITPEnhanceModal, MakeProductModal } from '../components/imagination';
 import FlareLab from '../components/imagination/flare/FlareLab';
+import StickerPack from '../components/imagination/stickers/StickerPack';
 import type { FlareOp } from '../components/imagination/flare/flareGuide';
 import { StationSteps, ToolGroup, ToolRow, StationWelcome, AddWordsModal, type StationStep } from '../components/imagination/station/StationParts';
 import { IDEAS_TO_TRY } from '../components/imagination/station/stationIdeas';
@@ -173,6 +174,8 @@ const ImaginationStation: React.FC = () => {
 
   // Wallet state - fetch lazily since it's not loaded with user for performance
   const [walletBalance, setWalletBalance] = useState<number>(0);
+  // Bumped after a Sticker Pack run so the balance in the header re-reads.
+  const [walletTick, setWalletTick] = useState(0);
 
   // Fetch wallet balance on mount
   useEffect(() => {
@@ -188,7 +191,7 @@ const ImaginationStation: React.FC = () => {
       }
     };
     fetchWallet();
-  }, [user?.id]);
+  }, [user?.id, walletTick]);
 
   const itcBalance = walletBalance;
   const canvasRef = useRef<HTMLDivElement>(null);
@@ -222,6 +225,9 @@ const ImaginationStation: React.FC = () => {
   const [showITPEnhanceModal, setShowITPEnhanceModal] = useState(false);
   // Flare Lab — GPT Image Flare edit tools with their guides (flare/FlareLab.tsx)
   const [showFlareLab, setShowFlareLab] = useState(false);
+  // Sticker Pack; ?tool=stickers opens it on arrival (Crystal's store manager links here).
+  const [showStickerPack, setShowStickerPack] = useState(false);
+  const [stickerItc, setStickerItc] = useState<number | null>(null);
   const [reimagineItLayerId, setReimagineItLayerId] = useState<string | null>(null);
 
   // Canvas features state
@@ -323,7 +329,10 @@ const ImaginationStation: React.FC = () => {
   // Undo/Redo history
   useEffect(() => {
     flareApi.pricing()
-      .then(p => { const low = Number(p?.perImage?.low); if (Number.isFinite(low) && low > 0) setFlareFrom(low); })
+      .then(p => {
+        const low = Number(p?.perImage?.low); if (Number.isFinite(low) && low > 0) setFlareFrom(low);
+        const high = Number(p?.perImage?.high); if (Number.isFinite(high) && high > 0) setStickerItc(high);
+      })
       .catch(() => { /* chips fall back to the Lab's default */ });
   }, []);
 
@@ -452,6 +461,20 @@ const ImaginationStation: React.FC = () => {
     if (authLoading) return;
     loadInitialData();
   }, [id, authLoading, user?.id]);
+
+  // ?tool=stickers opens the Sticker Pack on arrival (Crystal's store manager links here). Read on the first render:
+  // the redirect to /imagination-station/<sheet id> drops the query before auth settles.
+  const wantStickers = useRef(searchParams.get('tool') === 'stickers');
+  useEffect(() => {
+    // Wait for a sheet's own address: the bare /imagination-station redirects and remounts, which would close it.
+    if (authLoading || !id || !wantStickers.current) return;
+    wantStickers.current = false;
+    if (requireAccount('studio-imagine')) setShowStickerPack(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete('tool');
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, id, requireAccount]);
 
   // Store pending image from URL params (to add after sheet is created)
   const [pendingImage, setPendingImage] = useState<{ url: string; name: string } | null>(null);
@@ -696,7 +719,8 @@ const ImaginationStation: React.FC = () => {
           const { data: sheetsData } = await imaginationApi.getSheets();
           setRecentSheets(sheetsData || []);
           if (sheetsData && sheetsData.length > 0) {
-            navigate(`/imagination-station/${sheetsData[0].id}`, { replace: true });
+            // The query rides along (?tool=stickers must survive the remount).
+            navigate(`/imagination-station/${sheetsData[0].id}${location.search}`, { replace: true });
             return; // remount loads it via the id branch above
           }
           // No sheets yet → auto-create a default so the studio + drawer are ready.
@@ -711,7 +735,7 @@ const ImaginationStation: React.FC = () => {
                 print_type: defaultType,
                 sheet_height: defaultHeight,
               });
-              navigate(`/imagination-station/${data.id}`, { replace: true });
+              navigate(`/imagination-station/${data.id}${location.search}`, { replace: true });
               return;
             }
           }
@@ -2503,6 +2527,11 @@ const ImaginationStation: React.FC = () => {
     setFlareOp(op);
     setShowFlareLab(true);
   };
+  const stickerPrice = isAdminUser ? 'Free' : `${stickerItc ?? 40} ITC each`;
+  const openStickers = () => {
+    if (!requireAccount('studio-imagine')) return;
+    setShowStickerPack(true);
+  };
   const surpriseIdea = async (): Promise<string | null> => {
     try {
       const { data } = await imaginationApi.getRandomIdea();
@@ -2660,6 +2689,7 @@ const ImaginationStation: React.FC = () => {
           <input ref={fileInputRef} type="file" accept="image/*" multiple onChange={handleFileUploadToDesigns} className="hidden" />
 
           <ToolGroup title="Make" icon={<Sparkles className="w-3.5 h-3.5" />}>
+            <ToolRow label="Sticker Pack" art="stickers" price={stickerPrice} onClick={openStickers} highlight title="Turn one picture into a whole pack of stickers" />
             <ToolRow label="Imagine with Mr. Imagine" art="imagine" price={priceLabel('generate')} onClick={() => openImagine('')} highlight title="Describe an idea and Mr. Imagine draws it" />
             <ToolRow label="Upload art" beforeIcon={<Upload className="w-4 h-4" />} afterSrc="/station/ideas/tiger.webp" price="Free" onClick={() => fileInputRef.current?.click()} busy={isProcessing} title="Upload your own images" />
             <ToolRow label="Add Words" art="words" price={priceLabel('generate')} onClick={() => { if (requireAccount('studio-imagine')) setShowAddWords(true); }} title="Type words and get styled lettering" />
@@ -3343,6 +3373,17 @@ const ImaginationStation: React.FC = () => {
           onUse={handleFlareUse}
           onAddNew={handleFlareAddNew}
           onUpscaleForPrint={handleFlareUpscale}
+        />
+      )}
+
+      {showStickerPack && (
+        <StickerPack
+          isOpen
+          onClose={() => setShowStickerPack(false)}
+          imageUrl={activeDesign?.url ?? null}
+          isAdmin={isAdminUser}
+          onAddNew={handleFlareAddNew}
+          onSpent={() => setWalletTick((t) => t + 1)}
         />
       )}
 

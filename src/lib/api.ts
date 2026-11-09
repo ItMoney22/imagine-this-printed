@@ -1902,6 +1902,9 @@ export interface FlareRunParams {
   size?: 'standard' | 'large'
   variations?: number
   transparent?: boolean
+  /** op 'sticker' (Sticker Pack): the kind, and which copy of that kind in the pack. */
+  stickerStyle?: string
+  variant?: number
 }
 
 /** Read-back spelling check (backend/services/lettering-check.ts); null = checker could not run. */

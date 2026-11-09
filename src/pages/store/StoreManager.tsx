@@ -3,7 +3,7 @@
 // David sets. Built to David's approved mock (page_mockup_approvals 39ec4916, 2026-10-26).
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
-import { ArrowLeft, BadgeCheck, Bell, Boxes, CircleDollarSign, Download, ExternalLink, Home, ImagePlus, Instagram, Link2, Lock, Mail, Package, Palette, Printer, Search, Settings, Shirt, ShoppingCart, Sparkles, TicketPercent, Trash2, Truck, Wallet } from 'lucide-react'
+import { ArrowLeft, BadgeCheck, Bell, Boxes, CircleDollarSign, Download, ExternalLink, Home, ImagePlus, Instagram, Link2, Lock, Mail, Package, Palette, Printer, Search, Settings, Shirt, ShoppingCart, Sparkles, Sticker, TicketPercent, Trash2, Truck, Wallet } from 'lucide-react'
 import { emptyAddress, money, vendorStoreApi, type ManageData, type ManageItem, type ShipAddress } from '../../lib/vendor-store'
 import StoreAddressFields from './StoreAddressFields'
 import StoreCredits from './StoreCredits'
@@ -177,6 +177,23 @@ export default function StoreManager() {
 
           {/* Create a design: the Step Flow, right here on her page */}
           <StoreDesign open={designOpen} onOpen={openDesign} />
+
+          {/* Sticker Pack (David 2026-11-08: "so clients can use esp crystal"): one picture in, a pack of stickers out */}
+          <Card id="stickers" icon={Sticker} title="Sticker packs">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex -space-x-4 shrink-0">
+                {["kawaii", "retro", "bubble"].map((id) => (
+                  <img key={id} src={`/station/stickers/${id}.webp`} alt="" className="w-20 h-20 object-contain drop-shadow" />
+                ))}
+              </div>
+              <p className="flex-1 text-sm text-[var(--vs-muted)]">
+                Upload one picture (a logo, a pet, a person) and pick how many and which kinds. You get a whole pack to download or put on a print sheet.
+              </p>
+              <Link to="/imagination-station?tool=stickers" className="vs-btn-solid rounded-full px-6 h-12 font-semibold inline-flex items-center justify-center gap-2 shrink-0">
+                <Sticker className="w-4 h-4" /> Make stickers
+              </Link>
+            </div>
+          </Card>
 
           {/* 3. Add a product */}
           <AddProduct slug={slug} feePercent={store.feePercent} onSaved={() => { setToast('Added to your store'); load() }} onError={setToast} />
