@@ -129,3 +129,15 @@ backend/
 - Error logging and graceful shutdown implemented
 - Ready for reverse proxy (nginx) setup
 - PM2 process management included
+
+## Deploys (Render)
+
+- The API (`srv-d7jpgut7vvec739bsid0`) and the worker (`srv-d7jppnn7f7vs73bb4p80`) auto-deploy from `main` with
+  Root Directory `backend`. A push redeploys them only when it changes a file under `backend/`. A frontend-only
+  push that starts no Render deploy is correct; Vercel ships it.
+- What is live: `GET https://api.render.com/v1/services/<id>/deploys?limit=3`, the `live` row's `commit.id`.
+  `trigger` is `new_commit` when a push started it and `api` when someone deployed by hand.
+- A backend push with no Render deploy after ~3 minutes: GitHub may not have sent the push event. On 2026-11-09
+  GitHub recorded main f257d25a -> 84c4b8c1 during its own incident and sent no push event to anyone, so Render and
+  Vercel both missed it. Deploy that commit by hand on both services:
+  `POST /v1/services/<id>/deploys {"commitId":"<sha>"}`.

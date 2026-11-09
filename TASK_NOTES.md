@@ -1,5 +1,18 @@
 # TASK_NOTES
 
+## Current request (2026-11-09) — Render auto-deploy on main + stale GitHub webhook 558796099 (task ce252426, mason-blaze)
+
+Render was not broken. Of the two 11/09 main pushes, 7adac247 changed nothing under `backend/` (Root Directory
+filter, a correct skip) and 84c4b8c1 got no push event from GitHub at all (hook 558796099 shows no delivery for it;
+GitHub incident 05:59-09:09Z), which is also why Vercel missed it. This commit is the probe: docs only, under `backend/`.
+
+### File shortlist (approved scope — 2026-11-09 Render probe)
+- `backend/README.md` (Deploys section, docs only), `TASK_NOTES.md`
+
+### Work log (append-only)
+- 2026-11-09 (mason-blaze): diagnosed from the Render deploy list, GitHub's main-ref activity and hook 558796099's
+  deliveries; pushed this docs-only probe straight to main to prove a new_commit deploy on both services.
+
 ## Current request (2026-11-04) — request logs stop carrying secret headers, then PRINT_BRIDGE_TOKEN rotates (task f2cadac6, sifu)
 
 pino-http wrote every request's headers to the host's logs in plain text: the bridge token on every 5-minute pull,
