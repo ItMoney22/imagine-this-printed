@@ -152,6 +152,34 @@ class GenTest(unittest.TestCase):
         self.assertIn('top_z="2.6" type="1"', xml)        # pocket is 0.8-2.4 mm: pause before 2.4-2.6
         self.assertIn('top_z="3.8" type="2"', xml)        # face colour from the first raised layer
 
+    def test_keychain_words_print_black_under_the_code(self):
+        # Darrell's keychain (task 0a71cddf): the whole code to Jalynn's site, "Tap or Scan" under it.
+        import keychain
+        url = "https://jalynndsimmons.com"
+        r = keychain.make(url, self.out("key.3mf"), text="Tap or Scan")
+        self.assertTrue(r["scan_ok"])
+        self.assertTrue(r["watertight"])
+        self.assertEqual(r["words_cap_mm"], 4.0)                 # 31.1 mm wide: fits 32 without shrinking
+        code_bottom = keychain.KH - keychain.QR_TOP - keychain.QR_SIZE
+        V, F, black, *_ = keychain.assemble(url, "Tap or Scan")
+        raised = V[F[black]].reshape(-1, 3)
+        words = raised[raised[:, 1] < code_bottom - 0.01]
+        self.assertGreater(len(words), 100)                      # raised, so in the face colour's height band
+        self.assertGreaterEqual(words[:, 1].min(), keychain.WORDS_KEEP)
+        self.assertLessEqual(words[:, 1].max(), code_bottom - keychain.WORDS_KEEP)
+        self.assertAlmostEqual((words[:, 0].min() + words[:, 0].max()) / 2, keychain.KW / 2, delta=0.5)
+        V, F, black, *_ = keychain.assemble(url)                 # no --text: code only, as before
+        self.assertGreaterEqual(V[F[black]].reshape(-1, 3)[:, 1].min(), code_bottom - 0.01)
+
+    def test_long_keychain_words_shrink_to_fit_or_are_refused(self):
+        import keychain
+        shape, cap = keychain.words_geometry("Tap or Scan Me")   # 40.5 mm at 4 mm: 3.16 mm caps
+        self.assertLess(cap, 4.0)
+        self.assertLessEqual(shape.bounds[2] - shape.bounds[0], keychain.WORDS_MAX_W + 0.01)
+        with self.assertRaises(gen.StandError) as e:
+            keychain.words_geometry("Tap this tag or scan the code to see our whole menu")
+        self.assertEqual(e.exception.code, 1)
+
     def test_a_logo_with_nothing_in_it_is_refused(self):
         logo = os.path.join(self.dir, "blank.png")
         Image.new("RGB", (200, 200), "white").save(logo)
