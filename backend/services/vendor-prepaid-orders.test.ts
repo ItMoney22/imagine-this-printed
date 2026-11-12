@@ -77,14 +77,14 @@ describe('ITP pricing for a vendor order', () => {
   const rules = vendorPricingRules()
   const unit = (line: any, type: 'spa' | 'store' = 'spa') => itpUnitCents(line, type, rules)
 
-  it('shirt: $10 base, +$5 back, +$2.50 at 2XL and up, $12 floor for the spa', () => {
-    expect(unit({ kind: 'shirt', quantity: 1, size: 'M' }, 'store')).toBe(1000)
-    expect(unit({ kind: 'shirt', quantity: 1, size: 'M', backPrint: true }, 'store')).toBe(1500)
-    expect(unit({ kind: 'shirt', quantity: 1, size: '2XL' }, 'store')).toBe(1250)
-    expect(unit({ kind: 'shirt', quantity: 1, size: '3XL', backPrint: true }, 'store')).toBe(1750)
-    expect(unit({ kind: 'shirt', quantity: 1, size: 'M' })).toBe(1200)
-    expect(unit({ kind: 'shirt', quantity: 1, size: '2XL' })).toBe(1250)
-    expect(unit({ kind: 'shirt', quantity: 1, size: 'L', backPrint: true })).toBe(1500)
+  it('shirt: $12 base, +$5 back, +$2.50 at 2XL and up, $14 floor for the spa', () => {
+    expect(unit({ kind: 'shirt', quantity: 1, size: 'M' }, 'store')).toBe(1200)
+    expect(unit({ kind: 'shirt', quantity: 1, size: 'M', backPrint: true }, 'store')).toBe(1700)
+    expect(unit({ kind: 'shirt', quantity: 1, size: '2XL' }, 'store')).toBe(1450)
+    expect(unit({ kind: 'shirt', quantity: 1, size: '3XL', backPrint: true }, 'store')).toBe(1950)
+    expect(unit({ kind: 'shirt', quantity: 1, size: 'M' })).toBe(1400)
+    expect(unit({ kind: 'shirt', quantity: 1, size: '2XL' })).toBe(1450)
+    expect(unit({ kind: 'shirt', quantity: 1, size: 'L', backPrint: true })).toBe(1700)
   })
 
   it('mug $8, stand $17.95', () => {
@@ -98,9 +98,9 @@ describe('ITP pricing for a vendor order', () => {
       'store',
       500
     )
-    expect(p.itemsCents).toBe(2 * 1000 + 800)
+    expect(p.itemsCents).toBe(2 * 1200 + 800)
     expect(p.feeCents).toBe(150 + 48)
-    expect(p.itpShareCents).toBe(2800 + 198 + 500)
+    expect(p.itpShareCents).toBe(3200 + 198 + 500)
     expect(priceVendorOrder([{ kind: 'shirt', quantity: 1, size: 'M' }], 'spa', 0).feeCents).toBe(0)
   })
 
@@ -115,19 +115,19 @@ describe('POST /api/storefront/orders (createPrepaidVendorOrder)', () => {
     const lines = [shirt({ size: '2XL', backPrint: true, backPng: PNG }), mug({ quantity: 2 }), stand()]
     const res = await createPrepaidVendorOrder({ vendor: 'zentress', body: body(lines, { itpShareCents: share(lines, 'spa') }) })
     expect(res.duplicate).toBe(false)
-    expect(res.itpShareCents).toBe(1750 + 1600 + 1795 + 500)
+    expect(res.itpShareCents).toBe(1950 + 1600 + 1795 + 500)
 
     const order = tables.orders[0]
     expect(order.payment_status).toBe('paid')
     expect(order.status).toBe('processing')
     expect(order.source).toBe('zentress')
-    expect(order.total).toBe(56.45)
+    expect(order.total).toBe(58.45)
     expect(order.metadata.external_ref).toBe('zt-order-1')
     expect(order.metadata.test_mode).toBe(true)
     expect(order.notes).toMatch(/TEST ORDER/)
 
     const [s, m, q] = tables.order_items
-    expect([s.unit_price, m.unit_price, q.unit_price]).toEqual([17.5, 8, 17.95])
+    expect([s.unit_price, m.unit_price, q.unit_price]).toEqual([19.5, 8, 17.95])
     expect(m.subtotal).toBe(16)
     expect(s.metadata.print_file_refs.front).toMatch(/^print-files\/vendor-orders\/zentress\/.+\/line-0-front\.png$/)
     expect(s.metadata.print_file_refs.back).toMatch(/line-0-back\.png$/)
@@ -143,17 +143,17 @@ describe('POST /api/storefront/orders (createPrepaidVendorOrder)', () => {
     const lines = [shirt({ retailCents: 2500 }), mug({ retailCents: 1600 })]
     await createPrepaidVendorOrder({ vendor: 'zentress', body: body(lines, { orderType: 'store', itpShareCents: share(lines, 'store') }) })
     const [s, m] = tables.order_items
-    expect(s).toMatchObject({ unit_price: 10, metadata: { retail_unit_cents: 2500, itp_fee_cents: 75 } })
+    expect(s).toMatchObject({ unit_price: 12, metadata: { retail_unit_cents: 2500, itp_fee_cents: 75 } })
     expect(m).toMatchObject({ unit_price: 8, metadata: { retail_unit_cents: 1600, itp_fee_cents: 48 } })
-    expect(tables.orders[0].metadata.itp_share).toEqual({ items_cents: 1800, fee_cents: 123, shipping_cents: 500, total_cents: 2423 })
+    expect(tables.orders[0].metadata.itp_share).toEqual({ items_cents: 2000, fee_cents: 123, shipping_cents: 500, total_cents: 2623 })
   })
 
   it('refuses a share that is not ITP\'s number, and says what ITP\'s is', async () => {
     const lines = [shirt()]
-    const err = await createPrepaidVendorOrder({ vendor: 'zentress', body: body(lines, { itpShareCents: 1199 + 500 }) }).catch((e) => e)
+    const err = await createPrepaidVendorOrder({ vendor: 'zentress', body: body(lines, { itpShareCents: 1399 + 500 }) }).catch((e) => e)
     expect(err).toBeInstanceOf(PrepaidOrderError)
     expect(err.status).toBe(409)
-    expect(err.detail).toEqual({ itpShareCents: 1700, claimedCents: 1699 })
+    expect(err.detail).toEqual({ itpShareCents: 1900, claimedCents: 1899 })
     expect(tables.orders).toHaveLength(0)
   })
 
@@ -196,7 +196,7 @@ describe('POST /api/storefront/orders (createPrepaidVendorOrder)', () => {
     const jpeg = [mug({ frontPng: Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64') })]
     expect((await createPrepaidVendorOrder({ vendor: 'zentress', body: body(jpeg, { itpShareCents: 1300 }) }).catch((e) => e)).message).toMatch(/must be a PNG/)
     const noBack = [shirt({ backPrint: true })]
-    expect((await createPrepaidVendorOrder({ vendor: 'zentress', body: body(noBack, { itpShareCents: 2000 }) }).catch((e) => e)).message).toMatch(/back print is required/)
+    expect((await createPrepaidVendorOrder({ vendor: 'zentress', body: body(noBack, { itpShareCents: 2200 }) }).catch((e) => e)).message).toMatch(/back print is required/)
   })
 })
 

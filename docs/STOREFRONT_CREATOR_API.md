@@ -15,7 +15,7 @@ All endpoints live under `/api/storefront/*` and use the same Bearer auth
 | `STOREFRONT_API_KEY` | Legacy single-tenant key (earth019). Full unscoped catalog; **cannot** create products. |
 | `STOREFRONT_CREATOR_KEYS` | JSON map of creator storefronts: `{"darrell": {"key": "<secret>", "creatorUserId": "<ITP user uuid>"}}`. Each key's catalog is scoped to that user's products, and product-publish creates products AS that user. Pairs with the external site's `STOREFRONT_VENDOR`. |
 | `STOREFRONT_PRIMARY_VENDOR` | Vendor slug for the legacy key (default `earth019`). |
-| `STOREFRONT_BASE_COST_USD` | D1 base cost per shirt (default `10`). |
+| `STOREFRONT_BASE_COST_USD` | D1 base cost per shirt (default `12`, was `10` until 2026-11-12). |
 | `STOREFRONT_BACK_PRINT_UPCHARGE_USD` | Extra-location upcharge when a back print ships (default `5` — **confirm with David**). |
 | `STOREFRONT_CREATOR_FEE_PERCENT` | Fee share deducted from creator margin, % of retail (default `3`). |
 | `STOREFRONT_HOODIE_BASE_COST_USD` | Base cost for hoodies (falls back to `STOREFRONT_BASE_COST_USD` if unset). |

@@ -50,7 +50,7 @@ const DEFAULT_CANCEL_URL = process.env.STOREFRONT_CANCEL_URL || 'https://earth01
 // time = retail − cost_price − fee share; see services/creator-margins.ts.)
 const BASE_COST_USD = (() => {
   const v = Number(process.env.STOREFRONT_BASE_COST_USD)
-  return Number.isFinite(v) && v > 0 ? v : 10
+  return Number.isFinite(v) && v > 0 ? v : 12
 })()
 const BACK_PRINT_UPCHARGE_USD = (() => {
   const v = Number(process.env.STOREFRONT_BACK_PRINT_UPCHARGE_USD)
@@ -495,7 +495,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
 //
 // The product is created AS the mapped creator: created_by_user_id=<creator>,
 // is_user_generated=true, status='pending_approval',
-// cost_price=$10 base (+$5 back upcharge; env-tunable). Files land in ITP GCS
+// cost_price=$12 base (+$5 back upcharge; env-tunable). Files land in ITP GCS
 // storage; the product lands in the existing admin approval queue
 // (metadata.user_submitted + status='pending_approval'), and on approval goes
 // live on the creator's scoped /catalog.

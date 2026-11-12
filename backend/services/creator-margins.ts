@@ -3,7 +3,7 @@
  * user-generated products.
  *
  * Money model (D1, David 2026-07-10): products with a cost basis
- * (products.cost_price > 0 — e.g. Merch Studio shirts at $10 base + back
+ * (products.cost_price > 0 — e.g. Merch Studio shirts at $12 base + back
  * upcharge) accrue `retail − cost_price − fee share` per unit to the creator's
  * ITC wallet. Products WITHOUT a cost basis (legacy AI-flow designs) keep the
  * platform's standing 15% royalty promise.

@@ -8,10 +8,11 @@
 // an order whose claimed share differs by a cent (the same rule as Merch
 // Studio's expectedCostUsd at publish).
 //
-//   shirt     $10 blank + $5 back print + the plus-size upcharge (2XL/3XL $2.50,
+//   shirt     $12 blank + $5 back print + the plus-size upcharge (2XL/3XL $2.50,
 //             catalog-capability.ts, the same rule the ITP store charges).
-//             A spa buying its own shirts pays at least the $12 floor
-//             (David's Darrell ruling, b011ec6e).
+//             A spa buying its own shirts pays at least the $14 floor
+//             (David's Darrell ruling, b011ec6e, was $12 over a $10 blank. The blank
+//             went to $12 on 2026-11-12, David; the floor kept its $2 gap.)
 //   mug       $8.
 //   qr-stand  $17.95, the client price (shared/qr-stand.ts).
 //   fee       on a STORE line (the spa resells to its guests) ITP also keeps
@@ -53,13 +54,13 @@ export function vendorPricingRules(): VendorPricingRules {
   const fee = Number(process.env.STOREFRONT_CREATOR_FEE_PERCENT)
   return {
     // Same env names (and defaults) as routes/storefront.ts and Darrell's merch config.
-    shirtBaseCents: centsFromEnv('STOREFRONT_BASE_COST_USD', 1000),
+    shirtBaseCents: centsFromEnv('STOREFRONT_BASE_COST_USD', 1200),
     backPrintCents: (() => {
       const v = Number(process.env.STOREFRONT_BACK_PRINT_UPCHARGE_USD)
       return Number.isFinite(v) && v >= 0 ? Math.round(v * 100) : 500
     })(),
     mugBaseCents: centsFromEnv('STOREFRONT_MUG_BASE_COST_USD', 800),
-    shirtFloorCents: 1200,
+    shirtFloorCents: 1400,
     feePercent: Number.isFinite(fee) && fee >= 0 && fee <= 50 ? fee : 3,
   }
 }

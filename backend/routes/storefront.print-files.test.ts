@@ -97,6 +97,9 @@ vi.mock('stripe', () => ({
   },
 }))
 
+// The shirt cost is read once at import: the default, not this machine's env.
+delete process.env.STOREFRONT_BASE_COST_USD
+delete process.env.STOREFRONT_BACK_PRINT_UPCHARGE_USD
 const { default: storefrontRouter } = await import('./storefront.js')
 
 let base = ''
@@ -120,7 +123,7 @@ beforeEach(() => {
 
 const png = () => new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])], { type: 'image/png' })
 
-async function publish(opts: { back?: boolean; mockups?: number } = {}) {
+async function publish(opts: { back?: boolean; mockups?: number; fields?: Record<string, string> } = {}) {
   const fd = new FormData()
   fd.set('name', 'Walk By Faith')
   fd.set('retailPrice', '24.99')
@@ -128,6 +131,7 @@ async function publish(opts: { back?: boolean; mockups?: number } = {}) {
   fd.set('front_print', png(), 'front.png')
   if (opts.back) fd.set('back_print', png(), 'back.png')
   for (let i = 0; i < (opts.mockups ?? 2); i++) fd.append('mockups', png(), `mockup-${i + 1}.png`)
+  for (const [k, v] of Object.entries(opts.fields ?? {})) fd.set(k, v)
   const res = await fetch(`${base}/api/storefront/products`, { method: 'POST', body: fd })
   return { status: res.status, body: await res.json() as any }
 }
@@ -293,5 +297,30 @@ describe('POST /api/storefront/products — a creator 3D mesh stays private', ()
     await publish3d('robo.glb')
     const mesh = privateUploads.find(u => u.path.endsWith('/model.glb'))
     expect(productInsert().metadata.print3d.glb_url).toBe(`gs://${PRIVATE_BUCKET}/${mesh!.path}`)
+  })
+})
+
+// David 2026-11-12: a client's shirt costs $12, up from $10. A site still quoting $10 is refused.
+describe('POST /api/storefront/products: the shirt costs the client $12', () => {
+  it('stamps $12 on a front print and $17 with a back', async () => {
+    expect((await publish()).status).toBe(201)
+    expect(productInsert()).toMatchObject({ cost_price: 12, metadata: { cost_breakdown: { base_usd: 12, back_upcharge_usd: 0 } } })
+    writes.length = 0
+    expect((await publish({ back: true })).status).toBe(201)
+    expect(productInsert().cost_price).toBe(17)
+  })
+
+  it('refuses a publish that still expects $10, and takes one that expects $12', async () => {
+    const old = await publish({ fields: { expectedCostUsd: '10.00' } })
+    expect(old.status).toBe(400)
+    expect(old.body).toMatchObject({ calculatedCostUsd: 12, expectedCostUsd: 10 })
+    expect(productInsert()).toBeUndefined()
+    expect((await publish({ fields: { expectedCostUsd: '12.00' } })).status).toBe(201)
+  })
+
+  it('refuses a retail price that does not beat $12', async () => {
+    const res = await publish({ fields: { retailPrice: '12.00' } })
+    expect(res.status).toBe(400)
+    expect(res.body.error).toBe('Retail price must exceed base cost ($12.00)')
   })
 })
