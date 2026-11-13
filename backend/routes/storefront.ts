@@ -4,6 +4,7 @@ import multer from 'multer'
 import { nanoid } from 'nanoid'
 import { supabase } from '../lib/supabase.js'
 import { requireStorefrontSecret } from '../middleware/requireStorefrontSecret.js'
+import { createBrandedCheckout, storefrontBrand } from '../lib/checkout-brand.js'
 import { uploadImageFromBuffer } from '../services/google-cloud-storage.js'
 import { storeModelFile, signModelFileRef } from '../services/model-files.js'
 import {
@@ -184,11 +185,12 @@ router.get('/catalog', requireStorefrontSecret, async (req: Request, res: Respon
 //     | { type: 'custom',  name, priceCents, quantity?, designUrl?, imageUrl?, garment?, size?, color? }
 //   >,
 //   customer?: { email?, name?, firstName?, lastName?, shipping? },
-//   successUrl?, cancelUrl?, externalRef?, source?
+//   successUrl?, cancelUrl?, externalRef?, source?,
+//   brand?: { displayName, logoUrl?, iconUrl?, backgroundColor?, buttonColor? }   // the Checkout page's look (lib/checkout-brand.ts)
 // }
 router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Response): Promise<any> => {
   try {
-    const { items, customer, successUrl, cancelUrl, externalRef, source, embedded, shippingCents, shippingLabel } = req.body || {}
+    const { items, customer, successUrl, cancelUrl, externalRef, source, embedded, shippingCents, shippingLabel, brand } = req.body || {}
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'items array required' })
@@ -387,7 +389,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
     const baseCancel = isHttpUrl(cancelUrl) ? cancelUrl : DEFAULT_CANCEL_URL
 
     const successWithParams = withParams(baseSuccess, { order: encodeURIComponent(orderNumber), session_id: '{CHECKOUT_SESSION_ID}' })
-    const session = await stripe.checkout.sessions.create({
+    const session = await createBrandedCheckout(stripe, {
       mode: 'payment',
       line_items: lines.map(l => ({
         quantity: l.quantity,
@@ -430,7 +432,7 @@ router.post('/checkout', requireStorefrontSecret, async (req: Request, res: Resp
         description: `Order ${orderNumber} (${storefront})`,
         metadata: { orderId: order.id, orderNumber, userId: '', itcCreditAmount: '0', itcCreditUSD: '0' }
       }
-    })
+    } satisfies Stripe.Checkout.SessionCreateParams, storefrontBrand(req.storefront?.vendor, brand))
 
     await supabase
       .from('orders')

@@ -32,6 +32,7 @@ import {
   type SellerLabel,
   type ShipAddress
 } from '../services/vendor-store-shipping.js'
+import { createBrandedCheckout, vendorStoreBrand } from '../lib/checkout-brand.js'
 
 // Vendor storefronts (David 2026-10-26): a seller's own branded store on
 // <slug>.imaginethisprinted.com, Crystal's Shirts and More first. Buyers check out through
@@ -555,7 +556,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
 
     const origin = storeOrigin(store.slug)
     const cancel = typeof cancelPath === 'string' && cancelPath.startsWith('/') ? `${origin}${cancelPath}` : origin
-    const session = await stripe.checkout.sessions.create({
+    const session = await createBrandedCheckout(stripe, {
       mode: 'payment',
       line_items: lines.map(l => ({
         quantity: l.quantity,
@@ -601,7 +602,7 @@ router.post('/:slug/checkout', async (req: Request, res: Response): Promise<any>
         },
         metadata: { orderId: order.id, orderNumber, userId: '', itcCreditAmount: '0', itcCreditUSD: '0', vendorStore: store.slug }
       }
-    })
+    } satisfies Stripe.Checkout.SessionCreateParams, vendorStoreBrand(store))
 
     await supabase
       .from('orders')
